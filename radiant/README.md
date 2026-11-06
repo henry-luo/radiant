@@ -8,8 +8,9 @@ This guide records the planning and verification workflow for Radiant work.
 Follow [AGENTS.md](../AGENTS.md); use the [test map](../test/README.md) for
 required gates and fixture conventions, the
 [developer guide §7](../doc/dev/Developer_Guide.md#7-worktrees-and-agent-gotchas)
-for build/environment problems, and the
-[architecture index](../doc/dev/radiant/RAD_00_Overview.md) for subsystem details.
+for build/environment problems, the [engine map](#engine-map) and
+[invariants](#engine-invariants) for orientation, and the
+[design records](https://github.com/henry-luo/lambda/tree/master/vibe/radiant) for subsystem details.
 Read the relevant section and source symbols first; old progress totals and
 architecture summaries need checking against current code.
 
@@ -263,6 +264,72 @@ At handoff, report what changed, why, the relevant checks and material limits.
 Distinguish implemented-but-unqualified work from completed milestones. Preserve
 the requested scope across sessions; stop investigating independent extensions
 once the agreed acceptance cases and required checks are satisfied.
+
+## Engine map
+
+Last verified against tree: 2026-11-06. Radiant depends on `lambda-input`, which
+owns the shared libraries, parsers and Mark APIs, and not on the Lambda runtime
+(**D9.1.1v3**). Lambda hosts the engine, and the scripting adapters belong to
+Lambda (**D9.5.6v2**). The extraction is not finished; the
+[project README](../README.md) describes what remains. Each source format loads
+into a `DomDocument` through a `load_*_doc()` function, so layout, paint and
+interaction are written once.
+
+Design records are in the Lambda repository, under
+[`vibe/radiant/`](https://github.com/henry-luo/lambda/tree/master/vibe/radiant), unless a row gives another path.
+
+| Stage | What happens | Start at | Design record |
+|---|---|---|---|
+| Load | An HTML page goes through parse, cascade, `execute_document_scripts()`, an optional recascade, then layout. | `cmd_layout.cpp`, `../lambda/module/radiant/script_runner.cpp` | `Radiant_Design_Unified_Dom.md` |
+| Style | `../lambda/input/css/` parses and cascades, and leaves `specified_style` on each element. Radiant adds UA defaults and resolves used values through `resolve_css_property()`. | `resolve_htm_style.cpp`, `resolve_css_style.cpp` | `Radiant_CSS_Cascade.md` |
+| Layout | `layout_html_doc()` calls `layout_flow_node()`, which selects the layout mode for each node. `RunMode` separates measuring from committing. | `layout.cpp`, `layout_*.cpp`, `intrinsic_sizing.cpp` | `Radiant_Design_Flex_Layout.md`, `Radiant_Grid_Layout4_Taffy.md`, `Radiant_Table_Layout_Design.md`, `Radiant_Layout_Multicol.md`, `Radiant_Layout_Paged_Media.md` |
+| Text | Line breaking and bidi run during layout. `../lib/font/` is the font engine; `font.cpp` and `font_face.cpp` connect CSS to it. | `layout_inline.cpp`, `layout_bidi.cpp` | `Radiant_Design_Font_Text.md` |
+| Paint | `render_walk.cpp` visits the laid-out tree. Producers emit PaintIR, which lowers to a raster DisplayList, SVG or PDF. Vector drawing goes through `RdtVector` to ThorVG. | `paint_ir.cpp`, `display_list.cpp`, `render_output.cpp` | `Radiant_Design_Rendering.md` |
+| Present | Live windows use the GPU compositor by default; `RADIANT_GPU_COMPOSITOR=off` restores CPU presentation. Headless and export paths never composite. | `ui_context.cpp` | `Radiant_Design_GPU_Compositor.md` |
+| Events | `handle_event()` is the one funnel for platform input. `event_sim.cpp` drives UI tests through it. | `event.cpp`, `event_sim.cpp`, `../lambda/dom/dom_events.cpp` | `Radiant_Design_Event.md`, `vibe/Lambda_Design_DOM_Dispatch.md` |
+| State | `DocState` holds per-document interaction state. `state_end_event_cascade()` validates it at the end of each event cascade. | `state_store.cpp`, `state_machine.cpp`, `state_schema.cpp` | `Radiant_Design_State_Machine.md`, `Radiant_Design_State_Management.md` |
+| Editing | The shipped DOM behavior package owns editing policy; Radiant owns the input gate and the standard mechanisms (**D10.2.1**). Form text controls edit natively. | `dom_range.cpp`, `text_edit.cpp`, `text_control.cpp` | `Radiant_Design_Editable.md`, `Radiant_Design_Selection.md`, `Radiant_Design_Form_Input.md` |
+| Animation | `frame_clock.cpp` wakes the main loop. CSS and media animations sample on the page thread. | `animation.cpp`, `css_animation.cpp` | `Radiant_Design_Animation_Repaint.md` |
+| Shell | `UiContext` owns the window, the surface and the current document. | `window.cpp`, `ui_context.cpp` | `Radiant_Web_Browse.md`, `Radiant_Webview.md` |
+
+In the Lambda repository,
+[`doc/HTML_CSS_SVG_Support.md`](https://github.com/henry-luo/lambda/blob/master/doc/HTML_CSS_SVG_Support.md)
+states what the engine supports, and the
+[issue ledger](https://github.com/henry-luo/lambda/blob/master/vibe/radiant/Radiant_Issue_Ledger.md) lists its
+known defects.
+
+## Engine invariants
+
+A violation of these rules usually fails silently, as corrupt storage or stale
+state. The rules on `float` dimensions and on ownership are under
+[Diagnose the owning stage](#diagnose-the-owning-stage-before-editing).
+
+- **The DOM node is the view.** `typedef DomNode View`: there is no separate
+  view or render tree. `set_view()` tags a node in place during layout, and
+  script and editor mutations touch what layout measured. To change geometry,
+  mark `layout_dirty` and lay out again.
+- **Views add methods, never fields.** View classes share memory with
+  `DomNode`, `DomText` and `DomElement`. The `unsafe_view_*` casts in
+  `tagged.hpp` depend on this, and `static_assert`s in `view.hpp` pin the
+  sizes.
+- **Node identity is `id`, never a pointer.** `dom_document_alloc_node_id()`
+  gives each node an ID that is monotonic within a document epoch. State that
+  must outlive a pass binds to that ID.
+- **A retained reset keeps the nodes.** `view_pool_reset_retained()` keeps the
+  nodes and their property blocks. It resets only external payloads and
+  generation-local values.
+- **`specified_style` is the input; used values live on the element.** There is
+  no shared computed-style object. Used values are in property groups such as
+  `FontProp` and `BlockProp`, and `styles_resolved` says whether they are
+  current. The cascade itself belongs to `../lambda/input/css/`.
+- **Measuring leaves no trace.** `RunMode::ComputeSize` and `LayoutMeasureScope`
+  measure a subtree, then restore layout state.
+- **Radiant keeps no GC pointer.** Storage that outlives the current call copies
+  the value or holds a registered root (**D5.5.2**).
+- **Page work stays on one thread; tile workers only replay.** Script, style,
+  layout and display-list build share the page thread
+  (RC1 in `Radiant_Design_Concurrency.md`). Replay on a tile
+  worker must not resolve fonts or load resources.
 
 ## Using the engine
 
