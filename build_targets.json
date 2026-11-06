@@ -1,0 +1,94 @@
+{
+  "targets": [
+    {
+      "name": "radiant-properties",
+      "description": "Static native Radiant view-property providers",
+      "pic_linux": true,
+      "lang": "c++17",
+      "source_files": [
+        "radiant/view_prop_defaults.cpp",
+        "radiant/view_prop_ensure.cpp"
+      ],
+      "libraries": [
+        "lambda-data",
+        "lambda-lib"
+      ],
+      "link": "static"
+    },
+    {
+      "name": "radiant",
+      "description": "Static Radiant layout, rendering, and UI layer",
+      "pic_linux": true,
+      "lang": "c++17",
+      "source_patterns": [
+        "radiant/*.cpp",
+        "radiant/scene3d/*.cpp"
+      ],
+      "objcxx_source_files": [
+        "radiant/audio_capture_mac_static.cpp",
+        "radiant/app_icon_mac_static.cpp",
+        "radiant/clipboard_mac_static.cpp",
+        "radiant/ime_mac_static.cpp",
+        "radiant/webview_child_mac_static.cpp",
+        "radiant/webview_layer_mac_static.cpp"
+      ],
+      "libraries": [
+        "radiant-properties",
+        "lambda-rt",
+        "lambda-data",
+        "lambda-lib",
+        "fribidi",
+        "ThorVG",
+        "glfw",
+        "image-codecs",
+        "pthread"
+      ],
+      "macos": {
+        "additional_libraries": [
+          "CoreFoundation",
+          "Security",
+          "CoreServices",
+          "SystemConfiguration",
+          "Cocoa",
+          "IOKit",
+          "CoreVideo",
+          "AVFoundation",
+          "AudioToolbox",
+          "CoreMedia",
+          "GL",
+          "Foundation",
+          "CoreGraphics",
+          "Accelerate",
+          "CoreText",
+          "AppKit",
+          "Carbon",
+          "WebKit"
+        ]
+      },
+      "linux": {
+        "additional_libraries": [
+          "GL",
+          "GLU",
+          "gomp",
+          "webkit2gtk-4.1",
+          "gtk+-3.0",
+          "glib-2.0",
+          "gio-2.0",
+          "gobject-2.0",
+          "cairo",
+          "javascriptcoregtk-4.1"
+        ]
+      },
+      "windows": {
+        "exclude_libraries": [
+          "fribidi"
+        ]
+      },
+      "link": "static",
+      "exclude_patterns": [
+        "radiant/view_prop_defaults.cpp",
+        "radiant/view_prop_ensure.cpp"
+      ]
+    }
+  ]
+}
