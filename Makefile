@@ -26,8 +26,17 @@ endif
 NATIVE_OBJECTS := $(addprefix build/obj/native/,$(addsuffix .o,$(NATIVE_SOURCES)))
 PROPERTY_OBJECTS := $(addprefix build/obj/properties/,$(addsuffix .o,$(PROPERTY_SOURCES)))
 
-.PHONY: all clean test-native
+.PHONY: all clean test-native force-build-signature
 all: build/lib/libradiant.a build/lib/libradiant-properties.a
+
+# Flags, dependency paths and source membership are part of archive identity.
+export CXX AR CPPFLAGS CXXFLAGS PLATFORM_FLAGS RADIANT_CPPFLAGS DEFINES NATIVE_SOURCES PROPERTY_SOURCES OBJCXX_SOURCES
+force-build-signature:
+
+build/radiant-build.json: force-build-signature $(INPUT_ROOT)/scripts/update_build_signature.py
+	$(PYTHON) $(INPUT_ROOT)/scripts/update_build_signature.py radiant
+
+$(NATIVE_OBJECTS) $(PROPERTY_OBJECTS): build/radiant-build.json
 
 build/lib/libradiant.a: $(NATIVE_OBJECTS)
 	@mkdir -p $(@D)
