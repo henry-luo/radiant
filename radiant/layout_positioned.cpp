@@ -2102,17 +2102,33 @@ static void layout_reflow_abs_child_content_after_height_change(
     child->height = used_border_height;
 }
 
+static LayoutContainingBlock positioned_child_used_containing_block(
+        ViewBlock* parent, ViewBlock* child) {
+    LayoutContainingBlock cb = layout_containing_block_for_view(parent);
+    GridItemProp* gi = grid_item_prop(child);
+    if (parent->display.inner == CSS_VALUE_GRID && gi &&
+        ((gi->has_explicit_grid_column_start && gi->grid_column_start != 0) ||
+         (gi->has_explicit_grid_column_end && gi->grid_column_end != 0) ||
+         (gi->has_explicit_grid_row_start && gi->grid_row_start != 0) ||
+         (gi->has_explicit_grid_row_end && gi->grid_row_end != 0))) {
+        cb.padding_x = gi->track_base_x;
+        cb.padding_y = gi->track_base_y;
+        cb.padding_width = gi->track_area_width;
+        cb.padding_height = gi->track_area_height;
+    }
+    return cb;
+}
+
 // CSS 2.1 §10.5: For absolutely positioned elements, percentage heights resolve
 void re_resolve_abs_children_vertical(LayoutContext* lycon,
                                       ViewBlock* containing_block) {
     if (!containing_block->position || !containing_block->positionp()->first_abs_child) return;
+    if (layout_containing_block_for_view(containing_block).padding_height <= 0.0f) return;
     // Compute containing block's padding box height (CSS 2.1 §10.1)
-    LayoutContainingBlock cb = layout_containing_block_for_view(containing_block);
-    float cb_height = cb.padding_height;
-    if (cb_height <= 0) return;
-
     ViewBlock* child = containing_block->positionp()->first_abs_child;
     while (child) {
+        LayoutContainingBlock cb = positioned_child_used_containing_block(containing_block, child);
+        float cb_height = cb.padding_height;
         float old_height = child->height;
         if (child->blk && !isnan(child->block()->given_height_percent)) {
             float new_given_height = child->block()->given_height_percent * cb_height / 100.0f;
@@ -2158,9 +2174,17 @@ void re_resolve_abs_children_vertical(LayoutContext* lycon,
         }
 
         bool is_form_control = child->form_control();
+        // The late percentage pass must preserve the same width-to-height ratio
+        // transfer used by the initial absolute-position constraint solver.
+        bool ratio_resolves_auto_height = layout_used_preferred_aspect_ratio(child) > 0.0f &&
+            !positioned_element_is_replaced(child) &&
+            !layout_axis_uses_intrinsic_size(child->blk, LAYOUT_AXIS_Y) &&
+            (layout_axis_has_given_size(child, true) ||
+             (child->position && child->positionp()->has_left && child->positionp()->has_right));
         if (child->position &&
             child->positionp()->has_top && child->positionp()->has_bottom &&
             positioned_axis_is_auto(child, false) &&
+            !ratio_resolves_auto_height &&
             (!positioned_element_is_replaced(child) || is_form_control)) {
             BoxEdges margin = layout_boundary_margin_edges(child->bound);
             float margin_top = child->bound && child->boundary_mut()->margin.top_type != CSS_VALUE_AUTO
@@ -2206,13 +2230,12 @@ static void re_resolve_abs_children_horizontal(ViewBlock* containing_block) {
         return;
     }
 
-    LayoutContainingBlock cb = layout_containing_block_for_view(containing_block);
-    float cb_width = cb.padding_width;
-    if (cb_width <= 0.0f) return;
-
     for (ViewBlock* child = containing_block->positionp()->first_abs_child; child;
          child = child->position ? child->positionp()->next_abs_sibling : nullptr) {
         if (!child->blk || isnan(child->block()->given_width_percent)) continue;
+        LayoutContainingBlock cb = positioned_child_used_containing_block(containing_block, child);
+        float cb_width = cb.padding_width;
+        if (cb_width <= 0.0f) continue;
 
         float css_width = child->block()->given_width_percent * cb_width / 100.0f;
         css_width = layout_apply_min_max_axis(child, css_width, true, false);

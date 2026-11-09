@@ -798,6 +798,11 @@ struct TextWrapBalanceProbe {
                 get_element_font_variant(block), false,
                 query_floats ? line_width : nullptr, this) : 0.0f)
             : calculate_max_content_height(lycon, block, width);
+        if (!has_boundaries && !query_floats) {
+            // The intrinsic query includes the border box; the line budget
+            // counts only the paragraph's content line boxes.
+            height -= layout_box_metrics(block).pad_border_v;
+        }
         return max(1, (int)ceilf((height - 0.01f) / line_height)); // INT_CAST_OK: measured line count
     }
 };
@@ -3904,8 +3909,8 @@ void layout_publish_vertical_children(LayoutContext* lycon, ViewBlock* block, Wr
             float column_pitch = block->multicol_prop()->computed_column_width +
                 multicol_column_gap(block);
             int column_index = column_pitch > 0.0f
-                ? (int)floorf((surrogate_child_y - content_top) / column_pitch + 0.5f)
-                : 0; // INT_CAST_OK: column index from a positive physical inline pitch
+                ? (int)floorf((surrogate_child_y - content_top) / column_pitch + 0.5f) // INT_CAST_OK: column index from a positive physical inline pitch
+                : 0;
             int column_count = block->multicol_prop()->computed_column_count;
             if (column_index < 0) column_index = 0;
             if (column_index >= column_count) column_index = column_count - 1;
@@ -7595,7 +7600,10 @@ static BlockFloatFitResult find_block_float_fit(
         float effective_left = space.has_left_float ? max(local_left - leading_margin, 0.0f) : 0.0f;
         float effective_right = space.has_right_float
             ? min(local_right + trailing_margin, parent_width) : parent_width;
-        float available_width = effective_right - effective_left;
+        // A right float outside a narrower containing block still leaves room
+        // for an explicit border box that overflows that block's content edge.
+        float fit_right = space.has_right_float ? local_right + trailing_margin : parent_width;
+        float available_width = fit_right - effective_left;
         bool fits = !space.has_left_float && !space.has_right_float;
         if (explicit_width) {
             fits = fits || available_width >= required_width;
@@ -7890,7 +7898,11 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
             if (resolve_clearance) {
                 float clear_y = block_context_clear_y(parent_bfc, block->positionp()->clear);
                 // CSS2 §9.5.2 compares the clear:none hypothetical fit before introducing clearance.
-                if (fit.y < clear_y) {
+                float hypothetical_y = fit.y;
+                if (!vertical_float_flow && is_normal_flow && fit.y == y_in_bfc) {
+                    hypothetical_y -= sibling_margin_collapse_amount(block);
+                }
+                if (hypothetical_y < clear_y) {
                     block->ensure_boundary(lycon);
                     block->bound->has_clearance = true;
                     pa_block->saved_clear_y = clear_y - parent_offset.y;
@@ -7910,7 +7922,8 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
             }
             bfc_shift_down = fit.y - y_in_bfc;
             block->blk->bfc_float_avoidance_block_shift = bfc_shift_down;
-            if (bfc_shift_down > 0.0f) {
+            if (bfc_shift_down > 0.0f ||
+                (bfc_shift_down < 0.0f && pa_block->saved_clear_y >= 0.0f)) {
                 block->y += bfc_shift_down;
                 pa_block->advance_y += bfc_shift_down;
             }
@@ -10324,6 +10337,11 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
             if (!is_broken_alt_image || broken_alt_expands_line) {
                 lycon->line.has_replaced_content = true;
                 lycon->line.atomic_inline_count++;
+            }
+            if (is_broken_alt_image) {
+                // Fallback text is visible line content even though its font
+                // baseline does not use replaced-element line metrics.
+                lycon->line.has_non_c1_text = true;
             }
             // CSS 2.1 §10.8.1: vertical-align defaults to 'baseline' (CSS_VALUE__UNDEF=0 also means baseline).
             // length/percentage alignment is stored as baseline plus an offset;

@@ -731,6 +731,9 @@ static void layout_grid_item_final_content_multipass(LayoutContext* lycon, ViewB
         {
             LayoutContainingBlockScope item_parent_scope(
                 lycon, LAYOUT_AXIS_X, grid_item_percentage_base);
+            // Final placement supplies a used block size even when CSS height
+            // remains auto; nested fr tracks distribute within that size.
+            lycon->block.used_size_owner = lam::up(grid_item);
             layout_grid_content(lycon, grid_item);
         }
 
@@ -744,9 +747,9 @@ static void layout_grid_item_final_content_multipass(LayoutContext* lycon, ViewB
             LayoutContainingBlockScope item_parent_scope(
                 lycon, LAYOUT_AXIS_X, grid_item_percentage_base);
             layout_flex_container_with_nested_content(lycon, grid_item);
+            grid_item->content_height = grid_flex_container_auto_border_height(
+                lycon, grid_item, lycon->block.advance_y);
         }
-        grid_item->content_height = grid_flex_container_auto_border_height(
-            lycon, grid_item, lycon->block.advance_y);
 
     } else if (grid_item->display.inner == CSS_VALUE_TABLE) {
         // A table keeps its own role while gi describes participation in this grid.
@@ -956,6 +959,14 @@ static void layout_grid_abs_after_child(LayoutContext* lycon, ViewBlock* contain
     GridContainerLayout* grid_layout = ctx->grid;
 
     if (state->has_grid_area) {
+        GridItemProp* gi = grid_item_prop(child_block);
+        if (gi) {
+            // Retain the resolved containing block for late percentage passes.
+            gi->track_base_x = state->grid_area_x;
+            gi->track_base_y = state->grid_area_y;
+            gi->track_area_width = state->grid_area_width;
+            gi->track_area_height = state->grid_area_height;
+        }
         LayoutAxisPair<float> area_start =
             layout_axis_pair(state->grid_area_x, state->grid_area_y);
         LayoutAxisPair<float> area_size =

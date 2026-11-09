@@ -153,3 +153,81 @@ runner-contract tests pass. The [standard report](../temp/layout-baseline/result
 retains the **51 static / 13 dynamic** failures and the aggregate exits nonzero;
 the [full log](../temp/layout-integration/standard-radiant.log) also records the
 passing native portions. The temporary RI-004 wrapper is no longer needed.
+
+**Follow-up:** the historical 51 static / 13 dynamic failures above are now
+resolved and the standard aggregate is green; see [RI-005](#ri-005).
+
+
+<a id="ri-005"></a>
+
+### RI-005 — Native static layout baseline needs execution qualification
+
+**Status:** FIXED, 2026-11-09, macOS arm64 debug. The original **51 static /
+13 dynamic** failures now pass through the existing standard layout suites.
+**Lambda blocker:** none for these comparisons; the external host remains a
+separate integration dependency. RI-006 remains independent.
+
+The original qualification ran the static smoke corpus successfully but left
+`baseline` at **3,800/3,851** and `baseline-js` at **617/630**. The standard
+aggregate correctly returned failure. This follow-up repairs the underlying
+layout and reference defects without changing fixtures, thresholds or coverage.
+
+**Native repairs:** preserve aspect-ratio transfers and assigned sizes through
+late absolute/flex/grid passes; retain fractional grid tracks and use the grid
+area as the percentage containing block. Correct intrinsic percentage padding,
+negative-indent forced breaks, emergency wrapping during balanced text probes,
+float fit and clearance, and the multicolumn leading-margin simulation and
+balanced-height floor. Table row minima exclude cyclic percentage cell heights;
+empty-cell baselines and auto-inset static positions follow content alignment.
+Inline bounds include decorated empty children, broken-image fallback text
+preserves following spaces, bidi preserves visible interior spaces, and emoji
+clusters retain their variation-selected font metrics. Counter operations ignore
+boxless elements; reversed counters include their originating element and
+following sibling scope, replacing same-name counters across intervening
+sibling scopes.
+
+The existing [`DynamicLayoutTest`](../test/test_layout_dynamic_gtest.cpp) suite
+now contains **31 passing cases**, including 25 new focused regressions. No new
+runner was introduced. `make test-layout-baseline` continues to run the shared
+`test/layout/test_radiant_layout.js` for `baseline` and `baseline-js`, and
+`make test-radiant-baseline` combines those comparisons with native tests and
+the runtime-independent static smoke pass (D9.1.1v4 / D9.1.3v2).
+
+**Reference qualification:** 23 full/compact reference pairs were recaptured
+with the existing extractor after checking fixture fonts, WPT resources,
+post-mutation geometry, source-order multicolumn fragments and bidi ranges.
+Each was compared against native output before installation. Ten additional
+full/compact standards-control pairs retain the original fixtures and browser
+captures while explicitly compensating for Chrome 148 gaps: unprefixed
+`text-align:match-parent`, prohibited atomic GL/WJ/ZWJ wrapping, and reversed
+custom-counter initialization across sibling scopes. Controls record the source
+SHA-256, specification, transformation and reason; the existing runner rejects
+stale controls. Full/compact parity passes for all **33 pairs**. Comparison
+normalization now preserves every fragment when differently wrapped source runs
+cannot be partitioned, reporting differences instead of throwing. Browser
+capture scratch honors `LAMBDA_TEMP_DIR`.
+
+**Verification:**
+
+- `caffeinate -is make PYTHON=/usr/bin/python3 test-radiant-baseline -j8
+  LAMBDA_HOST=<qualified external host> LAYOUT_BASELINE_CONCURRENCY=3` exits 0:
+  **819 native/smoke tests passed, 45 existing native skips; 3,851 static and
+  630 dynamic geometry comparisons passed, zero failures, six existing static
+  skips**. Coverage and element/text thresholds are retained; tolerance is 5px.
+- All seven maintained runner/reference contract tests pass. Input-facade and
+  both repository diff checks pass. Direct `no-int-layout-decl` scanning and
+  the existing libclang `int-cast-type-aware` checker report zero findings
+  across the changed layout files. Existing multiline `INT_CAST_OK` markers
+  were moved onto the cast lines so the checker recognizes them. The legacy
+  `make lint --rule ^no-int-cast-radiant$` wrapper is not a qualification gate:
+  that rule is absent and its unconditional fixture helper tries to write into
+  sibling scratch; the relevant existing checks were run directly with local
+  scratch instead.
+
+The [standard report](../temp/layout-baseline/results.log),
+[full aggregate log](../temp/layout-repairs/standard-radiant.log), and
+[qualification receipt](../temp/layout-repairs/qualification.json) retain the
+counts, fixture identities, browser controls and executable provenance. The
+isolated debug host was relinked with Radiant and rebuilt existing Lambda
+runtime/adapter archives; no Lambda runtime source changes were required.
+All scratch, logs and browser profiles used Radiant's `temp/`.

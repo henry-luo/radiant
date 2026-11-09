@@ -58,28 +58,8 @@ respectively; `RI-003` remains the fixed startup-fragment navigation issue.
 
 ### RI-005 — Native static layout baseline needs execution qualification
 
-**Status:** PARTIAL — native smoke qualified; standard geometry comparisons
-report existing failures. **Observed:** 2026-11-09, macOS debug.
-**Lambda blocker:** no new host/source blocker; geometry failures remain visible.
-
-`make test-layout-smoke` loads every static fixture in
-`test/layout/data/baseline` without a scripting host and checks for a view tree.
-`make test-layout-baseline` now includes that smoke pass and invokes the existing
-`test/layout/test_radiant_layout.js` runner for the existing `baseline` and
-`baseline-js` suites. `make test-radiant-baseline` includes both native tests and
-this geometry gate, and continues through each group when another fails.
-The comparison uses an external `LAMBDA_HOST` with its resources at `LAMBDA_ROOT`;
-native archives and smoke coverage remain runtime-independent (D9.1.1v4,
-D9.1.3v2). No test logic or suite inventory depends on a temporary wrapper.
-
-The standard aggregate's native portions pass **794 tests with 45 skips**.
-Geometry reports **3,800 passed / 51 failed / six skipped** for static `baseline`
-and **617 passed / 13 failed** for `baseline-js`, and both the layout target and
-aggregate return failure. Five runner-contract tests pass, including propagation
-of unscored geometry failures to the combined CLI status. See the maintained
-[workflow](../README.md), [standard report](../temp/layout-baseline/results.log),
-and [aggregate validation](../temp/layout-integration/standard-radiant.log).
-The remaining geometry failures need repair before this entry can close.
+**Status:** FIXED — the standard aggregate passes all 3,851 static and 630
+dynamic geometry comparisons. See the [repair and qualification record](<Radiant_Issue_Ledger (fixed).md#ri-005>).
 
 <a id="ri-006"></a>
 

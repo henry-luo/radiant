@@ -1738,8 +1738,14 @@ static void contribute_shaped_run_line_metrics(LayoutContext* lycon,
         uint32_t codepoint = 0;
         if (!layout_utf8_next_codepoint(&cursor, end, &codepoint)) break;
         if (text_codepoint_has_zero_advance(codepoint)) continue;
-        LoadedGlyph* glyph = font_load_glyph(font_box_handle(&lycon->font), &style,
-                                            codepoint, false);
+        bool emoji_presentation = utf_is_emoji_presentation_default(codepoint);
+        const unsigned char* following = cursor;
+        uint32_t next_codepoint = 0;
+        if (layout_utf8_next_codepoint(&following, end, &next_codepoint) &&
+            next_codepoint == 0xFE0F) emoji_presentation = true;
+        LoadedGlyph* glyph = emoji_presentation
+            ? font_load_glyph_emoji(font_box_handle(&lycon->font), &style, codepoint, false)
+            : font_load_glyph(font_box_handle(&lycon->font), &style, codepoint, false);
         contribute_glyph_line_metrics(lycon, glyph, codepoint);
     }
 }
@@ -4888,7 +4894,13 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
             } else {
                 FontStyleDesc _sd = font_style_desc_from_prop(lycon->font.style);
                 bool emoji_presentation = utf_is_emoji_presentation_default(codepoint);
-                if (next_ch) {
+                TextGraphemeCluster emoji_cluster = {};
+                if (measured_grapheme_cluster &&
+                    text_get_emoji_cluster(str, next_ch, &emoji_cluster)) {
+                    // The measured cluster already consumed VS15/VS16; its
+                    // presentation also selects the font used for line metrics.
+                    emoji_presentation = emoji_cluster.color_presentation;
+                } else if (next_ch) {
                     uint32_t peek_cp;
                     int peek_bytes = str_utf8_decode((const char*)next_ch, (size_t)(text_end - next_ch), &peek_cp);
                     if (peek_bytes > 0 && peek_cp == 0xFE0F) {

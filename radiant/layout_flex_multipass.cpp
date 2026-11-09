@@ -796,8 +796,9 @@ bool flex_height_is_parent_constrained(LayoutContext* context, ViewBlock* contai
     if (container->fi->main_size_from_flex || container->fi->flex_grow > 0.0f) {
         return true;
     }
-    // ratio-derived auto heights remain assigned sizes while their nested flex content is laid out.
-    if (container->height > 0.0f && flex_item_explicit_ratio_basis(container, false) >= 0.0f)
+    // The parent's ratio transfer also uses stretched or min/max-constrained
+    // widths; nested content must retain that assigned main size.
+    if (container->height > 0.0f && container->fi->aspect_ratio > 0.0f)
         return true;
     if (parent_is_row) {
         if (!include_row_cross_stretch) return false;
@@ -969,9 +970,14 @@ static void flex_apply_content_height_after_layout(
         flex_item->block_mut()->given_height >= 0;
     bool has_explicit_minimum = column_parent &&
         layout_explicit_min_axis_or(flex_item, false, -1.0f) >= 0.0f;
-    if (column_parent && !has_explicit_height && flex_item->fi &&
-        flex_item->fi->main_size_from_flex) {
-        has_explicit_height = true;
+    if (column_parent && !has_explicit_height && flex_item->fi) {
+        // A scroll container's automatic minimum is zero: a definite basis
+        // retains that size even when no grow/shrink redistribution was needed.
+        bool scrolls = flex_item->scroller &&
+            (flex_item->scroll()->overflow_x != CSS_VALUE_VISIBLE ||
+             flex_item->scroll()->overflow_y != CSS_VALUE_VISIBLE);
+        has_explicit_height = flex_item->fi->main_size_from_flex ||
+            (scrolls && flex_item->fi->flex_basis >= 0.0f);
     }
     bool is_replaced = flex_item->display.inner == RDT_DISPLAY_REPLACED;
     bool has_aspect_ratio = flex_item->fi && flex_item->fi->aspect_ratio > 0.0f;

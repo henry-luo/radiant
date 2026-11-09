@@ -1799,6 +1799,10 @@ static void shift_table_cell_alignment_children(ViewTableCell* tcell,
     layout_walk_view_tree(
         static_cast<View*>(lam::view_require_element(tcell)->first_child),
         shift_view, no_leave, false);
+    // Auto insets follow the hypothetical in-flow cursor, including a cell
+    // whose only content is out of flow; explicit insets keep their position.
+    layout_shift_static_positioned_abs_descendants(
+        lam::view_require_element(tcell), dx, dy);
     // a transverse translation does not move the row's y-based baseline or flow origin.
     if (axis != LAYOUT_AXIS_Y) return;
     if (tcell->blk) {
@@ -1963,7 +1967,10 @@ static void apply_cell_vertical_align(LayoutContext* lycon, ViewTableCell* tcell
     float target_y = layout_table_cell_vertical_align_target(
         tcell->td->vertical_align, cell_content_area, content_height, content_start_y);
     TableCellContentExtent bounds = table_cell_vertical_bounds(lycon, tcell, true);
-    if (!bounds.has_content) return;
+    if (!bounds.has_content) {
+        shift_table_cell_alignment_children(tcell, target_y - tcell->td->content_flow_top);
+        return;
+    }
     float current_content_top = bounds.min_y;
     current_content_top = find_cell_content_top_for_vertical_align(lycon, tcell, current_content_top);
     float y_adjustment = target_y - current_content_top;
@@ -2867,11 +2874,23 @@ static float process_table_cell(LayoutContext* lycon, ViewTableCell* tcell, View
     // grid is published, so it must take the physical width constraint here.
     float explicit_cell_height = get_explicit_css_size(
         lycon, cell, table_grid_block_size_property(table));
+    CssDeclaration* cell_height_declaration = table_grid_size_declaration(table, cell, false);
+    if (cell_height_declaration &&
+        layout_css_value_has_percentage(cell_height_declaration->value)) {
+        // ROWMIN treats percentage cell heights as auto. They participate in
+        // reference row sizing only after the table height has been determined.
+        explicit_cell_height = 0.0f;
+    }
     float content_height = measure_cell_content_height(lycon, tcell);
     float cell_height_val = calculate_cell_height(lycon, tcell, table, content_height, explicit_cell_height);
     cell->height = cell_height_val;
     // row growth adds alignment space, not content to an empty cell's synthesized baseline.
-    if (tcell->td->is_empty) tcell->td->first_row_baseline = table_cell_content_edge_bottom(tcell);
+    if (tcell->td->is_empty) {
+        // Cell height is a row minimum; capture the empty content baseline
+        // before that minimum supplies extra alignment space.
+        TableCellInsets insets = table_cell_content_insets(tcell, table->tb->border_collapse);
+        tcell->td->first_row_baseline = insets.border.top + insets.padding.top + content_height;
+    }
     if (cell_is_collapsed) {
         cell->width = 0;
         cell->height = 0;

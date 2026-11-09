@@ -199,3 +199,264 @@ TEST_F(DynamicLayoutTest, GeneratedTableCellsKeepOriginatingCountersAcrossReflow
         }
     }
 }
+
+TEST_F(DynamicLayoutTest, AbsoluteInsetsTransferPreferredAspectRatio) {
+    load("<!doctype html><style>body{margin:0}div{display:flex;box-sizing:border-box}"
+         "#parent{position:absolute;width:400px;height:300px}"
+         "#child{position:absolute;inset:5%;aspect-ratio:3}</style>"
+         "<div id='parent'><div id='child'></div></div>");
+    ASSERT_NE(document, nullptr);
+    ASSERT_NE(element("child"), nullptr);
+    EXPECT_FLOAT_EQ(element("child")->width, 360.0f);
+    EXPECT_FLOAT_EQ(element("child")->height, 120.0f);
+}
+
+TEST_F(DynamicLayoutTest, ColumnFlexTransfersStretchedWidthThroughAspectRatio) {
+    load("<!doctype html><style>.parent{position:absolute;display:flex;flex-direction:column;"
+         "width:100px;height:100px}.parent>div{display:flex;aspect-ratio:2}</style>"
+         "<div class='parent'><div id='min-width' style='min-width:40px'></div></div>"
+         "<div class='parent'><div id='min-height' style='min-height:40px'></div></div>"
+         "<div class='parent' style='align-items:start'>"
+         "<div id='start' style='min-width:40px'></div></div>"
+         "<div class='parent'><div id='max-width' style='max-width:40px'></div></div>");
+    ASSERT_NE(document, nullptr);
+    const char* ids[] = {"min-width", "min-height", "start", "max-width"};
+    const float widths[] = {100.0f, 100.0f, 40.0f, 40.0f};
+    for (int i = 0; i < 4; i++) {
+        SCOPED_TRACE(ids[i]);
+        ASSERT_NE(element(ids[i]), nullptr);
+        EXPECT_FLOAT_EQ(element(ids[i])->width, widths[i]);
+        EXPECT_FLOAT_EQ(element(ids[i])->height, widths[i] / 2.0f);
+    }
+}
+
+TEST_F(DynamicLayoutTest, ColumnFlexShrinksWithinAutomaticMaxHeight) {
+    load("<!doctype html><style>div{display:flex;flex-direction:column}"
+         "#parent{max-height:100px;width:100px}</style>"
+         "<div id='parent'><div id='first' style='flex-basis:100px'></div>"
+         "<div id='second' style='height:50px'></div></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_NEAR(element("first")->height, 200.0f / 3.0f, 0.1f);
+    EXPECT_NEAR(element("second")->height, 100.0f / 3.0f, 0.1f);
+}
+
+TEST_F(DynamicLayoutTest, ColumnFlexZeroBasisDoesNotExpandToOverflowingContent) {
+    load("<!doctype html><style>div{display:flex;flex-direction:column}</style>"
+         "<div style='width:200px'><div id='item' "
+         "style='overflow:hidden;padding:20px;flex-basis:0px'>"
+         "<div style='height:200px;flex-shrink:0'></div></div></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_FLOAT_EQ(element("item")->height, 40.0f);
+}
+
+TEST_F(DynamicLayoutTest, NestedGridUsesAssignedStretchHeight) {
+    load("<!doctype html><div style='display:grid;width:100px;height:100px'>"
+         "<div style='display:grid;grid-template-rows:1fr 1fr'>"
+         "<div id='first'></div><div id='second'></div></div></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_FLOAT_EQ(element("first")->height, 50.0f);
+    EXPECT_FLOAT_EQ(element("second")->height, 50.0f);
+}
+
+TEST_F(DynamicLayoutTest, GridPercentagePaddingUsesAreaWidth) {
+    load("<!doctype html><div style='display:grid;width:200px'>"
+         "<div id='item' style='display:flex;width:50%;padding:3%;box-sizing:border-box'>"
+         "</div></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_FLOAT_EQ(element("item")->width, 100.0f);
+    EXPECT_FLOAT_EQ(element("item")->height, 12.0f);
+}
+
+TEST_F(DynamicLayoutTest, GridAbsoluteChildRetainsGridLineContainingBlock) {
+    load("<!doctype html><div style='display:grid;position:absolute;"
+         "grid-template-columns:40px 40px 40px;grid-template-rows:40px 40px 40px;"
+         "padding:10px 20px 30px 40px'>"
+         "<div id='item' style='position:absolute;grid-row-end:1;"
+         "top:1px;bottom:2px;right:3px;left:4px'></div></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_FLOAT_EQ(element("item")->height, 7.0f);
+    EXPECT_FLOAT_EQ(element("item")->y, 1.0f);
+}
+
+TEST_F(DynamicLayoutTest, OverflowingAtomicInlineFitsBeforeOutsideFloat) {
+    load("<!doctype html><style>#wrap{width:600px;border:1px solid}"
+         "#float{float:right;width:18%;height:160px}#narrow{width:80%}"
+         "textarea{width:100%;height:100px}</style>"
+         "<div id='wrap'><div id='float'></div><div id='narrow'>"
+         "<textarea id='control'></textarea></div></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_FLOAT_EQ(element("control")->y, 0.0f);
+}
+
+TEST_F(DynamicLayoutTest, BoxlessElementsDoNotModifyCounters) {
+    load("<!doctype html><style>#result:before{content:counter(x)}</style>"
+         "<div><span style='counter-reset:x 6'></span>"
+         "<span style='display:contents;counter-reset:x 666;counter-increment:x'></span>"
+         "<span style='display:contents;counter-set:x 666'></span>"
+         "<span id='result' style='counter-increment:x'></span></div>");
+    ASSERT_NE(document, nullptr);
+    ASSERT_NE(element("result")->pseudo, nullptr);
+    DomElement* before = element("result")->pseudo->before;
+    ASSERT_NE(before, nullptr);
+    ASSERT_NE(before->first_child, nullptr);
+    EXPECT_STREQ(before->first_child->as_text()->text, "7");
+}
+
+TEST_F(DynamicLayoutTest, TextBalanceLineBudgetExcludesBorder) {
+    load("<!doctype html><div id='test' style='border:1px solid;"
+         "font:15px/18px monospace;width:20ch;text-wrap:balance;overflow-wrap:anywhere'>"
+         "Interconnect your build</div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_FLOAT_EQ(element("test")->height, 38.0f);
+}
+
+TEST_F(DynamicLayoutTest, EmptyTableCellDoesNotRaiseTextBaselineToSpecifiedHeight) {
+    load("<!doctype html><style>table{border-collapse:collapse}tr{vertical-align:baseline}"
+         "td{height:30px;border:1px solid}</style>"
+         "<table><tr><td id='text'>ABCDE</td><td></td></tr></table>");
+    ASSERT_NE(document, nullptr);
+    ASSERT_NE(element("text")->first_child, nullptr);
+    EXPECT_LT(element("text")->first_child->y, 5.0f);
+}
+
+TEST_F(DynamicLayoutTest, TableCellStaticPositionTracksMiddleAlignment) {
+    load("<!doctype html><div id='cell' style='position:relative;display:table-cell;"
+         "vertical-align:middle;width:100px;height:100px'>"
+         "<div id='target' style='position:absolute;top:0;width:100px;height:100px'></div></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_FLOAT_EQ(element("target")->y, 0.0f);
+    ASSERT_TRUE(element("target")->set_attribute("style",
+        "position:absolute;top:auto;width:100px;height:100px"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, true);
+    EXPECT_FLOAT_EQ(element("target")->y, 50.0f);
+}
+
+TEST_F(DynamicLayoutTest, InlineBoundsIncludeDecoratedEmptyInline) {
+    load("<!doctype html><span id='parent'>First line"
+         "<span id='child' style='border:5px solid;border-right:none'></span></span>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_LE(element("parent")->y, element("child")->y);
+    EXPECT_GE(element("parent")->y + element("parent")->height,
+              element("child")->y + element("child")->height);
+}
+
+TEST_F(DynamicLayoutTest, NegativeIndentDoesNotReappearAfterForcedBreak) {
+    load("<!doctype html><body style='width:1px;font-size:12px'>"
+         "<div id='box' style='float:left;height:24px;border:3px solid;text-indent:-36px'>"
+         "<span style='display:inline-block;width:60px;height:12px'></span><br>"
+         "<span style='display:inline-block;width:12px;height:12px'></span></div></body>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_FLOAT_EQ(element("box")->width, 30.0f);
+}
+
+TEST_F(DynamicLayoutTest, WhitespaceBetweenImageAndSvgIsPreserved) {
+    load("<!doctype html><div style='font:16px Arial'>"
+         "<img id='image' alt='Red box' style='width:80px;height:60px;display:inline-block'>\n "
+         "<svg id='svg' style='width:80px;height:60px;display:inline-block;vertical-align:top' "
+         "viewBox='0 0 80 60'><rect width='80' height='60'/></svg></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_GT(element("svg")->x - element("image")->x - element("image")->width, 1.0f);
+}
+
+TEST_F(DynamicLayoutTest, GridMaxContentTracksKeepFractionalWidth) {
+    load("<!doctype html><div style='display:grid;width:400px;grid-template-columns:min-content max-content 1fr;gap:10px;font:14px Arial'>"
+         "<div style='padding:10px;white-space:nowrap'>Min Content</div>"
+         "<div id='content' style='padding:10px'>Maximum Content Width</div><div>Flexible</div></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_LT(element("content")->height, 40.0f);
+}
+
+TEST_F(DynamicLayoutTest, TableCellPercentagesDoNotGrowFirstPassRows) {
+    load("<!doctype html><div style='display:flex;flex-direction:column'>"
+         "<table id='table' style='border-spacing:0;width:100px;height:100px;flex:none'>"
+         "<thead><tr style='height:50px'><td style='height:100%'></td></tr></thead>"
+         "<tbody><tr style='height:50px'><td style='height:100%'></td></tr></tbody></table></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_FLOAT_EQ(element("table")->height, 100.0f);
+}
+
+TEST_F(DynamicLayoutTest, DefaultEmojiUsesColorFontLineMetrics) {
+    load("<!doctype html><div style='font:16px Arial'>"
+         "<span id='face' style='display:inline-block;padding:5px 10px'>😀</span>"
+         "\n <span style='display:inline-block;padding:5px 10px'>❤️</span>"
+         "\n <span id='star' style='display:inline-block;padding:5px 10px'>⭐</span>"
+         "\n <span style='display:inline-block;padding:5px 10px'>🔥</span></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_FLOAT_EQ(element("star")->height, element("face")->height);
+}
+
+TEST_F(DynamicLayoutTest, BidiKeepsVisibleInteriorSpace) {
+    load("<!doctype html><div style='font:32px/1 monospace'>"
+         "<span dir='ltr'>x <span id='rtl' dir='rtl'> x </span> x</span></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_GT(element("rtl")->width, 30.0f);
+}
+
+TEST_F(DynamicLayoutTest, AutoWidthColumnsBalanceParagraphLines) {
+    load("<!doctype html><div id='columns' style='width:1104px;column-width:200px;column-gap:25px;font:16px/1.6 Arial'>"
+         "<p>This container will create as many columns as can fit based on the column-width setting. The actual number depends on the container width.</p>"
+         "<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>"
+         "<p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_NEAR(element("columns")->height, 92.8f, 1.0f);
+}
+
+TEST_F(DynamicLayoutTest, EmojiMetricsSurviveEarlierSymbolFallbacks) {
+    char* source = read_text_file("test/layout/data/baseline/issue_unicode_width_001.html");
+    ASSERT_NE(source, nullptr);
+    load(source);
+    free(source);
+    ASSERT_NE(document, nullptr);
+    DomNode* body = document->root->last_child;
+    while (body && !body->is_element()) body = body->prev_sibling;
+    ASSERT_NE(body, nullptr);
+    DomNode* row = body->as_element()->last_child;
+    while (row && !row->is_element()) row = row->prev_sibling;
+    ASSERT_NE(row, nullptr);
+    float emoji_height = 0.0f;
+    for (DomNode* child = row->as_element()->first_child; child; child = child->next_sibling) {
+        if (!child->is_element()) continue;
+        if (emoji_height == 0.0f) emoji_height = child->height;
+        EXPECT_FLOAT_EQ(child->height, emoji_height);
+    }
+}
+
+TEST_F(DynamicLayoutTest, ReversedCounterIncludesFollowingSiblingScope) {
+    load("<!doctype html><style>ol{counter-reset:reversed(foo)}"
+         "li{counter-increment:foo -2}li::before{content:counters(foo,'.')}</style>"
+         "<ol></ol><div><li id='first'></li><li></li><li id='last'></li></div>"
+         "<div style='counter-reset:other'></div>"
+         "<ol></ol><div><li id='again'></li><li></li><li></li></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_STREQ(element("first")->pseudo->before->first_child->as_text()->text, "6");
+    EXPECT_STREQ(element("last")->pseudo->before->first_child->as_text()->text, "2");
+    EXPECT_STREQ(element("again")->pseudo->before->first_child->as_text()->text, "6");
+}
+
+TEST_F(DynamicLayoutTest, ClearanceUsesFloatMarginBottom) {
+    load("<!doctype html><body style='margin:0'><div style='height:164px'></div>"
+         "<hr style='margin:0 0 24px'>"
+         "<div style='float:left;width:100px;height:46px;margin-bottom:10px'></div>"
+         "<hr id='clear' style='clear:both;margin:64px 0 24px'></body>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_FLOAT_EQ(element("clear")->y, 246.0f);
+}
+
+TEST_F(DynamicLayoutTest, BalancedColumnsIncludeAdjoiningParagraphMargins) {
+    load("<!doctype html><div id='columns' style='width:1104px;column-count:3;column-gap:30px;font:16px/1.6 Arial'>"
+         "<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>"
+         "<p>Sed do eiusmod tempor incididunt ut labore et dolore.</p>"
+         "<p>Ut enim ad minim veniam, quis nostrud exercitation.</p></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_NEAR(element("columns")->height, 72.53f, 1.0f);
+}
+
+TEST_F(DynamicLayoutTest, ReversedCounterIncludesOwnIncrement) {
+    load("<!doctype html><style>span{counter-increment:part -2}"
+         "#reset{counter-reset:reversed(part)}#result::before{content:counter(part)}</style>"
+         "<div><span id='reset'></span><span></span><span id='result'></span>"
+         "<span></span><span></span><span></span><span></span></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_STREQ(element("result")->pseudo->before->first_child->as_text()->text, "10");
+}
