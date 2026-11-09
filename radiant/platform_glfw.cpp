@@ -8,6 +8,7 @@
 
 #include "platform.hpp"
 #include "event.hpp"
+#include "pen_mac.hpp"
 #include "view.hpp"
 #include "gl_core.hpp"
 #include "lib/log.h"
@@ -278,6 +279,7 @@ static void glfw_cursor_position_callback(GLFWwindow* window, double x, double y
     RdtEvent event;
     RdtLogicalPoint logical = glfw_logical_point(x, y);
     rdt_event_set_mouse_position(&event, RDT_EVENT_MOUSE_MOVE, logical.x, logical.y, glfwGetTime());
+    radiant_pen_fill(&event.mouse_position);   // PE6: GLFW reports no tablet axes
     radiant_host_input(radiant_window(window), &event);
 }
 
@@ -293,6 +295,7 @@ static void glfw_mouse_button_callback(GLFWwindow* window, int button, int actio
     rdt_event_set_mouse_button(&event,
         action == GLFW_PRESS ? RDT_EVENT_MOUSE_DOWN : RDT_EVENT_MOUSE_UP,
         logical.x, logical.y, button, 1, glfw_mods(mods), glfwGetTime());
+    radiant_pen_fill(&event.mouse_button);
     radiant_host_input(radiant_window(window), &event);
 }
 
@@ -314,6 +317,7 @@ void radiant_platform_set_input_enabled(RadiantWindow* window, bool enabled) {
     glfwSetCursorEnterCallback(w, enabled ? glfw_cursor_enter_callback : NULL);
     glfwSetMouseButtonCallback(w, enabled ? glfw_mouse_button_callback : NULL);
     glfwSetScrollCallback(w, enabled ? glfw_scroll_callback : NULL);
+    radiant_pen_enable(window, enabled);
     log_info("platform-glfw: input callbacks %s", enabled ? "registered" : "removed");
 }
 

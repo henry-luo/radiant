@@ -554,6 +554,9 @@ static bool grid_stretch_axis(ViewBlock* item, LayoutAxis axis, float available,
 
     LayoutAxisRefs constraints(item->block_mut(), axis);
     LayoutAxisBoxMetrics box = layout_axis_box_metrics(item, axis);
+    // Stretch can overflow a small track; its content box cannot become negative.
+    if (layout_axis_size(static_cast<ViewElement*>(item), axis) < box.pad_border)
+        layout_axis_set_size(static_cast<ViewElement*>(item), axis, box.pad_border);
     if (maximum > 0.0f) {
         float border_box_max = maximum;
         if (!layout_uses_border_box(item)) border_box_max += box.pad_border;

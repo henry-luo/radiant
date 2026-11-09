@@ -74,6 +74,11 @@ struct CanvasEntry {
     float path_subpath_x;
     float path_subpath_y;
     bool path_has_subpath;
+    // where the window's last recording drew the bitmap and clipped it, in surface CSS px,
+    // so a sub-rectangle write repaints only the pixels it reaches (PE7)
+    Bound placed;
+    Bound placed_clip;
+    bool placed_valid;
     CanvasEntry* next;
 };
 
@@ -327,6 +332,47 @@ static void canvas_note_pixels_changed(CanvasEntry* entry) {
     canvas_request_repaint(entry);
 }
 
+// A filter on the canvas or an ancestor spreads a changed pixel beyond its own rectangle.
+static bool canvas_effects_spread(DomElement* element) {
+    for (DomNode* node = element; node && node->is_element(); node = node->parent) {
+        DomElement* current = node->as_element();
+        FilterProp* filter = current->filter_prop();
+        FilterProp* backdrop = current->backdrop_filter_prop();
+        if ((filter && filter->functions) || (backdrop && backdrop->functions)) return true;
+    }
+    return false;
+}
+
+// PE7: a sub-rectangle write repaints only the surface pixels it maps to, through the
+// placement the last window recording noted; a transformed, filtered or unplaced canvas
+// repaints in full.
+static void canvas_note_region_changed(CanvasEntry* entry, uint32_t x, uint32_t y,
+                                       uint32_t width, uint32_t height) {
+    image_surface_bump_generation(entry->surface);
+    DomElement* element = entry->element;
+    DocState* state = element && element->doc ? element->doc->state : nullptr;
+    if (!state) return;
+    // a frame that ends up dirty or in full repaint anyway covers the marked region too
+    if (!entry->placed_valid || !presentation_damage_enabled() || canvas_effects_spread(element)) {
+        canvas_request_repaint(entry);
+        return;
+    }
+    float sx = (entry->placed.right - entry->placed.left) / (float)entry->surface->width;
+    float sy = (entry->placed.bottom - entry->placed.top) / (float)entry->surface->height;
+    // filtered sampling reaches one source pixel past the written ones
+    Bound region = {entry->placed.left + ((float)x - 1.0f) * sx, entry->placed.top + ((float)y - 1.0f) * sy,
+                    entry->placed.left + ((float)(x + width) + 1.0f) * sx,
+                    entry->placed.top + ((float)(y + height) + 1.0f) * sy};
+    const Bound& clip = entry->placed_clip;
+    region = {fmaxf(region.left, clip.left), fmaxf(region.top, clip.top),
+              fminf(region.right, clip.right), fminf(region.bottom, clip.bottom)};
+    // a write the recording clipped away changes nothing on screen
+    if (!(region.right > region.left) || !(region.bottom > region.top)) return;
+    presentation_damage_mark(state, region);
+    state->presentation_damage.pending = true;
+    doc_state_request_region_repaint(state);
+}
+
 static Color canvas_effective_color(Color color, float global_alpha) {
     color.a = clamp_byte_round((float)color.a * global_alpha);
     return color;
@@ -414,6 +460,35 @@ extern "C" bool radiant_canvas_ensure(void* canvas_element) {
     entry->mode=1;return true;
 }
 
+// copies straight-alpha RGBA samples into the premultiplied surface at (x, y). Copying before
+// the caller returns keeps the GC array from becoming a retained paint pointer (D5.5.2).
+static void canvas_copy_rgba(ImageSurface* surface, const uint8_t* rgba, uint32_t width, uint32_t height,
+                             const int64_t* strides, uint32_t x, uint32_t y) {
+    for (uint32_t row = 0; row < height; row++) {
+        uint32_t* destination = (uint32_t*)((uint8_t*)surface->pixels + (size_t)(y + row) * surface->pitch) + x;
+        for (uint32_t col = 0; col < width; col++) {
+            const uint8_t* sample = rgba + row * strides[0] + col * strides[1];
+            Color color = canvas_color(sample[0], sample[strides[2]], sample[2 * strides[2]], sample[3 * strides[2]]);
+            destination[col] = render_pixel_premultiply_abgr(color.c);
+        }
+    }
+}
+
+// writes a (height, width, 4) array into the existing bitmap at (x, y), leaving other pixels (PE7).
+extern "C" bool radiant_canvas_write_pixels(void* canvas_element, const uint8_t* rgba,
+                                            uint32_t width, uint32_t height,
+                                            const int64_t* strides, uint32_t x, uint32_t y) {
+    if (!rgba || !strides || width == 0 || height == 0) return false;
+    CanvasEntry* entry = canvas_entry_for_element((DomElement*)canvas_element, true);
+    if (!entry || entry->mode == 2 || !entry->surface ||
+        (uint64_t)x + width > (uint64_t)entry->surface->width ||
+        (uint64_t)y + height > (uint64_t)entry->surface->height) return false;
+    canvas_copy_rgba(entry->surface, rgba, width, height, strides, x, y);
+    entry->mode = 1;
+    canvas_note_region_changed(entry, x, y, width, height);
+    return true;
+}
+
 extern "C" bool radiant_canvas_set_pixels(void* canvas_element, const uint8_t* rgba,
                                           uint32_t width, uint32_t height,
                                           const int64_t* strides) {
@@ -427,15 +502,7 @@ extern "C" bool radiant_canvas_set_pixels(void* canvas_element, const uint8_t* r
         entry->surface->height != (int)height) { // INT_CAST_OK: bounded bitmap pixel count
         if (!canvas_replace_surface(entry, (int)width, (int)height)) return false; // INT_CAST_OK: bounded bitmap pixel count
     }
-    // copy before returning: the GC array must never become a retained paint pointer (D5.5.2).
-    for (uint32_t row = 0; row < height; row++) {
-        uint32_t* destination = (uint32_t*)((uint8_t*)entry->surface->pixels + row * entry->surface->pitch);
-        for (uint32_t col = 0; col < width; col++) {
-            const uint8_t* sample = rgba + row * strides[0] + col * strides[1];
-            Color color = canvas_color(sample[0], sample[strides[2]], sample[2 * strides[2]], sample[3 * strides[2]]);
-            destination[col] = render_pixel_premultiply_abgr(color.c);
-        }
-    }
+    canvas_copy_rgba(entry->surface, rgba, width, height, strides, 0, 0);
     entry->surface->alpha_mode = IMAGE_ALPHA_PREMULTIPLIED;
     entry->mode = 1;
     char dimension[16];
@@ -1017,11 +1084,35 @@ static bool canvas_composite_content(RasterRenderContext* rdcon, ViewBlock* view
     return render_compositor_cut(rdcon, view, rect, &source);
 }
 
+// Notes where the window's own recording of the canvas's document draws its bitmap (PE7).
+// Offscreen captures, embedded documents and transformed paint use other coordinate spaces,
+// so they leave no placement and a later sub-rectangle write repaints in full.
+static void canvas_note_placement(RasterRenderContext* rdcon, ViewBlock* view) {
+    DomElement* element = lam::dom_require_element(lam::view_dom_node(view));
+    CanvasEntry* entry = canvas_entry_for_element(element, false);
+    if (!entry) return;
+    DocState* state = element->doc ? element->doc->state : nullptr;
+    entry->placed_valid = false;
+    // has_transform is the projected placement; a 3D basis that projects to identity is plain paint
+    if (!entry->surface || !state || !rdcon->presentation_damage ||
+        rdcon->presentation_damage.get() != &state->presentation_damage ||
+        rdcon->dl != rdcon->presentation_damage_list.get() ||
+        rdcon->has_transform || rdcon->css3d_context) return;
+    float s = rdcon->raster_scale > 0.0f ? rdcon->raster_scale : 1.0f;
+    Rect content = render_geometry_block_content_rect(&rdcon->block, view, s);
+    Rect image = render_media_image_rect(view, entry->surface, content, s);
+    Bound clip = view_geometry_intersect_bound_rect(rdcon->block.clip, content);
+    entry->placed = {image.x / s, image.y / s, (image.x + image.width) / s, (image.y + image.height) / s};
+    entry->placed_clip = {clip.left / s, clip.top / s, clip.right / s, clip.bottom / s};
+    entry->placed_valid = image.width > 0.0f && image.height > 0.0f;
+}
+
 void render_canvas_content(RasterRenderContext* rdcon, ViewBlock* view) {
     if (canvas_composite_content(rdcon, view)) {
         render_media_selection_overlay(rdcon, view);
         return;
     }
+    canvas_note_placement(rdcon, view);
     // Reuse image fitting, clipping and pixel-center sampling across outputs.
     render_media_image_content(rdcon, view);
 }

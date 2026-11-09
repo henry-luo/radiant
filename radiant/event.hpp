@@ -165,12 +165,53 @@ typedef struct Event {
     double timestamp;  // in seconds, on the platform backend clock (radiant_platform_time)
 } Event;
 
+// PE6 (Radiant_Design_Paint_Engine.md): the device behind a pointer event, after W3C Pointer
+// Events' pointerType; an eraser is a pen's other end. Zero is a mouse.
+typedef enum : uint8_t {
+    RDT_POINTER_MOUSE = 0,
+    RDT_POINTER_PEN,
+    RDT_POINTER_ERASER,
+    RDT_POINTER_TOUCH,
+} RdtPointerType;
+
+// PE6: one native pointer sample. Axes use W3C ranges; a mouse leaves them zero.
+typedef struct RdtPointerSample {
+    double timestamp;            // seconds, on the clock of the event that carries it
+    float x, y;                  // logical viewport coordinates
+    float pressure;              // 0..1 for a pen; the DOM adapter derives a mouse's pressure
+    float tangential_pressure;   // -1..1
+    float tilt_x, tilt_y;        // degrees, -90..90
+    float twist;                 // degrees, 0..359
+} RdtPointerSample;
+
+// PE6: the native samples coalesced into one dispatched move, oldest first.
+#define RDT_POINTER_SAMPLE_CAPACITY 256
+typedef struct RdtPointerSamples {
+    RdtPointerSample items[RDT_POINTER_SAMPLE_CAPACITY];
+    uint16_t count;
+    bool dropped;                // older samples were discarded when the buffer overflowed
+} RdtPointerSamples;
+
 // mouse/pointer motion event
 typedef struct MousePositionEvent : Event {
     float x;    // logical X coordinate, relative to the top-level viewport
     float y;    // logical Y coordinate, relative to the top-level viewport
     float movement_x, movement_y; // native cursor deltas, also under relative capture
+    // PE6 pen axes, W3C ranges; all zero for a mouse.
+    RdtPointerType pointer_type;
+    uint32_t pointer_id;         // 0 for the mouse; stable for a pen while in proximity
+    float pressure, tangential_pressure;
+    float tilt_x, tilt_y, twist;
+    // PE6: the samples this move coalesces, this one last; valid only during dispatch.
+    const RdtPointerSamples* samples;
 } MousePositionEvent;
+
+// PE6: the sample a pointer event describes.
+inline RdtPointerSample rdt_pointer_sample_of(const MousePositionEvent* event) {
+    RdtPointerSample sample = {event->timestamp, event->x, event->y, event->pressure,
+        event->tangential_pressure, event->tilt_x, event->tilt_y, event->twist};
+    return sample;
+}
 
 // mouse click events
 typedef struct MouseButtonEvent : MousePositionEvent {

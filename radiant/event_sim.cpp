@@ -11,6 +11,7 @@
 #include "event.hpp"
 #include "event_sim_controller_host.hpp"
 #include "event_host.hpp"
+#include "input_batch.hpp"
 #include "view.hpp"
 #include "render.hpp"
 #include "radiant.hpp"
@@ -1148,11 +1149,67 @@ static void parse_state_store_expectations(MapReader& reader, SimEvent* ev) {
     }
 }
 
-static void parse_pointer_fields(MapReader& reader, SimEvent* ev) {
+#define SIM_PEN_SAMPLE_FIELDS 7
+
+static float sim_number_or(ItemReader value, float fallback) {
+    return value.isFloat() || value.isInt() ? sim_number_as_float(value) : fallback;
+}
+
+// PE6: a pen or eraser for mouse_move/mouse_down/mouse_up, with W3C axes and, for a move, the
+// samples that one dispatched move coalesces. A row's missing trailing fields repeat the action's
+// own axes; t_ms is the sample's time, and the last row is dispatched now.
+static bool parse_pen_fields(MapReader& reader, SimEvent* ev) {
+    const char* pointer_type = reader.get("pointerType").cstring();
+    if (!pointer_type) return true;
+    if (strcmp(pointer_type, "pen") != 0 && strcmp(pointer_type, "eraser") != 0 &&
+        strcmp(pointer_type, "mouse") != 0) {
+        log_error("event_sim: mouse pointerType must be mouse, pen or eraser, not '%s'", pointer_type);
+        return false;
+    }
+    ev->pointer_type = mem_strdup(pointer_type, MEM_CAT_LAYOUT);
+    ev->pen_pressure = sim_number_or(reader.get("pressure"), 0.5f);
+    ev->pen_tangential_pressure = sim_number_or(reader.get("tangentialPressure"), 0.0f);
+    ev->pen_tilt_x = sim_number_or(reader.get("tiltX"), 0.0f);
+    ev->pen_tilt_y = sim_number_or(reader.get("tiltY"), 0.0f);
+    ev->pen_twist = sim_number_or(reader.get("twist"), 0.0f);
+    ItemReader rows = reader.get("samples");
+    if (!rows.isArray() && !rows.isList()) return true;
+    ArrayReader list = rows.asArray();
+    size_t count = list.length();
+    if (count == 0 || count > RDT_POINTER_SAMPLE_CAPACITY) {
+        log_error("event_sim: samples needs 1..%d rows", RDT_POINTER_SAMPLE_CAPACITY);
+        return false;
+    }
+    ev->pen_samples = (float*)mem_calloc(count * SIM_PEN_SAMPLE_FIELDS, sizeof(float), MEM_CAT_LAYOUT);
+    if (!ev->pen_samples) return false;
+    const float defaults[SIM_PEN_SAMPLE_FIELDS] = {0.0f, 0.0f, ev->pen_pressure, ev->pen_tilt_x,
+        ev->pen_tilt_y, ev->pen_twist, 0.0f};
+    for (size_t i = 0; i < count; i++) {
+        ItemReader row = list.get(i);
+        if (!row.isArray() && !row.isList()) {
+            log_error("event_sim: samples row %zu is not an array", i);
+            return false;
+        }
+        ArrayReader fields = row.asArray();
+        if (fields.length() < 2 || fields.length() > SIM_PEN_SAMPLE_FIELDS) {
+            log_error("event_sim: samples row %zu needs 2..%d numbers", i, SIM_PEN_SAMPLE_FIELDS);
+            return false;
+        }
+        for (int f = 0; f < SIM_PEN_SAMPLE_FIELDS; f++) {
+            ev->pen_samples[i * SIM_PEN_SAMPLE_FIELDS + f] = (size_t)f < fields.length()
+                ? sim_number_or(fields.get(f), defaults[f]) : defaults[f];
+        }
+    }
+    ev->pen_sample_count = (int)count;
+    return true;
+}
+
+static bool parse_pointer_fields(MapReader& reader, SimEvent* ev) {
     ev->x = sim_number_as_float(reader.get("x"));
     ev->y = sim_number_as_float(reader.get("y"));
     ev->button = reader.get("button").asInt32();
     parse_target(reader, ev);
+    return parse_pen_fields(reader, ev);
 }
 
 static void parse_drag_geometry(MapReader& reader, SimEvent* ev) {
@@ -1211,6 +1268,7 @@ static void sim_event_free_owned_fields(SimEvent* ev) {
     if (ev->to_target_selector) mem_free(ev->to_target_selector);
     if (ev->to_target_text) mem_free(ev->to_target_text);
     if (ev->pointer_type) mem_free(ev->pointer_type);
+    if (ev->pen_samples) mem_free(ev->pen_samples);
     if (ev->input_text) mem_free(ev->input_text);
     if (ev->assert_contains) mem_free(ev->assert_contains);
     if (ev->assert_equals) mem_free(ev->assert_equals);
@@ -1307,15 +1365,15 @@ static SimEvent* parse_sim_event(EventSimContext* ctx, MapReader& reader) {
     }
     else if (strcmp(type_str, "mouse_move") == 0) {
         ev->type = SIM_EVENT_MOUSE_MOVE;
-        parse_pointer_fields(reader, ev);
+        if (!parse_pointer_fields(reader, ev)) return parse_sim_event_fail(ev);
     }
     else if (strcmp(type_str, "mouse_down") == 0) {
         ev->type = SIM_EVENT_MOUSE_DOWN;
-        parse_pointer_fields(reader, ev);
+        if (!parse_pointer_fields(reader, ev)) return parse_sim_event_fail(ev);
     }
     else if (strcmp(type_str, "mouse_up") == 0) {
         ev->type = SIM_EVENT_MOUSE_UP;
-        parse_pointer_fields(reader, ev);
+        if (!parse_pointer_fields(reader, ev)) return parse_sim_event_fail(ev);
     }
     else if (strcmp(type_str, "mouse_drag") == 0) {
         ev->type = SIM_EVENT_MOUSE_DRAG;
@@ -2893,21 +2951,63 @@ static void sim_dispatch_event(UiContext* uicon, RdtEvent* event,
     if (mark_pending) sim_input_turn_mark_pending();
 }
 
+// PE6: a simulated pen's device and axes, from the action or one of its sample rows; a mouse
+// leaves them zero.
+static void sim_apply_pen(const SimEvent* ev, MousePositionEvent* event, const float* row = nullptr) {
+    if (!ev || !ev->pointer_type || strcmp(ev->pointer_type, "mouse") == 0) return;
+    event->pointer_type = strcmp(ev->pointer_type, "eraser") == 0 ? RDT_POINTER_ERASER : RDT_POINTER_PEN;
+    event->pointer_id = 1;
+    event->pressure = row ? row[2] : ev->pen_pressure;
+    event->tangential_pressure = ev->pen_tangential_pressure;
+    event->tilt_x = row ? row[3] : ev->pen_tilt_x;
+    event->tilt_y = row ? row[4] : ev->pen_tilt_y;
+    event->twist = row ? row[5] : ev->pen_twist;
+}
+
 // Simulate a mouse move event
-static void sim_mouse_move(UiContext* uicon, float x, float y) {
+static void sim_mouse_move(UiContext* uicon, float x, float y, const SimEvent* pen = nullptr) {
     RdtEvent event = {};
     rdt_event_set_mouse_position(&event, RDT_EVENT_MOUSE_MOVE, x, y, 0.0);
+    sim_apply_pen(pen, &event.mouse_position);
     sim_dispatch_event(uicon, &event);
 }
 
 // Simulate a mouse button event
-static void sim_mouse_button(UiContext* uicon, float x, float y, int button, int mods, bool is_down) {
-    sim_mouse_move(uicon, x, y);
+static void sim_mouse_button(UiContext* uicon, float x, float y, int button, int mods, bool is_down,
+                             const SimEvent* pen = nullptr) {
+    sim_mouse_move(uicon, x, y, pen);
     RdtEvent event = {};
     rdt_event_set_mouse_button(&event,
         is_down ? RDT_EVENT_MOUSE_DOWN : RDT_EVENT_MOUSE_UP,
         x, y, button, 1, mods, 0.0);
+    sim_apply_pen(pen, &event.mouse_button);
+    // a lifted pen reports no pressure, as AppKit's mouse-up does
+    if (!is_down) event.mouse_button.pressure = 0.0f;
     sim_dispatch_event(uicon, &event);
+}
+
+// PE6: the sample rows of one mouse_move go through the window's input batch, which dispatches
+// one move that carries them all, the last row dispatched now.
+static RdtInputBatch sim_pointer_batch;
+
+static void sim_dispatch_batched(void* data, RdtEvent* event) {
+    UiContext* uicon = (UiContext*)data;
+    radiant_event_host_dispatch(uicon, uicon->document, event);
+    sim_input_turn_mark_pending();
+}
+
+static void sim_pointer_samples(UiContext* uicon, const SimEvent* ev, float x, float y) {
+    double now = get_monotonic_time();
+    const float* last = ev->pen_samples + (ev->pen_sample_count - 1) * SIM_PEN_SAMPLE_FIELDS;
+    for (int i = 0; i < ev->pen_sample_count; i++) {
+        const float* row = ev->pen_samples + i * SIM_PEN_SAMPLE_FIELDS;
+        RdtEvent event = {};
+        rdt_event_set_mouse_position(&event, RDT_EVENT_MOUSE_MOVE, x + row[0], y + row[1],
+                                     now - (double)(last[6] - row[6]) / 1000.0);
+        sim_apply_pen(ev, &event.mouse_position, row);
+        rdt_input_batch_submit(&sim_pointer_batch, &event, sim_dispatch_batched, uicon);
+    }
+    rdt_input_batch_flush(&sim_pointer_batch, sim_dispatch_batched, uicon);
 }
 
 // Simulate a key event
@@ -3861,7 +3961,8 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             float x, y;
             resolve_target(ev, uicon->document, &x, &y);
             log_info("event_sim: mouse_move to (%.2f, %.2f)", x, y);
-            sim_mouse_move(uicon, x, y);
+            if (ev->pen_sample_count > 0) sim_pointer_samples(uicon, ev, x, y);
+            else sim_mouse_move(uicon, x, y, ev);
             break;
         }
 
@@ -3869,7 +3970,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             float x, y;
             resolve_target(ev, uicon->document, &x, &y);
             log_info("event_sim: mouse_down at (%.2f, %.2f) button=%d", x, y, ev->button);
-            sim_mouse_button(uicon, x, y, ev->button, ev->mods, true);
+            sim_mouse_button(uicon, x, y, ev->button, ev->mods, true, ev);
             break;
         }
 
@@ -3877,7 +3978,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             float x, y;
             resolve_target(ev, uicon->document, &x, &y);
             log_info("event_sim: mouse_up at (%.2f, %.2f) button=%d", x, y, ev->button);
-            sim_mouse_button(uicon, x, y, ev->button, ev->mods, false);
+            sim_mouse_button(uicon, x, y, ev->button, ev->mods, false, ev);
             break;
         }
 

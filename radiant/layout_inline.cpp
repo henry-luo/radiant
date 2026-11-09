@@ -1762,6 +1762,21 @@ static void compute_span_content_bounds(ViewSpan* span, bool is_multi_line, Font
         ? min(visual_min_y, parent_border_top_y) : parent_border_top_y;
     float final_max_y = span->has_split_inline_fragment_union()
         ? max(visual_max_y, parent_border_bottom_y) : parent_border_bottom_y;
+    bool has_decorated_inline_child = false;
+    for (View* descendant = span->first_child; descendant; descendant = descendant->next()) {
+        ViewSpan* inline_child = lam::view_as<RDT_VIEW_INLINE>(descendant);
+        if (!inline_child || layout_view_is_out_of_flow(descendant)) continue;
+        LayoutInlineDecorationEdges child_edges = layout_inline_decoration_edges(inline_child);
+        has_decorated_inline_child |= child_edges.top != 0.0f || child_edges.bottom != 0.0f;
+    }
+    auto include_child_decoration = [&]() {
+        if (!has_decorated_inline_child) return;
+        // Decorated inline fragments contribute their border extent even when
+        // their content is empty; an undecorated font strut still stays separate.
+        final_min_y = min(final_min_y, visual_min_y);
+        final_max_y = max(final_max_y, visual_max_y);
+    };
+    include_child_decoration();
     if (is_multi_line && span_has_direct_visible_text(span) &&
         inline_span_has_line_clamp_overflow(span) &&
         span->has_fragment_union(FRAGMENT_UNION_LINE_BOX)) {
@@ -1794,6 +1809,7 @@ static void compute_span_content_bounds(ViewSpan* span, bool is_multi_line, Font
         }
         content_width = max_x - min_x;
         // CSS 2.1 §9.2.1.1: split inline boxes expose the union of their own
+        include_child_decoration();
         layout_set_view_geometry(span, min_x, final_min_y,
                                  content_width, final_max_y - final_min_y);
         return;

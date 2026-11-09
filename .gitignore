@@ -1,5 +1,7 @@
 /build/
 /temp/
+/radiant.exe
+/radiant.exe.dSYM/
 .DS_Store
 
 __pycache__/

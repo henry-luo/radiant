@@ -405,6 +405,13 @@ void counter_reset(CounterContext* ctx, const char* counter_spec) {
                                                      &search_key);
             }
             CounterScope* previous_sibling = ctx->current_scope->parent;
+            // Retained sibling scopes can introduce other counter names.
+            // Find the same-name sibling instance behind those intervening scopes.
+            while (previous_sibling &&
+                   previous_sibling->owner_depth == ctx->current_scope->owner_depth &&
+                   !CounterMap::get(previous_sibling->counters, search_key)) {
+                previous_sibling = previous_sibling->parent;
+            }
             CounterValue* previous_value = previous_sibling && previous_sibling->counters
                 ? CounterMap::get(previous_sibling->counters, search_key)
                 : nullptr;

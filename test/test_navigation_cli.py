@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RI-003: exercise startup navigation through an external Lambda CLI host."""
+"""RI-003: exercise startup navigation in the layout and view hosts."""
 
 import argparse
 import json
@@ -37,10 +37,10 @@ class NavigationCliTest(unittest.TestCase):
             </script></body></html>""" % (name, navigation), encoding="utf-8")
         return path
 
-    def run_host(self, command, name):
+    def run_host(self, command, name, host=None):
         log = self.work / (name + ".log")
         with log.open("w") as output:
-            result = subprocess.run([str(OPTIONS.host)] + command, cwd=ROOT,
+            result = subprocess.run([str(host or OPTIONS.host)] + command, cwd=ROOT,
                                     env=self.env, stdout=output,
                                     stderr=subprocess.STDOUT, timeout=30)
         self.assertEqual(result.returncode, 0, "CLI failed; see %s" % log)
@@ -94,7 +94,8 @@ class NavigationCliTest(unittest.TestCase):
         page = self.page(navigation)
         output = self.work / "layout.json"
         output.unlink(missing_ok=True)
-        self.run_host(["layout", str(page), "--view-output", str(output)], "layout")
+        self.run_host(["layout", str(page), "--view-output", str(output)], "layout",
+                      OPTIONS.layout_host)
         tree = json.loads(output.read_text(encoding="utf-8"))
         self.assertIn("timer ran", json.dumps(tree))
 
@@ -102,8 +103,10 @@ class NavigationCliTest(unittest.TestCase):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", type=Path, default=ROOT.parent / "Lambda" / "lambda.exe")
+    parser.add_argument("--layout-host", type=Path, default=ROOT / "radiant.exe")
     parser.add_argument("--lambda-root", type=Path, default=ROOT.parent / "Lambda")
     OPTIONS, remaining = parser.parse_known_args()
     OPTIONS.host = OPTIONS.host.resolve()
+    OPTIONS.layout_host = OPTIONS.layout_host.resolve()
     OPTIONS.lambda_root = OPTIONS.lambda_root.resolve()
     unittest.main(argv=[__file__] + remaining)

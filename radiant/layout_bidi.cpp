@@ -687,7 +687,7 @@ static void bidi_scale_rect_widths(BidiCharFragment* chars, BidiRectInfo* rects,
                 rect_info->raw_width <= 0.0f ||
                 (!source_trimmed && !rect_info->directional_span &&
                  !rect_info->line_has_bidi_inline_content && line_direction != CSS_VALUE_RTL) ||
-                (!source_trimmed && !rect_info->directional_span &&
+                (!source_trimmed &&
                  rect_info->raw_width - fragment->width <
                      rect_info->rect->width - 0.01f)) {
                 break;

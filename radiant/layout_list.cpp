@@ -105,11 +105,11 @@ static bool get_element_counter_set_value(DomElement* elem, const char* counter_
 // Skips subtrees that create a new scope (counter-reset) for the same counter.
 // Per CSS Lists 3 §4.4.2: the last non-zero increment is added after the walk.
 // Returns true if a counter-set was encountered (caller should stop walking).
-bool layout_sum_reversed_counter_incs(DomElement* parent, const char* counter_name,
+static bool sum_reversed_counter_range(DomNode* first, const char* counter_name,
                                       int* total, int* last_nonzero, int* set_value,
                                       bool include_implicit_reversed_list_item,
-                                      const LayoutListCounterQuery* query) {
-    for (DomNode* child = parent->first_child; child; child = child->next_sibling) {
+                                      const LayoutListCounterQuery* query, bool stop_at_reset) {
+    for (DomNode* child = first; child; child = child->next_sibling) {
         if (!child->is_element()) continue;
         DomElement* elem = lam::dom_require<DOM_NODE_ELEMENT>(child);
         // unreached descendants already have a cascade, but no used display yet.
@@ -122,7 +122,10 @@ bool layout_sum_reversed_counter_incs(DomElement* parent, const char* counter_na
             continue;
         }
         // skip subtree if this element resets the same counter (new scope)
-        if (element_resets_counter(elem, counter_name, query)) continue;
+        if (element_resets_counter(elem, counter_name, query)) {
+            if (stop_at_reset) break;
+            continue;
+        }
         // CSS Lists 3 §4.4.2: negate increments for a reversed counter and
         // retain the last non-zero value for the post-walk correction.
         int inc = 0;
@@ -145,12 +148,19 @@ bool layout_sum_reversed_counter_incs(DomElement* parent, const char* counter_na
         }
         *total += increment_negated;
         // recurse into children; stop if counter-set found in subtree
-        if (layout_sum_reversed_counter_incs(elem, counter_name, total, last_nonzero,
-                                      set_value, include_implicit_reversed_list_item, query)) {
+        if (sum_reversed_counter_range(elem->first_child, counter_name, total, last_nonzero,
+                                      set_value, include_implicit_reversed_list_item, query, false)) {
             return true;
         }
     }
     return false;
+}
+bool layout_sum_reversed_counter_incs(DomElement* parent, const char* counter_name,
+                                      int* total, int* last_nonzero, int* set_value,
+                                      bool include_implicit_reversed_list_item,
+                                      const LayoutListCounterQuery* query) {
+    return sum_reversed_counter_range(parent->first_child, counter_name, total,
+        last_nonzero, set_value, include_implicit_reversed_list_item, query, false);
 }
 // Counter Spec Extraction from Style Trees
 
@@ -310,8 +320,17 @@ void compute_reversed_counter_initial(LayoutContext* lycon, DomElement* dom_elem
         const char* rev_name = layout_css_counter_name(func->args[0], false);
         if (!rev_name) return;
         int total = 0, last_nz = 0, set_val = 0;
+        int own_increment = 0;
+        if (get_element_counter_inc(dom_elem, rev_name, &own_increment, nullptr)) {
+            total -= own_increment;
+            last_nz = -own_increment;
+        }
         bool has_set = layout_sum_reversed_counter_incs(dom_elem, rev_name, &total, &last_nz,
                                                 &set_val, false);
+        // A named counter's scope also includes following siblings until a
+        // same-name reset; their descendants determine reversed()'s initial value.
+        if (!has_set) has_set = sum_reversed_counter_range(dom_elem->next_sibling,
+            rev_name, &total, &last_nz, &set_val, false, nullptr, true);
         if (last_nz == 0 && !has_set) return; // no non-zero increments and no counter-set found
         int initial = total + last_nz + set_val;
         char set_spec[128];
@@ -796,6 +815,8 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
 bool LayoutCounterScope::enter(LayoutContext* lycon, ViewSpan* span,
                                DomElement* element, DisplayValue display) {
     if (!lycon || !lycon->counter_context || lycon->generated_effects_prepared) return true;
+    // CSS Lists: an element without a principal box cannot alter counters.
+    if (display.outer == CSS_VALUE_CONTENTS || layout_display_is_none(display)) return true;
     PseudoStyleKind kind = PSEUDO_STYLE_BEFORE;
     bool generated = layout_generated_pseudo(element, nullptr, &kind);
     if (!counter_push_scope(lycon->counter_context, generated)) return false;
@@ -803,8 +824,8 @@ bool LayoutCounterScope::enter(LayoutContext* lycon, ViewSpan* span,
     ViewBlock* block = lam::unsafe_view_block_api_span(span);
     bool list_item = display.outer == CSS_VALUE_LIST_ITEM || display.list_item;
     if (generated) {
-        DomElement* origin = element->parent && element->parent->is_element()
-            ? element->parent->as_element() : nullptr;
+        // generated table-cell pseudos retain their originating counter scope across reflow.
+        DomElement* origin = lam::dom_as<DOM_NODE_ELEMENT>(dom_source_parent(element));
         if (origin) apply_pseudo_counter_ops(lycon, origin->pseudo_style(kind), list_item ? element : nullptr);
     } else {
         setup_list_container_counters(lycon, block, element);

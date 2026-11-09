@@ -57,7 +57,7 @@ No Lambda/Radiant baseline was run.
 ### RI-001 — HTML/CSS integration cases skip missing fixtures
 
 **Status:** OPEN — test coverage gap. **Observed:** 2026-11-09, macOS,
-`make test-radiant-baseline` (debug). **Lambda blocker:** not established.
+`make run-radiant-baseline` (debug). **Lambda blocker:** not established.
 
 The owner-local `test_html_css_gtest` run skipped 19 cases because fixture files
 could not be loaded. For example, `LoadSimpleBoxTestHTML` could not load
@@ -72,7 +72,7 @@ the affected cases execute; this report does not establish a rendering defect.
 ### RI-002 — DOM integration cases skip unsupported standalone node creation
 
 **Status:** OPEN — test coverage gap. **Observed:** 2026-11-09, macOS,
-`make test-radiant-baseline` (debug). **Lambda blocker:** not established.
+`make run-radiant-baseline` (debug). **Lambda blocker:** not established.
 
 `test/css/test_css_dom_integration.cpp` contains 25 existing skipped cases
 that report standalone node creation is no longer supported. Reproduce with
@@ -82,15 +82,26 @@ coverage where applicable, without removing or hiding the skipped cases.
 The separate MIDI live-device skip is conditional on hardware and is not
 classified as a defect here.
 
-<a id="ri-003"></a>
+The native static-layout qualification and unified-archive provider entries
+were independently recorded as `RI-003`. They are now `RI-005` and `RI-006`,
+respectively; `RI-003` remains the fixed startup-fragment navigation issue.
 
-### RI-003 — Property providers still live outside the unified Radiant archive
+<a id="ri-005"></a>
+
+### RI-005 — Native static layout baseline needs execution qualification
+
+**Status:** FIXED — the standard aggregate passes all 3,851 static and 630
+dynamic geometry comparisons. See the [repair and qualification record](<Radiant_Issue_Ledger (fixed).md#ri-005>).
+
+<a id="ri-006"></a>
+
+### RI-006 — Property providers still live outside the unified Radiant archive
 
 **Status:** RESOLVED — verified 2026-11-09 against Radiant `558eb3e`.
 **Observed:** 2026-11-09, macOS arm64. **Lambda blocker:** cleared for the
 current-source MVP release build and validation.
 Authority: **D9.1.1v4 / D9.1.3v2**; the current Lambda
-[split implementation checkpoint](../../lambda/vibe/impl/Lambda_Impl_Radiant_Split.md#current-checkpoint)
+[split implementation checkpoint](../../Lambda/vibe/impl/Lambda_Impl_Radiant_Split.md#current-checkpoint)
 requires both property providers in `libradiant.a`, with no separate property
 archive target.
 
@@ -1015,3 +1026,7 @@ Lambda-owned and is retained in the [mixed historical record](../../Lambda/vibe/
 <a id="ri-003"></a>
 
 - [RI-003 — Startup fragment navigation is followed as a document redirect](<Radiant_Issue_Ledger (fixed).md#ri-003>).
+
+<a id="ri-004"></a>
+
+- [RI-004 — Dynamic baseline exposes native anonymous-table and match-parent mismatches](<Radiant_Issue_Ledger (fixed).md#ri-004>).

@@ -118,9 +118,9 @@ static bool flex_container_axis_is_fixed(FlexContainerLayout* flex,
     return fixed;
 }
 
-static void flex_finalize_auto_axis(FlexContainerLayout* flex,
+static bool flex_finalize_auto_axis(FlexContainerLayout* flex,
                                     ViewBlock* container, LayoutAxis axis) {
-    if (!flex || !container) return;
+    if (!flex || !container) return false;
     bool main_axis = axis == flex_main_axis(flex);
     float content_extent = main_axis ? 0.0f : flex_line_cross_extents(flex).total;
     if (main_axis) {
@@ -129,14 +129,16 @@ static void flex_finalize_auto_axis(FlexContainerLayout* flex,
                 &flex->lines[i], axis, flex_gap_for_axis(flex,axis)));
         }
     }
-    if (flex_container_axis_is_fixed(flex, container, axis)) return;
+    if (flex_container_axis_is_fixed(flex, container, axis)) return false;
     // automatic block extents, including empty content, use the flex lines before min/max clamping.
     float border_extent = layout_axis_border_box_extent(container,axis,content_extent);
+    float natural_border_extent = border_extent;
     border_extent = layout_apply_min_max_axis(container,border_extent,axis == LAYOUT_AXIS_X,true);
     content_extent = layout_content_size_from_border_box(container,border_extent,axis == LAYOUT_AXIS_X);
     if (main_axis) flex->main_axis_size = content_extent;
     else flex->cross_axis_size = content_extent;
     layout_axis_set_size(container,axis,border_extent);
+    return main_axis && border_extent < natural_border_extent;
 }
 
 struct FlexLineBaselineMetrics {
@@ -818,7 +820,7 @@ void init_flex_container(LayoutContext* lycon, ViewBlock* container) {
                     (!parent_is_row && (container->fi->flex_basis >= 0 ||
                                          container->fi->flex_grow > 0.0f))) {
                     height_assigned_by_parent = true;
-                } else if (flex_item_explicit_ratio_basis(container, false) >= 0.0f) {
+                } else if (container->fi->aspect_ratio > 0.0f) {
                     // the parent's ratio-derived block size also constrains nested content.
                     height_assigned_by_parent = true;
                 } else if (parent_is_row) {
@@ -1236,9 +1238,9 @@ void layout_flex_container(LayoutContext* lycon, ViewBlock* container) {
     }
 
     bool row_axis = is_main_axis_horizontal(flex_layout);
-    flex_finalize_auto_axis(flex_layout, container, LAYOUT_AXIS_Y);
+    bool main_axis_max_clamped = flex_finalize_auto_axis(flex_layout, container, LAYOUT_AXIS_Y);
     if (layout_block_inline_axis_is_vertical(container))
-        flex_finalize_auto_axis(flex_layout, container, LAYOUT_AXIS_X);
+        main_axis_max_clamped |= flex_finalize_auto_axis(flex_layout, container, LAYOUT_AXIS_X);
     if (!row_axis) {
         {
             bool has_explicit_width_p7 = container->blk && container->block_mut()->given_width >= 0;
@@ -1277,7 +1279,8 @@ void layout_flex_container(LayoutContext* lycon, ViewBlock* container) {
         }
     }
 
-    if (flex_apply_container_axis_constraint(flex_layout, container, main_axis, true, false)) {
+    if (flex_apply_container_axis_constraint(flex_layout, container, main_axis, true, false) ||
+        main_axis_max_clamped) {
         flex_layout->main_axis_is_indefinite = false;
         for (int i = 0; i < line_count; i++) {
             resolve_flexible_lengths(flex_layout, &flex_layout->lines[i]);

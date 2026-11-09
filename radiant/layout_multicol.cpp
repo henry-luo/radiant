@@ -4121,8 +4121,8 @@ static bool multicol_project_fragmented_inline_descendants(
                     // CSS Multicol fragmentation assigns a block-start edge
                     // on the fragment boundary to the continuation, not to
                     // an empty fragment beyond the content.
-                    inner_fragment_index = (int)ceilf(
-                        distance / fragment_height); // INT_CAST_OK: fragment index from positive block distance
+                    inner_fragment_index = (int)ceilf( // INT_CAST_OK: fragment index from positive block distance
+                        distance / fragment_height);
                 }
             } else {
                 bool in_first_fragment = is_initial_letter ||
@@ -6340,8 +6340,8 @@ static bool multicol_fragment_abspos_in_context(
             nested_column_width = nested_inline_extent / nested_column_count;
         }
 
-        int first_parent_column = (int)floorf(
-            static_block_offset / fragment_capacity); // INT_CAST_OK: fragment index from positive block offset
+        int first_parent_column = (int)floorf( // INT_CAST_OK: fragment index from positive block offset
+            static_block_offset / fragment_capacity);
         float initial_block_offset = static_block_offset -
             first_parent_column * fragment_capacity;
         if (initial_block_offset < 0.0f) initial_block_offset = 0.0f;
@@ -8721,8 +8721,8 @@ static void multicol_realign_inline_for_fragmented_float(
     float local_float_left = float_x - block->x;
     float local_float_top = float_y - block->y;
     float local_float_bottom = local_float_top + float_height;
-    int float_fragment = (int)floorf(
-        local_float_left / fragment_pitch); // INT_CAST_OK: non-negative fragment index
+    int float_fragment = (int)floorf( // INT_CAST_OK: non-negative fragment index
+        local_float_left / fragment_pitch);
     if (float_fragment < 0) float_fragment = 0;
     CssEnum text_align = layout_resolve_text_align(
         block->block()->text_align, block->block()->direction);
@@ -8744,8 +8744,8 @@ static void multicol_realign_inline_for_fragmented_float(
                 records[line_end].original_y + records[line_end].height);
             line_end++;
         }
-        int line_fragment = (int)floorf(
-            line_min_x / fragment_pitch); // INT_CAST_OK: non-negative fragment index
+        int line_fragment = (int)floorf( // INT_CAST_OK: non-negative fragment index
+            line_min_x / fragment_pitch);
         if (line_fragment != float_fragment ||
             line_bottom <= local_float_top + 0.5f ||
             line_top >= local_float_bottom - 0.5f) {
@@ -9875,6 +9875,15 @@ static int multicol_simulate_column_count(
             if (!has_item && item_content_heights[i] > target_height + 0.5f) {
                 if (item_can_fragment[i]) {
                     float remaining_content = item_content_heights[i];
+                    if (margin_before > 0.0f) {
+                        // The first fragment must fit both the leading margin
+                        // and complete lines; continuations discard that margin.
+                        float consumed = fragmentable_content_in_space(
+                            i, target_height - margin_before);
+                        if (consumed <= 0.5f) return column_count + 1;
+                        remaining_content -= consumed;
+                        fragment_count++;
+                    }
                     while (remaining_content > target_height + 0.5f) {
                         float consumed = fragmentable_content_in_space(i, target_height);
                         if (consumed <= 0.5f) return column_count + 1;
@@ -12009,6 +12018,29 @@ void layout_multicol_content(LayoutContext* lycon, ViewBlock* block) {
             block->multicol_prop()->computed_used_column_count = used_column_count;
         }
         float group_extent = group.group_used_height + detached_spanner_extent;
+        if (group_has_margins && !group_adjacent_to_spanner &&
+            block->multicol_prop()->fill == COLUMN_FILL_BALANCE &&
+            multicol_content_box_height_limit(block) < 0.0f &&
+            !multicol_has_definite_ancestor_fragmentainer(block)) {
+            // The initial balanced height includes adjoining margins in the
+            // unfragmented flow, even when a column break discards a margin.
+            float unfragmented_height = group_balance_total;
+            bool ordinary_flow = true;
+            for (int gi = group_start; gi < group_end; gi++) {
+                const MulticolFlowItem& item = blocks[gi];
+                if (item.parallel_flow || item.break_before_column || item.break_after_column) {
+                    ordinary_flow = false;
+                    break;
+                }
+                if (gi > group_start) {
+                    float before = item.margin_before;
+                    float after = blocks[gi - 1].margin_after;
+                    unfragmented_height -= before + after - layout_collapse_margins(before, after);
+                }
+            }
+            if (ordinary_flow && column_count > 0)
+                group_extent = max(group_extent, unfragmented_height / column_count);
+        }
         if (group_total_height <= 0.0f && group_target > 0.0f &&
             group_start < group_end &&
             multicol_has_out_of_flow_descendant(

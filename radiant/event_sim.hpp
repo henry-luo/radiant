@@ -237,7 +237,13 @@ struct SimEvent {
     float to_target_offset_x;    // optional logical offset from drag destination top-left
     float to_target_offset_y;
     bool has_to_target_offset;
-    char* pointer_type;           // for pointer_drag: PointerEvent.pointerType
+    char* pointer_type;           // for pointer_drag: PointerEvent.pointerType; for mouse_*: pen or eraser (PE6)
+    // PE6 pen axes for mouse_move/mouse_down/mouse_up with pointerType pen or eraser (W3C ranges)
+    float pen_pressure, pen_tangential_pressure, pen_tilt_x, pen_tilt_y, pen_twist;
+    // PE6 coalesced samples for mouse_move: rows of SIM_PEN_SAMPLE_FIELDS
+    // (dx, dy, pressure, tiltX, tiltY, twist, t_ms), offsets from the resolved point
+    float* pen_samples;
+    int pen_sample_count;
     char* input_text;            // for type action: text to type
     bool clear_first;            // for type action: select-all + delete before typing
     char* assert_contains;       // for assert_text: substring match

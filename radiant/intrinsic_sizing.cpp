@@ -2362,8 +2362,22 @@ float compute_text_height_at_width(LayoutContext* lycon,
     IntrinsicTextLinePacking packing(available_width, allow_soft_wrap,
         line_width_query, line_width_context);
     float current_word_width = 0;
-    auto flush_word = [&]() {
-        packing.append_unit(current_word_width);
+    size_t word_start = 0;
+    CssEnum overflow_wrap = CSS_VALUE_NORMAL, word_break = CSS_VALUE_NORMAL;
+    layout_resolve_inherited_text_wrap(lycon, lycon->elmt, &overflow_wrap, &word_break);
+    bool emergency_wrap = overflow_wrap == CSS_VALUE_ANYWHERE || overflow_wrap == CSS_VALUE_BREAK_WORD;
+    auto flush_word = [&](size_t word_end) {
+        if (packing.soft_wrap && emergency_wrap &&
+            current_word_width > packing.line_width + kTextLayoutSubpixelEpsilon) {
+            // Normal word boundaries win before emergency glyph breaks. A
+            // long word is split only after moving to an otherwise empty line.
+            if (packing.advance > 0.0f) packing.next_line();
+            measure_text_intrinsic_segments(lycon, text + word_start, word_end - word_start,
+                text_transform, font_variant, CSS_VALUE_NORMAL, CSS_VALUE_ANYWHERE,
+                word_break, CSS_VALUE_AUTO, &packing);
+        } else {
+            packing.append_unit(current_word_width);
+        }
         current_word_width = 0.0f;
     };
 
@@ -2380,20 +2394,22 @@ float compute_text_height_at_width(LayoutContext* lycon,
     for (size_t i = 0; i < length; ) {
         unsigned char ch = str[i];
         if (preserve_forced_line_breaks && ch == '\v') {
-            flush_word();
+            flush_word(i);
             prev_codepoint = 0;
             is_word_start = true;
             packing.next_line();
             i++;
+            word_start = i;
             continue;
         }
         IntrinsicZeroWidthChar zero_width = intrinsic_zero_width_char(str, i, length);
 
         if (zero_width == INTRINSIC_ZERO_WIDTH_BREAK) {
             // end of break unit - try to fit on current line
-            flush_word();
+            flush_word(i);
             is_word_start = true;
             i += 3;
+            word_start = i;
             continue;
         }
         if (zero_width != INTRINSIC_ZERO_WIDTH_NONE) {
@@ -2402,7 +2418,7 @@ float compute_text_height_at_width(LayoutContext* lycon,
 
         // Regular space/whitespace - break opportunity
         if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') {
-            flush_word();
+            flush_word(i);
             // add space width
             float space_width = layout_measure_space_advance(
                 lycon, font_box_handle(&lycon->font), lycon->font.style);
@@ -2413,6 +2429,7 @@ float compute_text_height_at_width(LayoutContext* lycon,
             prev_codepoint = (uint32_t)ch;
             is_word_start = true;
             i++;
+            word_start = i;
             continue;
         }
 
@@ -2456,7 +2473,7 @@ float compute_text_height_at_width(LayoutContext* lycon,
 
     // flush last word
     if (current_word_width > 0) {
-        flush_word();
+        flush_word(length);
     }
 
     // a final forced break ends its line; the following empty line generates no box.
@@ -2559,13 +2576,11 @@ bool layout_intrinsic_element_is_atomic_inline(DomElement* element) {
 
     ViewBlock* view = lam::unsafe_view_block_element_storage(element);
     if ((element->display.inner == CSS_VALUE_FLOW_ROOT ||
-         view->display.inner == CSS_VALUE_FLOW_ROOT) &&
+         element->display.inner == CSS_VALUE_TABLE) &&
         (element->display.outer == CSS_VALUE_INLINE ||
-         element->display.outer == CSS_VALUE_INLINE_BLOCK ||
-         view->display.outer == CSS_VALUE_INLINE ||
-         view->display.outer == CSS_VALUE_INLINE_BLOCK)) {
-        // CSS Display 3: `inline flow-root` is an atomic inline whose children
-        // are measured as block-flow content, not as one inline run.
+         element->display.outer == CSS_VALUE_INLINE_BLOCK)) {
+        // CSS Display 3: flow-root and table contents belong to the atomic
+        // inline's own context, including anonymous inline-table fixups.
         return true;
     }
     if (intrinsic_display_is_atomic_inline(view->display.outer)) {
@@ -5892,11 +5907,18 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
                 strcmp(child->as_element()->node_name(), "br") == 0;
             if (is_br_element) {
                 layout_intrinsic_break_min_run(&inline_min_run);
+                bool first_forced_break = !inline_has_forced_break;
                 // Finalize first-line indent and propagation state before flushing.
                 intrinsic_record_first_inline_break(
                     text_indent, first_inline_child_min, nonfirst_inline_min_max,
                     &inline_max_sum, &inline_min_sum, &first_inline_break_sum,
                     &inline_has_forced_break);
+                if (first_forced_break && text_indent < 0.0f) {
+                    // Later lines must not resurrect the unindented first
+                    // segment through the shared minimum accumulator.
+                    inline_min_run.minimum = inline_min_sum;
+                    inline_min_run.first = max(inline_min_run.first + text_indent, 0.0f);
+                }
                 // Flush the current inline run
                 sizes.max_content = max(sizes.max_content, inline_max_sum);
                 sizes.min_content = max(sizes.min_content, inline_min_sum);
@@ -8077,48 +8099,17 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
     float pad_top = 0, pad_bottom = 0;
     float border_top = 0, border_bottom = 0;
 
-    bool resolved_pad_from_pct = false;
-    if (element->specified_style && width > 0) {
-        CssDeclaration* pt = style_tree_get_declaration(element->specified_style, CSS_PROPERTY_PADDING_TOP);
-        if (pt && pt->value && pt->value->type == CSS_VALUE_TYPE_PERCENTAGE) {
-            pad_top = (float)(pt->value->data.percentage.value / 100.0) * width;
-            resolved_pad_from_pct = true;
-        }
-        CssDeclaration* pb = style_tree_get_declaration(element->specified_style, CSS_PROPERTY_PADDING_BOTTOM);
-        if (pb && pb->value && pb->value->type == CSS_VALUE_TYPE_PERCENTAGE) {
-            pad_bottom = (float)(pb->value->data.percentage.value / 100.0) * width;
-            resolved_pad_from_pct = true;
-        }
-        if (!resolved_pad_from_pct) {
-            CssDeclaration* pad_decl = style_tree_get_declaration(element->specified_style, CSS_PROPERTY_PADDING);
-            if (pad_decl && pad_decl->value && pad_decl->value->type == CSS_VALUE_TYPE_PERCENTAGE) {
-                float pad = (float)(pad_decl->value->data.percentage.value / 100.0) * width;
-                pad_top = pad_bottom = pad;
-                resolved_pad_from_pct = true;
-            }
-        }
+    if (view->bound) {
+        pad_top = max(view->boundary()->padding.top, 0.0f);
+        pad_bottom = max(view->boundary()->padding.bottom, 0.0f);
     }
-
-    if (!resolved_pad_from_pct) {
-        if (view->bound) {
-            if (view->boundary_mut()->padding.top >= 0) pad_top = view->boundary_mut()->padding.top;
-            if (view->boundary_mut()->padding.bottom >= 0) pad_bottom = view->boundary_mut()->padding.bottom;
-        } else if (element->specified_style) {
-            CssDeclaration* pad_decl = style_tree_get_declaration(element->specified_style, CSS_PROPERTY_PADDING);
-            if (pad_decl && pad_decl->value && pad_decl->value->type == CSS_VALUE_TYPE_LENGTH) {
-                float pad = resolve_length_value(lycon, CSS_PROPERTY_PADDING, pad_decl->value);
-                pad_top = pad_bottom = pad;
-            } else {
-                CssDeclaration* pt = style_tree_get_declaration(element->specified_style, CSS_PROPERTY_PADDING_TOP);
-                if (pt && pt->value && pt->value->type == CSS_VALUE_TYPE_LENGTH) {
-                    pad_top = resolve_length_value(lycon, CSS_PROPERTY_PADDING_TOP, pt->value);
-                }
-                CssDeclaration* pb = style_tree_get_declaration(element->specified_style, CSS_PROPERTY_PADDING_BOTTOM);
-                if (pb && pb->value && pb->value->type == CSS_VALUE_TYPE_LENGTH) {
-                    pad_bottom = resolve_length_value(lycon, CSS_PROPERTY_PADDING_BOTTOM, pb->value);
-                }
-            }
-        }
+    // CSS Box: percentage padding uses the containing inline size, independently
+    // of the narrower content width supplied to this wrapping-height query.
+    float padding_base = intrinsic_percentage_width_is_indefinite(lycon, element)
+        ? -1.0f : layout_containing_inline_percentage_base(lycon);
+    if (!view->bound || intrinsic_percentage_width_is_indefinite(lycon, element)) {
+        get_intrinsic_box_side_widths_from_css(
+            lycon, element, false, false, padding_base, &pad_top, &pad_bottom);
     }
 
     if (view->bound && view->boundary_mut()->border) {

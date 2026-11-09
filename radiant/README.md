@@ -1,8 +1,9 @@
 # Radiant: efficient development and testing
 
-Radiant is Lambda's C/C++ HTML/CSS/SVG layout, rendering and interaction engine,
-built into `lambda.exe`. Lambda's loaders also let it present Markdown, LaTeX,
-PDF, images and Lambda-generated documents through the same document pipeline.
+Radiant is the C/C++ HTML/CSS/SVG layout, rendering and interaction engine used
+by `lambda.exe` and the standalone `radiant.exe`. Lambda's loaders also let it
+present Markdown, LaTeX, PDF, images and Lambda-generated documents through the
+same document pipeline.
 
 This guide records the planning and verification workflow for Radiant work.
 Follow [AGENTS.md](../AGENTS.md); use the [test map](../test/README.md) for
@@ -179,9 +180,6 @@ make layout test=baseline_301_simple_margin
 ./test/test_ui_automation_gtest.exe --suite baseline --test css_z_index_computed
 
 # Required Radiant milestone gate: build and run the configured selection once.
-make test-radiant-baseline
-
-# Use this when the matching runtime and all selected native runners are current.
 make run-radiant-baseline
 
 # Cheap checks when their source areas changed.
@@ -189,6 +187,15 @@ make lint ARGS='--rule ^no-int-cast-radiant$'
 python3 utils/generate_css_support_inventory.py --check
 git diff --check
 ```
+
+In this standalone checkout, `make test-layout-baseline` runs the existing
+`test/layout/test_radiant_layout.js` browser-geometry comparisons for `baseline`
+and `baseline-js`, alongside the native static-layout smoke pass. The target
+builds `radiant.exe`; `LAMBDA_ROOT` supplies its scripting adapter archives and
+package/WPT resources. Use the runner's `--exe` option to select another host.
+`make test-layout-smoke` and `make test-native` remain available without that
+runtime host (D9.1.1v4, D9.1.3v2). See the [project README](../README.md)
+for suite/concurrency controls and report paths.
 
 For an in-process text/layout test, build `test_radiant_document_gtest` through
 the same top-level `build/premake` Makefile, then filter the binary. Build an
@@ -334,14 +341,14 @@ state. The rules on `float` dimensions and on ownership are under
 ## Using the engine
 
 ```sh
-./lambda.exe layout test/html/index.html
-./lambda.exe render test/html/index.html -o temp/radiant-example.svg
-./lambda.exe view test/html/index.html
+./radiant.exe layout test/layout/data/baseline/baseline_801_display_block.html
+./radiant.exe render test/layout/data/baseline/baseline_801_display_block.html -o temp/radiant-example.svg
+../Lambda/lambda.exe view test/layout/data/baseline/baseline_801_display_block.html
 ```
 
 `layout_html_doc()` drives layout; `render_html_doc()` drives painting;
 `render_html_to_svg()`, `render_html_to_pdf()`, `render_html_to_png()` and
 `render_html_to_jpeg()` provide exports. `view_doc_in_window()` opens the viewer.
 GLFW, native font APIs and ThorVG supply platform/window/font/vector services;
-Lambda supplies parsing, runtime values and scripting. See
-`./lambda.exe <command> --help` for CLI options.
+lambda-input supplies parsing; the Lambda host supplies runtime values and
+scripting. See `./radiant.exe <command> --help` for CLI options.

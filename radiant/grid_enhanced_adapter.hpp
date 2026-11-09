@@ -105,58 +105,6 @@ inline void restore_grid_percentage_tracks(TrackArray& tracks, const TrackArray&
     }
 }
 
-/**
- * Finalize canonical used sizes with the largest-remainder method:
- * floor all track sizes first, then give +1px to the tracks with the largest
- * fractional parts until the integer total matches round(float total).
- * This prevents accumulated truncation errors (e.g. 4×17.5 → 158 instead of 160).
- */
-inline void finalize_track_used_sizes(TrackArray& tracks) {
-    if (tracks.empty()) return;
-    int track_count = static_cast<int>(tracks.size()); // INT_CAST_OK: bounded track count
-    float float_total = 0.0f;
-    int floor_total = 0;
-    struct FracEntry { float frac; int idx; };
-    auto fracs = lam::temp_array<FracEntry>(tracks.size(), MEM_CAT_LAYOUT);
-    if (!fracs) { tracks.fail("fracs"); return; }
-    size_t frac_count = 0;
-    fracs[0] = {};
-    for (int i = 0; i < track_count; i++) {
-        float v = tracks[i].base_size;
-        int fv = static_cast<int>(v); // INT_CAST_OK: largest-remainder floor
-        tracks[i].base_size = static_cast<float>(fv);
-        float frac = v - static_cast<float>(fv);
-        if (frac > 0.0f) fracs[frac_count++] = {frac, i};
-        float_total += v;
-        floor_total += fv;
-    }
-
-    // Pass 2: distribute the fractional remainder to tracks with highest frac parts
-    int remainder = static_cast<int>(roundf(float_total)) - floor_total; // INT_CAST_OK: rounded pixel remainder
-    if (remainder > 0 && track_count > 0) {
-        // Build (fractional_part, index) pairs and sort descending
-        // Use a simple selection approach to keep code minimal
-        for (size_t a = 0; a < frac_count; a++) {
-            size_t best = a;
-            for (size_t b = a + 1; b < frac_count; b++) {
-                if (fracs[b].frac > fracs[best].frac) {
-                    best = b;
-                }
-            }
-            if (best != a) {
-                FracEntry tmp = fracs[a];
-                fracs[a] = fracs[best];
-                fracs[best] = tmp;
-            }
-        }
-        int to_add = grid_min_value(remainder, static_cast<int>(frac_count)); // INT_CAST_OK: bounded remainder count
-        for (int j = 0; j < to_add; j++) {
-            int idx = fracs[j].idx;
-            tracks[idx].base_size += 1.0f;
-        }
-    }
-}
-
 // ============================================================================
 // Grid Item Info Extraction
 // ============================================================================
@@ -880,8 +828,7 @@ inline void run_enhanced_track_sizing(
             if (container_width >= 0)
                 stretch_auto_tracks(col_tracks, 0.0f, col_available2, grid_layout->justify_content);
         }
-        // Canonical consumers observe the same integer-pixel distribution as the legacy copy seam.
-        finalize_track_used_sizes(col_tracks);
+        // Keep fractional used sizes: rounding a max-content track down can wrap its content.
         compute_track_offsets(col_tracks, grid_layout->column_gap);
     }
 
@@ -934,7 +881,7 @@ inline void run_enhanced_track_sizing(
                                    row_contributions, grid_layout->row_gap);
             stretch_auto_tracks(row_tracks, 0.0f, row_available2, grid_layout->align_content);
         }
-        finalize_track_used_sizes(row_tracks);
+        // Track geometry remains in CSS pixels until painting.
         compute_track_offsets(row_tracks, grid_layout->row_gap);
     }
     grid_layout->storage_failed = !col_tracks.good() || !row_tracks.good();
