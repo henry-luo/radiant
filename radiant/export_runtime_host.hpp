@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../lambda/io/resource_policy.h"
+#include "lambda/io/resource_policy.h"
 
 struct DomDocument;
 struct RenderExportSession;

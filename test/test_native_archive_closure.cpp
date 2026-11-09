@@ -1,9 +1,9 @@
-#include "../radiant/event_host.hpp"
-#include "../radiant/event_navigation_host.hpp"
-#include "../radiant/event.hpp"
-#include "../radiant/radiant.hpp"
-#include "../radiant/render.hpp"
-#include "../lambda/input/css/dom_element.hpp"
+#include "radiant/event_host.hpp"
+#include "radiant/event_navigation_host.hpp"
+#include "radiant/event.hpp"
+#include "radiant/radiant.hpp"
+#include "radiant/render.hpp"
+#include "lambda/input/css/dom_element.hpp"
 
 int main() {
     // A native client has no controller and no script-owned loads.

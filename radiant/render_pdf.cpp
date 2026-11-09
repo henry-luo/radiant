@@ -4,7 +4,7 @@
 #include "event.hpp"
 #include "view_tree_model.hpp"
 #include "pdf_export_host.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 
 bool render_secondary_view_to_pdf(ViewTree* tree, const char* filename,
         const ViewPageSelection* selection, UiContext* ui) {

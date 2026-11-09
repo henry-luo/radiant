@@ -1,15 +1,15 @@
 #include "layout.hpp"
 #include "view.hpp"
-#include "../lib/scratch_arena.h"
+#include "lib/scratch_arena.h"
 #include "tagged.hpp"
-#include "../lambda/input/css/css_style_node.hpp"
+#include "lambda/input/css/css_style_node.hpp"
 
 extern "C" {
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
 }
 
 static bool grid_item_ignores_percentage_max_width(ViewBlock* item,

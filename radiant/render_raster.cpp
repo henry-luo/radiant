@@ -1,7 +1,7 @@
 #include "render.hpp"
 #include "render_row_jobs.hpp"
 #include "raster_sampling.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 
 #include <algorithm>
 #include <math.h>

@@ -3,17 +3,17 @@
 #include "layout_ruby.hpp"
 #include "page_document.hpp"
 #include "hyphenation.hpp"
-#include "../lambda/input/css/dom_node.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/css_style.hpp"
-#include "../lib/avl_tree.h"
-#include "../lib/binsearch.h"
-#include "../lib/font/font.h"
+#include "lambda/input/css/dom_node.hpp"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/css_style.hpp"
+#include "lib/avl_tree.h"
+#include "lib/binsearch.h"
+#include "lib/font/font.h"
 #include "tagged.hpp"
-#include "../lib/time_util.h"
-#include "../lib/utf.h"
+#include "lib/time_util.h"
+#include "lib/utf.h"
 
-#include "../lib/log.h"
+#include "lib/log.h"
 
 #include <cctype>
 #include <cwctype>

@@ -6,9 +6,9 @@
 #include "select_options.hpp"
 #include "event.hpp"
 #include "render.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/dom_lifecycle.hpp"
-#include "../lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_lifecycle.hpp"
+#include "lib/str.h"
 
 static bool native_remove(DomElement* parent, DomNode* child) {
     parent = radiant_dom_prepare_children_mutation(parent, child);

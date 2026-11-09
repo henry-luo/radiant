@@ -1,9 +1,9 @@
 #pragma once
-#include "../../lib/arraylist.hpp"
-#include "../../lib/navigation.h"
+#include "lib/arraylist.hpp"
+#include "lib/navigation.h"
 #include "scene3d_math.hpp"
 #include "../gl_core.hpp"
-#include "../../lib/physics/physics.h"
+#include "lib/physics/physics.h"
 #include <stddef.h>
 #include <stdint.h>
 struct DomElement;

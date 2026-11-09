@@ -2,8 +2,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "rdt_speech.h"
-#include "../lib/strbuf.h"
-#include "../lambda/core/data.hpp"
+#include "lib/strbuf.h"
+#include "lambda/core/data.hpp"
 
 // Speech synthesis service (vibe/radiant/Radiant_Design_Speech.md, M1).
 struct DomDocument;

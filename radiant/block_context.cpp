@@ -11,9 +11,9 @@
  */
 
 #include "layout.hpp"
-#include "../lambda/core/well_known_markup_names.h"
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
+#include "lambda/core/well_known_markup_names.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
 #include "tagged.hpp"
 #include <assert.h>
 #include <cmath>

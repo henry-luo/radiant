@@ -3,8 +3,8 @@
 #include "event.hpp"
 #include "state_store_internal.hpp"
 #include "view.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/log.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/log.h"
 #include "tagged.hpp"
 
 #ifndef NDEBUG

@@ -3,11 +3,11 @@
 
 #include "event.hpp"
 
-#include "../lib/str.h"
+#include "lib/str.h"
 
 #include <string.h>
 
-#include "../lib/log.h"
+#include "lib/log.h"
 
 namespace {
 

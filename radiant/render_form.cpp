@@ -3,10 +3,10 @@
 #include "view.hpp"
 #include "event.hpp"
 #include "tagged.hpp"
-#include "../lib/memtrack.h"
-#include "../lib/font/font.h"
+#include "lib/memtrack.h"
+#include "lib/font/font.h"
 
-#include "../lib/log.h"
+#include "lib/log.h"
 // str.h included via view.hpp
 #include <string.h>
 #include <stddef.h>

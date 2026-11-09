@@ -1,5 +1,5 @@
 #include "render.hpp"
-#include "../lib/math_utils.h"
+#include "lib/math_utils.h"
 #include <math.h>
 #include <string.h>
 

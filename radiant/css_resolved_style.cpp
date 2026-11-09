@@ -1,9 +1,9 @@
 #include "css_resolved_style.hpp"
 #include "render.hpp"
-#include "../lambda/input/css/css_parser.hpp"
+#include "lambda/input/css/css_parser.hpp"
 #include "tagged.hpp"
-#include "../lib/generation.h"
-#include "../lib/strbuf.h"
+#include "lib/generation.h"
+#include "lib/strbuf.h"
 
 int64_t g_style_resolve_incremental = 0;
 int64_t g_style_geometry_evaluations = 0;

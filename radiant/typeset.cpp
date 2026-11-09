@@ -1,6 +1,6 @@
 #include "typeset.hpp"
-#include "../lib/mem_grow.hpp"
-#include "../lib/hashmap_helpers.h"
+#include "lib/mem_grow.hpp"
+#include "lib/hashmap_helpers.h"
 #include <math.h>
 #include <float.h>
 

@@ -1,5 +1,5 @@
 #include "test_native_provider.hpp"
-#include "../radiant/speech_event_host.hpp"
+#include "radiant/speech_event_host.hpp"
 
 static DomElement* observed_target;
 static uint64_t observed_token;

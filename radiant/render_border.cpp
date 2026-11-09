@@ -1,6 +1,6 @@
 #include "render.hpp"
-#include "../lib/log.h"
-#include "../lib/lambda_alloca.h"
+#include "lib/log.h"
+#include "lib/lambda_alloca.h"
 #include <math.h>
 #include <string.h>
 

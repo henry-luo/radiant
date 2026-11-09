@@ -7,11 +7,11 @@
 #include "view.hpp"
 #include "radiant.hpp"
 #include "tagged.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/dom_svg_context.h"
-#include "../lib/math_utils.h"
-#include "../lib/mem.h"
-#include "../lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_svg_context.h"
+#include "lib/math_utils.h"
+#include "lib/mem.h"
+#include "lib/str.h"
 #include <math.h>
 #include <string.h>
 

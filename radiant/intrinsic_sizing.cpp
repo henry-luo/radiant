@@ -27,13 +27,13 @@ static bool intrinsic_view_uses_border_box(ViewBlock* view, DomElement* element)
 #include "page_document.hpp"
 #include "rdt_video.h"
 #include "render.hpp"
-#include "../lib/font/font.h"
-#include "../lib/utf.h"
-#include "../lib/str.h"
-#include "../lib/strbuf.h"
-#include "../lib/log.h"
+#include "lib/font/font.h"
+#include "lib/utf.h"
+#include "lib/str.h"
+#include "lib/strbuf.h"
+#include "lib/log.h"
 #include "tagged.hpp"
-#include "../lib/time_util.h"
+#include "lib/time_util.h"
 // str.h included via view.hpp
 #include <cmath>
 #include <cstring>

@@ -1,31 +1,31 @@
-#include "../lambda/io/image_io.h"
+#include "lambda/io/image_io.h"
 // resource_loaders.cpp
 // Implementation of resource type handlers for network-loaded resources
 // Integrates with CSS parser, image loader, native font system, and SVG parser
 
 #include "resource_loaders.h"
 #include "network_integration.h"
-#include "../lambda/network/network_resource_manager.h"
-#include "../lambda/network/resource_processor_hook.h"
-#include "../lib/log.h"
-#include "../lib/image.h"
-#include "../lib/file_utils.h"
-#include "../lib/file.h"
-#include "../lib/mempool.h"
-#include "../lib/mem_grow.hpp"
-#include "../lib/str.h"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/css_parser.hpp"
-#include "../lambda/input/css/css_engine.hpp"
-#include "../lambda/input/css/css_font_face.hpp"
+#include "lambda/network/network_resource_manager.h"
+#include "lambda/network/resource_processor_hook.h"
+#include "lib/log.h"
+#include "lib/image.h"
+#include "lib/file_utils.h"
+#include "lib/file.h"
+#include "lib/mempool.h"
+#include "lib/mem_grow.hpp"
+#include "lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/css_parser.hpp"
+#include "lambda/input/css/css_engine.hpp"
+#include "lambda/input/css/css_font_face.hpp"
 #include "view.hpp"
 #include "layout.hpp"
 #include "radiant.hpp"
 #include "event.hpp"
-#include "../lib/font/font.h"
+#include "lib/font/font.h"
 #include <string.h>
-#include "../lib/mem.h"
-#include "../lib/url.h"
+#include "lib/mem.h"
+#include "lib/url.h"
 
 // Helper: Read file contents into a string
 static char* read_file_to_string(const char* path, size_t* out_size) {

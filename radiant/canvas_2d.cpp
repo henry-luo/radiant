@@ -5,12 +5,12 @@
 #include "event.hpp"
 
 #include "tagged.hpp"
-#include "../lib/font/font.h"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/canvas.h"
-#include "../lib/log.h"
-#include "../lib/mem.h"
-#include "../lib/str.h"
+#include "lib/font/font.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/canvas.h"
+#include "lib/log.h"
+#include "lib/mem.h"
+#include "lib/str.h"
 
 #include <math.h>
 #include <stdint.h>

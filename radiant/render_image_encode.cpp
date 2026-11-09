@@ -1,7 +1,7 @@
 #include "render.hpp"
-#include "../lambda/io/image_io.h"
-#include "../lib/base64.h"
-#include "../lib/ownership.hpp"
+#include "lambda/io/image_io.h"
+#include "lib/base64.h"
+#include "lib/ownership.hpp"
 
 static ImagePixelView render_surface_pixel_view(ImageSurface* surface) {
     if (!surface || !surface->pixels || surface->width <= 0 || surface->height <= 0 || surface->pitch <= 0) return {};

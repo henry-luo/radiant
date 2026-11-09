@@ -1,12 +1,12 @@
 #include <gtest/gtest.h>
 #include <stdlib.h>
-#include "../radiant/source_path_value.hpp"
-#include "../radiant/source_position_host.hpp"
+#include "radiant/source_path_value.hpp"
+#include "radiant/source_position_host.hpp"
 #include "test_native_provider.hpp"
-#include "../lambda/input/input.hpp"
-#include "../lambda/io/mark_builder.hpp"
-#include "../lambda/core/mark_reader.hpp"
-#include "../lambda/core/lambda-decimal.hpp"
+#include "lambda/input/input.hpp"
+#include "lambda/io/mark_builder.hpp"
+#include "lambda/core/mark_reader.hpp"
+#include "lambda/core/lambda-decimal.hpp"
 
 static uint64_t recorded_source;
 static int recorded_depth, reset_count;

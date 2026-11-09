@@ -5,12 +5,12 @@
  */
 
 #include "event.hpp"
-#include "../lib/host_paths.h"
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
-#include "../lib/escape.h"
-#include "../lib/str.h"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lib/host_paths.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
+#include "lib/escape.h"
+#include "lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
 
 #include <ctype.h>
 #include <errno.h>

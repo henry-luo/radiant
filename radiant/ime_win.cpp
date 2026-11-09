@@ -19,8 +19,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
 #define RADIANT_EVENT_CORE_ONLY
 #include "event.hpp"
 #undef RADIANT_EVENT_CORE_ONLY

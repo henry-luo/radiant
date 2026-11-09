@@ -89,12 +89,12 @@ Use `rg` to find an existing helper and its callers before adding another path.
 
 | Area | Start here |
 |---|---|
-| CSS parsing/cascade | `../lambda/input/css/`; `resolve_css_style.cpp`, `css_prop_table.cpp` |
+| CSS parsing/cascade | `../../lambda-input/lambda/input/css/`; `resolve_css_style.cpp`, `css_prop_table.cpp` |
 | View/style data | `view.hpp`; DOM element is also the layout view |
 | Layout | `layout.hpp`, `layout.cpp`, `layout_*.cpp`, `intrinsic_sizing.cpp` |
 | Paint/export | `render.hpp`, `render_walk.cpp`, `render_clip.cpp`, `render_*.cpp` |
 | Input/state | `event_host.hpp`, `event.hpp`, `state_store.cpp`, `scroller.cpp` |
-| Script readiness/shell | `radiant.hpp`, `../lambda/module/radiant/script_runner.cpp`, `cmd_layout.cpp` |
+| Script readiness/shell | `radiant.hpp`, `../../Lambda/lambda/module/radiant/script_runner.cpp`, `cmd_layout.cpp` |
 
 Preserve selected-view/style ownership (**D5.5.1 / D5.1.4**), precise roots
 and evaluator lifetime (**D6.3.3 / D6.4.1**), and module boundaries
@@ -280,13 +280,13 @@ Design records are in the Lambda repository, under
 
 | Stage | What happens | Start at | Design record |
 |---|---|---|---|
-| Load | An HTML page goes through parse, cascade, `execute_document_scripts()`, an optional recascade, then layout. | `cmd_layout.cpp`, `../lambda/module/radiant/script_runner.cpp` | `Radiant_Design_Unified_Dom.md` |
-| Style | `../lambda/input/css/` parses and cascades, and leaves `specified_style` on each element. Radiant adds UA defaults and resolves used values through `resolve_css_property()`. | `resolve_htm_style.cpp`, `resolve_css_style.cpp` | `Radiant_CSS_Cascade.md` |
+| Load | An HTML page goes through parse, cascade, `execute_document_scripts()`, an optional recascade, then layout. | `cmd_layout.cpp`, `../../Lambda/lambda/module/radiant/script_runner.cpp` | `Radiant_Design_Unified_Dom.md` |
+| Style | `../../lambda-input/lambda/input/css/` parses and cascades, and leaves `specified_style` on each element. Radiant adds UA defaults and resolves used values through `resolve_css_property()`. | `resolve_htm_style.cpp`, `resolve_css_style.cpp` | `Radiant_CSS_Cascade.md` |
 | Layout | `layout_html_doc()` calls `layout_flow_node()`, which selects the layout mode for each node. `RunMode` separates measuring from committing. | `layout.cpp`, `layout_*.cpp`, `intrinsic_sizing.cpp` | `Radiant_Design_Flex_Layout.md`, `Radiant_Grid_Layout4_Taffy.md`, `Radiant_Table_Layout_Design.md`, `Radiant_Layout_Multicol.md`, `Radiant_Layout_Paged_Media.md` |
-| Text | Line breaking and bidi run during layout. `../lib/font/` is the font engine; `font.cpp` and `font_face.cpp` connect CSS to it. | `layout_inline.cpp`, `layout_bidi.cpp` | `Radiant_Design_Font_Text.md` |
+| Text | Line breaking and bidi run during layout. `../../lambda-input/lib/font/` is the font engine; `font.cpp` and `font_face.cpp` connect CSS to it. | `layout_inline.cpp`, `layout_bidi.cpp` | `Radiant_Design_Font_Text.md` |
 | Paint | `render_walk.cpp` visits the laid-out tree. Producers emit PaintIR, which lowers to a raster DisplayList, SVG or PDF. Vector drawing goes through `RdtVector` to ThorVG. | `paint_ir.cpp`, `display_list.cpp`, `render_output.cpp` | `Radiant_Design_Rendering.md` |
 | Present | Live windows use the GPU compositor by default; `RADIANT_GPU_COMPOSITOR=off` restores CPU presentation. Headless and export paths never composite. | `ui_context.cpp` | `Radiant_Design_GPU_Compositor.md` |
-| Events | Radiant sends native input through `event_host.hpp`; Lambda owns `handle_event()` and the editing controller. `event_sim.cpp` drives UI tests through the host. | `event_host.cpp`, `event_sim.cpp`, `../lambda/module/radiant/event.cpp` | `Radiant_Design_Event.md`, `vibe/Lambda_Design_DOM_Dispatch.md` |
+| Events | Radiant sends native input through `event_host.hpp`; Lambda owns `handle_event()` and the editing controller. `event_sim.cpp` drives UI tests through the host. | `event_host.cpp`, `event_sim.cpp`, `../../Lambda/lambda/module/radiant/event.cpp` | `Radiant_Design_Event.md`, `vibe/Lambda_Design_DOM_Dispatch.md` |
 | State | `DocState` holds per-document interaction state. `state_end_event_cascade()` validates it at the end of each event cascade. | `state_store.cpp`, `state_machine.cpp`, `state_schema.cpp` | `Radiant_Design_State_Machine.md`, `Radiant_Design_State_Management.md` |
 | Editing | The shipped DOM behavior package owns editing policy; Radiant owns the input gate and the standard mechanisms (**D10.2.1**). Form text controls edit natively. | `dom_range.cpp`, `text_edit.cpp`, `text_control.cpp` | `Radiant_Design_Editable.md`, `Radiant_Design_Selection.md`, `Radiant_Design_Form_Input.md` |
 | Animation | `frame_clock.cpp` wakes the main loop. CSS and media animations sample on the page thread. | `animation.cpp`, `css_animation.cpp` | `Radiant_Design_Animation_Repaint.md` |
@@ -321,7 +321,7 @@ state. The rules on `float` dimensions and on ownership are under
 - **`specified_style` is the input; used values live on the element.** There is
   no shared computed-style object. Used values are in property groups such as
   `FontProp` and `BlockProp`, and `styles_resolved` says whether they are
-  current. The cascade itself belongs to `../lambda/input/css/`.
+  current. The cascade itself belongs to `../../lambda-input/lambda/input/css/`.
 - **Measuring leaves no trace.** `RunMode::ComputeSize` and `LayoutMeasureScope`
   measure a subtree, then restore layout state.
 - **Radiant keeps no GC pointer.** Storage that outlives the current call copies

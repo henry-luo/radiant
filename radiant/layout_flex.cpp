@@ -5,7 +5,7 @@ extern "C" {
 #include <string.h>
 #include <math.h>
 #include <float.h>
-#include "../lib/memtrack.h"
+#include "lib/memtrack.h"
 }
 #include "tagged.hpp"
 // NOTE: All conversion functions removed - enums now align directly with Lexbor constants

@@ -1,6 +1,6 @@
 #include "script_loop_host.hpp"
-#include "../lib/provider.hpp"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lib/provider.hpp"
+#include "lambda/input/css/dom_element.hpp"
 
 static const RadiantScriptLoopHostOps* script_loop_host_ops = nullptr;
 

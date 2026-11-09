@@ -1,24 +1,24 @@
-#include "../lambda/io/image_io.h"
+#include "lambda/io/image_io.h"
 #include "view.hpp"
 #include "render.hpp"
 #include "radiant.hpp"
 #include "event.hpp"
 #include "svg_animation.hpp"
 
-#include "../lib/image.h"
-#include "../lib/log.h"
-#include "../lib/hashmap_typed.hpp"
-#include "../lib/memtrack.h"
-#include "../lib/base64.h"
-#include "../lib/url.h"
-#include "../lib/file.h"
-#include "../lib/path_str.h"
-#include "../lib/str.h"
-#include "../lib/endian.h"
-#include "../lambda/input/input.hpp"  // for download_http_content
-#include "../lambda/network/network_resource_manager.h"
+#include "lib/image.h"
+#include "lib/log.h"
+#include "lib/hashmap_typed.hpp"
+#include "lib/memtrack.h"
+#include "lib/base64.h"
+#include "lib/url.h"
+#include "lib/file.h"
+#include "lib/path_str.h"
+#include "lib/str.h"
+#include "lib/endian.h"
+#include "lambda/input/input.hpp"  // for download_http_content
+#include "lambda/network/network_resource_manager.h"
 #include "network_integration.h"
-#include "../lambda/input/css/dom_blob_url.hpp"
+#include "lambda/input/css/dom_blob_url.hpp"
 
 #include <stdlib.h>
 #include <limits.h>

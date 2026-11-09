@@ -7,9 +7,9 @@
 // plain-text code point it came from.
 
 #include "speech.hpp"
-#include "../lambda/core/mark_reader.hpp"
-#include "../lib/mem.h"
-#include "../lib/utf.h"
+#include "lambda/core/mark_reader.hpp"
+#include "lib/mem.h"
+#include "lib/utf.h"
 
 #include <math.h>
 #include <stdio.h>

@@ -4,8 +4,8 @@
 #include "render_glyph_run_raster_lower.hpp"
 
 #include "tagged.hpp"
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
 
 #include <math.h>
 #include <limits.h>

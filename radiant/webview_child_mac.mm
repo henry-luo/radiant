@@ -18,8 +18,8 @@
 #include "webview_handle_mac.h"
 
 extern "C" {
-#include "../lib/log.h"
-#include "../lib/mem.h"
+#include "lib/log.h"
+#include "lib/mem.h"
 }
 
 // Navigation delegate to track load completion

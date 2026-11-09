@@ -2,8 +2,8 @@
 
 #include "scene3d_physics.hpp"
 #include "scene3d_animation.hpp"
-#include "../../lambda/core/physics_scene.hpp"
-#include "../../lambda/input/css/dom_lifecycle.hpp"
+#include "lambda/core/physics_scene.hpp"
+#include "lambda/input/css/dom_lifecycle.hpp"
 
 // Native physics ownership shared with the Lambda value adapter.
 struct PhysicsRagdollPlayback {

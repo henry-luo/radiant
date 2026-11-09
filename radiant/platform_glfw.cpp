@@ -10,7 +10,7 @@
 #include "event.hpp"
 #include "view.hpp"
 #include "gl_core.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 #include <math.h>
 
 #define GLFW_INCLUDE_NONE

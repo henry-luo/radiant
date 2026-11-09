@@ -8,19 +8,19 @@
 #include <stdlib.h>
 #include <math.h>
 
-#include "../lib/log.h"
-#include "../lib/font/font.h"
-#include "../lib/mem_factory.h"
-#include "../lib/mempool.h"
-#include "../lib/arena.h"
-#include "../lib/memtrack.h"
+#include "lib/log.h"
+#include "lib/font/font.h"
+#include "lib/mem_factory.h"
+#include "lib/mempool.h"
+#include "lib/arena.h"
+#include "lib/memtrack.h"
 #include "tagged.hpp"
-#include "../lib/time_util.h"
-#include "../lib/uv_loop.h"
-#include "../lib/document_lifetime_guard.h"
-#include "../lambda/input/input.hpp"
-#include "../lambda/input/css/dom_element.hpp"  // For dom_document_destroy
-#include "../lambda/input/css/dom_lifecycle.hpp"
+#include "lib/time_util.h"
+#include "lib/uv_loop.h"
+#include "lib/document_lifetime_guard.h"
+#include "lambda/input/input.hpp"
+#include "lambda/input/css/dom_element.hpp"  // For dom_document_destroy
+#include "lambda/input/css/dom_lifecycle.hpp"
 #include "network_integration.h"
 #include "loader_runtime_host.hpp"
 

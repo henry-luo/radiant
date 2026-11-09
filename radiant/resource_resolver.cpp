@@ -1,10 +1,10 @@
 #include "radiant.hpp"
 
-#include "../lib/mem.h"
-#include "../lib/url.h"
-#include "../lib/file.h"
-#include "../lambda/input/css/css_parser.hpp"
-#include "../lib/str.h"
+#include "lib/mem.h"
+#include "lib/url.h"
+#include "lib/file.h"
+#include "lambda/input/css/css_parser.hpp"
+#include "lib/str.h"
 
 #include <string.h>
 #include <stdio.h>

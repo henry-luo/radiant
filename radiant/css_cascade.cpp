@@ -1,13 +1,13 @@
 #include "view.hpp"
 #include "layout.hpp"
-#include "../lambda/input/css/css_engine.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/selector_matcher.hpp"
-#include "../lambda/input/css/style_epoch.hpp"
+#include "lambda/input/css/css_engine.hpp"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/selector_matcher.hpp"
+#include "lambda/input/css/style_epoch.hpp"
 #include "tagged.hpp"
-#include "../lib/mem_factory.h"
-#include "../lib/hashmap.h"
-#include "../lib/arraylist.hpp"
+#include "lib/mem_factory.h"
+#include "lib/hashmap.h"
+#include "lib/arraylist.hpp"
 #include <stdlib.h>
 #include <string.h>
 

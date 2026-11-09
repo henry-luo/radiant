@@ -1,9 +1,9 @@
-#include "../lambda/io/image_io.h"
+#include "lambda/io/image_io.h"
 #include "render.hpp"
 #include "view.hpp"
 #include "event.hpp"
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
 #include <string.h>
 
 // ============================================================================

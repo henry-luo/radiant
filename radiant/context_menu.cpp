@@ -3,9 +3,9 @@
 #include "view.hpp"
 #include "render.hpp"
 #include "event.hpp"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_element.hpp"
 #include "tagged.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 
 // Local copies of helpers from render_form.cpp (static there). Mirrors the
 // dropdown popup style.

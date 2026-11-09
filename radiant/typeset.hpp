@@ -1,6 +1,6 @@
 #pragma once
 #include "scale.hpp"
-#include "../lib/ownership.hpp"
+#include "lib/ownership.hpp"
 #include <stdint.h>
 #include <stddef.h>
 

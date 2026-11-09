@@ -1,5 +1,5 @@
 #include "test_native_provider.hpp"
-#include "../radiant/event_reconcile_host.hpp"
+#include "radiant/event_reconcile_host.hpp"
 
 static DomNode* observed_old;
 static DomNode* observed_new;

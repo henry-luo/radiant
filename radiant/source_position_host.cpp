@@ -1,5 +1,5 @@
 #include "source_position_host.hpp"
-#include "../lib/provider.hpp"
+#include "lib/provider.hpp"
 
 static const RadiantSourcePositionHostOps* source_position_host_ops = nullptr;
 

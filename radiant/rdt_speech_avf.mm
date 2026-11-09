@@ -10,8 +10,8 @@
 #import <AVFoundation/AVFoundation.h>
 
 #include "rdt_speech.h"
-#include "../lib/log.h"
-#include "../lib/mem.h"
+#include "lib/log.h"
+#include "lib/mem.h"
 
 #include <math.h>
 #include <stdatomic.h>

@@ -3,9 +3,9 @@
 #include "layout_host.hpp"
 #include "event.hpp"
 #include "svg_animation.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/hashmap_typed.hpp"
-#include "../lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/hashmap_typed.hpp"
+#include "lib/str.h"
 #include <math.h>
 #include <string.h>
 

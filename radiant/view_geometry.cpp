@@ -1,7 +1,7 @@
 #include "view.hpp"
 
 #include "tagged.hpp"
-#include "../lambda/input/css/dom_lifecycle.hpp"
+#include "lambda/input/css/dom_lifecycle.hpp"
 
 bool view_is_top_level_viewport(ViewBlock* block) {
     DomDocument* doc = block ? block->doc : nullptr;

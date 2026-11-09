@@ -1,8 +1,8 @@
-#include "../../lambda/input/css/dom_element.hpp"
-#include "../../lambda/input/css/dom_lifecycle.hpp"
-#include "../../lib/log.h"
-#include "../../lib/mem.h"
-#include "../../lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_lifecycle.hpp"
+#include "lib/log.h"
+#include "lib/mem.h"
+#include "lib/str.h"
 #include "../event.hpp"
 #include "scene3d.hpp"
 #include <math.h>

@@ -5,9 +5,9 @@
 #endif
 
 #include "render.hpp"
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
-#include "../lib/math_utils.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
+#include "lib/math_utils.h"
 #include <math.h>
 #include <algorithm>
 #include <string.h>

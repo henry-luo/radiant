@@ -1,6 +1,6 @@
 #include "layout.hpp"
-#include "../lib/log.h"
-#include "../lib/str.h"
+#include "lib/log.h"
+#include "lib/str.h"
 #include "tagged.hpp"
 
 #include <string.h>

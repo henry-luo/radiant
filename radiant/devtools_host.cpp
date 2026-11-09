@@ -1,5 +1,5 @@
 #include "devtools_adapter.hpp"
-#include "../lib/provider.hpp"
+#include "lib/provider.hpp"
 
 static const RadiantDevtoolsHostOps* devtools_host_ops = nullptr;
 

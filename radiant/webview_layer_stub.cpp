@@ -8,7 +8,7 @@
 #include "radiant.hpp"
 
 extern "C" {
-#include "../lib/log.h"
+#include "lib/log.h"
 }
 
 WebViewHandle* webview_layer_platform_create(float w, float h, float raster_scale) {

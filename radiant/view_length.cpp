@@ -1,5 +1,5 @@
 #include "layout.hpp"
-#include "../lambda/input/css/css_style.hpp"
+#include "lambda/input/css/css_style.hpp"
 
 static bool view_computed_percentage(void* context, const CssValue* value, double* result) {
     if (value->type != CSS_VALUE_TYPE_PERCENTAGE) return false;

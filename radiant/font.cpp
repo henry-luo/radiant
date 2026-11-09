@@ -3,12 +3,12 @@
 #include <stdlib.h>
 #include <math.h>
 #include "view.hpp"
-#include "../lambda/input/css/css_value.hpp"
+#include "lambda/input/css/css_value.hpp"
 
-#include "../lib/log.h"
-#include "../lib/str.h"
-#include "../lib/font/font.h"
-#include "../lib/memtrack.h"
+#include "lib/log.h"
+#include "lib/str.h"
+#include "lib/font/font.h"
+#include "lib/memtrack.h"
 
 char* load_font_path(FontContext *font_ctx, const char* font_name) {
     if (!font_ctx || !font_name) {

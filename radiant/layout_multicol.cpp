@@ -1,5 +1,5 @@
 #include "layout.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 #include "tagged.hpp"
 #include <float.h>
 #include <math.h>

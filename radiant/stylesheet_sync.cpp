@@ -1,10 +1,10 @@
 #include "stylesheet_sync.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/css_engine.hpp"
-#include "../lambda/input/css/css_parser.hpp"
-#include "../lib/mem_grow.hpp"
-#include "../lib/strbuf.h"
-#include "../lib/string.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/css_engine.hpp"
+#include "lambda/input/css/css_parser.hpp"
+#include "lib/mem_grow.hpp"
+#include "lib/strbuf.h"
+#include "lib/string.h"
 #include <string.h>
 
 static CssStylesheet* stylesheet_parse_inline(DomElement* elem) {

@@ -1,7 +1,7 @@
 #include "loader_runtime_host.hpp"
-#include "../lib/provider.hpp"
-#include "../lib/log.h"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lib/provider.hpp"
+#include "lib/log.h"
+#include "lambda/input/css/dom_element.hpp"
 
 static const RadiantLoaderRuntimeHostOps* loader_runtime_host_ops = nullptr;
 

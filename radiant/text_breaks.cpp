@@ -1,6 +1,6 @@
 #include "text_breaks.hpp"
-#include "../lib/hash.h"
-#include "../lib/memtrack.h"
+#include "lib/hash.h"
+#include "lib/memtrack.h"
 #include <limits.h>
 #include <string.h>
 

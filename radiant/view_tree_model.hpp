@@ -2,11 +2,11 @@
 
 #include "scale.hpp"
 #include "typeset.hpp"
-#include "../lambda/input/css/dom_lifecycle.hpp"
-#include "../lambda/input/css/css_paged_media.hpp"
-#include "../lambda/input/css/css_environment.hpp"
-#include "../lib/ownership.hpp"
-#include "../lib/rdt_geometry_types.h"
+#include "lambda/input/css/dom_lifecycle.hpp"
+#include "lambda/input/css/css_paged_media.hpp"
+#include "lambda/input/css/css_environment.hpp"
+#include "lib/ownership.hpp"
+#include "lib/rdt_geometry_types.h"
 #include <stddef.h>
 #include <stdint.h>
 

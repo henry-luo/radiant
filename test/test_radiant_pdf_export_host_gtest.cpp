@@ -1,5 +1,5 @@
 #include "test_native_provider.hpp"
-#include "../radiant/pdf_export_host.hpp"
+#include "radiant/pdf_export_host.hpp"
 
 static RenderExportSession* observed_session;
 static const char* observed_filename;

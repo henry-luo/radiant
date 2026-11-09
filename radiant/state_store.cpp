@@ -1,30 +1,30 @@
 #include "event.hpp"
 #include "event_host.hpp"
-#include "../lib/host_paths.h"
-#include "../lib/file.h"
+#include "lib/host_paths.h"
+#include "lib/file.h"
 #include "state_store_internal.hpp"
 #include "state_store_host.hpp"
 #include "view.hpp"
 #include "layout.hpp"
-#include "../lib/log.h"
-#include "../lib/mem_factory.h"
-#include "../lib/memtrack.h"
-#include "../lib/hashmap_typed.hpp"
-#include "../lib/escape.h"
-#include "../lib/str.h"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lib/log.h"
+#include "lib/mem_factory.h"
+#include "lib/memtrack.h"
+#include "lib/hashmap_typed.hpp"
+#include "lib/escape.h"
+#include "lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
 #include "input_value.hpp"
 #include "select_options.hpp"
-#include "../lambda/input/css/selector_matcher.hpp"
+#include "lambda/input/css/selector_matcher.hpp"
 #include "render.hpp"
 #include "render_metrics.hpp"
-#include "../lambda/core/data.hpp"
-#include "../lambda/core/print.h"
-#include "../lambda/io/mark_builder.hpp"
+#include "lambda/core/data.hpp"
+#include "lambda/core/print.h"
+#include "lambda/io/mark_builder.hpp"
 // str.h included via view.hpp
 #include "tagged.hpp"
-#include "../lib/arraylist.h"
-#include "../lib/arraylist.hpp"
+#include "lib/arraylist.h"
+#include "lib/arraylist.hpp"
 
 #include <errno.h>
 #include <inttypes.h>
@@ -8661,7 +8661,7 @@ View* focus_get_visible(DocState* state) {
 // Text Extraction and Clipboard Operations
 // ============================================================================
 
-#include "../lib/strbuf.h"
+#include "lib/strbuf.h"
 
 static void append_view_text_rects(StrBuf* sb, ViewText* text, bool escape_html) {
     const char* text_data = (const char*)text->text_data();

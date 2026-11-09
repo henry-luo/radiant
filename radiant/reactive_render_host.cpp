@@ -1,6 +1,6 @@
 #include "reactive_render_host.hpp"
-#include "../lambda/core/value.hpp"
-#include "../lib/provider.hpp"
+#include "lambda/core/value.hpp"
+#include "lib/provider.hpp"
 
 static const RadiantReactiveRenderHostOps* reactive_render_host_ops = nullptr;
 

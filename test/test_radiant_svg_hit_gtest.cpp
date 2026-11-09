@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "../radiant/svg_hit.hpp"
+#include "radiant/svg_hit.hpp"
 
 TEST(MapGeometry, SelfCrossingFillBoundariesAndRectanglesDoNotDependOnSignedArea) {
     RdtPath* path=rdt_path_new();ASSERT_NE(path,nullptr);

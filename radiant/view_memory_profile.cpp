@@ -2,10 +2,10 @@
 
 #include "event.hpp"
 #include "view.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/style_epoch.hpp"
-#include "../lib/log.h"
-#include "../lib/mem_context.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/style_epoch.hpp"
+#include "lib/log.h"
+#include "lib/mem_context.h"
 
 #include <stdio.h>
 #include <string.h>

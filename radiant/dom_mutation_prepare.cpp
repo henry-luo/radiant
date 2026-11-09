@@ -1,7 +1,7 @@
 #include "dom_mutation_prepare.hpp"
 #include "layout.hpp"
 #include "view.hpp"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_element.hpp"
 
 static DomNode* significant_sibling(DomNode* child, bool forward) {
     for (DomNode* sibling = child ? (forward ? child->next_sibling : child->prev_sibling) : nullptr;

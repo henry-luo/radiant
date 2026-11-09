@@ -1,5 +1,5 @@
 #include "layout.hpp"
-#include "../lib/memtrack.h"
+#include "lib/memtrack.h"
 #include <new>
 
 // The arrays belong to the caller's scratch scope, which outlives the

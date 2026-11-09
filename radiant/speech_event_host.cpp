@@ -1,5 +1,5 @@
 #include "speech_event_host.hpp"
-#include "../lib/provider.hpp"
+#include "lib/provider.hpp"
 
 static const RadiantSpeechEventHostOps* speech_event_host_ops = nullptr;
 

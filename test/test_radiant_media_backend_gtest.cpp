@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "../radiant/rdt_speech.h"
-#include "../radiant/rdt_video.h"
+#include "radiant/rdt_speech.h"
+#include "radiant/rdt_video.h"
 #include <string.h>
 
 TEST(RadiantNativeMedia, VideoCapabilitiesUseThePlatformProvider) {

@@ -1,6 +1,6 @@
 #include "layout.hpp"
 
-#include "../lambda/input/css/css_style_node.hpp"
+#include "lambda/input/css/css_style_node.hpp"
 #include "tagged.hpp"
 #include <cmath>
 

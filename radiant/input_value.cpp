@@ -1,6 +1,6 @@
 #include "input_value.hpp"
-#include "../lambda/input/css/css_style.hpp"
-#include "../lib/str.h"
+#include "lambda/input/css/css_style.hpp"
+#include "lib/str.h"
 #include <stdint.h>
 #include <ctype.h>
 #include <math.h>

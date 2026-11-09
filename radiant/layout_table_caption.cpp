@@ -1,8 +1,8 @@
 #include "layout.hpp"
 
-#include "../lib/log.h"
+#include "lib/log.h"
 #include "tagged.hpp"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_element.hpp"
 
 void layout_table_caption_content_setup(LayoutContext* lycon, ViewBlock* caption,
                                         float content_width, BlockContext* parent,

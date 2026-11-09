@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../lib/arraylist.h"
+#include "lib/arraylist.h"
 struct DomElement;
 struct DomNode;
 

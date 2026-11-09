@@ -2,7 +2,7 @@
 
 #include <algorithm>
 #include <math.h>
-#include "../lib/color.h"
+#include "lib/color.h"
 
 // shared pixel primitives use packed ABGR values; premultiplied variants state
 // their alpha contract explicitly so callers do not repeat channel arithmetic.

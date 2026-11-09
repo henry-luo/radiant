@@ -10,27 +10,27 @@
 #include "event.hpp"
 #include "event_reconcile_host.hpp"
 #include "event_host.hpp"
-#include "../lib/font/font.h"
-#include "../lib/mem_factory.h"
+#include "lib/font/font.h"
+#include "lib/mem_factory.h"
 #include "radiant.hpp"
 #include "tagged.hpp"
-#include "../lib/str.h"
-#include "../lib/hash.h"
-#include "../lib/time_util.h"
-#include "../lib/shell.h"
+#include "lib/str.h"
+#include "lib/hash.h"
+#include "lib/time_util.h"
+#include "lib/shell.h"
 
 extern "C" {
-#include "../lib/memtrack.h"
+#include "lib/memtrack.h"
 }
 
-#include "../lambda/input/css/dom_node.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/dom_lifecycle.hpp"
-#include "../lambda/input/css/css_style.hpp"
-#include "../lambda/input/css/css_engine.hpp"
-#include "../lambda/input/css/css_style_node.hpp"
-#include "../lambda/input/css/style_epoch.hpp"
-#include "../lambda/input/css/css_engine.hpp"
+#include "lambda/input/css/dom_node.hpp"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_lifecycle.hpp"
+#include "lambda/input/css/css_style.hpp"
+#include "lambda/input/css/css_engine.hpp"
+#include "lambda/input/css/css_style_node.hpp"
+#include "lambda/input/css/style_epoch.hpp"
+#include "lambda/input/css/css_engine.hpp"
 double g_style_resolve_time = 0;
 
 bool layout_block_is_replaced_baseline(ViewBlock* block, bool include_select_listbox) {

@@ -1,8 +1,8 @@
 #include "render.hpp"
 #include "rdt_path_internal.hpp"
 #include "render_metrics.hpp"
-#include "../lib/hash.h"
-#include "../lib/mem_grow.hpp"
+#include "lib/hash.h"
+#include "lib/mem_grow.hpp"
 #include <limits.h>
 
 static void path_storage_release(RdtPathStorage* storage);

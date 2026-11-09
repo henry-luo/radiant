@@ -1,6 +1,6 @@
 #include "render.hpp"
 #include "view.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 
 RenderTransformScope render_state_push_transform(RasterRenderContext* rdcon, ViewBlock* block,
                                                  const BlockBlot* parent_block) {

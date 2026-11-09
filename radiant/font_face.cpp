@@ -1,20 +1,20 @@
 #include "view.hpp"
 #include "layout.hpp"
 #include "radiant.hpp"
-#include "../lib/font/font.h"  // unified font module — font_face_register, font_family_exists
-#include "../lambda/input/css/css_style.hpp"
-#include "../lambda/input/css/css_font_face.hpp"
-#include "../lambda/network/network_resource_manager.h"
+#include "lib/font/font.h"  // unified font module — font_face_register, font_family_exists
+#include "lambda/input/css/css_style.hpp"
+#include "lambda/input/css/css_font_face.hpp"
+#include "lambda/network/network_resource_manager.h"
 extern "C" {
-#include "../lib/url.h"
-#include "../lib/memtrack.h"
-#include "../lib/lambda_alloca.h"
-#include "../lib/str.h"
+#include "lib/url.h"
+#include "lib/memtrack.h"
+#include "lib/lambda_alloca.h"
+#include "lib/str.h"
 }
-#include "../lib/mem_grow.hpp"
+#include "lib/mem_grow.hpp"
 #include <string.h>
 #include <stdlib.h>
-#include "../lib/file.h"
+#include "lib/file.h"
 
 bool radiant_is_supported_web_font_source(const char* url, const char* format) {
     if (format && *format) {

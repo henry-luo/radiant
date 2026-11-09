@@ -3,13 +3,13 @@
 
 #include "render.hpp"
 #include "view.hpp"
-#include "../lib/arena.h"
-#include "../lib/mem_factory.h"
-#include "../lib/mempool.h"
+#include "lib/arena.h"
+#include "lib/mem_factory.h"
+#include "lib/mempool.h"
 #include <math.h>
 #include <string.h>
 extern "C" {
-#include "../lib/log.h"
+#include "lib/log.h"
 }
 
 typedef struct RenderEffectRasterImage {

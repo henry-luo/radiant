@@ -1,6 +1,6 @@
 #pragma once
 #include "render.hpp"
-#include "../lambda/core/mark_reader.hpp"
+#include "lambda/core/mark_reader.hpp"
 
 struct GeoMapExpression;
 enum GeoMapLayerKind { GEOMAP_BACKGROUND, GEOMAP_FILL, GEOMAP_LINE, GEOMAP_CIRCLE };

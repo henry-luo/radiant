@@ -1,8 +1,8 @@
 #include "source_path_value.hpp"
-#include "../lambda/io/mark_builder.hpp"
-#include "../lambda/core/mark_reader.hpp"
-#include "../lambda/core/lambda-decimal.hpp"
-#include "../lib/memtrack.h"
+#include "lambda/io/mark_builder.hpp"
+#include "lambda/core/mark_reader.hpp"
+#include "lambda/core/lambda-decimal.hpp"
+#include "lib/memtrack.h"
 #include <limits.h>
 #include <math.h>
 

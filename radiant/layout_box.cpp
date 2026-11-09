@@ -1,7 +1,7 @@
 #include "layout.hpp"
-#include "../lib/layout_boxes.h"
+#include "lib/layout_boxes.h"
 
-#include "../lib/log.h"
+#include "lib/log.h"
 
 BoxMetrics layout_boundary_metrics(const BoundaryProp* bound) {
     BoxMetrics metrics = {};

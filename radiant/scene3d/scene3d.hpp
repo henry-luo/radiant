@@ -1,5 +1,5 @@
 #pragma once
-#include "../../lambda/core/data.hpp"
+#include "lambda/core/data.hpp"
 #include "../gl_core.hpp"
 #include "scene3d_math.hpp"
 #include <stddef.h>

@@ -1,10 +1,10 @@
 #include "render.hpp"
 #include "layout.hpp"
 
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/css_style.hpp"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/css_style.hpp"
 #include "tagged.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 
 #include <stddef.h>
 #include <math.h>

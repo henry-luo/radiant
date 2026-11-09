@@ -1,5 +1,5 @@
 #include "scene3d_physics_event_host.hpp"
-#include "../../lib/provider.hpp"
+#include "lib/provider.hpp"
 
 static const Scene3dPhysicsEventHostOps* physics_event_host_ops = nullptr;
 

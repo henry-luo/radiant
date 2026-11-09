@@ -4,8 +4,8 @@
  */
 
 #include "view.hpp"
-#include "../lambda/input/css/css_symbol_hook.h"
-#include "../lib/html_entities.h"
+#include "lambda/input/css/css_symbol_hook.h"
+#include "lib/html_entities.h"
 #include <cstring>
 
 bool is_html_entity(const char* name, size_t len) {

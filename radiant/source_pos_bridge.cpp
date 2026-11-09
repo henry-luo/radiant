@@ -15,7 +15,7 @@
 
 // Bring in the full Item definition before including the bridge header,
 // since Item is passed by value across the C ABI.
-#include "../lambda/core/data.hpp"
+#include "lambda/core/data.hpp"
 
 #include "event.hpp"
 
@@ -23,12 +23,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../lib/memtrack.h"
+#include "lib/memtrack.h"
 #include "tagged.hpp"
-#include "../lambda/core/mark_reader.hpp"
+#include "lambda/core/mark_reader.hpp"
 #include "source_position_host.hpp"
-#include "../lambda/input/css/dom_node.hpp"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_node.hpp"
+#include "lambda/input/css/dom_element.hpp"
 
 // The full Radiant binary links state_store.cpp and uses the canonical writer.
 // Source-position bridge unit tests link this file without the full StateStore

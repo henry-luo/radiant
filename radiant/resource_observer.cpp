@@ -1,5 +1,5 @@
 #include "resource_observer.hpp"
-#include "../lib/provider.hpp"
+#include "lib/provider.hpp"
 
 static const RadiantResourceObserverOps* resource_observer_ops = nullptr;
 

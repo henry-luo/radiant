@@ -1,5 +1,5 @@
 #include "source_path.hpp"
-#include "../lib/memtrack.h"
+#include "lib/memtrack.h"
 #include <string.h>
 
 extern "C" {

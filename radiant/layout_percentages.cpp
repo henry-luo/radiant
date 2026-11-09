@@ -3,7 +3,7 @@
 #include "css_resolved_style.hpp"
 
 #include "tagged.hpp"
-#include "../lambda/input/css/css_style_node.hpp"
+#include "lambda/input/css/css_style_node.hpp"
 
 #include <math.h>
 #include <string.h>

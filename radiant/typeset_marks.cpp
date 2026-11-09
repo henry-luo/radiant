@@ -1,5 +1,5 @@
 #include "typeset_marks.hpp"
-#include "../lib/mem_grow.hpp"
+#include "lib/mem_grow.hpp"
 #include <string.h>
 
 TypesetStatus typeset_mark_append(TypesetMarkStore* store, const TypesetMark* mark) {

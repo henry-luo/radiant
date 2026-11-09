@@ -10,7 +10,7 @@
 
 #include <stddef.h>
 
-#include "../lib/log.h"
+#include "lib/log.h"
 
 extern "C" void radiant_app_icon_mac_set(const unsigned char* png, size_t length) {
     @autoreleasepool {

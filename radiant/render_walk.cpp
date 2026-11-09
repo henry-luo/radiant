@@ -3,9 +3,9 @@
 #include "view.hpp"
 #include "radiant.hpp"
 #include "tagged.hpp"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_element.hpp"
 extern "C" {
-#include "../lib/log.h"
+#include "lib/log.h"
 }
 
 // ============================================================================

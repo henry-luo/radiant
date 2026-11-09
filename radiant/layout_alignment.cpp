@@ -4,9 +4,9 @@
 
 #include "layout.hpp"
 #include "view.hpp"
-#include "../lib/font/font.h"
+#include "lib/font/font.h"
 #include "tagged.hpp"
-#include "../lambda/input/css/css_value.hpp"
+#include "lambda/input/css/css_value.hpp"
 
 namespace radiant {
 // Alignment Offset Computation

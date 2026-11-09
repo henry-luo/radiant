@@ -1,7 +1,7 @@
 #include "render.hpp"
 #include "layout.hpp"
-#include "../lib/utf.h"
-#include "../lib/str.h"
+#include "lib/utf.h"
+#include "lib/str.h"
 
 typedef struct RenderGlyphPathWriter {
     RdtPath* path;

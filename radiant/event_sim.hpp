@@ -80,8 +80,8 @@
 
 #include <cstdio>
 #include <cstdint>
-#include "../lib/arraylist.h"
-#include "../lambda/input/css/css_environment.hpp"
+#include "lib/arraylist.h"
+#include "lambda/input/css/css_environment.hpp"
 
 // Forward declarations
 struct RadiantWindow;

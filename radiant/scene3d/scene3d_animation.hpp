@@ -1,6 +1,6 @@
 #pragma once
 #include "../animation_mixer.hpp"
-#include "../../lib/arraylist.hpp"
+#include "lib/arraylist.hpp"
 #include <stddef.h>
 struct DomElement;
 struct Scene3dAnimationState;

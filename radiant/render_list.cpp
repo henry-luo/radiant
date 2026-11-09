@@ -2,9 +2,9 @@
 #include "layout.hpp"
 
 #include "tagged.hpp"
-#include "../lib/log.h"
-#include "../lib/font/font.h"
-#include "../lib/str.h"
+#include "lib/log.h"
+#include "lib/font/font.h"
+#include "lib/str.h"
 
 #include <math.h>
 #include <string.h>

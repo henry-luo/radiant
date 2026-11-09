@@ -14,19 +14,19 @@
 #include "radiant.hpp"
 #include "network_integration.h"
 
-#include "../lib/log.h"
-#include "../lib/mem_factory.h"
-#include "../lib/strbuf.h"
-#include "../lib/str.h"
-#include "../lib/url.h"
-#include "../lib/font/font.h"
+#include "lib/log.h"
+#include "lib/mem_factory.h"
+#include "lib/strbuf.h"
+#include "lib/str.h"
+#include "lib/url.h"
+#include "lib/font/font.h"
 #include "tagged.hpp"
-#include "../lib/time_util.h"
-#include "../lambda/input/input.hpp"
-#include "../lambda/network/network_resource_manager.h"
+#include "lib/time_util.h"
+#include "lambda/input/input.hpp"
+#include "lambda/network/network_resource_manager.h"
 
-#include "../lambda/input/css/selector_matcher.hpp"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/selector_matcher.hpp"
+#include "lambda/input/css/dom_element.hpp"
 #include <utf8proc.h>
 #include <cfloat>
 #include <cstdlib>

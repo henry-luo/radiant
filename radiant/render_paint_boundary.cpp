@@ -1,6 +1,6 @@
 #include "render.hpp"
-#include "../lambda/input/css/css_value.hpp"
-#include "../lib/math_utils.h"
+#include "lambda/input/css/css_value.hpp"
+#include "lib/math_utils.h"
 #include <math.h>
 #include <string.h>
 

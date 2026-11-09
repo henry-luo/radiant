@@ -6,10 +6,10 @@
 #include "render_metrics.hpp"
 
 #include "tagged.hpp"
-#include "../lib/log.h"
-#include "../lib/time_util.h"
-#include "../lib/font/font.h"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lib/log.h"
+#include "lib/time_util.h"
+#include "lib/font/font.h"
+#include "lambda/input/css/dom_element.hpp"
 
 #include <stdlib.h>
 

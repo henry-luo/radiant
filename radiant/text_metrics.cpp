@@ -1,7 +1,7 @@
 #include "layout.hpp"
-#include "../lib/font/font_tables.h"
-#include "../lib/utf.h"
-#include "../lib/arraylist.hpp"
+#include "lib/font/font_tables.h"
+#include "lib/utf.h"
+#include "lib/arraylist.hpp"
 
 #include <utf8proc.h>
 

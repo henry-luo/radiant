@@ -1,9 +1,9 @@
 #include "gl_core.hpp"
-#include "../lib/mem.h"
-#include "../lib/log.h"
-#include "../lib/str.h"
-#include "../lib/hash.h"
-#include "../lib/time_util.h"
+#include "lib/mem.h"
+#include "lib/log.h"
+#include "lib/str.h"
+#include "lib/hash.h"
+#include "lib/time_util.h"
 #include <math.h>
 
 // isolate core-profile declarations from the shell's legacy OpenGL headers.

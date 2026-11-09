@@ -26,13 +26,13 @@
 #include "view.hpp"
 #include "render.hpp"
 
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/dom_lifecycle.hpp"
-#include "../lambda/core/collection_storage.h"
-#include "../lib/log.h"
-#include "../lib/arraylist.h"
-#include "../lib/memtrack.h"
-#include "../lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_lifecycle.hpp"
+#include "lambda/core/collection_storage.h"
+#include "lib/log.h"
+#include "lib/arraylist.h"
+#include "lib/memtrack.h"
+#include "lib/str.h"
 #include "tagged.hpp"
 
 #include <string.h>

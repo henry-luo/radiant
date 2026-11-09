@@ -2,13 +2,13 @@
 PYTHON ?= python3
 INPUT_ROOT ?= ../lambda-input
 DEPS_ROOT ?= ../Lambda
-RADIANT_CPPFLAGS = -I. -I$(INPUT_ROOT) -Ilib/re2 -Ilib/font/woff2/include \
+RADIANT_CPPFLAGS = -I. -I$(INPUT_ROOT) -I$(INPUT_ROOT)/lib/re2 -I$(INPUT_ROOT)/lib/font/woff2/include \
   -I$(DEPS_ROOT)/build_temp/image-config/include -I$(DEPS_ROOT)/build_temp/utf8proc \
   -I$(DEPS_ROOT)/mac-deps/curl-8.10.1/include -I$(DEPS_ROOT)/mac-deps/thorvg/inc \
   -I$(DEPS_ROOT)/mac-deps/thorvg/src/bindings/capi -I/opt/homebrew/include -I/usr/local/include \
-  -Ilib/image/libpng -Ilib/image/libjpeg-turbo/src -Ilib/image/libwebp/src \
-  -Ilib/image/libavif/include -Ilib/image/libtiff/libtiff -Ilib/image/giflib \
-  -Ilib/image/libnsbmp/include $(shell pkg-config --cflags fribidi libopenjp2 2>/dev/null) $(RADIANT_EXTRA_CPPFLAGS)
+  -I$(INPUT_ROOT)/lib/image/libpng -I$(INPUT_ROOT)/lib/image/libjpeg-turbo/src -I$(INPUT_ROOT)/lib/image/libwebp/src \
+  -I$(INPUT_ROOT)/lib/image/libavif/include -I$(INPUT_ROOT)/lib/image/libtiff/libtiff -I$(INPUT_ROOT)/lib/image/giflib \
+  -I$(INPUT_ROOT)/lib/image/libnsbmp/include $(shell pkg-config --cflags fribidi libopenjp2 2>/dev/null) $(RADIANT_EXTRA_CPPFLAGS)
 ifeq ($(shell uname -s),Darwin)
 PLATFORM_FLAGS ?= -mmacosx-version-min=15.7
 endif
@@ -26,8 +26,11 @@ endif
 NATIVE_OBJECTS := $(addprefix build/obj/native/,$(addsuffix .o,$(NATIVE_SOURCES)))
 PROPERTY_OBJECTS := $(addprefix build/obj/properties/,$(addsuffix .o,$(PROPERTY_SOURCES)))
 
-.PHONY: all clean test-native force-build-signature
-all: build/lib/libradiant.a build/lib/libradiant-properties.a
+.PHONY: all clean test-native check-input-facade force-build-signature
+all: check-input-facade build/lib/libradiant.a build/lib/libradiant-properties.a
+
+check-input-facade:
+	$(PYTHON) scripts/check_input_facade.py
 
 # Flags, dependency paths and source membership are part of archive identity.
 export CXX AR CPPFLAGS CXXFLAGS PLATFORM_FLAGS RADIANT_CPPFLAGS DEFINES NATIVE_SOURCES PROPERTY_SOURCES OBJCXX_SOURCES
@@ -86,7 +89,7 @@ build/test/test_radiant_media_backend_gtest: test/test_radiant_media_backend_gte
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $< build/lib/libradiant.a $(INPUT_ROOT)/build/lib/liblambda-lib.a $(GTEST_FLAGS) $(MEDIA_TEST_LIBS) -o $@
 
-test-native: $(NATIVE_TEST_BINS)
+test-native: check-input-facade $(NATIVE_TEST_BINS)
 	@set -e; for test_bin in $(NATIVE_TEST_BINS); do ./$$test_bin; done
 
 # Force every native archive member into a client without a Lambda runtime.
@@ -111,7 +114,7 @@ NATIVE_CLOSURE_LIBS ?= $(DEPS_ROOT)/build_temp/utf8proc/build/libutf8proc.a \
   -framework CoreText -framework AppKit -framework Carbon -framework WebKit -liconv -lpthread
 
 .PHONY: test-native-closure
-test-native-closure: build/lib/libradiant.a build/lib/libradiant-properties.a $(INPUT_ROOT)/build/lib/liblambda-input.a $(INPUT_ROOT)/build/lib/liblambda-lib.a
+test-native-closure: check-input-facade build/lib/libradiant.a build/lib/libradiant-properties.a $(INPUT_ROOT)/build/lib/liblambda-input.a $(INPUT_ROOT)/build/lib/liblambda-lib.a
 	@mkdir -p build/test
 	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(CXXFLAGS) -std=c++17 \
 	  test/test_native_archive_closure.cpp -o build/test/test_native_archive_closure \

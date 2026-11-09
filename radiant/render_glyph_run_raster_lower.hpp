@@ -4,8 +4,8 @@
 #include "render.hpp"
 #include "layout.hpp"
 #include "view.hpp"
-#include "../lib/str.h"
-#include "../lib/utf.h"
+#include "lib/str.h"
+#include "lib/utf.h"
 #include <math.h>
 #include <string.h>
 

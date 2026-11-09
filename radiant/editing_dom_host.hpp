@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_element.hpp"
 
 struct DomDocument;
 struct DomElement;

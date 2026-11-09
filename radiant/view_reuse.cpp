@@ -1,8 +1,8 @@
 #include "view.hpp"
 
-#include "../lib/mem_factory.h"
-#include "../lib/hash.h"
-#include "../lib/hashmap_typed.hpp"
+#include "lib/mem_factory.h"
+#include "lib/hash.h"
+#include "lib/hashmap_typed.hpp"
 
 #include <math.h>
 #include <string.h>

@@ -3,11 +3,11 @@
 
 #include "event.hpp"
 #include "view.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/str.h"
-#include "../lib/strbuf.h"
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/str.h"
+#include "lib/strbuf.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
 #include <string.h>
 
 // Phase 8E: per-text-control selectionchange dispatch. Strong impl lives in

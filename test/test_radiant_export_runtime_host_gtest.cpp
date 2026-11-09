@@ -1,5 +1,5 @@
 #include "test_native_provider.hpp"
-#include "../radiant/export_runtime_host.hpp"
+#include "radiant/export_runtime_host.hpp"
 
 static int owner_marker;
 static int releases;

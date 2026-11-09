@@ -1,9 +1,9 @@
 #include "scene3d.hpp"
 #include "scene3d_source.hpp"
 #include "scene3d_physics.hpp"
-#include "../../lib/physics/physics_math.h"
-#include "../../lambda/input/css/dom_element.hpp"
-#include "../../lambda/core/mark_reader.hpp"
+#include "lib/physics/physics_math.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/core/mark_reader.hpp"
 #include <float.h>
 
 static constexpr size_t PARTICLE_QUERY_WORK_LIMIT = 65536;

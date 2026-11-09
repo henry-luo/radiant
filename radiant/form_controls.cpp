@@ -1,6 +1,6 @@
 #include "form_controls.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/str.h"
 #include <string.h>
 
 const char* radiant_form_control_type(DomElement* element) {

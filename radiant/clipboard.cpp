@@ -15,17 +15,17 @@
  */
 
 #include "clipboard.hpp"
-#include "../lib/base64.h"
+#include "lib/base64.h"
 
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
 
-#include "../lib/log.h"
-#include "../lib/arena.h"
-#include "../lib/arraylist.h"
-#include "../lib/memtrack.h"
-#include "../lib/strbuf.h"
+#include "lib/log.h"
+#include "lib/arena.h"
+#include "lib/arraylist.h"
+#include "lib/memtrack.h"
+#include "lib/strbuf.h"
 
 // GLFW backend is opt-in: define RADIANT_CLIPBOARD_GLFW when linking GLFW.
 // The default headless / test build uses the in-memory backend and never

@@ -3,13 +3,13 @@
 #include "layout.hpp"
 #include "tagged.hpp"
 extern "C" {
-#include "../lib/url.h"
-#include "../lib/mempool.h"
-#include "../lib/memtrack.h"
-#include "../lib/log.h"
-#include "../lib/time_util.h"
+#include "lib/url.h"
+#include "lib/mempool.h"
+#include "lib/memtrack.h"
+#include "lib/log.h"
+#include "lib/time_util.h"
 }
-#include "../lambda/input/input.hpp"
+#include "lambda/input/input.hpp"
 #include "../radiant/radiant.hpp"
 #include <stdio.h>
 #include <string.h>

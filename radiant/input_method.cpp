@@ -2,11 +2,11 @@
 #include "event_host.hpp"
 #include "render.hpp"
 #include "layout.hpp"
-#include "../lambda/core/mark_reader.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/log.h"
+#include "lambda/core/mark_reader.hpp"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/log.h"
 #include "tagged.hpp"
-#include "../lib/mem.h"
+#include "lib/mem.h"
 #include <string.h>
 #include <math.h>
 #include <limits.h>

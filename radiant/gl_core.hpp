@@ -2,7 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include "../lib/webgl.h"
+#include "lib/webgl.h"
 
 struct ImageSurface;
 struct NativeGlContext;

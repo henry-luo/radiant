@@ -2,8 +2,8 @@
 #include "css_resolved_style.hpp"
 
 extern "C" {
-#include "../lib/log.h"
-#include "../lib/str.h"
+#include "lib/log.h"
+#include "lib/str.h"
 }
 
 #include <ctype.h>

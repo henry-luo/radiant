@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <limits.h>
-#include "../lib/utf.h"
+#include "lib/utf.h"
 #include <utf8proc.h>
 
 #ifdef __APPLE__

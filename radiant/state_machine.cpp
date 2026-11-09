@@ -5,10 +5,10 @@
 #include "state_store_internal.hpp"
 #include "view.hpp"
 #include "layout.hpp"
-#include "../lambda/input/css/dom_node.hpp"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_node.hpp"
+#include "lambda/input/css/dom_element.hpp"
 #include "tagged.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 
 #ifndef NDEBUG
 #include <assert.h>

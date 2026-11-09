@@ -1,11 +1,11 @@
 #include "layout.hpp"
-#include "../lib/hashmap_helpers.h"
+#include "lib/hashmap_helpers.h"
 #include "render.hpp"
 #include "event.hpp"
 #include "css_resolved_style.hpp"
 
-#include "../lib/log.h"
-#include "../lib/mem.h"
+#include "lib/log.h"
+#include "lib/mem.h"
 #include "tagged.hpp"
 #include <cmath>
 

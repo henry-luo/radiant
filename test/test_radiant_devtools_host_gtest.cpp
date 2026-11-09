@@ -1,5 +1,5 @@
 #include "test_native_provider.hpp"
-#include "../radiant/devtools_adapter.hpp"
+#include "radiant/devtools_adapter.hpp"
 
 static UiContext* observed_ui;
 static int observed_fd;

@@ -1,7 +1,7 @@
 #pragma once
 #include "view_tree_model.hpp"
 #include "view.hpp"
-#include "../lambda/input/css/css_paged_media.hpp"
+#include "lambda/input/css/css_paged_media.hpp"
 
 struct CssEngine;
 struct ViewCssStyle;

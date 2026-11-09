@@ -2,8 +2,8 @@
 #include "view.hpp"
 #include "event.hpp"
 #include "tagged.hpp"
-#include "../lambda/input/css/css_style_node.hpp"
-#include "../lambda/input/css/css_style.hpp"
+#include "lambda/input/css/css_style_node.hpp"
+#include "lambda/input/css/css_style.hpp"
 #include <cfloat>
 #include <cmath>
 

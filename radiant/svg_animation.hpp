@@ -1,7 +1,7 @@
 #pragma once
 
 #include <stdint.h>
-#include "../lambda/input/css/dom_svg_context.h"
+#include "lambda/input/css/dom_svg_context.h"
 
 struct DomDocument;
 struct DomElement;

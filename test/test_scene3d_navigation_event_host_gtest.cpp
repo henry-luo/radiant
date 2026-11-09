@@ -1,5 +1,5 @@
 #include "test_native_provider.hpp"
-#include "../radiant/scene3d/scene3d_navigation_event_host.hpp"
+#include "radiant/scene3d/scene3d_navigation_event_host.hpp"
 
 static DomElement* observed_target;
 static Scene3dNavigation* observed_state;

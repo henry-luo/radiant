@@ -3,7 +3,7 @@
 #include "svg_animation.hpp"
 #include "render.hpp"
 #include "export_runtime_host.hpp"
-#include "../lib/base64.h"
+#include "lib/base64.h"
 #include "layout.hpp"
 #include "layout_paged.hpp"
 #include "page_document.hpp"
@@ -13,17 +13,17 @@
 #include "event.hpp"
 
 #include "tagged.hpp"
-#include "../lambda/input/css/css_engine.hpp"
-#include "../lib/mem_factory.h"
-#include "../lib/hash.h"
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
-#include "../lib/file.h"
-#include "../lib/str.h"
-#include "../lib/time_util.h"
-#include "../lib/uv_loop.h"
+#include "lambda/input/css/css_engine.hpp"
+#include "lib/mem_factory.h"
+#include "lib/hash.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
+#include "lib/file.h"
+#include "lib/str.h"
+#include "lib/time_util.h"
+#include "lib/uv_loop.h"
 #include <pthread.h>
-#include "../lambda/io/image_io.h"
+#include "lambda/io/image_io.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>

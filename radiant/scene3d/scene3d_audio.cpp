@@ -7,11 +7,11 @@
 #include "../audio_render.hpp"
 #include "../speech.hpp"
 #include "../event.hpp"
-#include "../../lambda/input/css/dom_element.hpp"
-#include "../../lambda/core/mark_reader.hpp"
-#include "../../lambda/core/physics_scene.hpp"
-#include "../../lib/mem.h"
-#include "../../lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/core/mark_reader.hpp"
+#include "lambda/core/physics_scene.hpp"
+#include "lib/mem.h"
+#include "lib/str.h"
 #include <float.h>
 
 static constexpr struct { const char* name; float fallback, minimum, maximum; } audio_numbers[] = {

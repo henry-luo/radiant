@@ -6,10 +6,10 @@
 #include "event.hpp"
 
 #include "view.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/log.h"
-#include "../lib/str.h"
-#include "../lib/memtrack.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/log.h"
+#include "lib/str.h"
+#include "lib/memtrack.h"
 
 #include <stdint.h>
 #include <string.h>

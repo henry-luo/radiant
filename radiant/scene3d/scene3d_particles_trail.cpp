@@ -1,7 +1,7 @@
 #include "scene3d.hpp"
 #include "scene3d_source.hpp"
-#include "../../lambda/input/css/dom_element.hpp"
-#include "../../lib/mem.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/mem.h"
 
 static_assert(sizeof(Scene3dParticleTrailPoint) == 4 * sizeof(float), "particle trail RGBA32F point layout");
 

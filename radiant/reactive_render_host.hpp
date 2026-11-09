@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../lambda/core/render_bridge.hpp"
+#include "lambda/core/render_bridge.hpp"
 
 struct DomElement;
 

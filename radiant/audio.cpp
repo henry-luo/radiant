@@ -4,11 +4,11 @@
 #include "audio_cue_owner.hpp"
 #include "audio_capture.hpp"
 #include "document_clock.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/mem.h"
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
-#include "../lib/arraylist.hpp"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/mem.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
+#include "lib/arraylist.hpp"
 #include "event.hpp"
 #include <math.h>
 #include <pthread.h>

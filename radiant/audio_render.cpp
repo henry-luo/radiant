@@ -1,9 +1,9 @@
 #include "audio_render.hpp"
 #include "audio_cue_owner.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/endian.h"
-#include "../lib/mem.h"
-#include "../lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/endian.h"
+#include "lib/mem.h"
+#include "lib/str.h"
 #include <math.h>
 #include <string.h>
 

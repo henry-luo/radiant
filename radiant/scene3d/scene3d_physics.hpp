@@ -1,6 +1,6 @@
 #pragma once
-#include "../../lambda/core/data.hpp"
-#include "../../lib/physics/physics.h"
+#include "lambda/core/data.hpp"
+#include "lib/physics/physics.h"
 #include "scene3d_math.hpp"
 struct DomElement;
 struct DomNode;

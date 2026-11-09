@@ -1,8 +1,8 @@
 #include "event.hpp"
 
 #include "view.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/str.h"
 #include "tagged.hpp"
 
 

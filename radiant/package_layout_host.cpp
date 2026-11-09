@@ -1,5 +1,5 @@
 #include "package_layout_host.hpp"
-#include "../lib/provider.hpp"
+#include "lib/provider.hpp"
 
 static const RadiantPackageLayoutHostOps* package_layout_host_ops = nullptr;
 

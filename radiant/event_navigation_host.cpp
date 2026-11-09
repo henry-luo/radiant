@@ -1,5 +1,5 @@
 #include "event_navigation_host.hpp"
-#include "../lib/provider.hpp"
+#include "lib/provider.hpp"
 
 static const RadiantEventNavigationHostOps* navigation_host_ops = nullptr;
 

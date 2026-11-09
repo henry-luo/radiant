@@ -1,5 +1,5 @@
 #include "pdf_export_host.hpp"
-#include "../lib/provider.hpp"
+#include "lib/provider.hpp"
 
 static const RadiantPdfExportHostOps* pdf_export_host_ops = nullptr;
 

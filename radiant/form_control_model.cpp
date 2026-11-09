@@ -1,6 +1,6 @@
 #include "view.hpp"
 
-#include "../lib/str.h"
+#include "lib/str.h"
 
 #include <string.h>
 

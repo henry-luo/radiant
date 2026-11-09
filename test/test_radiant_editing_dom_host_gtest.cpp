@@ -1,6 +1,6 @@
 #include "test_native_provider.hpp"
-#include "../radiant/editing_dom_host.hpp"
-#include "../radiant/script_loop_host.hpp"
+#include "radiant/editing_dom_host.hpp"
+#include "radiant/script_loop_host.hpp"
 
 static DomDocument* observed_document;
 static DomElement* observed_parent;

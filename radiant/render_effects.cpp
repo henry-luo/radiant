@@ -1,6 +1,6 @@
 #include "render.hpp"
 
-#include "../lib/log.h"
+#include "lib/log.h"
 
 #include <math.h>
 #include <stddef.h>

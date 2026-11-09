@@ -1,7 +1,7 @@
 #include "css_mutation_queries.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/css_parser.hpp"
-#include "../lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/css_parser.hpp"
+#include "lib/str.h"
 
 static bool dom_js_simple_selector_mentions_mutation_attribute(
         CssSimpleSelector* simple, const char* attribute);

@@ -1,5 +1,5 @@
 #include "test_native_provider.hpp"
-#include "../radiant/resource_observer.hpp"
+#include "radiant/resource_observer.hpp"
 
 static void* notified_element;
 static bool notified_loaded;

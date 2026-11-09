@@ -1,7 +1,7 @@
 #pragma once
 
 #include "source_path.hpp"
-#include "../lambda/core/data.hpp"
+#include "lambda/core/data.hpp"
 
 class MarkBuilder;
 

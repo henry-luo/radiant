@@ -12,9 +12,9 @@
 #include "event.hpp"
 #include "view.hpp"
 #include "glyph_sampling.hpp"
-#include "../lib/font/font.h"
-#include "../lib/log.h"
-#include "../lib/mem.h"
+#include "lib/font/font.h"
+#include "lib/log.h"
+#include "lib/mem.h"
 
 #include <string.h>
 #include <stdio.h>

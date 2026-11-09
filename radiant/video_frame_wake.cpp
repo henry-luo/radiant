@@ -2,7 +2,7 @@
 
 #include "event.hpp"
 #include "rdt_video.h"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_element.hpp"
 
 static RadiantVideoWakeCallback g_video_wake_callback = nullptr;
 static void* g_video_wake_user_data = nullptr;

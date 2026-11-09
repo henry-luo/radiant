@@ -1,5 +1,5 @@
 #include "event_sim_controller_host.hpp"
-#include "../lib/provider.hpp"
+#include "lib/provider.hpp"
 
 static const RadiantEventSimControllerHostOps* event_sim_controller_ops = nullptr;
 

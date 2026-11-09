@@ -2,7 +2,7 @@
 #include "layout.hpp"
 
 #include "tagged.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 
 bool render_column_rules_begin(ViewBlock* block, RenderColumnRuleIterator* iterator) {
     if (!block || !iterator || !block->multicol_prop()) return false;

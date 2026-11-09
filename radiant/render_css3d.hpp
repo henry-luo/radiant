@@ -2,8 +2,8 @@
 #define RADIANT_RENDER_CSS3D_HPP
 
 #include "render.hpp"
-#include "../lib/arraylist.hpp"
-#include "../lib/scratch_arena.h"
+#include "lib/arraylist.hpp"
+#include "lib/scratch_arena.h"
 
 // Homogeneous positions and original plane coordinates survive clipping and
 // splitting. Vertex storage is borrowed from the caller's render scratch scope

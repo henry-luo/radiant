@@ -1,5 +1,5 @@
 #include "document_clock.hpp"
-#include "../lib/provider.hpp"
+#include "lib/provider.hpp"
 #include <uv.h>
 
 static const RadiantDocumentClockOps* document_clock_ops = nullptr;

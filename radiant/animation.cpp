@@ -1,5 +1,5 @@
 #include "view.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 #include <math.h>
 #include <limits.h>
 

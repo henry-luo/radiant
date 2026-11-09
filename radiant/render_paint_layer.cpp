@@ -11,9 +11,9 @@
 #include "render_metrics.hpp"
 #include "layout.hpp"
 #include "event.hpp"
-#include "../lib/log.h"
-#include "../lib/shell.h"
-#include "../lib/memtrack.h"
+#include "lib/log.h"
+#include "lib/shell.h"
+#include "lib/memtrack.h"
 #include "tagged.hpp"
 
 #include <math.h>

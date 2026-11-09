@@ -1,6 +1,6 @@
 #include "gl_core.hpp"
-#include "../lib/strbuf.h"
-#include "../lib/mem.h"
+#include "lib/strbuf.h"
+#include "lib/mem.h"
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>

@@ -8,12 +8,12 @@
 #include "radiant.hpp"
 #include "tagged.hpp"
 #include "form_controls.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/dom_lifecycle.hpp"
-#include "../lambda/input/css/css_engine.hpp"
-#include "../lib/arraylist.h"
-#include "../lib/font/font.h"
-#include "../lib/log.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_lifecycle.hpp"
+#include "lambda/input/css/css_engine.hpp"
+#include "lib/arraylist.h"
+#include "lib/font/font.h"
+#include "lib/log.h"
 #include <assert.h>
 #include <math.h>
 

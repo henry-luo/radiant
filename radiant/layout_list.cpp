@@ -12,11 +12,11 @@
 #include "layout.hpp"
 #include "css_resolved_style.hpp"
 #include "render.hpp"
-#include "../lib/log.h"
-#include "../lib/strbuf.h"
+#include "lib/log.h"
+#include "lib/strbuf.h"
 #include "tagged.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/css_style_node.hpp"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/css_style_node.hpp"
 static const char* counter_name_from_reversed_value(const CssValue* item) {
     if (!item) return nullptr;
     if (item->type == CSS_VALUE_TYPE_FUNCTION && item->data.function) {

@@ -1,7 +1,7 @@
 #include "render.hpp"
 #include "render_path_internal.hpp"
-#include "../lib/mem_grow.h"
-#include "../lib/str.h"
+#include "lib/mem_grow.h"
+#include "lib/str.h"
 #include <stdlib.h>
 #include <string.h>
 

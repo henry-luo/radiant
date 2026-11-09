@@ -23,9 +23,9 @@
 #include "webview_handle_linux.h"
 
 extern "C" {
-#include "../lib/file.h"
-#include "../lib/log.h"
-#include "../lib/mem.h"
+#include "lib/file.h"
+#include "lib/log.h"
+#include "lib/mem.h"
 }
 
 // ---------------------------------------------------------------------------

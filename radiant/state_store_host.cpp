@@ -1,6 +1,6 @@
 #include "state_store_host.hpp"
-#include "../lib/provider.hpp"
-#include "../lib/log.h"
+#include "lib/provider.hpp"
+#include "lib/log.h"
 #include <stdlib.h>
 
 static const RadiantStateStoreHostOps* state_store_host_ops = nullptr;

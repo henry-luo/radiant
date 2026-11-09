@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../lib/arraylist.h"
+#include "lib/arraylist.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>

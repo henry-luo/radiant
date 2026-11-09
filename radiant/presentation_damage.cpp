@@ -6,8 +6,8 @@
 // op carries trusted device-space bounds (dirty replay already skips by them), so an
 // element's recorded items bound everything it paints, transformed or projected.
 #include "render.hpp"
-#include "../lib/log.h"
-#include "../lib/shell.h"
+#include "lib/log.h"
+#include "lib/shell.h"
 
 #include <math.h>
 #include <string.h>

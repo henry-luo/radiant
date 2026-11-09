@@ -9,10 +9,10 @@
 
 #include "platform.hpp"
 
-#include "../lib/log.h"
+#include "lib/log.h"
 
 #ifndef _WIN32
-#include "../lib/image.h"
+#include "lib/image.h"
 #include "app_icon_data.h"
 #endif
 

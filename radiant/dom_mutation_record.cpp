@@ -2,10 +2,10 @@
 #include "css_mutation_queries.hpp"
 #include "event.hpp"
 #include "view.hpp"
-#include "../lambda/input/css/dom_lifecycle.hpp"
-#include "../lib/str.h"
-#include "../lib/mem_grow.hpp"
-#include "../lib/log.h"
+#include "lambda/input/css/dom_lifecycle.hpp"
+#include "lib/str.h"
+#include "lib/mem_grow.hpp"
+#include "lib/log.h"
 #include <string.h>
 
 static inline uint32_t dom_mutation_bit(DomJsMutationKind kind) {

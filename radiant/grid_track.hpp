@@ -23,9 +23,9 @@
 #include <cstdint>
 #include <math.h>
 
-#include "../lib/log.h"
-#include "../lib/ownership.hpp"
-#include "../lib/arraylist.hpp"
+#include "lib/log.h"
+#include "lib/ownership.hpp"
+#include "lib/arraylist.hpp"
 
 struct CssValue;
 namespace radiant { float resolve_computed_length_percentage(const CssValue*, float); }

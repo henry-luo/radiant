@@ -1,8 +1,8 @@
 #include "input_value.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/arraylist.h"
-#include "../lib/mem.h"
-#include "../lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/arraylist.h"
+#include "lib/mem.h"
+#include "lib/str.h"
 
 typedef struct RadiantInputStateEntry {
     DomElement* element;

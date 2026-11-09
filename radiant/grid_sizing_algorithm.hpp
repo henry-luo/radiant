@@ -34,8 +34,8 @@
 #include "layout.hpp"
 #include <math.h>    // isinf, INFINITY, fabsf
 #include <float.h>   // FLT_MAX
-#include "../lib/mem.h"
-#include "../lib/log.h"
+#include "lib/mem.h"
+#include "lib/log.h"
 
 struct LayoutContext;
 struct ViewBlock;

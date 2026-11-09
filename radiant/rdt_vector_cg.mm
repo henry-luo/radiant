@@ -1,13 +1,13 @@
 // rdt_vector_cg.mm — Core Graphics backend for RdtVector (macOS)
 #include "render.hpp"
-#include "../lib/log.h"
-#include "../lib/mem_factory.h"
-#include "../lib/mem.h"
-#include "../lib/mempool.h"
-#include "../lib/file.h"
-#include "../lambda/input/input.hpp"
-#include "../lambda/input/input-parsers.h"
-#include "../lambda/lambda-data.hpp"
+#include "lib/log.h"
+#include "lib/mem_factory.h"
+#include "lib/mem.h"
+#include "lib/mempool.h"
+#include "lib/file.h"
+#include "lambda/input/input.hpp"
+#include "lambda/input/input-parsers.h"
+#include "lambda/core/data.hpp"
 #define Rect MacOSRect
 #include <CoreGraphics/CoreGraphics.h>
 #undef Rect

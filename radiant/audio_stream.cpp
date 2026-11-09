@@ -1,6 +1,6 @@
 #include "audio_miniaudio.hpp"
 #include "audio_stream.hpp"
-#include "../lib/mem.h"
+#include "lib/mem.h"
 #include <math.h>
 
 struct AudioStream {

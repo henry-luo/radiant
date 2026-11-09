@@ -1,6 +1,6 @@
 #include "audio_capture_pcm.hpp"
 #include "audio_miniaudio.hpp"
-#include "../lib/mem.h"
+#include "lib/mem.h"
 #include <math.h>
 
 struct CaptureFrame { uint64_t frame; float left, right; };

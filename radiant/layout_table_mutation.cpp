@@ -1,7 +1,7 @@
 #include "layout_table_mutation.hpp"
 #include "layout.hpp"
 #include "view.hpp"
-#include "../lib/arraylist.h"
+#include "lib/arraylist.h"
 #include "tagged.hpp"
 
 void layout_table_append_detached_node(DomElement* parent, DomNode* child) {

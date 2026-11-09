@@ -5,16 +5,16 @@
 
 #include "render.hpp"
 #include "rdt_path_internal.hpp"
-#include "../lib/log.h"
-#include "../lib/mem_factory.h"
-#include "../lib/memtrack.h"
-#include "../lib/math_checked.hpp"
+#include "lib/log.h"
+#include "lib/mem_factory.h"
+#include "lib/memtrack.h"
+#include "lib/math_checked.hpp"
 #include <string.h>
 #include <limits.h>
 #include <math.h>
 #include <new>
-#include "../lib/generation.h"
-#include "../lib/hashmap_typed.hpp"
+#include "lib/generation.h"
+#include "lib/hashmap_typed.hpp"
 
 
 static const DisplayOpDescriptor DISPLAY_OP_DESCRIPTORS[] = {

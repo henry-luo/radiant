@@ -1,5 +1,5 @@
 #include "view.hpp"
-#include "../lambda/input/css/css_style.hpp"
+#include "lambda/input/css/css_style.hpp"
 
 bool css_property_runtime_inherited(CssPropertyCode property) {
     if (css_property_is_svg_presentation(property) && !css_property_is_svg_paint(property)) {

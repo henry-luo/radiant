@@ -1,5 +1,5 @@
 #include "test_native_provider.hpp"
-#include "../radiant/event_sim_script_host.hpp"
+#include "radiant/event_sim_script_host.hpp"
 
 static bool evaluate(UiContext*, const char* source, bool assertion) {
     return source && assertion;

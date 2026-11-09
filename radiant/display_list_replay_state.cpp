@@ -1,6 +1,6 @@
 #include "render.hpp"
 
-#include "../lib/log.h"
+#include "lib/log.h"
 
 DisplayReplayDirtyClip dl_replay_push_dirty_clip(RdtVector* vec,
                                                  DirtyTracker* dirty_tracker,

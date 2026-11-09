@@ -1,5 +1,5 @@
 #include "test_native_provider.hpp"
-#include "../radiant/document_clock.hpp"
+#include "radiant/document_clock.hpp"
 #include <stddef.h>
 #include <uv.h>
 

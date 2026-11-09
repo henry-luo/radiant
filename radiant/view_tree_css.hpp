@@ -1,8 +1,8 @@
 #pragma once
 #include "view.hpp"
 #include "view_tree_model.hpp"
-#include "../lambda/input/css/css_engine.hpp"
-#include "../lambda/input/css/css_paged_media.hpp"
+#include "lambda/input/css/css_engine.hpp"
+#include "lambda/input/css/css_paged_media.hpp"
 
 struct ViewCssVariable;
 struct CounterSnapshot;

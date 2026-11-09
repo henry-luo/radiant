@@ -1,9 +1,9 @@
 #include "layout.hpp"
 #include "view_tree_model.hpp"
-#include "../lambda/input/css/css_engine.hpp"
-#include "../lib/str.h"
-#include "../lib/strbuf.h"
-#include "../lib/image.h"
+#include "lambda/input/css/css_engine.hpp"
+#include "lib/str.h"
+#include "lib/strbuf.h"
+#include "lib/image.h"
 #include <math.h>
 
 static bool image_source_space(char c) {

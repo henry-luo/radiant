@@ -1,6 +1,6 @@
 #include "page_fo_expression.hpp"
-#include "../lambda/input/css/css_parser.hpp"
-#include "../lib/arraylist.h"
+#include "lambda/input/css/css_parser.hpp"
+#include "lib/arraylist.h"
 #include <string.h>
 #include <math.h>
 

@@ -15,11 +15,11 @@
 #include "audio.hpp"
 #include "event.hpp"
 #include "event_host.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/mem.h"
-#include "../lib/log.h"
-#include "../lib/arraylist.hpp"
-#include "../lib/utf.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/mem.h"
+#include "lib/log.h"
+#include "lib/arraylist.hpp"
+#include "lib/utf.h"
 
 #define MA_NO_DECODING
 #define MA_NO_ENCODING
@@ -27,7 +27,7 @@
 #define MA_NO_NODE_GRAPH
 #define MA_NO_ENGINE
 #define MA_NO_GENERATION
-#include "../lib/miniaudio/miniaudio.h"
+#include "lib/miniaudio/miniaudio.h"
 
 #include <math.h>
 #include <stdlib.h>

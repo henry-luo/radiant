@@ -1,17 +1,17 @@
 #include "render_metrics.hpp"
 #include "render.hpp"
 
-#include "../lib/mem_factory.h"
-#include "../lib/hashmap_typed.hpp"
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
-#include "../lib/arena.h"
+#include "lib/mem_factory.h"
+#include "lib/hashmap_typed.hpp"
+#include "lib/log.h"
+#include "lib/memtrack.h"
+#include "lib/arena.h"
 
 #include <math.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../lib/generation.h"
+#include "lib/generation.h"
 
 struct RetainedPaintChunk;
 enum RetainedResourceKind { RETAINED_GLYPH_EPOCH, RETAINED_VIDEO_EPOCH, RETAINED_EPOCH_COUNT,

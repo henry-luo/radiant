@@ -3,13 +3,13 @@
 #include "layout_table.hpp"
 #include "layout.hpp"
 #include "render.hpp"
-#include "../lambda/input/css/css_style_node.hpp"
-#include "../lambda/input/css/css_parser.hpp"
-#include "../lib/font/font.h"
-#include "../lib/mem_factory.h"
-#include "../lib/checked_alloc.hpp"
-#include "../lib/str.h"
-#include "../lib/hashmap_helpers.h"
+#include "lambda/input/css/css_style_node.hpp"
+#include "lambda/input/css/css_parser.hpp"
+#include "lib/font/font.h"
+#include "lib/mem_factory.h"
+#include "lib/checked_alloc.hpp"
+#include "lib/str.h"
+#include "lib/hashmap_helpers.h"
 #include <math.h>
 #include <string.h>
 

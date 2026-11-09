@@ -1,8 +1,8 @@
 #include "audio_miniaudio.hpp"
 #include "rdt_audio.h"
 #include "audio_bus.hpp"
-#include "../lib/mem.h"
-#include "../lib/log.h"
+#include "lib/mem.h"
+#include "lib/log.h"
 #include <math.h>
 #ifdef __APPLE__
 #include <AudioToolbox/AudioToolbox.h>

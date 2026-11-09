@@ -5,10 +5,10 @@
 #include "view.hpp"
 #include "layout_table.hpp"
 #include "render_effect_raster_fallback.hpp"
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
-#include "../lib/str.h"
-#include "../lambda/input/css/css_value.hpp"
+#include "lib/log.h"
+#include "lib/memtrack.h"
+#include "lib/str.h"
+#include "lambda/input/css/css_value.hpp"
 #include <assert.h>
 #include <limits.h>
 #include <math.h>

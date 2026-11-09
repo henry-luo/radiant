@@ -6,7 +6,7 @@
 #include "../audio_cues.hpp"
 #include "../audio_cue_owner.hpp"
 #include "../audio_render.hpp"
-#include "../../lambda/input/css/dom_lifecycle.hpp"
+#include "lambda/input/css/dom_lifecycle.hpp"
 
 static constexpr unsigned AUDIO_SCENE_SOURCES = 32, AUDIO_SCENE_CLIPS = 16;
 static constexpr float AUDIO_COORDINATE_LIMIT = 1e6f;

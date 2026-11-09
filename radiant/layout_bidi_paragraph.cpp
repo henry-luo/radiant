@@ -1,5 +1,5 @@
 #include "layout_bidi.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 #include <limits.h>
 #include <stdlib.h>
 

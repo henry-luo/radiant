@@ -1,5 +1,5 @@
 #include "test_native_provider.hpp"
-#include "../radiant/scroll_observer.hpp"
+#include "radiant/scroll_observer.hpp"
 
 static void* notified_element;
 static float notified_x;

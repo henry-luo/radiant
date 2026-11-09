@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/input.hpp"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/input.hpp"
 
 struct NativeInputDocument {
     Pool* pool;

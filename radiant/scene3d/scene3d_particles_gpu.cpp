@@ -1,8 +1,8 @@
 #include "scene3d.hpp"
 #include "scene3d_source.hpp"
 #include "../animation_value.hpp"
-#include "../../lib/mem.h"
-#include "../../lib/physics/physics_math.h"
+#include "lib/mem.h"
+#include "lib/physics/physics_math.h"
 #include <math.h>
 #include <limits.h>
 #include <initializer_list>

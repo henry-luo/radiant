@@ -9,10 +9,10 @@
 #include "render.hpp"
 #include "render_metrics.hpp"
 #include "layout.hpp"
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
-#include "../lib/escape.h"
-#include "../lib/str.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
+#include "lib/escape.h"
+#include "lib/str.h"
 #include <math.h>
 #include <string.h>
 #include <limits.h>

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "../lib/font/font_internal.h"
-#include "../radiant/view.hpp"
+#include "lib/font/font_internal.h"
+#include "radiant/view.hpp"
 #include <math.h>
 
 #ifdef __APPLE__

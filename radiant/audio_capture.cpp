@@ -1,8 +1,8 @@
 #include "audio_capture.hpp"
 #include "audio.hpp"
 #include "document_clock.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/mem.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/mem.h"
 #include <math.h>
 #include <new>
 

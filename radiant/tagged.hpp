@@ -2,7 +2,7 @@
 
 // *_require downcasts use LAM_CHECK, not assert: a wrong-tag downcast is type
 // confusion in release builds too, so it must fail closed in every build.
-#include "../lib/check.h"
+#include "lib/check.h"
 
 #include "view.hpp"
 

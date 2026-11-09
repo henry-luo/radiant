@@ -1,6 +1,6 @@
 #pragma once
 #include "typeset.hpp"
-#include "../lib/mempool.h"
+#include "lib/mempool.h"
 
 enum TypesetMarkKind : uint8_t { TYPESET_MARK_STRING, TYPESET_MARK_RUNNING, TYPESET_MARK_NATIVE };
 enum TypesetMarkSelection : uint8_t {

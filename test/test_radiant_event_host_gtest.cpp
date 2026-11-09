@@ -1,5 +1,5 @@
 #include "test_native_provider.hpp"
-#include "../radiant/event_host.hpp"
+#include "radiant/event_host.hpp"
 
 static UiContext* observed_ui;
 static DomDocument* observed_document;

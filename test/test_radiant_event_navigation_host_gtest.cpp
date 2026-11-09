@@ -1,5 +1,5 @@
 #include "test_native_provider.hpp"
-#include "../radiant/event_navigation_host.hpp"
+#include "radiant/event_navigation_host.hpp"
 
 static DomDocument* canceled;
 static const char* destination;

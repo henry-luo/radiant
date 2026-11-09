@@ -1,5 +1,5 @@
 #include "event_reconcile_host.hpp"
-#include "../lib/provider.hpp"
+#include "lib/provider.hpp"
 
 static const RadiantEventReconcileHostOps* reconcile_host_ops = nullptr;
 

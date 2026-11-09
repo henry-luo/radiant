@@ -1,9 +1,9 @@
 #include "render.hpp"
 #include "layout.hpp"
-#include "../lib/mem.h"
+#include "lib/mem.h"
 #include "tagged.hpp"
 extern "C" {
-#include "../lib/log.h"
+#include "lib/log.h"
 }
 
 static int radiant_stack_view_z_index(View* view) {

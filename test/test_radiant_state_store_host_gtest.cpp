@@ -1,5 +1,5 @@
 #include "test_native_provider.hpp"
-#include "../radiant/state_store_host.hpp"
+#include "radiant/state_store_host.hpp"
 
 static EvalContext* provided_owner;
 static EvalContext* observed_owner;

@@ -15,9 +15,9 @@
 #include "audio_bus.hpp"
 #include "audio_stream.hpp"
 #include "audio.hpp"
-#include "../lib/log.h"
-#include "../lib/mem.h"
-#include "../lib/ownership.hpp"
+#include "lib/log.h"
+#include "lib/mem.h"
+#include "lib/ownership.hpp"
 
 #include <math.h>
 #include <stdatomic.h>

@@ -1,9 +1,9 @@
 #include "layout_bidi.hpp"
 #include "view.hpp"
-#include "../lib/font/font.h"
+#include "lib/font/font.h"
 #include "tagged.hpp"
-#include "../lib/utf.h"
-#include "../lib/log.h"
+#include "lib/utf.h"
+#include "lib/log.h"
 
 #include <float.h>
 #include <limits.h>

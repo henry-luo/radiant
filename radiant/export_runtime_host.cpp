@@ -1,5 +1,5 @@
 #include "export_runtime_host.hpp"
-#include "../lib/provider.hpp"
+#include "lib/provider.hpp"
 
 static const RadiantExportRuntimeHostOps* export_runtime_host_ops = nullptr;
 

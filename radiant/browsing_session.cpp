@@ -3,16 +3,16 @@
 
 #include "view.hpp"
 #include "radiant.hpp"
-#include "../lib/log.h"
-#include "../lib/mem.h"
-#include "../lib/mem_grow.hpp"
-#include "../lib/url.h"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lib/log.h"
+#include "lib/mem.h"
+#include "lib/mem_grow.hpp"
+#include "lib/url.h"
+#include "lambda/input/css/dom_element.hpp"
 #include "network_integration.h"
-#include "../lambda/network/cookie_jar.h"
-#include "../lambda/network/enhanced_file_cache.h"
-#include "../lambda/network/network_resource_manager.h"
-#include "../lambda/network/radiant_state_store.h"
+#include "lambda/network/cookie_jar.h"
+#include "lambda/network/enhanced_file_cache.h"
+#include "lambda/network/network_resource_manager.h"
+#include "lambda/network/radiant_state_store.h"
 #include <assert.h>
 #include <string.h>
 

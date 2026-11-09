@@ -1,12 +1,12 @@
 #include <gtest/gtest.h>
-#include "../radiant/loader_runtime_host.hpp"
-#include "../radiant/view.hpp"
-#include "../radiant/radiant.hpp"
-#include "../lambda/input/input.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/file.h"
-#include "../lib/url.h"
-#include "../lib/mem.h"
+#include "radiant/loader_runtime_host.hpp"
+#include "radiant/view.hpp"
+#include "radiant/radiant.hpp"
+#include "lambda/input/input.hpp"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/file.h"
+#include "lib/url.h"
+#include "lib/mem.h"
 
 static char* write_test_document_url(const char* path, const char* source) {
     if (file_ensure_dir("temp") != 0 || write_text_file_atomic(path, source) != 0) return nullptr;

@@ -1,7 +1,7 @@
 #include "scroll_request.hpp"
 #include "event.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/dom_lifecycle.hpp"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_lifecycle.hpp"
 
 void radiant_queue_scroll_into_view(DomDocument* doc, DomElement* elem, bool center,
                                    bool if_needed, DomScrollAlign block_align, DomScrollAlign inline_align,

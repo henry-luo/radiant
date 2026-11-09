@@ -13,11 +13,11 @@
 #include "view.hpp"
 #include "layout.hpp"
 #include "tagged.hpp"
-#include "../lib/log.h"
-#include "../lib/str.h"
-#include "../lib/utf.h"
-#include "../lambda/input/css/dom_node.hpp"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lib/log.h"
+#include "lib/str.h"
+#include "lib/utf.h"
+#include "lambda/input/css/dom_node.hpp"
+#include "lambda/input/css/dom_element.hpp"
 
 #include <stddef.h>
 #include <math.h>

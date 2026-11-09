@@ -8,7 +8,7 @@
 
 #include "audio_bus.hpp"
 #include "audio_reverb.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 
 #define MINIAUDIO_IMPLEMENTATION
 #include "audio_miniaudio.hpp"

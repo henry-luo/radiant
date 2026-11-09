@@ -1,7 +1,7 @@
 #include "render.hpp"
 #include "svg_animation.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/memtrack.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/memtrack.h"
 #include <limits.h>
 
 // the registry and its programs live in `pool`, which the document's

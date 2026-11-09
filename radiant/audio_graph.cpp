@@ -2,8 +2,8 @@
 #include "audio_bus.hpp"
 #include "audio_reverb.hpp"
 #include "audio_miniaudio.hpp"
-#include "../lib/mem.h"
-#include "../lib/str.h"
+#include "lib/mem.h"
+#include "lib/str.h"
 #include <math.h>
 #include <string.h>
 

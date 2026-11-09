@@ -1,5 +1,5 @@
 #include "editing_dom_host.hpp"
-#include "../lib/provider.hpp"
+#include "lib/provider.hpp"
 
 static const RadiantEditingDomHostOps* editing_dom_host_ops = nullptr;
 

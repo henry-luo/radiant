@@ -33,7 +33,7 @@
 #include "layout.hpp"
 #include "grid_occupancy.hpp"
 #include "grid_track.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 
 namespace radiant {
 namespace grid {

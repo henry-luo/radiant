@@ -4,8 +4,8 @@
 
 extern "C" {
 #include <math.h>
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
 }
 
 static bool initialize_grid_axis(lam::Up<radiant::grid::TrackArray>* destination, int track_count,

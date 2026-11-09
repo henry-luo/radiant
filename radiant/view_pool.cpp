@@ -1,5 +1,5 @@
 #include "scene3d/scene3d.hpp"
-#include "../lib/host_paths.h"
+#include "lib/host_paths.h"
 #include "geomap.hpp"
 #include "layout.hpp"
 #include "css_resolved_style.hpp"
@@ -9,18 +9,18 @@
 #include <assert.h>
 #include "event.hpp"
 #include "rdt_video.h"
-#include "../lambda/input/css/dom_node.hpp"
+#include "lambda/input/css/dom_node.hpp"
 #include "svg_geometry_context.hpp"
 #include "tagged.hpp"
-#include "../lib/mem_factory.h"
-#include "../lib/escape.h"
-#include "../lib/str.h"
+#include "lib/mem_factory.h"
+#include "lib/escape.h"
+#include "lib/str.h"
 #include <stdlib.h>
 #include <time.h>
 #include <cmath>  // for INFINITY
 #include <string.h>
 #include <stdarg.h>
-#include "../lib/generation.h"
+#include "lib/generation.h"
 
 // View allocation diagnostics are emitted per layout node and must remain opt-in.
 #define log_debug(...) log_trace(__VA_ARGS__)

@@ -4,8 +4,8 @@
 #include "tagged.hpp"
 
 extern "C" {
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
 }
 // Multi-pass grid layout implementation
 // Follows the same pattern as layout_flex_multipass.cpp

@@ -11,7 +11,7 @@
 
 #include <webkit2/webkit2.h>
 #include <gtk/gtk.h>
-#include "../lib/file.h"
+#include "lib/file.h"
 
 struct RadiantWindow;
 

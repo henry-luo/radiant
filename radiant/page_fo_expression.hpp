@@ -1,6 +1,6 @@
 #pragma once
 #include "typeset.hpp"
-#include "../lambda/input/css/css_style.hpp"
+#include "lambda/input/css/css_style.hpp"
 
 struct RadiantFoExpression {
     CssValue* value;

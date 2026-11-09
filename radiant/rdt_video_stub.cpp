@@ -4,8 +4,8 @@
 // On Windows: rdt_video_mf.cpp (Media Foundation) — not yet implemented, using stubs
 
 #include "rdt_video.h"
-#include "../lib/ownership.hpp"
-#include "../lib/memtrack.h"
+#include "lib/ownership.hpp"
+#include "lib/memtrack.h"
 
 struct RdtVideo {
     RdtVideoState state;

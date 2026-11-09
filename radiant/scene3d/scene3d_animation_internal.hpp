@@ -1,7 +1,7 @@
 #pragma once
 
 #include "scene3d_animation.hpp"
-#include "../../lambda/input/css/dom_lifecycle.hpp"
+#include "lambda/input/css/dom_lifecycle.hpp"
 
 struct Scene3dAnimationBinding {
     Scene3dAnimationBinding* next;

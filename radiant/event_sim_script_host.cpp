@@ -1,6 +1,6 @@
 #include "event_sim_script_host.hpp"
-#include "../lib/provider.hpp"
-#include "../lib/time_util.h"
+#include "lib/provider.hpp"
+#include "lib/time_util.h"
 
 static const RadiantEventSimScriptHostOps* event_sim_script_host_ops = nullptr;
 

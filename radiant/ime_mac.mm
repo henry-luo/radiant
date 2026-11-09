@@ -25,7 +25,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "../lib/log.h"
+#include "lib/log.h"
 #define RADIANT_EVENT_CORE_ONLY
 #include "event.hpp"
 #undef RADIANT_EVENT_CORE_ONLY

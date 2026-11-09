@@ -3,11 +3,11 @@
 
 #include "view.hpp"
 #include "tagged.hpp"
-#include "../lib/str.h"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/font/font.h"
-#include "../lib/log.h"
-#include "../lib/utf.h"
+#include "lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/font/font.h"
+#include "lib/log.h"
+#include "lib/utf.h"
 #include <string.h>
 
 static bool editing_geometry_node_inside_text_control(DomNode* node) {

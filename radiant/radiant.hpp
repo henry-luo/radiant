@@ -14,7 +14,7 @@
 #include "render.hpp"
 #include "event.hpp"
 
-#include "../lib/url.h"
+#include "lib/url.h"
 
 #include <stddef.h>
 #include <stdbool.h>

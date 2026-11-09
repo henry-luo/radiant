@@ -3,8 +3,8 @@
 #include "css_resolved_style.hpp"
 #include "event.hpp"
 
-#include "../lib/log.h"
-#include "../lib/scratch_arena.h"
+#include "lib/log.h"
+#include "lib/scratch_arena.h"
 #include "tagged.hpp"
 
 namespace radiant {

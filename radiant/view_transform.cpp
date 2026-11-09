@@ -1,6 +1,6 @@
 #include "view.hpp"
 #include "animation_value.hpp"
-#include "../lambda/input/css/css_style_node.hpp"
+#include "lambda/input/css/css_style_node.hpp"
 
 #include <math.h>
 

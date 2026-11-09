@@ -1,13 +1,13 @@
 #include "midi_player.hpp"
-#include "../lib/mem.h"
-#include "../lib/log.h"
+#include "lib/mem.h"
+#include "lib/log.h"
 #include <math.h>
 #include <string.h>
 #include <limits.h>
 
 #define TSF_IMPLEMENTATION
 #define TSF_NO_STDIO
-#include "../lib/tinysoundfont/tsf.h"
+#include "lib/tinysoundfont/tsf.h"
 
 struct MidiKey { uint8_t velocity; bool down; };
 struct MidiChannel { MidiKey keys[128]; bool sustain; };

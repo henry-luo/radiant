@@ -9,8 +9,8 @@ extern "C" {
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
 }
 // Forward declarations
 void expand_auto_repeat_tracks(GridContainerLayout* grid_layout);

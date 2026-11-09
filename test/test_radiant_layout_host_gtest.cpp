@@ -1,5 +1,5 @@
 #include "test_native_provider.hpp"
-#include "../radiant/layout_host.hpp"
+#include "radiant/layout_host.hpp"
 
 static int suspends;
 static int resumes;

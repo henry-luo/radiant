@@ -1,17 +1,17 @@
 #include "layout.hpp"
 #include "grid_track.hpp"
-#include "../lambda/input/css/css_formatter.hpp"
-#include "../lambda/input/css/css_style_node.hpp"
-#include "../lambda/input/css/css_parser.hpp"
-#include "../lib/mem_grow.hpp"
+#include "lambda/input/css/css_formatter.hpp"
+#include "lambda/input/css/css_style_node.hpp"
+#include "lambda/input/css/css_parser.hpp"
+#include "lib/mem_grow.hpp"
 #include "tagged.hpp"
 
 extern "C" {
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
 }
 
 bool grid_append_track_line_names(StringBuf* output, const GridLineNames* names,

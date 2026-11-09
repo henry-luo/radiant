@@ -2,7 +2,7 @@
 
 #include "event.hpp"
 #include "view.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 
 #include <stdarg.h>
 #include <stdio.h>

@@ -5,12 +5,12 @@
 #include "page_document.hpp"
 
 #include "tagged.hpp"
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
-#include "../lib/str.h"
-#include "../lib/time_util.h"
-#include "../lib/font/font.h"
-#include "../lib/utf.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
+#include "lib/str.h"
+#include "lib/time_util.h"
+#include "lib/font/font.h"
+#include "lib/utf.h"
 
 #include <math.h>
 #include <limits.h>

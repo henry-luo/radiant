@@ -3,10 +3,10 @@
 #include "layout.hpp"
 
 #include "tagged.hpp"
-#include "../lib/log.h"
-#include "../lib/font/font.h"
-#include "../lib/str.h"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lib/log.h"
+#include "lib/font/font.h"
+#include "lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>

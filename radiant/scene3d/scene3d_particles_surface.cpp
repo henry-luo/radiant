@@ -1,9 +1,9 @@
 #include "scene3d_source.hpp"
-#include "../../lambda/input/css/dom_element.hpp"
-#include "../../lib/physics/physics_math.h"
-#include "../../lib/hashmap.h"
-#include "../../lib/mem.h"
-#include "../../lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/physics/physics_math.h"
+#include "lib/hashmap.h"
+#include "lib/mem.h"
+#include "lib/str.h"
 #include <float.h>
 
 static PhysicsVec surface_vertex(const Scene3dGeometrySource &source, unsigned at) {

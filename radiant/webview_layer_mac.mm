@@ -19,8 +19,8 @@
 #undef Rect
 
 extern "C" {
-#include "../lib/log.h"
-#include "../lib/mem.h"
+#include "lib/log.h"
+#include "lib/mem.h"
 }
 
 // ---------------------------------------------------------------------------

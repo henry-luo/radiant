@@ -4,9 +4,9 @@
 #include "geomap.hpp"
 
 #include "tagged.hpp"
-#include "../lib/log.h"
-#include "../lib/time_util.h"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lib/log.h"
+#include "lib/time_util.h"
+#include "lambda/input/css/dom_element.hpp"
 
 #include <stdlib.h>
 

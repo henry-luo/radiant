@@ -1,10 +1,10 @@
 #include "layout.hpp"
 #include "layout_ruby.hpp"
-#include "../lambda/input/input.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/font/font.h"
+#include "lambda/input/input.hpp"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/font/font.h"
 #include "tagged.hpp"
-#include "../lib/strbuf.h"
+#include "lib/strbuf.h"
 #include <float.h>
 #include <cstring>
 

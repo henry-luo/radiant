@@ -1,6 +1,6 @@
 #include "select_options.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/str.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/str.h"
 #include <stdlib.h>
 
 static void walk_options(DomNode* node, bool allow_optgroup,

@@ -1,5 +1,5 @@
 #include "scroll_observer.hpp"
-#include "../lib/provider.hpp"
+#include "lib/provider.hpp"
 
 static const RadiantScrollObserverOps* scroll_observer_ops = nullptr;
 

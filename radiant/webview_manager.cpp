@@ -6,11 +6,11 @@
 #include "radiant.hpp"
 #include "view.hpp"
 #include "event.hpp"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_element.hpp"
 #include "tagged.hpp"
-#include "../lib/log.h"
-#include "../lib/mem.h"
-#include "../lib/mem_grow.hpp"
+#include "lib/log.h"
+#include "lib/mem.h"
+#include "lib/mem_grow.hpp"
 
 // ---------------------------------------------------------------------------
 // WebViewManager

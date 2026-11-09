@@ -1,5 +1,5 @@
 #include "test_native_provider.hpp"
-#include "../radiant/event_sim_controller_host.hpp"
+#include "radiant/event_sim_controller_host.hpp"
 
 static DomNode* observed;
 static bool pointer(UiContext*, DomNode* target, const char*, double, double, int, int, int, const char*) { observed = target; return true; }

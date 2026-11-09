@@ -2,12 +2,12 @@
 #include "layout.hpp"
 #include "radiant.hpp"
 #include "resource_observer.hpp"
-#include "../lib/dom_image.h"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/dom_lifecycle.hpp"
-#include "../lambda/network/network_resource_manager.h"
-#include "../lib/url.h"
-#include "../lib/mem.h"
+#include "lib/dom_image.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_lifecycle.hpp"
+#include "lambda/network/network_resource_manager.h"
+#include "lib/url.h"
+#include "lib/mem.h"
 #include <limits.h>
 
 struct DomImageSource : DomDocumentResourceData {

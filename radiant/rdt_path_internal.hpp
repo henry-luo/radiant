@@ -1,5 +1,5 @@
 #pragma once
-#include "../lib/ref_count.h"
+#include "lib/ref_count.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>

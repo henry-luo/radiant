@@ -2,8 +2,8 @@
 #include "view.hpp"
 #include "event.hpp"
 #include "input_value.hpp"
-#include "../lib/log.h"
-#include "../lib/strbuf.h"
+#include "lib/log.h"
+#include "lib/strbuf.h"
 #include <string.h>
 #include <math.h>
 

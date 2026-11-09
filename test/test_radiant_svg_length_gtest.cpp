@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "../radiant/render.hpp"
+#include "radiant/render.hpp"
 
 TEST(RadiantSvgLengthTest, SelectsAxisForGeometryAttributes) {
     EXPECT_EQ(dom_svg_length_axis("x"), SVG_LENGTH_X);

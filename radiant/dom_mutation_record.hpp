@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_element.hpp"
 
 // Record native invalidation and retain the affected nodes for reconciliation.
 void radiant_dom_record_mutation_detail(DomDocument* document, DomJsMutationKind kind,

@@ -1,7 +1,7 @@
 #include "event.hpp"
 
 #include "view.hpp"
-#include "../lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_element.hpp"
 
 #include <string.h>
 

@@ -1,9 +1,9 @@
 #include "event.hpp"
 #include "render.hpp"
 #include "layout.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 #include "tagged.hpp"
-#include "../lambda/core/well_known_markup_names.h"
+#include "lambda/core/well_known_markup_names.h"
 #include "scroll_observer.hpp"
 
 struct ScrollConfig {

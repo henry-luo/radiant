@@ -1,5 +1,5 @@
 #include "render.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 
 static Bound dl_replay_offset_clip_to_surface(const Bound* clip, ImageSurface* surface,
                                               float offset_x, float offset_y) {

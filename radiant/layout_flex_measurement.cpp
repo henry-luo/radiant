@@ -1,17 +1,17 @@
 #include "layout.hpp"
 #include "view.hpp"
 #include "render.hpp"
-#include "../lambda/input/css/css_style_node.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/selector_matcher.hpp"
+#include "lambda/input/css/css_style_node.hpp"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/selector_matcher.hpp"
 
-#include "../lib/log.h"
-#include "../lib/mem.h"
-#include "../lib/mem_grow.hpp"
+#include "lib/log.h"
+#include "lib/mem.h"
+#include "lib/mem_grow.hpp"
 #include "tagged.hpp"
 #include <float.h>
 #include <limits.h>
-#include "../lib/generation.h"
+#include "lib/generation.h"
 
 LayoutTextRun flex_measure_prepare_text_run(DomNode* text_node, const char* text, size_t length) {
     CssEnum ws = get_white_space_value(text_node);

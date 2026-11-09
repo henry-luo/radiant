@@ -7,18 +7,18 @@ bool radiant_collect_stranded_dom(struct UiContext* uicon, struct DomDocument* d
 
 #ifndef RADIANT_EVENT_CORE_ONLY
 #include "view.hpp"
-#include "../lambda/input/css/dom_lifecycle.hpp"
+#include "lambda/input/css/dom_lifecycle.hpp"
 #endif
 
-#include "../lambda/lambda.h"
+#include "lambda/lambda.h"
 #include "source_path.hpp"
 #include "source_path_value.hpp"
 
 #ifndef RADIANT_EVENT_CORE_ONLY
-#include "../lib/arraylist.h"
-#include "../lib/strbuf.h"
-#include "../lib/ref_count.h"
-#include "../lib/utf.h"
+#include "lib/arraylist.h"
+#include "lib/strbuf.h"
+#include "lib/ref_count.h"
+#include "lib/utf.h"
 #endif
 
 #include <cstdint>

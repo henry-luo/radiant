@@ -5,7 +5,7 @@
 #include "render.hpp"
 #include "radiant.hpp"
 #include "tagged.hpp"
-#include "../lib/log.h"
+#include "lib/log.h"
 
 static void restore_embedded_document_scroll_model(DomDocument* doc) {
     if (!doc || !doc->view_tree || !doc->view_tree->root ||

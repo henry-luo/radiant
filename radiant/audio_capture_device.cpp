@@ -1,6 +1,6 @@
 #include "audio_capture.hpp"
 #include "audio_miniaudio.hpp"
-#include "../lib/mem.h"
+#include "lib/mem.h"
 
 #ifdef __APPLE__
 AudioCapturePermission audio_capture_mac_permission(bool request);

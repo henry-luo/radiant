@@ -6,18 +6,18 @@
 #include "svg_geometry_context.hpp"
 
 extern "C" {
-#include "../lib/log.h"
-#include "../lib/str.h"
-#include "../lib/color.h"
-#include "../lib/avl_tree.h"
+#include "lib/log.h"
+#include "lib/str.h"
+#include "lib/color.h"
+#include "lib/avl_tree.h"
 }
 
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lambda/input/css/css_style_node.hpp"
-#include "../lambda/input/css/css_formatter.hpp"
+#include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/css_style_node.hpp"
+#include "lambda/input/css/css_formatter.hpp"
 #include "tagged.hpp"
-#include "../lib/mem_grow.hpp"
-#include "../lib/mem_factory.h"
+#include "lib/mem_grow.hpp"
+#include "lib/mem_factory.h"
 
 #include <string.h>
 #include <stdlib.h>

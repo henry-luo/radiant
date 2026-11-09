@@ -1,6 +1,6 @@
 #include "animation_mixer.hpp"
-#include "../lib/mem.h"
-#include "../lib/str.h"
+#include "lib/mem.h"
+#include "lib/str.h"
 #include <math.h>
 #include <string.h>
 

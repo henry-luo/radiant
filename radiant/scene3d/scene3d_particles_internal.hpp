@@ -3,7 +3,7 @@
 #include "scene3d.hpp"
 #include "scene3d_source.hpp"
 #include "scene3d_animation.hpp"
-#include "../../lambda/input/css/dom_lifecycle.hpp"
+#include "lambda/input/css/dom_lifecycle.hpp"
 
 // Native simulation state shared with the Lambda value adapter.
 static constexpr unsigned PARTICLE_EMITTER_LIMIT = 32, PARTICLE_STORAGE_LIMIT = 65536, PARTICLE_SPAWN_LIMIT = 4096,

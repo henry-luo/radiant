@@ -1,8 +1,8 @@
 #include "layout.hpp"
 #include "view.hpp"
-#include "../lambda/input/css/dom_element.hpp"
-#include "../lib/str.h"
-#include "../lib/stringbuf.h"
+#include "lambda/input/css/dom_element.hpp"
+#include "lib/str.h"
+#include "lib/stringbuf.h"
 #include <string.h>
 
 bool css_display_is_ruby_internal(CssEnum display) {

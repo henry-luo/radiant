@@ -8,7 +8,7 @@
 #include <string.h>
 
 extern "C" {
-#include "../lib/log.h"
+#include "lib/log.h"
 }
 
 void webview_linux_finish_lambda_scheme_request(WebKitURISchemeRequest* request,

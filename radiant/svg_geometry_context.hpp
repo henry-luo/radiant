@@ -1,7 +1,7 @@
 #pragma once
 
 #include "render.hpp"
-#include "../lib/hashmap.h"
+#include "lib/hashmap.h"
 
 // Synchronous SVG hit walks borrow a linked stack of instance style scopes.
 extern thread_local const SvgDomStyleScope* g_dom_svg_style_scope;

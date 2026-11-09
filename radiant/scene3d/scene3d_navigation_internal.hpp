@@ -2,9 +2,9 @@
 
 #include "scene3d.hpp"
 #include "scene3d_source.hpp"
-#include "../../lambda/core/navigation_graph.hpp"
-#include "../../lambda/input/css/dom_lifecycle.hpp"
-#include "../../lib/thread_pool.h"
+#include "lambda/core/navigation_graph.hpp"
+#include "lambda/input/css/dom_lifecycle.hpp"
+#include "lib/thread_pool.h"
 
 // Native navigation state and worker ownership shared with the Lambda adapter.
 struct Scene3dNavigationSource {

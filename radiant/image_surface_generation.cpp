@@ -1,9 +1,9 @@
 #include "view.hpp"
 #include "render.hpp"
-#include "../lib/mem_factory.h"
-#include "../lib/ownership.hpp"
+#include "lib/mem_factory.h"
+#include "lib/ownership.hpp"
 #include <pthread.h>
-#include "../lib/generation.h"
+#include "lib/generation.h"
 
 // Process-wide surface table behind ImageSurface::self (design: lock-free
 // lookup with quiet-point retirement).

@@ -2,8 +2,8 @@
 #include "radiant.hpp"
 #undef Rect
 
-#include "../lib/log.h"
-#include "../lib/memtrack.h"
+#include "lib/log.h"
+#include "lib/memtrack.h"
 
 #include <stdint.h>
 #include <stdlib.h>

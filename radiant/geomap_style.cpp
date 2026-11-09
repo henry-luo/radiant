@@ -1,6 +1,6 @@
 #include "geomap_style.hpp"
-#include "../lib/color.h"
-#include "../lib/str.h"
+#include "lib/color.h"
+#include "lib/str.h"
 #include <math.h>
 
 enum ExprType : unsigned { EX_NULL=1, EX_BOOL=2, EX_NUMBER=4, EX_STRING=8, EX_ARRAY=16, EX_OBJECT=32, EX_ANY=63 };

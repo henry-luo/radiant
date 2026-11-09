@@ -1,7 +1,7 @@
 // contextual text measurement across CSS inline boundaries.
 #include "layout.hpp"
 #include "layout_text_context.hpp"
-#include "../lib/utf.h"
+#include "lib/utf.h"
 #include <limits.h>
 
 LayoutTextShapingScope::LayoutTextShapingScope(LayoutContext* owner, DomNode* source,

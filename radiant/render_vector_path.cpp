@@ -1,6 +1,6 @@
 #include "render.hpp"
 
-#include "../lib/log.h"
+#include "lib/log.h"
 
 void render_vector_path(RasterRenderContext* rdcon, ViewBlock* block) {
     VectorPathProp* vpath = block->vector_path();

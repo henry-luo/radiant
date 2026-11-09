@@ -3,7 +3,7 @@
 // Tunings are the original 44.1 kHz delay lengths, scaled to the bus rate.
 
 #include "audio_reverb.hpp"
-#include "../lib/mem.h"
+#include "lib/mem.h"
 
 #include <math.h>
 #include <string.h>
