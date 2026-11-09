@@ -24,33 +24,12 @@ observations still require re-verification. Add new Radiant issues here.
 
 ### RI-004 — Lambda pointer-event adapter expects an absent native event protocol
 
-**Status:** OPEN — confirmed integration compile failure; which checkout needs
-its protocol update is unconfirmed. **Observed:** 2026-11-10, macOS arm64.
-**Lambda blocker:** release host/adapter rebuild and execution validation for
-MVP/Full MIR retirement. Authority: **D9.1.1v4 / D9.1.3v2** (source ownership).
-
-Lambda starting HEAD `aee8f3242` (the affected adapter last changed in
-`41dc5ccc5`), Radiant HEAD `558eb3e`. From the Lambda checkout, reproduce after
-normal Premake generation with:
-`make -C build/premake config=release_native -f lambda-radiant-adapter-cpp.make LDDEPS= -j2`.
-
-`lambda/module/radiant/event.cpp:8594` reads
-`MousePositionEvent::pointer_type` and `RDT_POINTER_MOUSE`; lines 8600–8624 also
-require `RdtPointerSample`, `rdt_pointer_sample_of`, `samples`, pressure and pen
-axes, and `RDT_POINTER_SAMPLE_CAPACITY`. The checked-out owner header
-`radiant/event.hpp:169` defines `MousePositionEvent` with only position and
-movement fields. Compilation reports 20 missing-field/type/constant errors
-before its error limit. This is an interface mismatch, not a demonstrated MIR
-or interpreter defect. Expected: owner protocol and Lambda consumer agree on
-the native event ABI and the unchanged adapter compiles.
-
-Evidence in the Lambda checkout:
-`temp/mvp_full_mir_retirement/adapters.log` (full compile diagnostics),
-`vibe/impl/Lambda_Impl_MIR_Full_Retirement.md` (task checkpoint).
-The Lambda runtime archive itself builds with the retirement changes.
-Affected full-host linking and execution validation were stopped; no owner
-source/build edits, stale-adapter relink or protocol fallback was used.
-No Lambda/Radiant baseline was run.
+**Status:** RESOLVED — the merged native pointer protocol clears the original
+release adapter compile failure (D9.1.1v4, D9.1.3v2). See the
+[cause, regression coverage and verification limits](<Radiant_Issue_Ledger (fixed).md#ri-004-pointer-event-protocol>).
+The descriptive anchor distinguishes this report from the
+[older resolved layout issue](<Radiant_Issue_Ledger (fixed).md#ri-004>) that was
+independently assigned RI-004; both original IDs are preserved.
 
 <a id="ri-001"></a>
 
@@ -1027,6 +1006,6 @@ Lambda-owned and is retained in the [mixed historical record](../../Lambda/vibe/
 
 - [RI-003 — Startup fragment navigation is followed as a document redirect](<Radiant_Issue_Ledger (fixed).md#ri-003>).
 
-<a id="ri-004"></a>
+<a id="ri-004-layout"></a>
 
 - [RI-004 — Dynamic baseline exposes native anonymous-table and match-parent mismatches](<Radiant_Issue_Ledger (fixed).md#ri-004>).
