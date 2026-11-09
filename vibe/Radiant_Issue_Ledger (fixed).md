@@ -6,6 +6,65 @@ Active issues remain in the [Radiant Issue Ledger](Radiant_Issue_Ledger.md).
 
 ## Fixed issues
 
+<a id="ri-004-pointer-event-protocol"></a>
+
+### RI-004 — Lambda pointer-event adapter expects an absent native event protocol
+
+**Status:** RESOLVED, 2026-11-10, macOS arm64. **Lambda blocker:** the original
+release adapter and complete host now build and link from current sources. Authority:
+**D9.1.1v4 / D9.1.3v2**. This report retains its original ID separately from
+the older layout RI-004 below; its descriptive anchor preserves unambiguous links.
+
+**Original reproduction:** Lambda starting HEAD `aee8f3242`, adapter last changed
+in `41dc5ccc5`, Radiant `558eb3e`. From Lambda, after normal Premake generation:
+`make -C build/premake config=release_native -f lambda-radiant-adapter-cpp.make LDDEPS= -j2`.
+`lambda/module/radiant/event.cpp:8594–8624` expected `pointer_type`, pressure,
+pen axes, `samples`, `RdtPointerSample`, `rdt_pointer_sample_of`,
+`RDT_POINTER_MOUSE` and `RDT_POINTER_SAMPLE_CAPACITY`, but the owner header's
+`MousePositionEvent` carried only position/movement. Compilation stopped after
+20 missing-field/type/constant errors. The runtime archive built, while host
+linking and execution qualification stopped. Original evidence remains in
+Lambda's `temp/mvp_full_mir_retirement/adapters.log` and
+`vibe/impl/Lambda_Impl_MIR_Full_Retirement.md`.
+
+**Confirmed cause and repair:** the owner checkout lagged its native pen
+protocol. Radiant commit `2a86f24` adds the complete protocol, platform capture,
+bounded coalescing and replay; merge `7106a48` brings it into this checkout.
+The existing Lambda consumer agrees with those definitions and its original
+release build now succeeds. No further ABI edit or adapter fallback is needed.
+Samples remain borrowed only during synchronous dispatch; Radiant's archive
+continues to depend on lambda-input, with scripting supplied by the host
+(D5.5.1, D6.3.3, D9.1.1v4, D9.1.3v2).
+
+**Regression coverage:** five native cases in
+[`test_pointer_input_gtest.cpp`](../test/test_pointer_input_gtest.cpp) verify
+mouse initialization after pen input, pen axes and chronological samples,
+separate device/pointer batches, bounded overflow/reset and borrowed samples
+during reentrant submission. The owner Makefile discovers the suite with the
+other native tests. All five pass; a fresh debug host links and its HTML replay
+passes eight pen/eraser/mouse axis assertions through the unchanged adapter.
+The canonical full release build also succeeds against Lambda `fd07a893f`:
+`make -C ../lambda build-lambda-split SPLIT_PROFILE=release SPLIT_OUTPUT=../radiant/temp/ri004/lambda-release.exe JOBS=4`.
+That release host passes the same eight assertions with each of
+`JS_EXEC_BACKEND=ast` and `JS_EXEC_BACKEND=mir` (16/16). Both hosts were built
+under `temp/ri004/`; the public Lambda executable was not replaced.
+
+**Qualification limits:** `make -j4 PROFILE=debug run-radiant-baseline` passes
+823 native tests plus the static corpus smoke test, with 45 existing skips.
+The aggregate exits 2 because the shared corpus checkout `a64ed85dc` lacks the
+`--host-cwd` option and related runner contracts expected by this Radiant tree:
+six of seven runner tests fail, and geometry comparisons do not execute.
+The existing Lambda-script pen fixture separately exits 255 on parser E100 at
+`test/demo/paint/tests/_pen_input.ls:48`, before event delivery. Both failures
+are retained; no fixture, assertion or reference was weakened. Broader Lambda
+MIR retirement correctness and performance qualification remain separate.
+
+Evidence: [`temp/ri004/`](../temp/ri004/), including `adapter-release.log`,
+`pointer-tests.xml`, `host-debug.log`, `pointer-adapter-result.json`,
+`build-release.log`, `release-link.log`, `release-replay-summary.json`,
+`pen-replay.log`, `radiant-baseline.log`, `baseline-summary.json` and
+`verification.json` (source and artifact identities).
+
 <a id="ri-003"></a>
 
 ### RI-003 — Startup fragment navigation is followed as a document redirect

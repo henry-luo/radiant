@@ -20,6 +20,17 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-004"></a>
+
+### RI-004 — Lambda pointer-event adapter expects an absent native event protocol
+
+**Status:** RESOLVED — the merged native pointer protocol clears the original
+release adapter compile failure (D9.1.1v4, D9.1.3v2). See the
+[cause, regression coverage and verification limits](<Radiant_Issue_Ledger (fixed).md#ri-004-pointer-event-protocol>).
+The descriptive anchor distinguishes this report from the
+[older resolved layout issue](<Radiant_Issue_Ledger (fixed).md#ri-004>) that was
+independently assigned RI-004; both original IDs are preserved.
+
 <a id="ri-001"></a>
 
 ### RI-001 — HTML/CSS integration cases skip missing fixtures
@@ -65,8 +76,9 @@ dynamic geometry comparisons. See the [repair and qualification record](<Radiant
 
 ### RI-006 — Property providers still live outside the unified Radiant archive
 
-**Status:** OPEN — reproduced release-link blocker. **Observed:** 2026-11-09,
-macOS arm64. **Lambda blocker:** yes, current-source MVP tuning/build validation.
+**Status:** RESOLVED — verified 2026-11-09 against Radiant `558eb3e`.
+**Observed:** 2026-11-09, macOS arm64. **Lambda blocker:** cleared for the
+current-source MVP release build and validation.
 Authority: **D9.1.1v4 / D9.1.3v2**; the current Lambda
 [split implementation checkpoint](../../Lambda/vibe/impl/Lambda_Impl_Radiant_Split.md#current-checkpoint)
 requires both property providers in `libradiant.a`, with no separate property
@@ -95,8 +107,23 @@ Evidence in the Lambda checkout:
 `libradiant.a.provider-members.txt`, `libradiant-properties.a.provider-members.txt`;
 full link diagnostics: `temp/build_lambda-exe-split.log`.
 No Radiant source/build edits or Lambda link workarounds were made. MVP
-implementation/timing is stopped under the project-boundary rule until the
-owner archive is repaired. No baseline suite was run.
+implementation/timing was stopped under the project-boundary rule pending the
+owner repair. No baseline suite was run.
+
+**Resolution verification:** the updated owner manifest removes the separate
+property target and includes both providers in the native source list. Rebuilt
+`build/lib/release/libradiant.a` contains `view_prop_defaults.cpp.o` and
+`view_prop_ensure.cpp.o` exactly once; the four default symbols listed above
+are defined. The original Lambda split release build/link now exits zero with
+no dependency workaround. Typed and untyped Fibonacci goldens pass under MVP
+and Full MIR (4/4 smoke runs). This closes the archive/link blocker, not broader
+language or performance qualification (D9.1.1v4, D9.1.3v2).
+
+Verification: `Lambda/temp/mvp_untyped_tuning_next/ri003-verification.json`,
+`ri003-rebuild.log`, `ri003-successful-link.log`, and `ri003-recheck-tree.json`.
+The private host SHA256 is
+`cda6b0f4985ac9e440494d8b86badbbbe2c7d386e86e6483e1e45b7a4fb14363`.
+The original failing link log is preserved as `ri003-failed-link.log`.
 
 <a id="ri-007"></a>
 
@@ -1007,6 +1034,6 @@ Lambda-owned and is retained in the [mixed historical record](../../Lambda/vibe/
 
 - [RI-003 — Startup fragment navigation is followed as a document redirect](<Radiant_Issue_Ledger (fixed).md#ri-003>).
 
-<a id="ri-004"></a>
+<a id="ri-004-layout"></a>
 
 - [RI-004 — Dynamic baseline exposes native anonymous-table and match-parent mismatches](<Radiant_Issue_Ledger (fixed).md#ri-004>).
