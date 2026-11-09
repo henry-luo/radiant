@@ -53,3 +53,103 @@ with `make test-navigation-cli LAMBDA_HOST=../Lambda/lambda.exe` after that
 independent build issue is repaired. Logs, binary/archive hashes and the
 isolated executables are under `temp/ri-003/`; replay artifacts are under
 `temp/navigation-cli/`.
+
+<a id="ri-004"></a>
+
+### RI-004 — Dynamic baseline exposes native anonymous-table and match-parent mismatches
+
+**Status:** FIXED in Radiant, 2026-11-09; the three match-parent comparisons
+are confirmed unsupported-browser references. **Observed:** 2026-11-09, macOS
+debug Lambda integration, shared corpus `lambda-test` at `a64ed85dc`.
+**Lambda blocker:** the native defects in this entry are resolved; the complete
+integration suite still has independent failures, including those references.
+Radiant retains native layout and generated-content ownership; Lambda remains
+the optional scripting host (D9.1.1v4, D9.1.3v2, D5.5.1).
+
+**Original reproduction:** from Lambda, run `LAMBDA_ROOT="$PWD" node
+test/layout/test_radiant_layout.js -c baseline-js --baseline-only -j 3
+--global-concurrency 3 --batch-size 100 --json`. Initially it reported
+598/630 passing; the separate Lambda `classList` fix raised this to 599/630.
+The native cases were `table-anonymous-objects-117`–`120`, `169`–`170`,
+`185`–`188`, `193`–`196`, and `205`–`208`. Case `117` matched only 8/11
+elements; `text-align-match-parent-02`–`04` matched only 13/17 text nodes.
+The fixtures had moved from `baseline` to `baseline-js` without content changes.
+Retained initial evidence: [full reproduction](../../Lambda/temp/radiant-failed-tests/baseline-js-reproduction.json),
+[fresh-reference comparison](../../Lambda/temp/radiant-failed-tests/fresh-reference-comparison.json),
+and [previous shared-runner results](../../Lambda/temp/radiant-failed-tests/final-reported-gates/test_radiant_layout_baseline_results.json).
+
+**Confirmed causes and repairs:**
+
+- [`intrinsic_sizing.cpp`](../radiant/intrinsic_sizing.cpp) did not recognize
+  an inline outer display with table inner display as atomic before its first
+  layout. Text lookahead descended into its cells, interpreted them as a forced
+  line boundary, and removed the preceding space. Treating this display pair
+  as atomic preserves the separator and adjacent-node geometry.
+- A generated table-cell pseudo is reparented under anonymous table fixups.
+  On retained reflow, [`layout_block.cpp`](../radiant/layout_block.cpp) looked
+  up its content on that wrapper and replaced it with empty text. It now uses
+  the existing `dom_source_parent()` helper to find its originating element.
+  [`layout_list.cpp`](../radiant/layout_list.cpp) uses the same source ancestry
+  for the pseudo's counter operations. Retained nodes and property ownership
+  remain in their existing view-tree epoch (D5.5.1).
+- [`view_pool.cpp`](../radiant/view_pool.cpp) now omits anonymous table wrappers
+  below inline parents as it already did below block parents, preserving
+  authored nodes and zero-size table markers in exported snapshots.
+
+**Match-parent classification:** Headless Chrome 148.0.7778.97 reports
+`CSS.supports('text-align', 'match-parent') === false`. Its original captures
+therefore inherit logical start/end alignment and use the child's direction.
+Radiant correctly resolves against the parent's direction, as required by
+[CSS Text 3 §6.1](https://drafts.csswg.org/css-text-3/#valdef-text-align-match-parent).
+With Chrome's supported `-webkit-match-parent` spelling applied only in a
+temporary browser control, all 16 text positions in each of the three fixtures
+agree with Radiant within 0.2 CSS pixels. Native tests cover parent-direction,
+child-class and parent-width mutations. No alignment implementation, corpus,
+reference, threshold or baseline expectation was changed. The three original
+browser-reference comparisons remain failed pending corpus-owner correction.
+
+**Verification:**
+
+- All 18 named table fixtures now match **100% elements and text** against
+  unchanged references. Native `207` rendering was visually checked against
+  Chrome: the overlaid text is green, including the retained generated cell.
+- All six [`DynamicLayoutTest`](../test/test_layout_dynamic_gtest.cpp) cases
+  pass, including whitespace geometry, marker/snapshot structure, generated
+  content and counter ownership across reflow, and the alignment mutations.
+  Build with `make build/test/test_layout_dynamic_gtest`, then run
+  `./build/test/test_layout_dynamic_gtest`.
+- The native GTest and static-layout smoke portions pass: **794 tests,
+  45 skips, no native failures**. The standard aggregate now also runs the
+  geometry comparisons below, whose remaining failures keep it red.
+- Full browser-geometry comparisons, using three host processes and batches
+  of up to 100, improve `baseline-js` from **599/630 to 617/630** and static
+  `baseline` from **3,786/3,851 to 3,800/3,851** (six static skips). No case's
+  element or text score regressed. The remaining **13 dynamic / 51 static**
+  failures are retained; these complete comparison suites are not green.
+- Input-facade and diff checks pass. Direct `no-int-layout-decl` scanning has
+  zero findings, and the changes add no integer casts. The documented
+  `no-int-cast-radiant` rule is absent from the current Lambda lint configuration;
+  its wrapper was also rejected by automatic approval review for sibling-temp
+  writes. The optional type-aware checker lacks Python `clang` bindings.
+
+Detailed results, unchanged-host comparisons, binary hashes and browser controls
+are in [`temp/ri-004/qualification.json`](../temp/ri-004/qualification.json),
+[`browser-alignment.json`](../temp/ri-004/browser-alignment.json),
+[`radiant-baseline.log`](../temp/ri-004/radiant-baseline.log), and
+[`lint-result.json`](../temp/ri-004/lint-result.json). Integration used an isolated
+debug host relinked with the repaired Radiant archive and existing Lambda
+runtime/adapter archives; a full Lambda source rebuild was not part of this
+native repair. Initial invocations from Radiant lacked Lambda's package/WPT
+roots; final comparisons launch from Lambda with all scratch/cache/log output
+redirected into Radiant's `temp/ri-004/`.
+
+**Standard test integration:** `make test-layout-baseline` now invokes the
+existing shared `test/layout/test_radiant_layout.js` directly for both suites;
+`make test-radiant-baseline` includes it. The shared runner's `--host-cwd` option
+lets the external host resolve its package/WPT resources while all scratch files
+stay in Radiant's `temp/`. Combined-suite reporting now propagates unscored
+geometry failures and missing suites to the CLI exit code. Five maintained
+runner-contract tests pass. The [standard report](../temp/layout-baseline/results.log)
+retains the **51 static / 13 dynamic** failures and the aggregate exits nonzero;
+the [full log](../temp/layout-integration/standard-radiant.log) also records the
+passing native portions. The temporary RI-004 wrapper is no longer needed.

@@ -1528,7 +1528,9 @@ void layout_update_pseudo_content_with_counters(LayoutContext* lycon,
     PseudoStyleKind kind;
     if (!layout_generated_pseudo(pseudo_element, &pseudo, &kind)) return;
 
-    DomElement* origin = lam::dom_as<DOM_NODE_ELEMENT>(pseudo_element->parent);
+    // anonymous table fixups change layout ancestry, not the pseudo's content owner.
+    DomElement* origin = lam::dom_as<DOM_NODE_ELEMENT>(dom_source_parent(pseudo_element));
+    if (!origin) return;
     StyleTree* style = origin->pseudo_style(kind);
     if (apply_counters) apply_pseudo_counter_ops(lycon, style);
     // leaders remain inline fill boxes when counter/reference values are refreshed.

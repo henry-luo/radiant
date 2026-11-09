@@ -2834,8 +2834,9 @@ static void print_json_children(ViewElement* parent, StrBuf* buf, int indent,
         }
 
         // For anonymous elements, skip the wrapper but process its children
-        if (!inline_parent && child->is_block() &&
+        if (child->is_block() &&
             is_anonymous_element(lam::view_require_block(child))) {
+            // table fixup boxes have no DOM identity, including inline-table wrappers.
             log_debug("JSON: Skipping anonymous element %s, processing its children", child->node_name());
             print_json_children(lam::view_require_element(child), buf, indent,
                                 false, first_child);

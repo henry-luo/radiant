@@ -803,8 +803,8 @@ bool LayoutCounterScope::enter(LayoutContext* lycon, ViewSpan* span,
     ViewBlock* block = lam::unsafe_view_block_api_span(span);
     bool list_item = display.outer == CSS_VALUE_LIST_ITEM || display.list_item;
     if (generated) {
-        DomElement* origin = element->parent && element->parent->is_element()
-            ? element->parent->as_element() : nullptr;
+        // generated table-cell pseudos retain their originating counter scope across reflow.
+        DomElement* origin = lam::dom_as<DOM_NODE_ELEMENT>(dom_source_parent(element));
         if (origin) apply_pseudo_counter_ops(lycon, origin->pseudo_style(kind), list_item ? element : nullptr);
     } else {
         setup_list_container_counters(lycon, block, element);

@@ -1,5 +1,6 @@
 # Native archive build during dependency packaging.
 PYTHON ?= python3
+NODE ?= node
 INPUT_ROOT ?= ../lambda-input
 DEPS_ROOT ?= $(INPUT_ROOT)
 PROFILE ?= debug
@@ -39,7 +40,7 @@ $(error Radiant source list is empty)
 endif
 NATIVE_OBJECTS := $(addprefix build/obj/native/$(PROFILE)/,$(addsuffix .o,$(NATIVE_SOURCES)))
 
-.PHONY: all clean test-native test-radiant-baseline check-input-facade input-deps force-build-signature
+.PHONY: all clean test-native test-radiant-baseline check-input-facade input-deps force-build-signature test-layout-baseline test-layout-smoke
 all: check-input-facade input-deps build/lib/$(PROFILE)/libradiant.a
 
 check-input-facade:
@@ -71,6 +72,10 @@ GTEST_FLAGS ?= $(shell pkg-config --cflags --libs gtest_main)
 build/test/%: test/%.cpp build/lib/$(PROFILE)/libradiant.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-test-utils.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $^ $(GTEST_FLAGS) $(NATIVE_CLOSURE_LIBS) -o $@
+
+build/test/test_layout_baseline: test/test_layout_baseline.cpp build/lib/$(PROFILE)/libradiant.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $< build/lib/$(PROFILE)/libradiant.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a $(GTEST_FLAGS) $(NATIVE_CLOSURE_LIBS) -o $@
 
 # Some isolated native suites supply their own host and renderer functions.
 build/test/test_layout_custom_gtest: test/test_layout_custom_gtest.cpp test/test_unlinked_layout_stubs.cpp build/lib/$(PROFILE)/libradiant.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
@@ -123,10 +128,19 @@ build/test/test_radiant_media_backend_gtest: test/test_radiant_media_backend_gte
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $< build/lib/$(PROFILE)/libradiant.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a $(GTEST_FLAGS) $(MEDIA_TEST_LIBS) -o $@
 
-test-radiant-baseline: test-native
+test-radiant-baseline:
+	@radiant_test_rc=0; \
+	$(MAKE) --no-print-directory test-native || radiant_test_rc=1; \
+	$(MAKE) --no-print-directory test-layout-baseline || radiant_test_rc=1; \
+	exit $$radiant_test_rc
+
 
 # Integration replays use an external host; native archives remain runtime-free.
-LAMBDA_HOST ?= ../Lambda/lambda.exe
+LAMBDA_ROOT ?= ../Lambda
+LAMBDA_HOST ?= $(LAMBDA_ROOT)/lambda.exe
+LAYOUT_BASELINE_SUITES ?= baseline baseline-js
+LAYOUT_BASELINE_CONCURRENCY ?= 4
+LAYOUT_BASELINE_TOLERANCE ?= 5
 .PHONY: test-navigation-cli
 test-navigation-cli:
 	$(PYTHON) test/test_navigation_cli.py --host "$(LAMBDA_HOST)"
@@ -134,6 +148,30 @@ test-navigation-cli:
 test-native: check-input-facade $(NATIVE_TEST_BINS)
 	@mkdir -p temp
 	@rc=0; for test_bin in $(NATIVE_TEST_BINS); do ./$$test_bin || rc=1; done; exit $$rc
+
+# Exercise the shared non-dynamic HTML corpus without a Lambda script host.
+test-layout-smoke: check-input-facade build/test/test_layout_baseline
+	@./build/test/test_layout_baseline
+
+# Reuse the existing corpus runner for geometry, reference scoring and scheduling.
+test-layout-baseline:
+	@test -x "$(abspath $(LAMBDA_HOST))" || { echo "Layout host missing: $(abspath $(LAMBDA_HOST)); set LAMBDA_HOST to a built Lambda executable"; exit 1; }
+	@layout_test_rc=0; \
+	$(NODE) --test test/test_layout_runner.test.js || layout_test_rc=1; \
+	$(MAKE) --no-print-directory test-layout-smoke || layout_test_rc=1; \
+	mkdir -p temp/layout-baseline; \
+	LAMBDA_HOME="$(abspath $(LAMBDA_ROOT))/lmd" \
+	LAMBDA_TEMP_DIR="$(abspath temp/layout-baseline)" \
+	LAMBDA_CACHE_DIR="$(abspath temp/layout-baseline)" \
+	LAMBDA_LOG_DIR="$(abspath temp/layout-baseline)" \
+	$(NODE) test/layout/test_radiant_layout.js --engine lambda-css \
+	  --radiant-exe "$(abspath $(LAMBDA_HOST))" --host-cwd "$(abspath $(LAMBDA_ROOT))" \
+	  --categories "$(LAYOUT_BASELINE_SUITES)" --baseline-only \
+	  --tolerance $(LAYOUT_BASELINE_TOLERANCE) \
+	  --concurrency $(LAYOUT_BASELINE_CONCURRENCY) --global-concurrency $(LAYOUT_BASELINE_CONCURRENCY) \
+	  --batch-size 100 $(ARGS) > temp/layout-baseline/results.log 2>&1 || layout_test_rc=1; \
+	cat temp/layout-baseline/results.log; \
+	exit $$layout_test_rc
 
 # Force every native archive member into a client without a Lambda runtime.
 # The current macOS gate uses the same sibling-built vendor artifacts as the split build.

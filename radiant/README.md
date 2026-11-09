@@ -190,6 +190,14 @@ python3 utils/generate_css_support_inventory.py --check
 git diff --check
 ```
 
+In this standalone checkout, `make test-layout-baseline` runs the existing
+`test/layout/test_radiant_layout.js` browser-geometry comparisons for `baseline`
+and `baseline-js`, alongside the native static-layout smoke pass. Supply a
+current external host with `LAMBDA_HOST`; `LAMBDA_ROOT` locates its package/WPT
+resources. `make test-layout-smoke` and `make test-native` remain available
+without that host (D9.1.1v4, D9.1.3v2). See the [project README](../README.md)
+for suite/concurrency controls and report paths.
+
 For an in-process text/layout test, build `test_radiant_document_gtest` through
 the same top-level `build/premake` Makefile, then filter the binary. Build an
 export test target when its native renderer is needed. `make build-test` builds

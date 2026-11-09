@@ -2559,13 +2559,11 @@ bool layout_intrinsic_element_is_atomic_inline(DomElement* element) {
 
     ViewBlock* view = lam::unsafe_view_block_element_storage(element);
     if ((element->display.inner == CSS_VALUE_FLOW_ROOT ||
-         view->display.inner == CSS_VALUE_FLOW_ROOT) &&
+         element->display.inner == CSS_VALUE_TABLE) &&
         (element->display.outer == CSS_VALUE_INLINE ||
-         element->display.outer == CSS_VALUE_INLINE_BLOCK ||
-         view->display.outer == CSS_VALUE_INLINE ||
-         view->display.outer == CSS_VALUE_INLINE_BLOCK)) {
-        // CSS Display 3: `inline flow-root` is an atomic inline whose children
-        // are measured as block-flow content, not as one inline run.
+         element->display.outer == CSS_VALUE_INLINE_BLOCK)) {
+        // CSS Display 3: flow-root and table contents belong to the atomic
+        // inline's own context, including anonymous inline-table fixups.
         return true;
     }
     if (intrinsic_display_is_atomic_inline(view->display.outer)) {
