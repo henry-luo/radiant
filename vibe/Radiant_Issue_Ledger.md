@@ -48,6 +48,43 @@ coverage where applicable, without removing or hiding the skipped cases.
 The separate MIDI live-device skip is conditional on hardware and is not
 classified as a defect here.
 
+<a id="ri-003"></a>
+
+### RI-003 — Property providers still live outside the unified Radiant archive
+
+**Status:** OPEN — reproduced release-link blocker. **Observed:** 2026-11-09,
+macOS arm64. **Lambda blocker:** yes, current-source MVP tuning/build validation.
+Authority: **D9.1.1v4 / D9.1.3v2**; the current Lambda
+[split implementation checkpoint](../../lambda/vibe/impl/Lambda_Impl_Radiant_Split.md#current-checkpoint)
+requires both property providers in `libradiant.a`, with no separate property
+archive target.
+
+Lambda HEAD `1540d9228429f3385c1526d3bfabc85d715a423e`; Radiant HEAD `0c664052c753b66016e34267e65fe59bd11ce6bd`.
+From the Lambda checkout, reproduce with:
+`make build-lambda-split SPLIT_PROFILE=release SPLIT_OUTPUT=temp/mvp_untyped_tuning_next/starting-release.exe JOBS=2`.
+The native archives build, but the host link fails with undefined
+`BLOCK_PROP_DEFAULT`, `BOUNDARY_PROP_DEFAULT`, `EMBED_PROP_DEFAULT`,
+`GRID_ITEM_PROP_DEFAULT`, and numerous property-provider symbols.
+
+The cause is confirmed in the owning build: `Makefile`'s `libradiant.a` rule
+archives only `NATIVE_OBJECTS`; `PROPERTY_OBJECTS` remain in the separate
+`libradiant-properties.a` rule. `build_targets.json` still declares the separate
+`radiant-properties` target. `ar t build/lib/release/libradiant.a` contains neither
+`view_prop_defaults.cpp.o` nor `view_prop_ensure.cpp.o`, while the property
+archive contains both. The merged Lambda integration deliberately removed the
+separate provider link and its checks require each provider once in Radiant.
+Expected: the owner manifest/build produce the unified archive containing both
+providers once, so the existing Lambda consumer links without restoring the
+retired separate dependency.
+
+Evidence in the Lambda checkout:
+`temp/mvp_untyped_tuning_next/starting-tree.json`, `starting-build.log`,
+`libradiant.a.provider-members.txt`, `libradiant-properties.a.provider-members.txt`;
+full link diagnostics: `temp/build_lambda-exe-split.log`.
+No Radiant source/build edits or Lambda link workarounds were made. MVP
+implementation/timing is stopped under the project-boundary rule until the
+owner archive is repaired. No baseline suite was run.
+
 ## Imported native Radiant backlog
 
 These entries retain their original `RAD` IDs, evidence and historical wording
