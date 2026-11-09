@@ -1,21 +1,6 @@
 {
   "targets": [
     {
-      "name": "radiant-properties",
-      "description": "Static native Radiant view-property providers",
-      "pic_linux": true,
-      "lang": "c++17",
-      "source_files": [
-        "radiant/view_prop_defaults.cpp",
-        "radiant/view_prop_ensure.cpp"
-      ],
-      "libraries": [
-        "lambda-data",
-        "lambda-lib"
-      ],
-      "link": "static"
-    },
-    {
       "name": "radiant",
       "description": "Static Radiant layout, rendering, and UI layer",
       "pic_linux": true,
@@ -25,7 +10,6 @@
         "radiant/scene3d/*.cpp"
       ],
       "libraries": [
-        "radiant-properties",
         "lambda-data",
         "lambda-lib",
         "fribidi",
@@ -76,10 +60,6 @@
         ]
       },
       "link": "static",
-      "exclude_patterns": [
-        "radiant/view_prop_defaults.cpp",
-        "radiant/view_prop_ensure.cpp"
-      ],
       "source_sets": [
         {
           "platforms": [
