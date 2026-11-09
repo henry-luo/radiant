@@ -3,7 +3,7 @@ PYTHON ?= python3
 INPUT_ROOT ?= ../lambda-input
 DEPS_ROOT ?= $(INPUT_ROOT)
 PROFILE ?= debug
-RADIANT_CPPFLAGS = -I. -I$(INPUT_ROOT) -I$(INPUT_ROOT)/lib/re2 -I$(INPUT_ROOT)/lib/font/woff2/include \
+RADIANT_CPPFLAGS = -I. -I$(INPUT_ROOT) -I$(INPUT_ROOT)/lib/re2 -I$(INPUT_ROOT)/lib/font/woff2/include -I$(INPUT_ROOT)/test/css \
   -I$(INPUT_ROOT)/build_temp/image-config/include -I$(INPUT_ROOT)/build/deps/utf8proc/include \
   -I$(INPUT_ROOT)/build/deps/curl/include -I$(INPUT_ROOT)/build/deps/thorvg/include -I/opt/homebrew/include -I/usr/local/include \
   -I$(INPUT_ROOT)/lib/image/libpng -I$(INPUT_ROOT)/lib/image/libjpeg-turbo/src -I$(INPUT_ROOT)/lib/image/libwebp/src \
@@ -44,7 +44,7 @@ endif
 NATIVE_OBJECTS := $(addprefix build/obj/native/$(PROFILE)/,$(addsuffix .o,$(NATIVE_SOURCES)))
 PROPERTY_OBJECTS := $(addprefix build/obj/properties/$(PROFILE)/,$(addsuffix .o,$(PROPERTY_SOURCES)))
 
-.PHONY: all clean test-native check-input-facade input-deps force-build-signature
+.PHONY: all clean test-native test-radiant-baseline check-input-facade input-deps force-build-signature
 all: check-input-facade input-deps build/lib/$(PROFILE)/libradiant.a build/lib/$(PROFILE)/libradiant-properties.a
 
 check-input-facade:
@@ -78,15 +78,22 @@ build/obj/properties/$(PROFILE)/%.cpp.o: %.cpp
 	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 -fms-extensions -MMD -MP -MF $@.d -c $< -o $@
 
 # These native host tests link the real archive and do not start a scripting runtime.
-NATIVE_TEST_NAMES = test_radiant_event_sim_controller_host_gtest test_radiant_event_reconcile_host_gtest test_radiant_event_navigation_host_gtest test_radiant_event_host_gtest test_radiant_resource_observer_gtest test_radiant_scroll_observer_gtest \
-  test_scene3d_physics_event_host_gtest test_scene3d_navigation_event_host_gtest \
-  test_radiant_media_backend_gtest
+NATIVE_TEST_NAMES = $(patsubst test/%.cpp,%,$(wildcard test/test_*_gtest.cpp test/css/*.cpp)) lib/test_own_tagged
 NATIVE_TEST_BINS = $(addprefix build/test/,$(NATIVE_TEST_NAMES))
 GTEST_FLAGS ?= $(shell pkg-config --cflags --libs gtest_main)
 
-build/test/%: test/%.cpp build/lib/$(PROFILE)/libradiant.a
+build/test/%: test/%.cpp build/lib/$(PROFILE)/libradiant.a build/lib/$(PROFILE)/libradiant-properties.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-test-utils.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
 	@mkdir -p $(@D)
-	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $< build/lib/$(PROFILE)/libradiant.a $(GTEST_FLAGS) -o $@
+	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $^ $(GTEST_FLAGS) $(NATIVE_CLOSURE_LIBS) -o $@
+
+# Some isolated native suites supply their own host and renderer functions.
+build/test/test_layout_custom_gtest: test/test_layout_custom_gtest.cpp test/test_unlinked_layout_stubs.cpp build/lib/$(PROFILE)/libradiant.a build/lib/$(PROFILE)/libradiant-properties.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $^ $(GTEST_FLAGS) $(NATIVE_CLOSURE_LIBS) -o $@
+
+build/test/test_gif_player_gtest build/test/test_lottie_player_gtest: build/test/%: test/%.cpp test/test_animation_host_stubs.cpp test/test_media_player_stubs.cpp build/lib/$(PROFILE)/libradiant.a build/lib/$(PROFILE)/libradiant-properties.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $^ $(GTEST_FLAGS) $(NATIVE_CLOSURE_LIBS) -o $@
 
 # Always ask the owner to refresh its archives before consuming them.
 input-deps:
@@ -94,6 +101,28 @@ input-deps:
 
 $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a: | input-deps
 	@test -f $@
+
+# These recorder tests provide a controlled vector backend for native archives.
+build/test/test_display_list_gtest: test/test_display_list_gtest.cpp test/test_display_list_stubs.cpp build/lib/$(PROFILE)/libradiant.a build/lib/$(PROFILE)/libradiant-properties.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $^ $(GTEST_FLAGS) $(NATIVE_CLOSURE_LIBS) -o $@
+
+build/test/test_retained_display_list_gtest: test/test_retained_display_list_gtest.cpp test/test_retained_display_list_stubs.cpp test/test_unlinked_layout_stubs.cpp build/lib/$(PROFILE)/libradiant.a build/lib/$(PROFILE)/libradiant-properties.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $^ $(GTEST_FLAGS) $(NATIVE_CLOSURE_LIBS) -o $@
+
+# The state-store slice uses input-owned test utility providers.
+$(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-test-utils.a: | input-deps
+	$(MAKE) -C "$(INPUT_ROOT)" PROFILE="$(PROFILE)" build/lib/$(PROFILE)/liblambda-test-utils.a
+
+build/test/test_state_store_gtest: test/test_state_store_gtest.cpp test/test_state_store_stubs.cpp build/lib/$(PROFILE)/libradiant.a build/lib/$(PROFILE)/libradiant-properties.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-test-utils.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $^ $(GTEST_FLAGS) $(NATIVE_CLOSURE_LIBS) -o $@
+
+# The scheduler test supplies its isolated visibility host.
+build/test/test_animation_gtest: test/test_animation_gtest.cpp test/test_animation_host_stubs.cpp build/lib/$(PROFILE)/libradiant.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $^ $(GTEST_FLAGS) -lpthread -o $@
 
 ifeq ($(shell uname -s),Darwin)
 MEDIA_TEST_LIBS = -Wl,-dead_strip -framework Foundation -framework CoreFoundation -framework CoreText \
@@ -108,8 +137,11 @@ build/test/test_radiant_media_backend_gtest: test/test_radiant_media_backend_gte
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $< build/lib/$(PROFILE)/libradiant.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a $(GTEST_FLAGS) $(MEDIA_TEST_LIBS) -o $@
 
+test-radiant-baseline: test-native
+
 test-native: check-input-facade $(NATIVE_TEST_BINS)
-	@set -e; for test_bin in $(NATIVE_TEST_BINS); do ./$$test_bin; done
+	@mkdir -p temp
+	@rc=0; for test_bin in $(NATIVE_TEST_BINS); do ./$$test_bin || rc=1; done; exit $$rc
 
 # Force every native archive member into a client without a Lambda runtime.
 # The current macOS gate uses the same sibling-built vendor artifacts as the split build.
@@ -130,7 +162,8 @@ NATIVE_CLOSURE_LIBS ?= $(INPUT_ROOT)/build/deps/utf8proc/lib/libutf8proc.a \
   -framework SystemConfiguration -framework Security -framework Cocoa -framework IOKit \
   -framework CoreVideo -framework AVFoundation -framework AudioToolbox -framework CoreMedia \
   -framework OpenGL -framework Foundation -framework CoreGraphics -framework Accelerate \
-  -framework CoreText -framework AppKit -framework Carbon -framework WebKit -liconv -lpthread
+  -framework CoreText -framework AppKit -framework Carbon -framework WebKit -liconv -lpthread \
+  $(shell PKG_CONFIG_PATH="$(INPUT_ROOT)/build/deps/thorvg/lib/pkgconfig:$$PKG_CONFIG_PATH" pkg-config --libs --static thorvg 2>/dev/null | tr ' ' '\n' | sed -n 's/\.dylib$$/.a/p')
 
 .PHONY: test-native-closure
 test-native-closure: check-input-facade build/lib/$(PROFILE)/libradiant.a build/lib/$(PROFILE)/libradiant-properties.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a

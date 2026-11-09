@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "radiant_test_fixture.hpp"
 #include "lib/font/font_internal.h"
 #include "radiant/view.hpp"
 #include <math.h>
@@ -11,9 +12,9 @@
 
 TEST(FontMetricTest, RasterPreservesNativeGrayscaleCoverage) {
     const struct { const char* path; FontSlant slant; } faces[] = {
-        {"lmd/package/doc/latex/fonts/Serif/cmunrm.woff2", FONT_SLANT_NORMAL},
-        {"lmd/package/doc/latex/fonts/Serif/cmunti.woff2", FONT_SLANT_ITALIC},
-        {"lmd/package/doc/latex/fonts/Serif/cmunbi.woff2", FONT_SLANT_ITALIC},
+        {"fonts/cmunrm.woff2", FONT_SLANT_NORMAL},
+        {"fonts/cmunti.woff2", FONT_SLANT_ITALIC},
+        {"fonts/cmunbi.woff2", FONT_SLANT_ITALIC},
         {nullptr, FONT_SLANT_ITALIC}, // the sample's system Times math fallback
     };
     for (float ratio : {1.0f, 2.0f}) {
@@ -27,7 +28,9 @@ TEST(FontMetricTest, RasterPreservesNativeGrayscaleCoverage) {
                 FontStyleDesc style = {};
                 style.family = "Times"; style.size_px = size;
                 style.weight = FONT_WEIGHT_NORMAL; style.slant = face.slant;
-                FontHandle* font = face.path ? font_load_from_file(context, face.path, &style)
+                char path[4096];
+                if (face.path) ASSERT_TRUE(radiant_test_fixture_path(face.path, path, sizeof(path)));
+                FontHandle* font = face.path ? font_load_from_file(context, path, &style)
                     : font_resolve(context, &style);
                 ASSERT_NE(font, nullptr);
                 CTFontRef native = (CTFontRef)font->ct_raster_ref;
