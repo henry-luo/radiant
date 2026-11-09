@@ -25,7 +25,7 @@ observations still require re-verification. Add new Radiant issues here.
 ### RI-001 — HTML/CSS integration cases skip missing fixtures
 
 **Status:** OPEN — test coverage gap. **Observed:** 2026-11-09, macOS,
-`make test-radiant-baseline` (debug). **Lambda blocker:** not established.
+`make run-radiant-baseline` (debug). **Lambda blocker:** not established.
 
 The owner-local `test_html_css_gtest` run skipped 19 cases because fixture files
 could not be loaded. For example, `LoadSimpleBoxTestHTML` could not load
@@ -40,7 +40,7 @@ the affected cases execute; this report does not establish a rendering defect.
 ### RI-002 — DOM integration cases skip unsupported standalone node creation
 
 **Status:** OPEN — test coverage gap. **Observed:** 2026-11-09, macOS,
-`make test-radiant-baseline` (debug). **Lambda blocker:** not established.
+`make run-radiant-baseline` (debug). **Lambda blocker:** not established.
 
 `test/css/test_css_dom_integration.cpp` contains 25 existing skipped cases
 that report standalone node creation is no longer supported. Reproduce with

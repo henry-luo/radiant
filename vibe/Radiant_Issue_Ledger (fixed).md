@@ -231,3 +231,11 @@ counts, fixture identities, browser controls and executable provenance. The
 isolated debug host was relinked with Radiant and rebuilt existing Lambda
 runtime/adapter archives; no Lambda runtime source changes were required.
 All scratch, logs and browser profiles used Radiant's `temp/`.
+
+**Current workflow, 2026-11-10:** the standard target is now
+`make run-radiant-baseline`. It builds and runs `radiant.exe` for both geometry
+suites; that executable links the existing Lambda scripting adapters, while the
+native Radiant archive remains runtime-independent. The full target again
+passes 3,851 static and 630 dynamic comparisons with six existing static skips;
+the native/smoke portion passes 819 tests with 45 existing skips. See
+[`temp/radiant-standalone-baseline-final.log`](../temp/radiant-standalone-baseline-final.log).

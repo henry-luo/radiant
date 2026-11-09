@@ -41,7 +41,7 @@ The engine belongs in Radiant because Radiant owns rendering and native event co
 - **Sources.** `radiant/paint/`, beside `radiant/scene3d/` (USER, 2026-11-09). `radiant/paint/paint.hpp` is the public header. The implementation is split by kernel family: `paint_view.cpp`, `paint_dab.cpp`, `paint_smudge.cpp`, `paint_pigment.cpp`, `paint_wet.cpp`, `paint_bristle.cpp`, `paint_present.cpp` and `paint_score.cpp`. The GPU backend (PE13) adds `paint_gpu.cpp` and its shaders.
 - **Build.** Add `radiant/paint/*.cpp` to the `radiant` target's `source_patterns` in `build_targets.json`, as `radiant/scene3d/*.cpp` is listed. The engine compiles into `libradiant.a` rather than a separate archive.
 - **Includes.** The CPU kernels include only lambda-input `lib/` headers (memory, logging, checked arithmetic) and their own headers. An include check enforces this, so the kernels stay testable without Radiant's view, DOM or event code. Only `paint_gpu.cpp` may include `gl_core.hpp`.
-- **Tests.** An owner-local `test/test_paint_gtest.cpp` joins `make test-radiant-baseline`.
+- **Tests.** An owner-local `test/test_paint_gtest.cpp` joins `make run-radiant-baseline`.
 
 ### PE3 — Views, not owners
 

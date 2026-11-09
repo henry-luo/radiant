@@ -10,6 +10,7 @@
         "radiant/scene3d/*.cpp",
         "radiant/paint/*.cpp"
       ],
+      "exclude_patterns": ["radiant/main.cpp"],
       "libraries": [
         "lambda-data",
         "lambda-lib",
