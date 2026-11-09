@@ -20,6 +20,9 @@
 #include "layout_host.hpp"
 #include "view.hpp"
 #include "event.hpp"
+#include "event_reconcile_host.hpp"
+#include "event_navigation_host.hpp"
+#include "event_host.hpp"
 #include "input_batch.hpp"
 #include "event_sim.hpp"
 #include "render.hpp"
@@ -183,7 +186,7 @@ static bool radiant_service_js_event_loop(UiContext* uicon, RadiantJsLoopAction 
     // flushing the callback so its geometry reads sample a frame boundary,
     // rather than forcing layout from the getter itself.
     if (turn.active) {
-        radiant_reconcile_dom_mutations(uicon, doc);
+        radiant_event_reconcile_mutations(uicon, doc);
         radiant_layout_post_observers();
     }
     bool pumped = radiant_script_loop_pump(&turn, action == RADIANT_JS_LOOP_ADVANCE,
@@ -192,13 +195,13 @@ static bool radiant_service_js_event_loop(UiContext* uicon, RadiantJsLoopAction 
     // Poll libuv on every host turn; its completion only publishes a result.
     uv_loop_t* loop = lambda_uv_loop();
     if (loop) lambda_uv_run_loop(loop, UV_RUN_NOWAIT);
-    pumped = radiant_reconcile_pending_templates(uicon, doc) || pumped;
-    if (turn.active && uicon) radiant_reconcile_dom_mutations(uicon, doc);
+    pumped = radiant_event_reconcile_templates(uicon, doc) || pumped;
+    if (turn.active && uicon) radiant_event_reconcile_mutations(uicon, doc);
     if (turn.active) state_end_batch(state);
     radiant_script_loop_end(&turn);
     if (!turn.active) {
-        bool navigation = radiant_commit_navigation_requests(uicon);
-        return radiant_commit_async_document_loads(uicon) || navigation || pumped ||
+        bool navigation = radiant_event_navigation_commit(uicon);
+        return radiant_event_navigation_commit_loads(uicon) || navigation || pumped ||
             (action == RADIANT_JS_LOOP_PUMP && wait_ms < 0);
     }
     // scripted transport from timers/load callbacks shares the same unwound task boundary.
@@ -209,12 +212,12 @@ static bool radiant_service_js_event_loop(UiContext* uicon, RadiantJsLoopAction 
         // callback returns and this host turn has closed its state batch.
         char* target = doc->pending_navigation_url;
         doc->pending_navigation_url = nullptr;
-        navigated = radiant_execute_location_navigation(uicon, doc, target);
+        navigated = radiant_event_navigation_location(uicon, doc, target);
         mem_free(target);
     }
     // Package requests from input, render, or frame callbacks share location's safe boundary.
-    navigated = radiant_commit_navigation_requests(uicon) || navigated;
-    return radiant_commit_async_document_loads(uicon) || navigated || pumped;
+    navigated = radiant_event_navigation_commit(uicon) || navigated;
+    return radiant_event_navigation_commit_loads(uicon) || navigated || pumped;
 }
 
 // Whether the document's own JS realm runs on a virtual clock. The flag lives in
@@ -238,9 +241,6 @@ bool radiant_advance_js_event_loop(UiContext* uicon, double delta_ms, int frame_
 void render(RadiantWindow* window);
 // load_html_doc is declared in view.hpp (via layout.hpp)
 DomDocument* load_svg_doc(Url* svg_url, int viewport_width, int viewport_height, Pool* pool, float device_scale);
-void handle_event(UiContext* uicon, DomDocument* doc, RdtEvent* event);
-bool radiant_editing_animation_active(DocState* state);
-bool radiant_editing_animation_tick(UiContext* uicon, double timestamp);
 
 static void view_wake_platform(void* user_data) {
     (void)user_data;
@@ -447,7 +447,7 @@ static const char* get_format_name(const char* filename) {
 bool do_redraw = false;
 
 static void window_dispatch_input(void*, RdtEvent* event) {
-    handle_event(&ui_context, ui_context.document, event);
+    radiant_event_host_dispatch(&ui_context, ui_context.document, event);
     DocState* state = ui_context.document ? ui_context.document->state : nullptr;
     if (state && (state->needs_reflow || state->needs_repaint || state->is_dirty)) do_redraw = 1;
 }
@@ -554,13 +554,13 @@ DomDocument* show_loaded_html_doc(DomDocument* doc, const char* doc_url) {
     if (doc->root) {
         layout_update_document(&ui_context, doc);
         // navigation must start Lambda load handlers as initial presentation does.
-        radiant_dispatch_lambda_body_load(&ui_context, doc);
+        radiant_event_host_body_load(&ui_context, doc);
     }
     // ES19: the init phase sits between layout and render. Positioned, not
     // gated on paint — the render below may be skipped, the init may not be.
-    radiant_run_behavior_init(doc);
+    radiant_event_host_initialize_behavior(doc);
     // ES30: package policy selects autofocus; native commits the focus state.
-    radiant_run_autofocus(&ui_context, doc);
+    radiant_event_host_autofocus(&ui_context, doc);
     // render html doc
     if (doc && doc->view_tree) {
         log_debug("html version: %d", doc->view_tree->html_version);
@@ -760,7 +760,7 @@ void radiant_window_focus_changed(UiContext* uicon, bool focused) {
         uicon->fullscreen.toggle_key_down = false;
         uicon->fullscreen.escape_key_down = false;
     }
-    radiant_dispatch_window_event(uicon, uicon->document, focused ? "focus" : "blur");
+    radiant_event_host_window_event(uicon, uicon->document, focused ? "focus" : "blur");
     do_redraw = 1;
 }
 
@@ -853,7 +853,7 @@ bool radiant_window_platform_close(UiContext* uicon) {
     memset(&event, 0, sizeof(event));
     event.type = RDT_EVENT_CLOSE_REQUEST;
     event.timestamp = radiant_platform_time();
-    handle_event(uicon, uicon->document, &event);
+    radiant_event_host_dispatch(uicon, uicon->document, &event);
     do_redraw = 1;
     return uicon->close_approved;
 }
@@ -1193,7 +1193,7 @@ void render(RadiantWindow* window) {
             reflow_html_doc(ui_context.document);
             // Resize listeners must observe the new metrics and may mutate
             // layout synchronously before this frame is presented.
-            radiant_dispatch_window_event(&ui_context, ui_context.document, "resize");
+            radiant_event_host_window_event(&ui_context, ui_context.document, "resize");
         }
         // new surface is blank — force full repaint (not selective)
         if (ui_context.document && ui_context.document->state) {
@@ -1209,9 +1209,9 @@ void render(RadiantWindow* window) {
     bool fullscreen_failed = ui_context.fullscreen.failed;
     ui_context.fullscreen.changed = ui_context.fullscreen.failed = false;
     if (fullscreen_changed)
-        radiant_dispatch_window_event(&ui_context, ui_context.document, "windowfullscreenchange");
+        radiant_event_host_window_event(&ui_context, ui_context.document, "windowfullscreenchange");
     if (fullscreen_failed)
-        radiant_dispatch_window_event(&ui_context, ui_context.document, "windowfullscreenerror");
+        radiant_event_host_window_event(&ui_context, ui_context.document, "windowfullscreenerror");
 
     // Check for incremental reflow due to state changes (pseudo-classes, etc.)
     DocState* state = ui_context.document ? ui_context.document->state : nullptr;
@@ -1235,8 +1235,8 @@ void render(RadiantWindow* window) {
         // ES19: init before the repaint test, not inside it — a control added by a
         // reflow that produced no dirty region still owes its `init` turn.
         if (!ui_context.paged_options) {
-            radiant_run_behavior_init(ui_context.document);
-            radiant_run_autofocus(&ui_context, ui_context.document);
+            radiant_event_host_initialize_behavior(ui_context.document);
+            radiant_event_host_autofocus(&ui_context, ui_context.document);
         }
         // rerender if the document is dirty or needs repaint (e.g., caret changed)
         if (ui_context.document->state &&
@@ -1347,10 +1347,10 @@ static bool window_host_retire(ViewPhaseTiming* timing) {
     if (!window_host.async_drained) {
         radiant_devtools_destroy(ui_context.devtools);
         ui_context.devtools = nullptr;
-        if (window_host.loop_started && !radiant_poll_async_document_loads(&ui_context)) {
+        if (window_host.loop_started && !radiant_event_navigation_poll_loads(&ui_context)) {
             uv_loop_t* loop = lambda_uv_loop();
             if (loop) lambda_uv_run_loop(loop, UV_RUN_NOWAIT);
-            if (!radiant_poll_async_document_loads(&ui_context)) {
+            if (!radiant_event_navigation_poll_loads(&ui_context)) {
                 log_debug("window-host: asynchronous navigation still pending");
                 return false;
             }
@@ -1493,7 +1493,7 @@ static bool window_host_finish(NetworkThreadPool* thread_pool, EnhancedFileCache
         pthread_mutex_unlock(&window_host_lock);
         if (drain_loads) {
             // The viewer cannot unwind while navigation workers still use host services.
-            radiant_drain_async_document_loads(&ui_context);
+            radiant_event_navigation_drain_loads(&ui_context);
             pthread_mutex_lock(&window_host_lock);
             window_host.closing = false;
             pthread_mutex_unlock(&window_host_lock);
@@ -1600,13 +1600,13 @@ double radiant_window_tick(RadiantWindowLoop* loop) {
 
     DocState* state = ui_context.document ? ui_context.document->state : nullptr;
     bool caret_visible = caret_has_projection(state);
-    bool editing_animation_active = radiant_editing_animation_active(state);
+    bool editing_animation_active = radiant_event_host_editing_animation_active(state);
     if (editing_animation_active) {
-        if (radiant_editing_animation_tick(&ui_context, currentTime)) {
+        if (radiant_event_host_editing_animation_tick(&ui_context, currentTime)) {
             do_redraw = 1;
         }
         caret_visible = caret_has_projection(state);
-        editing_animation_active = radiant_editing_animation_active(state);
+        editing_animation_active = radiant_event_host_editing_animation_active(state);
     }
 
     // Tick the visible browsing-context tree, including iframe schedulers.
@@ -1684,7 +1684,7 @@ double radiant_window_tick(RadiantWindowLoop* loop) {
                                                  uv_loop);
     // Reclaim retired storage after painting, between input batches.
     // Pending work wakes again promptly without running a busy idle loop.
-    if (radiant_collect_stranded_dom(&ui_context, ui_context.document) &&
+    if (radiant_event_host_collect_dom(&ui_context, ui_context.document) &&
         wait_timeout > 0.001) wait_timeout = 0.001;
     if (dom_retire_idle(2000) && wait_timeout > 0.001) wait_timeout = 0.001;
     if (idle_layer_frame) wait_timeout = 0.0;
@@ -2155,15 +2155,15 @@ static int view_doc_in_window_with_events_internal(const char* doc_file,
             }
             phase_timing.layout_ms = view_phase_elapsed_ms(layout_start, time_now_ns());
             log_mem_stage("after-layout");
-            if (!paged_options) radiant_dispatch_lambda_body_load(&ui_context, doc);
+            if (!paged_options) radiant_event_host_body_load(&ui_context, doc);
         }
         log_notice("view: layout complete, rendering...");
         // Render document
         uint64_t behavior_init_start = time_now_ns();
-        if (!paged_options) radiant_run_behavior_init(doc, &phase_timing.behavior);   // ES19: layout -> init -> render
+        if (!paged_options) radiant_event_host_initialize_behavior(doc, &phase_timing.behavior);   // ES19: layout -> init -> render
         phase_timing.behavior_init_ms = view_phase_elapsed_ms(behavior_init_start, time_now_ns());
         uint64_t autofocus_start = time_now_ns();
-        if (!paged_options) radiant_run_autofocus(&ui_context, doc); // ES30: package policy -> native focus
+        if (!paged_options) radiant_event_host_autofocus(&ui_context, doc); // ES30: package policy -> native focus
         phase_timing.autofocus_ms = view_phase_elapsed_ms(autofocus_start, time_now_ns());
         if (doc && (doc->view_tree || ui_context.paged_view) &&
             !(headless && sim_ctx && !sim_ctx->initial_render)) {
@@ -2229,7 +2229,7 @@ static int view_doc_in_window_with_events_internal(const char* doc_file,
                     : nullptr;
                 if (next_ev && next_ev->type == SIM_EVENT_SWITCH_FRAME &&
                     next_ev->frame_selector &&
-                    radiant_async_document_loads_pending(&ui_context)) {
+                    radiant_event_navigation_pending_loads(&ui_context)) {
                     // A frame switch in a fixture targets a loaded browsing
                     // context; let native document work finish before entering it.
                     uv_sleep(50);
@@ -2239,7 +2239,7 @@ static int view_doc_in_window_with_events_internal(const char* doc_file,
                 }
                 bool running = event_sim_update(sim_ctx, &ui_context, window, current_time);
                 dom_retire_idle(2000);
-                radiant_collect_stranded_dom(&ui_context, ui_context.document);
+                radiant_event_host_collect_dom(&ui_context, ui_context.document);
                 if (!running) break;
                 // Tick the JS event loop between sim events so deferred callbacks
                 // (setTimeout/queueMicrotask-scheduled work, e.g. the coalesced
@@ -2252,7 +2252,7 @@ static int view_doc_in_window_with_events_internal(const char* doc_file,
                     // native document/media work needs wall time before virtual assertion retries advance;
                     // so do Lambda tasks whose IO, child processes or thread-pool jobs keep the loop alive.
                     uv_loop_t* task_loop = lambda_uv_loop();
-                    if (radiant_async_document_loads_pending(&ui_context) ||
+                    if (radiant_event_navigation_pending_loads(&ui_context) ||
                         (ui_context.document && ui_context.document->resource_manager &&
                          !resource_manager_is_fully_loaded(ui_context.document->resource_manager)) ||
                         dom_document_has_pending_work(ui_context.document) ||

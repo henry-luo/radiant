@@ -86,6 +86,8 @@ void log_mem_stage(const char* stage);  // defined in radiant/window.cpp
 #include "../radiant/layout.hpp"
 #include "view.hpp"
 #include "event.hpp"
+#include "event_reconcile_host.hpp"
+#include "event_host.hpp"
 #include "../radiant/radiant.hpp"
 #include "tagged.hpp"
 
@@ -2245,7 +2247,7 @@ static void run_html_document_scripts(DomDocument* dom_doc, Pool* pool,
     if (full_recascade && dom_doc->js.mutation_count > 0) {
         radiant_sync_mutated_inline_stylesheets(dom_doc);
         cssom_synced = true;
-        incremental_recascade = radiant_apply_load_mutation_cascade(
+        incremental_recascade = radiant_event_reconcile_apply_load(
             dom_doc, &recascade_reason);
         if (incremental_recascade) {
             full_recascade = false;
@@ -4256,7 +4258,7 @@ static View* find_initial_autofocus(View* root) {
     if (!root || !root->is_element()) return nullptr;
     DomElement* element = lam::dom_require_element(root);
     if (element->has_attribute("autofocus") &&
-        is_view_programmatically_focusable(root)) {
+        radiant_event_host_focusable(root, true)) {
         return root;
     }
     for (DomNode* child = element->first_child; child; child = child->next_sibling) {
@@ -4273,7 +4275,7 @@ static bool apply_initial_autofocus(DomDocument* doc, DocState* state) {
         return false;
     }
     View* autofocus = find_initial_autofocus(doc->view_tree->root);
-    if (!autofocus || !radiant_focus_element(doc, autofocus)) return false;
+    if (!autofocus || !radiant_event_host_focus_element(doc, autofocus)) return false;
     return state->needs_reflow;
 }
 
@@ -4552,10 +4554,7 @@ static Element* layout_current_html_root(DomDocument* doc) {
 static void layout_preserve_rebuilt_owners(DomDocument* doc, DomNode* old_root,
                                            DomNode* new_root) {
     view_state_preserve_subtree_identity((DocState*)doc->state, old_root, new_root);
-    radiant_frame_requests_follow_rebuild(doc, old_root, new_root);
-    radiant_pointer_capture_follow_rebuild(doc, old_root, new_root);
-    radiant_focus_events_follow_rebuild(doc, old_root, new_root);
-    radiant_navigation_requests_follow_rebuild(doc, old_root, new_root);
+    radiant_event_reconcile_follow_rebuild(doc, old_root, new_root);
     geomap_follow_rebuild(doc, old_root, new_root);
     scene3d_follow_rebuild(doc, old_root, new_root);
 }
@@ -4653,10 +4652,10 @@ void rebuild_lambda_doc(UiContext* uicon) {
     auto t_layout = time_now_ns();
 
     restore_lambda_focus(doc, state, had_focus, &focus_restore);
-    radiant_queue_template_render_events(doc, doc->root);
+    radiant_event_reconcile_render_events(doc, doc->root);
 
     if (state && !focus_has_current(state) && doc->view_tree && doc->view_tree->root) {
-        radiant_run_autofocus(uicon, doc);
+        radiant_event_host_autofocus(uicon, doc);
     }
 
     if (state) {
@@ -4787,7 +4786,7 @@ static void retain_render_branch(DomDocument* doc, const RenderRetainedBranch& b
         if (after.has_attr(key)) continue;
         const char* old = node->get_attribute(key);
         node->remove_attribute(key);
-        radiant_notify_template_attribute(node, key, old);
+        radiant_event_reconcile_attribute(node, key, old);
     }
     attrs = after.attrs();
     while (attrs.next(&key, &value)) {
@@ -4795,7 +4794,7 @@ static void retain_render_branch(DomDocument* doc, const RenderRetainedBranch& b
         const char* old = node->get_attribute(key);
         if (!radiant_reactive_render_set_metadata(node, key, value.cstring())) {
             node->set_attribute(key, value.cstring());
-            radiant_notify_template_attribute(node, key, old);
+            radiant_event_reconcile_attribute(node, key, old);
         }
     }
     dom_rebind_render_element(doc, branch.previous.element, branch.current.element);
@@ -4820,7 +4819,7 @@ void rebuild_lambda_doc_incremental(UiContext* uicon, RetransformResult* results
     }
 
     // finish earlier imperative writes before staging this template's attribute/splice batch.
-    if (doc->js.mutation_count > 0) radiant_reconcile_dom_mutations(uicon, doc);
+    if (doc->js.mutation_count > 0) radiant_event_reconcile_mutations(uicon, doc);
 
     lam::ArrayList<RetransformResult> frontier(MEM_CAT_TEMP);
     lam::ArrayList<RenderRetainedBranch> retained(MEM_CAT_TEMP);
@@ -4834,13 +4833,13 @@ void rebuild_lambda_doc_incremental(UiContext* uicon, RetransformResult* results
         for (int i = 0; i < result_count; i++) {
             if (get_type_id(results[i].new_result) == LMD_TYPE_ELEMENT) {
                 DomElement* node = element_dom_map_lookup(doc->element_dom_map, results[i].new_result.element);
-                if (node) radiant_queue_template_render_events(doc, node);
+                if (node) radiant_event_reconcile_render_events(doc, node);
             }
         }
         results = frontier.data();
         result_count = (int)frontier.size(); // INT_CAST_OK: bounded collection length, not layout geometry.
         if (!result_count) {
-            if (doc->js.mutation_count > 0) radiant_reconcile_dom_mutations(uicon, doc);
+            if (doc->js.mutation_count > 0) radiant_event_reconcile_mutations(uicon, doc);
             return;
         }
     }
@@ -4994,11 +4993,11 @@ void rebuild_lambda_doc_incremental(UiContext* uicon, RetransformResult* results
 
         apply_inline_styles_to_tree(new_dom, doc->document_pool);
         // each committed subtree owns its next frame; unrelated components stay idle.
-        radiant_queue_template_render_events(doc, new_dom);
+        radiant_event_reconcile_render_events(doc, new_dom);
     }
     const char* mutation_reason = nullptr;
     bool broad_mutation = doc->js.mutation_count > 0 &&
-        !radiant_prepare_dom_mutation_layout(doc, &mutation_reason);
+        !radiant_event_reconcile_prepare_layout(doc, &mutation_reason);
     // retained class writes and replaced children share one final style/layout commit (D5.5.3).
     if (stylesheet_changed || broad_mutation) {
         // stylesheet selectors can affect siblings outside the replaced template subtree.
@@ -5040,7 +5039,7 @@ void rebuild_lambda_doc_incremental(UiContext* uicon, RetransformResult* results
     restore_lambda_focus(doc, state, had_focus, &focus_restore);
 
     if (state && !focus_has_current(state)) {
-        radiant_run_autofocus(uicon, doc);
+        radiant_event_host_autofocus(uicon, doc);
     }
 
     if (state) {

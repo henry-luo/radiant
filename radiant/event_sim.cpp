@@ -9,6 +9,8 @@
 #include "scroll_request.hpp"
 #include "svg_geometry_context.hpp"
 #include "event.hpp"
+#include "event_sim_controller_host.hpp"
+#include "event_host.hpp"
 #include "view.hpp"
 #include "render.hpp"
 #include "radiant.hpp"
@@ -57,22 +59,6 @@ static void sim_input_turn_drain(EventSimContext* ctx, UiContext* uicon) {
 }
 
 // Forward declarations for callbacks (defined in window.cpp)
-extern void handle_event(UiContext* uicon, DomDocument* doc, RdtEvent* event);
-extern bool radiant_editing_animation_tick(UiContext* uicon, double timestamp);
-extern "C" bool radiant_dispatch_event_sim_select_change(UiContext* uicon,
-                                                         View* target,
-                                                         int selected_index);
-extern "C" bool radiant_dispatch_editing_text_drag_drop(UiContext* uicon,
-                                                         View* source,
-                                                         uint32_t source_start,
-                                                         uint32_t source_end,
-                                                         View* target,
-                                                         uint32_t target_start,
-                                                         uint32_t target_end,
-                                                         const char* payload,
-                                                         const char* html_payload,
-                                                         bool move);
-
 // Forward declaration for parse_json
 void parse_json(Input* input, const char* json_string);
 
@@ -2903,7 +2889,7 @@ static void sim_dispatch_event(UiContext* uicon, RdtEvent* event,
                                bool mark_pending = true) {
     if (!uicon || !event) return;
     event->timestamp = get_monotonic_time();
-    handle_event(uicon, uicon->document, event);
+    radiant_event_host_dispatch(uicon, uicon->document, event);
     if (mark_pending) sim_input_turn_mark_pending();
 }
 
@@ -3007,7 +2993,7 @@ static void sim_replay_input(UiContext* uicon, SimEvent* ev) {
         return;
     }
 
-    handle_event(uicon, uicon->document, &event);
+    radiant_event_host_dispatch(uicon, uicon->document, &event);
 }
 
 // Assert helper for caret state
@@ -3735,7 +3721,7 @@ static void sim_focus_typing_target(UiContext* uicon, SimEvent* ev) {
     if (already_focused) return;
 
     if (sim_target_is_rich_editing_surface(target_elem) &&
-        radiant_focus_element(uicon->document, native_focus_target)) {
+        radiant_event_host_focus_element(uicon->document, native_focus_target)) {
         sim_input_turn_mark_pending();
         return;
     }
@@ -3756,7 +3742,7 @@ static void sim_focus_typing_target(UiContext* uicon, SimEvent* ev) {
     state = uicon->document ? (DocState*)uicon->document->state : nullptr;
     if (native_focus_target && native_focus_target->is_element() &&
         (!state || focus_get(state) != native_focus_target) &&
-        radiant_focus_element(uicon->document, native_focus_target)) {
+        radiant_event_host_focus_element(uicon->document, native_focus_target)) {
         sim_input_turn_mark_pending();
     }
 }
@@ -3944,28 +3930,28 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
                                  ev->button, ev->mods, false);
                 break;
             }
-            radiant_dispatch_event_sim_pointer(uicon, target, "pointerdown",
+            radiant_event_sim_controller_pointer(uicon, target, "pointerdown",
                 drag_x, drag_y, ev->button, 1, ev->mods, pointer_type);
             // Touch contact delivers PointerEvents and TouchEvents, but never
             // a simultaneous mouse drag. Legacy touch listeners need the
             // latter stream while pointer-aware widgets consume the former.
             double gesture_timestamp_ms = radiant_event_sim_clock_ms(true);
             double touch_step_ms = (double)ev->drag_duration_ms / (double)steps;
-            radiant_dispatch_event_sim_touch(uicon, target, "touchstart",
+            radiant_event_sim_controller_touch(uicon, target, "touchstart",
                 drag_x, drag_y, ev->mods, true, gesture_timestamp_ms);
             for (int step = 1; step <= steps; step++) {
                 float x = drag_x + (drag_to_x - drag_x) * step / (float)steps;
                 float y = drag_y + (drag_to_y - drag_y) * step / (float)steps;
-                radiant_dispatch_event_sim_pointer(uicon, target, "pointermove",
+                radiant_event_sim_controller_pointer(uicon, target, "pointermove",
                     x, y, ev->button, 1, ev->mods, pointer_type);
-                radiant_dispatch_event_sim_touch(uicon, target, "touchmove",
+                radiant_event_sim_controller_touch(uicon, target, "touchmove",
                     x, y, ev->mods, true,
                     gesture_timestamp_ms + touch_step_ms * (double)step);
                 sim_input_turn_drain(ctx, uicon);
             }
-            radiant_dispatch_event_sim_pointer(uicon, target, "pointerup",
+            radiant_event_sim_controller_pointer(uicon, target, "pointerup",
                 drag_to_x, drag_to_y, ev->button, 0, ev->mods, pointer_type);
-            radiant_dispatch_event_sim_touch(uicon, target, "touchend",
+            radiant_event_sim_controller_touch(uicon, target, "touchend",
                 drag_to_x, drag_to_y, ev->mods, false,
                 gesture_timestamp_ms + (double)ev->drag_duration_ms + touch_step_ms);
             break;
@@ -4080,7 +4066,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
                      ev->drag_move ? 1 : 0,
                      ev->input_text ? strlen(ev->input_text) : 0,
                      ev->clipboard_html ? strlen(ev->clipboard_html) : 0);
-            bool ok = radiant_dispatch_editing_text_drag_drop(
+            bool ok = radiant_event_sim_controller_text_drag_drop(
                 uicon, src_view, source_start, source_end,
                 dst_view, target_start, target_end,
                 ev->input_text, ev->clipboard_html, ev->drag_move);
@@ -4187,9 +4173,9 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
                 event.mouse_button.button = ev->button;
                 event.mouse_button.clicks = (uint8_t)total_clicks;
                 event.mouse_button.mods = ev->mods;
-                handle_event(uicon, uicon->document, &event);
+                radiant_event_host_dispatch(uicon, uicon->document, &event);
                 event.mouse_button.type = RDT_EVENT_MOUSE_UP;
-                handle_event(uicon, uicon->document, &event);
+                radiant_event_host_dispatch(uicon, uicon->document, &event);
             }
             break;
         }
@@ -4234,7 +4220,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             // A stale layout hit from the focus harness must not select a
             // different block before this explicit focus operation runs.
             if (sim_target_is_rich_editing_surface(target) &&
-                radiant_focus_element(uicon->document, native_focus_target)) {
+                radiant_event_host_focus_element(uicon->document, native_focus_target)) {
                 sim_input_turn_mark_pending();
                 break;
             }
@@ -4253,7 +4239,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             native_focus_target = focus_target ? focus_target : target;
             if (target && target->is_element() &&
                 (!uicon->document->state || focus_get(uicon->document->state) != native_focus_target) &&
-                radiant_focus_element(uicon->document, native_focus_target)) {
+                radiant_event_host_focus_element(uicon->document, native_focus_target)) {
                 sim_input_turn_mark_pending();
             }
             break;
@@ -4347,7 +4333,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             // is not. This dispatches the same `optioncommit` the pointer and
             // keyboard paths use, and the template both selects the option and
             // closes the dropdown, so no explicit close is needed here.
-            radiant_dispatch_event_sim_select_change(uicon, static_cast<View*>(select),
+            radiant_event_sim_controller_select_change(uicon, static_cast<View*>(select),
                                                      match_index);
             if (state) doc_state_request_repaint(state);
             log_info("event_sim: select_option - selected index %d", match_index);
@@ -4355,7 +4341,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
         }
 
         case SIM_EVENT_SET_INPUT_CAPABILITIES: {
-            bool changed = radiant_set_input_capabilities(uicon, &ev->input_capabilities);
+            bool changed = radiant_event_host_input_capabilities(uicon, &ev->input_capabilities);
             log_info("event_sim: input capabilities %s", changed ? "changed" : "unchanged");
             DomDocument* doc = uicon->document;
             sim_reflow_if_pending(doc, doc ? (DocState*)doc->state : nullptr);
@@ -4385,7 +4371,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
                 reflow_html_doc(uicon->document);
                 // Synthetic resize follows the native browser-visible turn
                 // after viewport metrics and the initial reflow are current.
-                radiant_dispatch_window_event(uicon, uicon->document, "resize");
+                radiant_event_host_window_event(uicon, uicon->document, "resize");
             }
             // Re-render after resize to update surface pixels
             event_sim_render_surface(uicon);
@@ -4421,7 +4407,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
                     // The preceding focus/selection is the caller's intended paste
                     // position. Re-focusing can activate editor chrome instead.
                 } else if (sim_target_is_rich_editing_surface(target) &&
-                    radiant_focus_element(uicon->document, focus_target)) {
+                    radiant_event_host_focus_element(uicon->document, focus_target)) {
                     sim_input_turn_mark_pending();
                 } else {
                     float x, y;
@@ -4546,20 +4532,20 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             event.composition.preedit_caret = (uint32_t)ev->expected_char_offset;
             if (strcmp(phase, "begin") == 0) {
                 event.composition.type = RDT_EVENT_COMPOSITION_START;
-                handle_event(uicon, doc, &event);
+                radiant_event_host_dispatch(uicon, doc, &event);
                 log_info("event_sim: ime_compose begin");
             } else if (strcmp(phase, "update") == 0) {
                 event.composition.type = RDT_EVENT_COMPOSITION_UPDATE;
-                handle_event(uicon, doc, &event);
+                radiant_event_host_dispatch(uicon, doc, &event);
                 log_info("event_sim: ime_compose update '%s'", data);
             } else if (strcmp(phase, "commit") == 0) {
                 event.composition.type = RDT_EVENT_COMPOSITION_END;
-                handle_event(uicon, doc, &event);
+                radiant_event_host_dispatch(uicon, doc, &event);
                 log_info("event_sim: ime_compose commit '%s'", data);
             } else if (strcmp(phase, "cancel") == 0) {
                 event.composition.type = RDT_EVENT_COMPOSITION_END;
                 event.composition.text = "";
-                handle_event(uicon, doc, &event);
+                radiant_event_host_dispatch(uicon, doc, &event);
                 log_info("event_sim: ime_compose cancel");
             } else {
                 log_error("event_sim: ime_compose - unknown phase '%s'", phase);
@@ -5686,7 +5672,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             for (int i = 1; i <= steps; i++) {
                 double now = base_time + (step_ms * i) / 1000.0;
                 if (!virtual_clock) radiant_tick_document_animations(doc, now);
-                radiant_editing_animation_tick(uicon, now);
+                radiant_event_host_editing_animation_tick(uicon, now);
             }
             if (virtual_clock) {
                 // Virtual time has already sampled the top document's CSS

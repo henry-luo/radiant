@@ -1,6 +1,7 @@
 #include "view.hpp"
 #include "layout.hpp"
 #include "event.hpp"
+#include "event_host.hpp"
 #include "render.hpp"
 #include "svg_geometry_context.hpp"
 
@@ -1781,7 +1782,7 @@ static void css_animation_dispatch_start(AnimationInstance* anim, CssAnimState* 
         double duration = anim->iteration_count >= 0.0
             ? anim->duration * anim->iteration_count : INFINITY;
         double elapsed = fmin(fmax(-anim->delay, 0.0), duration);
-        radiant_dispatch_css_event(state->ui_context, state->element,
+        radiant_event_host_css_event(state->ui_context, state->element,
             "animationstart", "animationName", state->keyframes->name, elapsed);
     }
 }
@@ -1883,7 +1884,7 @@ void css_animation_tick(AnimationInstance* anim, float t) {
     if (started && !state->suppress_events &&
                anim->current_iteration > state->event_iteration) {
         state->event_iteration = anim->current_iteration;
-        radiant_dispatch_css_event(state->ui_context, state->element,
+        radiant_event_host_css_event(state->ui_context, state->element,
             "animationiteration", "animationName", state->keyframes->name,
             anim->duration * (double)anim->current_iteration);
     }
@@ -1976,7 +1977,7 @@ void css_animation_finish(AnimationInstance* anim) {
         double elapsed = anim->iteration_count >= 0
             ? anim->duration * (double)anim->iteration_count : anim->duration;
         if (!state->suppress_events)
-            radiant_dispatch_css_event(state->ui_context, state->element,
+            radiant_event_host_css_event(state->ui_context, state->element,
                 "animationend", "animationName",
                 state->keyframes ? state->keyframes->name : "", elapsed);
         // expired effects must restore the cascade even if their last sample changed geometry.
@@ -2030,7 +2031,7 @@ static void css_animation_cancel(AnimationInstance* anim) {
         double elapsed = fmax(now - anim->start_time - anim->delay, 0.0);
         if (anim->iteration_count >= 0.0)
             elapsed = fmin(elapsed, anim->duration * anim->iteration_count);
-        radiant_dispatch_css_event(state->ui_context, state->element,
+        radiant_event_host_css_event(state->ui_context, state->element,
             "animationcancel", "animationName", state->keyframes->name, elapsed);
     }
     if (state->image_applied && state->element && state->element->bound && state->element->bound->background &&
@@ -2976,7 +2977,7 @@ void css_transition_finish(AnimationInstance* anim) {
             }
         }
     }
-    radiant_dispatch_css_event(st->ui_context, st->element,
+    radiant_event_host_css_event(st->ui_context, st->element,
         "transitionend", "propertyName",
         css_property_spelling_from_code(st->property_code), anim->duration);
     log_debug("css-transition: finished prop=%d for element %p", st->property_code, st->element);
@@ -3007,7 +3008,7 @@ static void css_transition_cancel(AnimationInstance* anim) {
     double elapsed = now - anim->start_time - anim->delay;
     if (elapsed < 0.0) elapsed = 0.0;
     if (elapsed > anim->duration) elapsed = anim->duration;
-    radiant_dispatch_css_event(st->ui_context, st->element,
+    radiant_event_host_css_event(st->ui_context, st->element,
         "transitioncancel", "propertyName",
         css_property_spelling_from_code(st->property_code), elapsed);
     pool_free(st->pool, st);

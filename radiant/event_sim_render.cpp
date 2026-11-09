@@ -3,6 +3,8 @@
 #include "event_sim_script_host.hpp"
 #include "event_sim.hpp"
 #include "event.hpp"
+#include "event_sim_controller_host.hpp"
+#include "event_host.hpp"
 #include "layout.hpp"
 #include "render.hpp"
 #include "scene3d/scene3d.hpp"
@@ -675,10 +677,10 @@ bool event_sim_render_execute(EventSimContext* context, UiContext* ui, SimEvent*
             input_event.type = !strcmp(kind, "mousedown") ? RDT_EVENT_MOUSE_DOWN : RDT_EVENT_MOUSE_UP;
             input_event.mouse_button.x = x; input_event.mouse_button.y = y;
             input_event.mouse_button.button = number(args.get("button")); input_event.mouse_button.clicks = 1;
-            handle_event(ui, ui->document, &input_event);
+            radiant_event_host_dispatch(ui, ui->document, &input_event);
         } else if (passed && (!strcmp(kind, "pointerdown") || !strcmp(kind, "pointerup") || !strcmp(kind, "pointercancel"))) {
             // this API returns preventDefault(), not dispatch success; cancellation is valid input.
-            bool prevented = radiant_dispatch_event_sim_pointer(ui, element, kind, x, y,
+            bool prevented = radiant_event_sim_controller_pointer(ui, element, kind, x, y,
                 number(args.get("button")), number(args.get("buttons")), 0, "mouse");
             if (args.has("prevented")) passed = prevented == args.get("prevented").asBool();
         } else passed = false;

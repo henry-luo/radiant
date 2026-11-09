@@ -24,6 +24,7 @@
 #define RADIANT_EVENT_CORE_ONLY
 #include "event.hpp"
 #undef RADIANT_EVENT_CORE_ONLY
+#include "event_host.hpp"
 #include "scale.hpp"
 
 // Opaque types — see ime_mac.mm comment.
@@ -35,15 +36,7 @@ class View;
 extern "C" void*         radiant_ui_get_native_window(struct UiContext*);
 extern "C" void          radiant_ui_get_content_scale(struct UiContext*, float* x, float* y);
 extern "C" DocState* radiant_ui_get_state(struct UiContext*);
-extern "C" bool radiant_dispatch_editing_composition_event(struct UiContext*,
-                                                           EventType,
-                                                           const char*,
-                                                           uint32_t);
-extern "C" bool radiant_editing_focused_caret_rect(struct UiContext*,
-                                                   float*,
-                                                   float*,
-                                                   float*,
-                                                   float*);
+
 
 View* focus_get(DocState*);
 bool  tc_is_text_control(DomElement*);
@@ -68,8 +61,7 @@ DomElement* ime_focused_text_control() {
 
 bool ime_dispatch_editing(EventType event_type, const char* text, uint32_t caret) {
     return g_ime_uicon &&
-        radiant_dispatch_editing_composition_event(g_ime_uicon, event_type,
-                                                   text, caret);
+        radiant_event_host_ime_composition(g_ime_uicon, event_type, text, caret);
 }
 
 void ime_update_candidate_window(HWND hwnd, HIMC himc) {
@@ -78,7 +70,7 @@ void ime_update_candidate_window(HWND hwnd, HIMC himc) {
     float y = 0.0f;
     float w = 0.0f;
     float h = 0.0f;
-    if (!radiant_editing_focused_caret_rect(g_ime_uicon, &x, &y, &w, &h)) {
+    if (!radiant_event_host_focused_caret_rect(g_ime_uicon, &x, &y, &w, &h)) {
         return;
     }
     CANDIDATEFORM form;

@@ -1,6 +1,7 @@
 /* Radiant interaction state-machine boundary — Phase 3 implementation. */
 
 #include "event.hpp"
+#include "event_host.hpp"
 #include "state_store_internal.hpp"
 #include "view.hpp"
 #include "layout.hpp"
@@ -15,8 +16,6 @@
 #include <stdio.h>
 #include <string.h>
 
-extern bool is_view_focusable(View* view);
-extern bool is_view_programmatically_focusable(View* view);
 
 #define STATE_MACHINE_RECORD_BUFSZ 4096
 
@@ -968,7 +967,7 @@ static void validate_view_state_registry(DocState* state,
 static void validate_focused_target_state(DocState* state,
                                           StateValidationReport* report) {
     if (!state || !state->focus || !state->focus->current) return;
-    if (!is_view_programmatically_focusable(state->focus->current)) {
+    if (!radiant_event_host_focusable(state->focus->current, true)) {
         report_fail(report, "focused target is not focusable");
     }
     if (state->focus->current->is_element()) {

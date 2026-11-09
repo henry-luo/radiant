@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "../radiant/loader_runtime_host.hpp"
 #include "../radiant/view.hpp"
+#include "../radiant/radiant.hpp"
 #include "../lambda/input/input.hpp"
 #include "../lambda/input/css/dom_element.hpp"
 #include "../lib/file.h"
@@ -60,4 +61,12 @@ TEST(RadiantNoScriptHostTest, HtmlRendersWithoutExecutingScripts) {
     EXPECT_NE(dom_find_element_by_id(document->root, "fallback"), nullptr);
     free_document(document);
     InputManager::destroy_global();
+}
+
+TEST(RadiantNoScriptHostTest, NativeUiInitializationDoesNotInstallScriptHost) {
+    ASSERT_FALSE(radiant_loader_runtime_host_available());
+    UiContext ui = {};
+    ASSERT_EQ(ui_context_init(&ui, true, 1.0f), 0);
+    EXPECT_FALSE(radiant_loader_runtime_host_available());
+    EXPECT_TRUE(ui_context_cleanup(&ui));
 }

@@ -1,4 +1,5 @@
 #include "event.hpp"
+#include "event_host.hpp"
 #include "../lib/host_paths.h"
 #include "../lib/file.h"
 #include "state_store_internal.hpp"
@@ -41,9 +42,6 @@
   #include <unistd.h>
 #endif
 
-// Declared in event.cpp
-extern bool is_view_focusable(View* view);
-extern bool is_view_programmatically_focusable(View* view);
 
 static void focus_sync_text_control_state(DocState* state, View* view);
 
@@ -5537,7 +5535,7 @@ void doc_state_open_dropdown(DocState* state, View* view) {
     state->version++;
     sm_guard.commit();
     state_assert_after_mutation(state, "doc_state_open_dropdown");
-    radiant_sync_pseudo_state(view, PSEUDO_STATE_HOVER, true);
+    radiant_event_host_sync_pseudo_state(view, PSEUDO_STATE_HOVER, true);
 }
 
 void doc_state_close_dropdown(DocState* state, View* view) {
@@ -5564,7 +5562,7 @@ void doc_state_close_dropdown(DocState* state, View* view) {
     state->version++;
     sm_guard.commit();
     state_assert_after_mutation(state, "doc_state_close_dropdown");
-    radiant_sync_pseudo_state(target, PSEUDO_STATE_HOVER, false);
+    radiant_event_host_sync_pseudo_state(target, PSEUDO_STATE_HOVER, false);
 }
 
 void doc_state_set_dropdown_geometry(DocState* state,
@@ -5793,7 +5791,7 @@ void form_control_set_hover_index(DocState* state, View* view, int index, bool r
     if (reveal && state->open_dropdown == view) doc_state_reveal_dropdown_option(state, index);
     sm_guard.commit();
     form_state_mark_dirty(state);
-    radiant_sync_pseudo_state(view, PSEUDO_STATE_HOVER, index >= 0);
+    radiant_event_host_sync_pseudo_state(view, PSEUDO_STATE_HOVER, index >= 0);
 }
 
 int form_control_get_hover_index(DocState* state, View* view) {
@@ -8383,8 +8381,8 @@ static void focus_sync_text_control_state(DocState* state, View* view) {
 
 static bool focus_accepts_target(View* view, bool programmatic) {
     if (!view) return true;
-    return programmatic ? is_view_programmatically_focusable(view)
-                        : is_view_focusable(view);
+    return programmatic ? radiant_event_host_focusable(view, true)
+                        : radiant_event_host_focusable(view, false);
 }
 
 static void focus_set_internal(DocState* state, View* view, bool from_keyboard,
@@ -8452,9 +8450,9 @@ static void focus_set_internal(DocState* state, View* view, bool from_keyboard,
     uint32_t changed_flags = old_focus != view ? PSEUDO_STATE_FOCUS | PSEUDO_STATE_FOCUS_WITHIN : 0;
     if (old_visible != focus->focus_visible || (old_focus != view && (old_visible || focus->focus_visible)))
         changed_flags |= PSEUDO_STATE_FOCUS_VISIBLE;
-    radiant_sync_focus_style(view ? view : old_focus, changed_flags);
+    radiant_event_host_sync_focus_style(view ? view : old_focus, changed_flags);
     if (old_focus && view && old_focus->as_element()->doc != view->as_element()->doc)
-        radiant_sync_focus_style(old_focus, changed_flags);
+        radiant_event_host_sync_focus_style(old_focus, changed_flags);
 
     state->needs_repaint = true;
 
@@ -8507,7 +8505,7 @@ static void focus_clear_internal(DocState* state, bool preserve_selection) {
         selection_refresh_presentation(state);
     }
 
-    radiant_sync_focus_style(old_focus, PSEUDO_STATE_FOCUS | PSEUDO_STATE_FOCUS_VISIBLE | PSEUDO_STATE_FOCUS_WITHIN);
+    radiant_event_host_sync_focus_style(old_focus, PSEUDO_STATE_FOCUS | PSEUDO_STATE_FOCUS_VISIBLE | PSEUDO_STATE_FOCUS_WITHIN);
     state->needs_repaint = true;
 
     focus_log_transition(state, "blur_current", old_focus, NULL, false, false);
@@ -8560,8 +8558,8 @@ int focus_tab_index(View* view) {
 // owns tabindex ordering; native only answers layout-coupled eligibility.
 static void focus_collect_candidates_inner(View* view, ArrayList* list, bool sequential_only) {
     if (!view) return;
-    bool focusable = sequential_only ? is_view_focusable(view)
-                                     : is_view_programmatically_focusable(view);
+    bool focusable = sequential_only ? radiant_event_host_focusable(view, false)
+                                     : radiant_event_host_focusable(view, true);
     if (focusable) {
         arraylist_append(list, view);
     }
@@ -9028,4 +9026,27 @@ static const char* form_direction_live_value(DomElement* element, void*) {
 
 extern "C" int dom_css_element_directionality(void* element) {
     return dom_element_directionality((DomElement*)element, form_direction_live_value);
+}
+
+void clear_document_interaction_state_before_detach(DomDocument* doc) {
+    if (!doc || !doc->state) return;
+
+    DocState* state = doc->state;
+    log_debug("[IFRAME_DETACH_STATE] clearing transient interaction state for %p", (void*)doc);
+
+    focus_clear(state);
+    state_store_caret_clear(state);
+    state_store_selection_clear(state);
+    selection_press_in_range_clear(state);
+    editing_interaction_clear_autoscroll(state);
+    editing_interaction_set_active_surface(state, NULL);
+    doc_state_set_hover_target(state, NULL);
+    doc_state_set_active_target(state, NULL);
+    doc_state_set_drag_state(state, NULL, false);
+    doc_state_clear_drag_drop(state);
+
+    doc_state_close_dropdown(state, NULL);
+    doc_state_close_context_menu(state);
+    state->active_text_control = NULL;
+    state->last_focused_text_control = NULL;
 }

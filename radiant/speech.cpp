@@ -14,6 +14,7 @@
 #include "speech_event_host.hpp"
 #include "audio.hpp"
 #include "event.hpp"
+#include "event_host.hpp"
 #include "../lambda/input/css/dom_element.hpp"
 #include "../lib/mem.h"
 #include "../lib/log.h"
@@ -580,7 +581,7 @@ bool radiant_speech_tick(DomDocument* doc) {
     uint64_t generation = speech->fake ? 1 : rdt_speech_voices_generation();
     if (generation != speech->voices_generation) {
         speech->voices_generation = generation;
-        radiant_dispatch_window_event((UiContext*)doc->js.host_ui_context, doc, "voiceschanged");
+        radiant_event_host_window_event((UiContext*)doc->js.host_ui_context, doc, "voiceschanged");
     }
     speech_prune(speech, doc);
     // a lost device ends the utterance it was playing; the next one reopens the bus.

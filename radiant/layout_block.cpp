@@ -8,6 +8,9 @@
 #include "view.hpp"
 #include "render.hpp"
 #include "event.hpp"
+#include "event_reconcile_host.hpp"
+#include "event_navigation_host.hpp"
+#include "event_host.hpp"
 #include "radiant.hpp"
 #include "network_integration.h"
 
@@ -4935,8 +4938,8 @@ void layout_iframe_embedded_doc(UiContext* uicon, DomDocument* doc,
     process_document_font_faces(uicon, doc);
     layout_update_document(uicon, doc);
     // resizing preserves the existing session; load handlers initialize it only once.
-    if (initial_load) radiant_dispatch_lambda_body_load(uicon, doc);
-    else radiant_queue_template_render_events(doc, doc->root);
+    if (initial_load) radiant_event_host_body_load(uicon, doc);
+    else radiant_event_reconcile_render_events(doc, doc->root);
     // load handlers can write the embedded viewport's CSS before its first presentation.
     layout_update_document(uicon, doc);
     uicon->document = lam::up(parent_doc);
@@ -5022,7 +5025,7 @@ DomDocument* layout_ensure_iframe_document(LayoutContext* lycon, ViewBlock* bloc
     }
     if (lycon->ui_context->iframe_depth >= MAX_IFRAME_DEPTH) return previous;
     if (!srcdoc && iframe_navigation_must_not_run_in_layout(lycon, src)) return previous;
-    if (!srcdoc && radiant_schedule_async_iframe_load(lycon->ui_context, block->as_element(), src,
+    if (!srcdoc && radiant_event_navigation_schedule_iframe(lycon->ui_context, block->as_element(), src,
             (int)viewport_width, (int)viewport_height)) return previous; // INT_CAST_OK: loader viewport API uses integer CSS pixels
     lycon->ui_context->iframe_depth++;
     DomDocument* doc = srcdoc ? load_iframe_srcdoc_doc(lycon, block->as_element(), srcdoc,

@@ -24,17 +24,8 @@
         "radiant/*.cpp",
         "radiant/scene3d/*.cpp"
       ],
-      "objcxx_source_files": [
-        "radiant/audio_capture_mac_static.cpp",
-        "radiant/app_icon_mac_static.cpp",
-        "radiant/clipboard_mac_static.cpp",
-        "radiant/ime_mac_static.cpp",
-        "radiant/webview_child_mac_static.cpp",
-        "radiant/webview_layer_mac_static.cpp"
-      ],
       "libraries": [
         "radiant-properties",
-        "lambda-rt",
         "lambda-data",
         "lambda-lib",
         "fribidi",
@@ -88,6 +79,37 @@
       "exclude_patterns": [
         "radiant/view_prop_defaults.cpp",
         "radiant/view_prop_ensure.cpp"
+      ],
+      "source_sets": [
+        {
+          "platforms": [
+            "macos"
+          ],
+          "exclude_patterns": [
+            "radiant/rdt_video_stub.cpp",
+            "radiant/rdt_speech_stub.cpp"
+          ],
+          "objcxx_source_files": [
+            "radiant/audio_capture_mac_static.cpp",
+            "radiant/app_icon_mac_static.cpp",
+            "radiant/clipboard_mac_static.cpp",
+            "radiant/ime_mac_static.cpp",
+            "radiant/webview_child_mac_static.cpp",
+            "radiant/webview_layer_mac_static.cpp",
+            "radiant/rdt_video_mac_static.cpp",
+            "radiant/rdt_speech_mac_static.cpp"
+          ]
+        },
+        {
+          "platforms": [
+            "linux",
+            "windows"
+          ],
+          "exclude_patterns": [
+            "radiant/rdt_video_mac_static.cpp",
+            "radiant/rdt_speech_mac_static.cpp"
+          ]
+        }
       ]
     }
   ]

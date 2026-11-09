@@ -12,6 +12,7 @@
 #include "../../lib/scene3d_material.h"
 #include "../../lib/str.h"
 #include "../event.hpp"
+#include "../event_host.hpp"
 #include "scene3d.hpp"
 #include "scene3d_source.hpp"
 #include "scene3d_physics.hpp"
@@ -583,7 +584,7 @@ static void scene3d_animation_timeline(void* owner, const AnimationTimelineEvent
             }
             Scene3dRuntimeStats clock = {};
             scene3d_runtime_stats(state->runtime, &clock);
-            radiant_dispatch_scene_animation_event((UiContext*)state->document->js.host_ui_context, root->as_element(),
+            radiant_event_host_scene_animation((UiContext*)state->document->js.host_ui_context, root->as_element(),
                                                    clip->name, state->revision, event, clock.session, clock.generation);
             return;
         }
@@ -760,7 +761,7 @@ static void scene3d_motion_announce(Scene3dAnimationState* state, const Scene3dM
     DomNode* root = dom_node_ref_validate(state->document, state->root);
     if (!root || !root->is_element() || !scene3d_animation_connected(state, state->root))
         return;
-    if (!radiant_dispatch_scene_state_event((UiContext*)state->document->js.host_ui_context, root->as_element(), c->id,
+    if (!radiant_event_host_scene_state((UiContext*)state->document->js.host_ui_context, root->as_element(), c->id,
                                             from, to, animation_mixer_time(state->mixer)))
         log_debug("scene3d motion: %s state change %s -> %s was not delivered", c->id, from, to);
 }

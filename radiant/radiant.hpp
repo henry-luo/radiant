@@ -371,8 +371,6 @@ void radiant_window_focus_changed(UiContext* uicon, bool focused);
 // session decides (it received a `closerequest` event).
 bool radiant_window_platform_close(UiContext* uicon);
 int view_doc_in_window(const char* doc_file);
-// standalone native embedders install DOM services without starting the Jube registry.
-bool radiant_register_dom_engine_providers();
 int ui_context_init(UiContext* uicon, bool headless, float requested_device_scale);
 bool ui_context_enable_native_graphics(UiContext* uicon);
 void ui_context_create_surface(UiContext* uicon, int pixel_width, int pixel_height);

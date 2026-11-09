@@ -29,6 +29,7 @@
 #define RADIANT_EVENT_CORE_ONLY
 #include "event.hpp"
 #undef RADIANT_EVENT_CORE_ONLY
+#include "event_host.hpp"
 #include "scale.hpp"
 
 // Opaque types provided elsewhere. We never deref any of them in this
@@ -41,15 +42,7 @@ class View;
 extern "C" void*          radiant_ui_get_native_window(struct UiContext*);
 extern "C" DocState*  radiant_ui_get_state(struct UiContext*);
 extern "C" void           radiant_state_request_repaint(struct DocState*);
-extern "C" bool           radiant_dispatch_editing_composition_event(struct UiContext*,
-                                                                     EventType,
-                                                                     const char*,
-                                                                     uint32_t);
-extern "C" bool           radiant_editing_focused_caret_rect(struct UiContext*,
-                                                             float*,
-                                                             float*,
-                                                             float*,
-                                                             float*);
+
 
 View* focus_get(DocState* state);
 bool  tc_is_text_control(DomElement* elem);
@@ -79,8 +72,7 @@ DocState* ime_state() {
 
 bool ime_dispatch_editing(EventType event_type, const char* text, uint32_t caret) {
     if (!g_ime_uicon) return false;
-    bool handled = radiant_dispatch_editing_composition_event(g_ime_uicon,
-        event_type, text, caret);
+    bool handled = radiant_event_host_ime_composition(g_ime_uicon, event_type, text, caret);
     if (handled) {
         radiant_state_request_repaint(ime_state());
         radiant_platform_post_empty_event();
@@ -210,7 +202,7 @@ const char* ns_to_utf8(id obj) {
     float h_rect = 0.0f;
     NSWindow* w = [self window];
     NSRect frame = w ? [w frame] : NSMakeRect(0, 0, 0, 0);
-    if (!radiant_editing_focused_caret_rect(g_ime_uicon,
+    if (!radiant_event_host_focused_caret_rect(g_ime_uicon,
             &x, &y, &w_rect, &h_rect)) {
         return NSMakeRect(frame.origin.x, frame.origin.y, 0, 0);
     }

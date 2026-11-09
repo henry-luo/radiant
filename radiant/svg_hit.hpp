@@ -48,3 +48,7 @@ bool dom_svg_path_hit_visit(void* userdata, RdtPathCommand command, const float*
 
 extern "C" bool dom_geometry_path_query(const void* path, float left, float top, float right, float bottom,
     bool rectangle, int fill_rule, float stroke_width, int cap, int join);
+
+// Native geometric hit testing is shared by Radiant and Lambda DOM.
+extern "C" void* dom_svg_element_from_point(void* element, float x, float y);
+extern "C" void dom_svg_dispatch_use_timing_event(void* element, float x, float y, const char* type, bool bubbles, double detail);

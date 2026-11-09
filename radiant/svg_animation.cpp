@@ -2,6 +2,7 @@
 #include "animation_value.hpp"
 #include "render.hpp"
 #include "event.hpp"
+#include "event_host.hpp"
 #include "../lambda/input/css/dom_svg_context.h"
 #include "../lambda/input/css/css_engine.hpp"
 #include "../lambda/input/css/dom_lifecycle.hpp"
@@ -2204,7 +2205,7 @@ static void svg_animation_notify_time(SvgTimeline* timeline, double previous, un
             svg_animation_dispatch_event(target->as_element(), names[event->kind], false, event->detail, nullptr);
             timeline->time = current;
         } else {
-            radiant_dispatch_svg_time_event((UiContext*)doc->js.host_ui_context,
+            radiant_event_host_svg_time_event((UiContext*)doc->js.host_ui_context,
                 target->as_element(), names[event->kind], event->detail, event->time);
         }
         timeline->registry->event_time_offset = saved_offset;

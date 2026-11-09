@@ -2,6 +2,7 @@
 #include "view_tree_model.hpp"
 #include "render.hpp"
 #include "event.hpp"
+#include "event_navigation_host.hpp"
 #include "radiant.hpp"
 #include <locale.h>
 #include <stdlib.h>
@@ -16,26 +17,17 @@
 #include "tagged.hpp"
 #include "../lib/time_util.h"
 #include "../lib/uv_loop.h"
+#include "../lib/document_lifetime_guard.h"
 #include "../lambda/input/input.hpp"
 #include "../lambda/input/css/dom_element.hpp"  // For dom_document_destroy
 #include "../lambda/input/css/dom_lifecycle.hpp"
-#include "../lambda/js/js_event_loop.h"
-#include "../lambda/js/js_runtime_state.hpp"
-#include "../lambda/dom/dom_events.h"
-#include "../lambda/dom/dom_observers.h"
-#include "../lambda/runtime/runtime-state.h"
-#include "../lambda/runtime/transpiler.hpp"
-#include "../lambda/runtime/concurrency.h"
-#include "../lambda/runtime/activation.h"
 #include "network_integration.h"
+#include "loader_runtime_host.hpp"
 
 void fontface_cleanup(UiContext* uicon);
 char* load_font_path(FontContext *font_ctx, const char* font_name);
-extern "C" void radiant_dom_invalidate_document(DomDocument* doc);
-extern "C" bool radiant_eval_context_switch(EvalContext* target);
 void radiant_register_css_counter_hooks();
 void radiant_register_resource_processor();
-void radiant_register_event_hooks();
 
 // snapshot readiness is a native document property shared with the script adapter.
 bool document_snapshot_is_ready(const DomDocument* document) {
@@ -321,14 +313,11 @@ bool ui_context_enable_native_graphics(UiContext* uicon) {
 int ui_context_init(UiContext* uicon, bool headless, float requested_device_scale) {
     radiant_register_css_counter_hooks();
     radiant_register_resource_processor();
-    radiant_register_event_hooks();
     if (!uicon) return EXIT_FAILURE;
     return uicon->init(headless, requested_device_scale);
 }
 
 int UiContext::init(bool next_headless, float requested_device_scale) {
-    // native-only hosts need the same DOM services as hosts that initialize Jube first.
-    if (!radiant_register_dom_engine_providers()) return EXIT_FAILURE;
     memset(this, 0, sizeof(UiContext));
     last_click_time = -1.0;
     last_click_button = -1;
@@ -519,12 +508,6 @@ void free_document(DomDocument* doc) {
     free_document_profiled(doc, nullptr);
 }
 
-struct DocumentCleanupOwners {
-    EvalContext* timer;
-    EvalContext* state;
-    EvalContext* loader;
-};
-
 struct WindowDocumentRetirement {
     DomDocument* document;
     Runtime* runtimes[3];
@@ -541,47 +524,6 @@ struct WindowDocumentRetirement {
     bool incomplete;
 };
 
-static bool document_cleanup_owners(DomDocument* doc, DocumentCleanupOwners* owners) {
-    Runtime* timer_runtime = doc->js.runtime ? doc->js.runtime : doc->lambda_runtime;
-    Runtime* state_runtime = dom_document_script_runtime(doc);
-    Runtime* loader_runtime = dom_document_loader_runtime(doc);
-    // A partially retired evaluator cannot safely service document teardown.
-    if ((timer_runtime && timer_runtime->cleanup_incomplete) ||
-            (state_runtime && state_runtime->cleanup_incomplete) ||
-            (loader_runtime && loader_runtime->cleanup_incomplete)) {
-        log_error("free_document: document evaluator cleanup is incomplete; document retained");
-        return false;
-    }
-    owners->timer = timer_runtime ? runtime_get_eval_context(timer_runtime) : nullptr;
-    owners->state = state_runtime == timer_runtime ? owners->timer :
-        (state_runtime ? runtime_get_eval_context(state_runtime) : nullptr);
-    owners->loader = loader_runtime == state_runtime ? owners->state :
-        (loader_runtime == timer_runtime ? owners->timer :
-            (loader_runtime ? runtime_get_eval_context(loader_runtime) : nullptr));
-    if ((timer_runtime && !owners->timer) || (state_runtime && !owners->state) ||
-            (loader_runtime && !owners->loader)) {
-        log_error("free_document: could not obtain document evaluator; document retained");
-        return false;
-    }
-    if (owners->timer && owners->state && owners->timer != owners->state) {
-        // One document cannot multiplex independent evaluators on one host thread.
-        log_error("free_document: Lambda and JS runtimes have different EvalContexts; document retained");
-        return false;
-    }
-    // The current owner cannot release the roots or stack executing this close.
-    bool active = (owners->timer && owners->timer->execution_depth) ||
-        (owners->state && owners->state->execution_depth) ||
-        (owners->loader && owners->loader->execution_depth);
-#ifndef LAMBDA_NO_TASKS
-    active = active || ((owners->timer || owners->state || owners->loader) && activation_current());
-#endif
-    if (active) {
-        log_error("free_document: document evaluator is active; document retained");
-        return false;
-    }
-    return true;
-}
-
 static bool document_has_active_edit(DomDocument* doc) {
     // A provisional native removal still owns view-tree and node resources.
     return doc && doc->state && dom_mutation_transaction_active(doc->state);
@@ -592,8 +534,8 @@ bool document_runtime_cleanup_ready(DomDocument* doc) {
     // A document resource callback must not retire the heap under its own walk.
     if (doc->destroying) return false;
     if (document_has_active_edit(doc)) return false;
-    DocumentCleanupOwners owners = {};
-    return document_cleanup_owners(doc, &owners);
+    RadiantDocumentCleanupOwners owners = {};
+    return radiant_loader_cleanup_owners(doc, &owners);
 }
 
 static bool free_document_profiled_impl(DomDocument* doc, DocumentCleanupTiming* timing,
@@ -613,15 +555,15 @@ static bool free_document_profiled_impl(DomDocument* doc, DocumentCleanupTiming*
     // refused document stays whole and owned instead of half torn down (its
     // Input and loader pool used to be detached and then dropped on return).
     // Native timing jobs may be retained by a Lambda-only evaluator.
-    DocumentCleanupOwners owners = {};
-    if (!document_cleanup_owners(doc, &owners)) return false;
+    RadiantDocumentCleanupOwners owners = {};
+    if (!radiant_loader_cleanup_owners(doc, &owners)) return false;
     EvalContext* timer_owner = owners.timer;
     EvalContext* state_owner = owners.state;
     EvalContext* document_owner = state_owner ? state_owner : timer_owner;
     // EO5v2: another document may hold the thread (each manages its own
     // EvalContext). Teardown is a quiescent point, so take the binding rather
     // than refusing — refusing here used to leak the whole document.
-    if (document_owner && !radiant_eval_context_switch(document_owner)) {
+    if (document_owner && !radiant_loader_switch_context(document_owner)) {
         log_error("free_document: could not bind the document EvalContext; document retained");
         return false;
     }
@@ -630,16 +572,14 @@ static bool free_document_profiled_impl(DomDocument* doc, DocumentCleanupTiming*
     // template/render maps attached to the state runtime; bind its canonical
     // context until thread teardown, since nested cleanup cannot save and
     // restore a different evaluator.
-    if ((timer_owner && js_runtime_state_for(timer_owner) && !js_runtime_state_init(timer_owner)) ||
-        (state_owner && (!eval_context_matches(state_owner) ||
-            (js_runtime_state_for(state_owner) && !js_runtime_state_init(state_owner))))) {
+    if (!radiant_loader_prepare_cleanup(timer_owner, state_owner)) {
         log_error("free_document: document runtime state unavailable; document retained");
         return false;
     }
 
     // S13.3.1v2: tasks the document owns are cancelled, then joined, while its
     // state and DOM still exist, so their cleanup runs against a live document
-    if (!retirement && state_owner && lambda_document_tasks_release(doc) < 0) {
+    if (!retirement && state_owner && radiant_loader_release_document_tasks(doc) < 0) {
         log_error("free_document: document tasks did not join; document retained");
         return false;
     }
@@ -647,20 +587,19 @@ static bool free_document_profiled_impl(DomDocument* doc, DocumentCleanupTiming*
     if (retirement) {
         for (int i = 0; i < retirement->runtime_count; i++) {
             EvalContext* owner = retirement->owners[i];
-            if (!owner || !radiant_eval_context_switch(owner) ||
-                    (js_runtime_state_for(owner) && !js_runtime_state_init(owner))) return false;
-            dom_observers_release_document(doc);
+            if (!owner || !radiant_loader_bind_owner(owner)) return false;
+            radiant_loader_release_observers(doc);
         }
-        if (document_owner && !radiant_eval_context_switch(document_owner)) return false;
+        if (document_owner && !radiant_loader_switch_context(document_owner)) return false;
     } else {
-        dom_observers_release_document(doc);
+        radiant_loader_release_observers(doc);
     }
     // Cancellation cleanup may attach resources before native teardown starts.
     doc->destroying = true;
 
     {
         DocumentCleanupTimer phase(timing ? &timing->network_ms : nullptr);
-        radiant_cancel_async_document_loads(doc);
+        radiant_event_navigation_cancel_loads(doc);
         // network image release detaches surfaces from still-live embed props.
         radiant_cleanup_network_support(doc);
     }
@@ -671,18 +610,9 @@ static bool free_document_profiled_impl(DomDocument* doc, DocumentCleanupTiming*
 
     // Module-owned DOM wrappers are non-owning; unroot wrappers before the
     // document arena destroys the native nodes they point at.
-    radiant_dom_invalidate_document(doc);
-    // the realm can outlive this arena; retire its listener pins while the
-    // document registry and precise-root owner are still valid (D5.5.2).
-    dom_events_release_document(doc);
-
-    if (timer_owner && js_runtime_state_for(timer_owner)) {
-        if (script_runner_js_batch_cleanup_unsafe()) {
-            js_event_loop_abandon_document_timers(doc);
-        } else {
-            js_event_loop_cancel_document_timers(doc);
-        }
-    }
+    // Release listener pins while the document and precise-root owner are live.
+    radiant_loader_release_dom(doc);
+    radiant_loader_cancel_document_timers(doc, timer_owner);
 
     {
         DocumentCleanupTimer phase(timing ? &timing->state_ms : nullptr);
@@ -706,8 +636,8 @@ static bool free_document_profiled_impl(DomDocument* doc, DocumentCleanupTiming*
     // can be destroyed only after the document has detached those references.
     {
         DocumentCleanupTimer phase(timing ? &timing->script_ms : nullptr);
-        if (retirement) retirement->deferred_js = script_runner_defer_js_state_cleanup(doc);
-        else script_runner_cleanup_js_state(doc);
+        if (retirement) retirement->deferred_js = radiant_loader_defer_html_script_cleanup(doc);
+        else if (!radiant_loader_cleanup_html_script(doc)) return false;
     }
 
     // Embedded documents belong to their iframe elements. The view-tree walk
@@ -737,8 +667,8 @@ static bool free_document_profiled_impl(DomDocument* doc, DocumentCleanupTiming*
     // GC roots) unregister from its heap during that destroy. Runtimes that
     // came from a loader (a `.ls` page, a script-bearing page) are owned by
     // that loader and must not be freed twice (ESO25).
-    lam::Temp<Runtime> owned_runtime;
-    if (doc->lambda_runtime && doc->lambda_runtime->cleanup_in_progress) {
+    Runtime* owned_runtime = nullptr;
+    if (doc->lambda_runtime && radiant_loader_runtime_is_cleaning(doc->lambda_runtime)) {
         // An outer runtime cleanup remains responsible for its own allocation.
         doc->lambda_runtime = nullptr;
         doc->owns_script_runtime = false;
@@ -747,7 +677,7 @@ static bool free_document_profiled_impl(DomDocument* doc, DocumentCleanupTiming*
         doc->lambda_runtime = nullptr;
         doc->owns_script_runtime = false;
     } else if (doc->owns_script_runtime && doc->lambda_runtime) {
-        owned_runtime.reset(doc->lambda_runtime);
+        owned_runtime = doc->lambda_runtime;
         doc->lambda_runtime = nullptr;
         doc->owns_script_runtime = false;
     }
@@ -758,7 +688,7 @@ static bool free_document_profiled_impl(DomDocument* doc, DocumentCleanupTiming*
     if (retirement) {
         // Deferred owners must not rediscover this document after its arena is gone.
         for (int i = 0; i < retirement->runtime_count; i++)
-            if (retirement->runtimes[i]->dom_doc == doc) retirement->runtimes[i]->dom_doc = nullptr;
+            radiant_loader_detach_document(retirement->runtimes[i], doc);
     }
     // Free DomDocument via dom_document_destroy (handles arena and pool)
     dom_document_destroy(doc);
@@ -770,12 +700,13 @@ static bool free_document_profiled_impl(DomDocument* doc, DocumentCleanupTiming*
     }
     if (owned_runtime) {
         // embedded teardown may leave another evaluator bound; reclaim this owner's heap at a quiescent boundary (D6.4.1).
-        if (!radiant_eval_context_switch(runtime_get_eval_context(owned_runtime.get()))) {
+        if (!radiant_loader_switch_context(radiant_loader_runtime_owner(owned_runtime))) {
             log_error("free_document: could not rebind owned runtime for cleanup; runtime retained");
-            owned_runtime.release();
             return true;
         }
-        runtime_cleanup(owned_runtime.get());
+        if (!radiant_loader_cleanup_runtime(owned_runtime)) {
+            return true;
+        }
         log_debug("free_document: released the document-owned script runtime");
     }
     if (document_input) input_release_document_resources(document_input);
@@ -796,16 +727,15 @@ bool ui_context_release_loader_runtime(UiContext* uicon, bool wait_for_tasks) {
     Runtime* runtime = uicon->loader_runtime.get();
     // Teardown is quiescent: take the thread from whichever document
     // evaluator ran last, so cleanup binds the loader's own context (EO5v2).
-    EvalContext* owner = runtime_get_eval_context(runtime);
-    if (!owner || !radiant_eval_context_switch(owner)) {
+    EvalContext* owner = radiant_loader_runtime_owner(runtime);
+    if (!owner || !radiant_loader_switch_context(owner)) {
         log_error("loader-runtime: could not bind the window loader runtime for release");
         return false;
     }
-    RuntimeCleanupResult result = wait_for_tasks ? runtime_try_cleanup(runtime) :
-        runtime_try_cleanup_nonblocking(runtime);
-    if (result != RUNTIME_CLEANUP_COMPLETE) {
+    RadiantRuntimeCleanupResult result = radiant_loader_try_cleanup_runtime(runtime, wait_for_tasks, false);
+    if (result != RADIANT_RUNTIME_CLEANUP_COMPLETE) {
         log_error("loader-runtime: cleanup %s; window retains the runtime",
-            result == RUNTIME_CLEANUP_RETRY ? "needs a quiescent retry" : "is incomplete");
+            result == RADIANT_RUNTIME_CLEANUP_RETRY ? "needs a quiescent retry" : "is incomplete");
         return false;
     }
     uicon->loader_runtime = nullptr;
@@ -838,14 +768,13 @@ bool ui_context_document_has_pending_native_work(UiContext* ui) {
     for (int i = 0; i < retirement->runtime_count; i++) {
         EvalContext* owner = retirement->owners[i];
         if (owner && window_document_owner_first(retirement, i) &&
-                lambda_document_tasks_have_pending_native_work(owner->scheduler, ui->document)) return true;
+                radiant_loader_pending_native_work(owner, ui->document)) return true;
     }
     return false;
 }
 
 static bool window_document_bind_owner(EvalContext* owner) {
-    return radiant_eval_context_switch(owner) &&
-        (!js_runtime_state_for(owner) || js_runtime_state_init(owner));
+    return radiant_loader_bind_owner(owner);
 }
 
 static bool window_document_retirement_in_callback(const UiContext* ui) {
@@ -877,7 +806,7 @@ static bool window_document_retire(UiContext* ui, WindowDocumentRetirement* reti
         for (int i = 0; i < count; i++) {
             if (retirement->pinned[i]) continue;
             if (!window_document_bind_owner(retirement->owners[i]) ||
-                    !runtime_document_retirement_pin(retirement->runtimes[i])) {
+                    !radiant_loader_pin_runtime(retirement->runtimes[i])) {
                 log_debug("window-document: runtime pin is not ready");
                 return false;
             }
@@ -889,8 +818,7 @@ static bool window_document_retire(UiContext* ui, WindowDocumentRetirement* reti
             EvalContext* owner = retirement->owners[i];
             if (!window_document_bind_owner(owner)) return false;
             // An independent scheduler guard has its own retirement owner.
-            if (lambda_scheduler_has_document_retirement_guards(owner->scheduler)) return false;
-            if (owner->scheduler && lambda_document_tasks_cancel(owner->scheduler, doc) < 0) return false;
+            if (!radiant_loader_cancel_document_tasks(owner, doc)) return false;
         }
         for (;;) {
             bool pending = false;
@@ -899,15 +827,14 @@ static bool window_document_retire(UiContext* ui, WindowDocumentRetirement* reti
                 if (!window_document_owner_first(retirement, i)) continue;
                 EvalContext* owner = retirement->owners[i];
                 if (!window_document_bind_owner(owner)) return false;
-                if (!owner->scheduler) continue;
-                LambdaDocumentJoinProgress progress = lambda_document_tasks_progress(
-                    owner->scheduler, doc, retirement->lifetime);
-                if (progress == LAMBDA_DOCUMENT_JOIN_ERROR) {
+                RadiantDocumentJoinProgress progress = radiant_loader_progress_document_tasks(
+                    owner, doc, retirement->lifetime);
+                if (progress == RADIANT_DOCUMENT_JOIN_ERROR) {
                     log_debug("window-document: scheduler progress refused");
                     return false;
                 }
-                pending |= progress != LAMBDA_DOCUMENT_JOIN_DONE;
-                advanced |= progress == LAMBDA_DOCUMENT_JOIN_ADVANCED;
+                pending |= progress != RADIANT_DOCUMENT_JOIN_DONE;
+                advanced |= progress == RADIANT_DOCUMENT_JOIN_ADVANCED;
             }
             if (!pending) break;
             // Host retries yield after one round so unrelated loop handles cannot stall a frame.
@@ -939,11 +866,10 @@ static bool window_document_retire(UiContext* ui, WindowDocumentRetirement* reti
         if (ui->loader_runtime.get() == runtime) { *slot = nullptr; continue; }
         int index = window_document_runtime_index(retirement, runtime);
         if (index < 0 || !retirement->pinned[index] || retirement->incomplete ||
-                !radiant_eval_context_switch(retirement->owners[index])) return false;
-        RuntimeCleanupResult result = wait_for_tasks ? runtime_try_cleanup_retirement_pinned(runtime) :
-            runtime_try_cleanup_retirement_pinned_nonblocking(runtime);
-        if (result != RUNTIME_CLEANUP_COMPLETE) {
-            retirement->incomplete = result == RUNTIME_CLEANUP_INCOMPLETE;
+                !radiant_loader_switch_context(retirement->owners[index])) return false;
+        RadiantRuntimeCleanupResult result = radiant_loader_try_cleanup_runtime(runtime, wait_for_tasks, true);
+        if (result != RADIANT_RUNTIME_CLEANUP_COMPLETE) {
+            retirement->incomplete = result == RADIANT_RUNTIME_CLEANUP_INCOMPLETE;
             return false;
         }
         retirement->pinned[index] = false;
@@ -957,8 +883,8 @@ static bool window_document_retire(UiContext* ui, WindowDocumentRetirement* reti
     // Borrowed runtimes remain pinned until all owned runtimes have finished.
     for (int i = 0; i < retirement->runtime_count; i++) {
         if (!retirement->pinned[i]) continue;
-        if (!radiant_eval_context_switch(retirement->owners[i]) ||
-                !runtime_document_retirement_unpin(retirement->runtimes[i])) return false;
+        if (!radiant_loader_switch_context(retirement->owners[i]) ||
+                !radiant_loader_unpin_runtime(retirement->runtimes[i])) return false;
         retirement->pinned[i] = false;
     }
     if (retirement->input) input_release_document_resources(retirement->input);
@@ -982,7 +908,7 @@ bool UiContext::destroy_document(bool wait_for_tasks) {
         retirement->document = document;
         retirement->runtime_count = window_document_runtimes(document, retirement->runtimes);
         for (int i = 0; i < retirement->runtime_count; i++) {
-            retirement->owners[i] = runtime_get_eval_context(retirement->runtimes[i]);
+            retirement->owners[i] = radiant_loader_runtime_owner(retirement->runtimes[i]);
             if (!retirement->owners[i]) { mem_free(retirement); return false; }
             for (int j = 0; j < i; j++) {
                 // Two controllers sharing one evaluator cannot independently retire it.

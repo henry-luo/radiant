@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <string.h>
 #include "../radiant/input_value.hpp"
+#include "../lib/document_lifetime_guard.h"
 #include "../radiant/select_options.hpp"
 #include "../radiant/form_controls.hpp"
 #include "../radiant/loader_runtime_host.hpp"
@@ -15,6 +16,21 @@
 static UiContext* loader_test_host;
 static DomDocument* loader_test_document;
 static Runtime* loader_test_runtime;
+
+TEST(RadiantInputValueTest, NativeDocumentLifetimeGuardProtectsItsOwner) {
+    int document = 0;
+    int other = 0;
+    EXPECT_FALSE(lambda_document_lifetime_guard_active(&document));
+    LambdaDocumentLifetimeGuard* guard = lambda_document_lifetime_guard_begin(&document);
+    ASSERT_NE(guard, nullptr);
+    EXPECT_TRUE(lambda_document_lifetime_guard_active(&document));
+    EXPECT_TRUE(lambda_document_lifetime_guard_owns(guard, &document));
+    EXPECT_FALSE(lambda_document_lifetime_guard_owns(guard, &other));
+    EXPECT_EQ(lambda_document_lifetime_guard_begin(&document), nullptr);
+    EXPECT_TRUE(lambda_document_lifetime_guard_end(guard));
+    EXPECT_FALSE(lambda_document_lifetime_guard_active(&document));
+    EXPECT_FALSE(lambda_document_lifetime_guard_is_current(guard));
+}
 
 TEST(RadiantInputValueTest, NativeInlineStylesheetsTrackTextAndDocumentOrder) {
     NativeInputDocument fixture;
@@ -117,6 +133,56 @@ static const LambdaDocumentTransformConfig* loader_test_transform(const char*) {
     return reinterpret_cast<const LambdaDocumentTransformConfig*>(loader_test_runtime);
 }
 
+static bool loader_test_cleanup_owners(DomDocument* document, RadiantDocumentCleanupOwners* owners) {
+    loader_test_document = document;
+    owners->timer = reinterpret_cast<EvalContext*>(loader_test_runtime);
+    return true;
+}
+
+static Runtime* loader_test_defer_script_cleanup(DomDocument* document) {
+    loader_test_document = document;
+    return loader_test_runtime;
+}
+
+static int loader_test_retirement_calls;
+static void loader_test_release_observers(DomDocument*) { loader_test_retirement_calls |= 1; }
+static void loader_test_release_dom(DomDocument*) { loader_test_retirement_calls |= 2; }
+static void loader_test_cancel_timers(DomDocument*, EvalContext*) { loader_test_retirement_calls |= 4; }
+static bool loader_test_prepare_cleanup(EvalContext*, EvalContext*) { loader_test_retirement_calls |= 8; return true; }
+static bool loader_test_bind_owner(EvalContext*) { loader_test_retirement_calls |= 16; return true; }
+static bool loader_test_switch_context(EvalContext*) { loader_test_retirement_calls |= 32; return true; }
+static bool loader_test_release_navigation() { loader_test_retirement_calls |= 256; return true; }
+static bool loader_test_finish_navigation() { loader_test_retirement_calls |= 512; return true; }
+static bool loader_test_bind_document(UiContext*, DomDocument*) { loader_test_retirement_calls |= 1024; return true; }
+static Item loader_test_emit(Item, Item) { return ItemNull; }
+static bool loader_test_register_event_hooks(RadiantEventEmitFn emit) {
+    loader_test_retirement_calls |= 4096;
+    return emit != nullptr;
+}
+static bool loader_test_bind_event(UiContext*, DomDocument*, bool allow_transfer, bool rebind_same) {
+    loader_test_retirement_calls |= 2048;
+    return allow_transfer && !rebind_same;
+}
+
+static EvalContext* loader_test_runtime_owner(Runtime* runtime) {
+    return reinterpret_cast<EvalContext*>(runtime);
+}
+static bool loader_test_runtime_is_cleaning(Runtime*) { return false; }
+static void loader_test_detach_document(Runtime*, DomDocument*) { loader_test_retirement_calls |= 64; }
+static void loader_test_cleanup_runtime(Runtime*) { loader_test_retirement_calls |= 128; }
+static RadiantRuntimeCleanupResult loader_test_try_cleanup(Runtime*, bool wait, bool pinned) {
+    return wait && pinned ? RADIANT_RUNTIME_CLEANUP_COMPLETE : RADIANT_RUNTIME_CLEANUP_RETRY;
+}
+
+static int loader_test_release_tasks(DomDocument*) { return 0; }
+static bool loader_test_pending_work(EvalContext*, DomDocument*) { return true; }
+static bool loader_test_pin_runtime(Runtime*) { return true; }
+static bool loader_test_unpin_runtime(Runtime*) { return true; }
+static bool loader_test_cancel_tasks(EvalContext*, DomDocument*) { return true; }
+static RadiantDocumentJoinProgress loader_test_progress_tasks(EvalContext*, DomDocument*, LambdaDocumentLifetimeGuard*) {
+    return RADIANT_DOCUMENT_JOIN_ADVANCED;
+}
+
 TEST(RadiantInputValueTest, LoaderRuntimeHostIsOptionalAndChecksRegistration) {
     int marker = 0;
     auto* host = reinterpret_cast<UiContext*>(&marker);
@@ -125,6 +191,8 @@ TEST(RadiantInputValueTest, LoaderRuntimeHostIsOptionalAndChecksRegistration) {
     EXPECT_EQ(ui_context_loader_runtime(host), nullptr);
     EXPECT_EQ(radiant_loader_transform_for_type("math"), nullptr);
     EXPECT_FALSE(radiant_loader_prepare_script());
+    EXPECT_FALSE(radiant_loader_bind_document(host, document));
+    EXPECT_FALSE(radiant_loader_register_event_hooks(loader_test_emit));
     RadiantScriptDocumentLoad load = {};
     EXPECT_FALSE(radiant_loader_begin_script(host, nullptr, "source", nullptr, nullptr, 0,
                                              INPUT_RESOURCE_LOCAL_ONLY, &load));
@@ -138,22 +206,84 @@ TEST(RadiantInputValueTest, LoaderRuntimeHostIsOptionalAndChecksRegistration) {
     NativeInputDocument native;
     ASSERT_NE(native.document, nullptr);
     EXPECT_TRUE(radiant_loader_cleanup_html_script(native.document));
+    RadiantDocumentCleanupOwners owners = {};
+    EXPECT_TRUE(radiant_loader_cleanup_owners(native.document, &owners));
+    EXPECT_EQ(owners.timer, nullptr);
+    EXPECT_TRUE(radiant_loader_release_navigation_evaluator(native.document));
+    EXPECT_TRUE(radiant_loader_prepare_cleanup(nullptr, nullptr));
+    EXPECT_FALSE(radiant_loader_bind_owner(reinterpret_cast<EvalContext*>(runtime)));
+    EXPECT_FALSE(radiant_loader_switch_context(reinterpret_cast<EvalContext*>(runtime)));
+    EXPECT_FALSE(radiant_loader_prepare_cleanup(reinterpret_cast<EvalContext*>(runtime), nullptr));
     native.document->js.runtime = runtime;
     EXPECT_FALSE(radiant_loader_cleanup_html_script(native.document));
+    EXPECT_FALSE(radiant_loader_cleanup_owners(native.document, &owners));
+    EXPECT_FALSE(radiant_loader_release_navigation_evaluator(native.document));
     native.document->js.runtime = nullptr;
+    native.document->js.preamble_state = &marker;
+    EXPECT_FALSE(radiant_loader_cleanup_owners(native.document, &owners));
+    native.document->js.preamble_state = nullptr;
     static const RadiantLoaderRuntimeHostOps incomplete = {loader_test_get, nullptr, loader_test_release};
     static const RadiantLoaderRuntimeHostOps operations = {loader_test_get, loader_test_finish,
         loader_test_release, loader_test_begin, loader_test_cancel, loader_test_complete,
         loader_test_prepare, loader_test_embedded, loader_test_transform,
         loader_test_html_scripts, loader_test_html_handlers,
-        loader_test_timing_begin, loader_test_timing_end, loader_test_script_cleanup};
+        loader_test_timing_begin, loader_test_timing_end, loader_test_script_cleanup, loader_test_defer_script_cleanup,
+        loader_test_cleanup_owners,
+        loader_test_release_observers, loader_test_release_dom, loader_test_cancel_timers,
+        loader_test_prepare_cleanup, loader_test_bind_owner, loader_test_switch_context,
+        loader_test_release_navigation, loader_test_finish_navigation, loader_test_bind_document,
+        loader_test_bind_event, loader_test_register_event_hooks,
+        loader_test_runtime_owner, loader_test_runtime_is_cleaning, loader_test_detach_document,
+        loader_test_cleanup_runtime, loader_test_try_cleanup,
+        loader_test_release_tasks, loader_test_pending_work, loader_test_pin_runtime,
+        loader_test_unpin_runtime, loader_test_cancel_tasks, loader_test_progress_tasks};
     static const RadiantLoaderRuntimeHostOps conflict = {loader_test_get, loader_test_finish,
         loader_test_release, loader_test_begin, loader_test_cancel, loader_test_complete,
         loader_test_prepare, loader_test_embedded, loader_test_transform,
         loader_test_html_scripts, loader_test_html_handlers,
-        loader_test_timing_begin, loader_test_timing_end, loader_test_script_cleanup};
+        loader_test_timing_begin, loader_test_timing_end, loader_test_script_cleanup, loader_test_defer_script_cleanup,
+        loader_test_cleanup_owners,
+        loader_test_release_observers, loader_test_release_dom, loader_test_cancel_timers,
+        loader_test_prepare_cleanup, loader_test_bind_owner, loader_test_switch_context,
+        loader_test_release_navigation, loader_test_finish_navigation, loader_test_bind_document,
+        loader_test_bind_event, loader_test_register_event_hooks,
+        loader_test_runtime_owner, loader_test_runtime_is_cleaning, loader_test_detach_document,
+        loader_test_cleanup_runtime, loader_test_try_cleanup,
+        loader_test_release_tasks, loader_test_pending_work, loader_test_pin_runtime,
+        loader_test_unpin_runtime, loader_test_cancel_tasks, loader_test_progress_tasks};
     ASSERT_TRUE(expect_native_provider_registration(radiant_loader_runtime_host_register,
                                                      &incomplete, &operations, &conflict));
+    loader_test_runtime = runtime;
+    EXPECT_TRUE(radiant_loader_cleanup_owners(document, &owners));
+    EXPECT_EQ(owners.timer, reinterpret_cast<EvalContext*>(runtime));
+    EXPECT_EQ(loader_test_document, document);
+    EXPECT_EQ(radiant_loader_defer_html_script_cleanup(document), runtime);
+    loader_test_retirement_calls = 0;
+    radiant_loader_release_observers(document);
+    radiant_loader_release_dom(document);
+    radiant_loader_cancel_document_timers(document, owners.timer);
+    EXPECT_TRUE(radiant_loader_prepare_cleanup(owners.timer, nullptr));
+    EXPECT_TRUE(radiant_loader_bind_owner(owners.timer));
+    EXPECT_TRUE(radiant_loader_switch_context(owners.timer));
+    EXPECT_EQ(radiant_loader_runtime_owner(runtime), owners.timer);
+    EXPECT_FALSE(radiant_loader_runtime_is_cleaning(runtime));
+    radiant_loader_detach_document(runtime, document);
+    EXPECT_TRUE(radiant_loader_cleanup_runtime(runtime));
+    EXPECT_EQ(radiant_loader_try_cleanup_runtime(runtime, true, true), RADIANT_RUNTIME_CLEANUP_COMPLETE);
+    EXPECT_EQ(radiant_loader_try_cleanup_runtime(runtime, false, true), RADIANT_RUNTIME_CLEANUP_RETRY);
+    EXPECT_EQ(radiant_loader_release_document_tasks(document), 0);
+    EXPECT_TRUE(radiant_loader_pending_native_work(owners.timer, document));
+    EXPECT_TRUE(radiant_loader_pin_runtime(runtime));
+    EXPECT_TRUE(radiant_loader_unpin_runtime(runtime));
+    EXPECT_TRUE(radiant_loader_cancel_document_tasks(owners.timer, document));
+    EXPECT_EQ(radiant_loader_progress_document_tasks(owners.timer, document, nullptr), RADIANT_DOCUMENT_JOIN_ADVANCED);
+    EXPECT_TRUE(radiant_loader_release_navigation_evaluator(document));
+    EXPECT_TRUE(radiant_loader_finish_navigation_worker(document));
+    EXPECT_TRUE(radiant_loader_bind_document(host, document));
+    EXPECT_TRUE(radiant_loader_bind_event_document(host, document, true, false));
+    EXPECT_FALSE(radiant_loader_bind_event_document(host, document, false, true));
+    EXPECT_TRUE(radiant_loader_register_event_hooks(loader_test_emit));
+    EXPECT_EQ(loader_test_retirement_calls, 8191);
     radiant_loader_begin_document_timing();
     radiant_loader_end_document_timing(&timing);
     EXPECT_EQ(timing.parse_us, 37);

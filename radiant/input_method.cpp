@@ -1,4 +1,5 @@
 #include "event.hpp"
+#include "event_host.hpp"
 #include "render.hpp"
 #include "layout.hpp"
 #include "../lambda/core/mark_reader.hpp"
@@ -10,8 +11,6 @@
 #include <math.h>
 #include <limits.h>
 
-extern void handle_event(UiContext* ui, DomDocument* doc, RdtEvent* event);
-extern "C" bool radiant_editing_focused_caret_rect(UiContext*, float*, float*, float*, float*);
 
 static const float IME_CELL_PADDING = 8.0f;
 static const float IME_POPUP_PADDING = 3.0f;
@@ -78,7 +77,7 @@ void input_method_drain(UiContext* ui, DomDocument* doc) {
             event.composition.text = request->text;
             event.composition.preedit_caret = request->caret;
             event.composition.scripted = true;
-            handle_event(ui, doc, &event);
+            radiant_event_host_dispatch(ui, doc, &event);
             state->editing.pending_text_input = pending;
             state->editing.pending_text_input_prevented = prevented;
             state->editing.pending_text_input_key = key;
@@ -153,7 +152,7 @@ static FontProp* place_popup(UiContext* ui, InputMethodTransport* popup) {
     }
     strbuf_free(label);
     float x = 0.0f, y = 0.0f, width = 0.0f, height = 0.0f;
-    bool caret = radiant_editing_focused_caret_rect(ui, &x, &y, &width, &height);
+    bool caret = radiant_event_host_focused_caret_rect(ui, &x, &y, &width, &height);
     int previous_columns = popup->columns;
     popup->columns = popup->preferred_columns;
     if (popup->expanded) {

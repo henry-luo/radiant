@@ -8,6 +8,8 @@
 #include "view.hpp"
 #include "render.hpp"
 #include "event.hpp"
+#include "event_reconcile_host.hpp"
+#include "event_host.hpp"
 #include "../lib/font/font.h"
 #include "../lib/mem_factory.h"
 #include "radiant.hpp"
@@ -234,7 +236,7 @@ static bool content_visibility_commit_motion(DomNode* node, void* context) {
     if (!state) return false;
     entry.motion_skipped = skipped;
     // only final relevance is observable; convergence and measurement passes cannot enqueue events.
-    if (state_changed && radiant_queue_content_visibility_event(lycon->ui_context, element, entry.skipped)) {
+    if (state_changed && radiant_event_host_content_visibility(lycon->ui_context, element, entry.skipped)) {
         entry.auto_observed = true;
         entry.auto_skipped = entry.skipped;
     }
@@ -6410,7 +6412,7 @@ bool layout_update_document(UiContext* ui, DomDocument* doc) {
     if (!ui || !doc) return false;
     if (layout_is_active(doc)) return doc->view_tree && doc->view_tree->root;
     process_document_font_faces(ui, doc);
-    if (doc->js.mutation_count > 0) radiant_reconcile_dom_mutations(ui, doc);
+    if (doc->js.mutation_count > 0) radiant_event_reconcile_mutations(ui, doc);
     if (!doc->root) return doc->view_tree && doc->view_tree->root;
     if (!layout_document_geometry_current(ui, doc)) {
         // an existing selected tree owns live control/frame state; ordinary

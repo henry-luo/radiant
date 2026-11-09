@@ -2,7 +2,6 @@
 
 // document-owned named frame events, shared by scripted presentation packages
 bool radiant_document_has_pending_frames(struct DomDocument* document);
-bool radiant_bind_document_script_host(struct UiContext* uicon, struct DomDocument* document);
 // idle point: one collection when wrapper-held detached DOM has piled up
 bool radiant_collect_stranded_dom(struct UiContext* uicon, struct DomDocument* document);
 
@@ -109,10 +108,7 @@ extern "C" bool radiant_dispatch_event_sim_mouse(UiContext* uicon, View* target,
 
 struct DocState;
 struct DomNode;
-
 struct EvalContext;
-// Transfer the eval thread at a document boundary with no active evaluator frame.
-extern "C" bool radiant_eval_context_switch(EvalContext* target);
 
 #ifndef RADIANT_EVENT_CORE_ONLY
 // Re-apply selector-dependent style and schedule layout after a live pseudo
@@ -385,9 +381,9 @@ void rdt_event_set_key(RdtEvent* event, EventType type, int key, int mods,
 void rdt_event_set_text_input(RdtEvent* event, uint32_t codepoint,
                               double timestamp);
 
-#ifndef RADIANT_EVENT_CORE_ONLY
-void handle_event(UiContext* uicon, DomDocument* doc, RdtEvent* event);
-#endif
+// Dispatch platform composition through the registered Lambda controller.
+bool radiant_event_host_ime_composition(struct UiContext* ui, EventType type,
+                                        const char* text, uint32_t caret);
 
 #ifndef RADIANT_EVENT_CORE_ONLY
 
