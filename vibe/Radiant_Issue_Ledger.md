@@ -98,6 +98,34 @@ No Radiant source/build edits or Lambda link workarounds were made. MVP
 implementation/timing is stopped under the project-boundary rule until the
 owner archive is repaired. No baseline suite was run.
 
+<a id="ri-007"></a>
+
+### RI-007 — Column flex measures a nested wrapping row too short
+
+**Status:** OPEN — reproduced in static HTML; native cause unconfirmed.
+**Observed:** 2026-11-10, macOS debug `lambda.exe view --headless`.
+**Lambda blocker:** no. The paint demo (`test/demo/paint/`) gives its toolbar
+rows that do not depend on this case.
+
+A `flex-direction: column` container holds a wrapping row (`flex-wrap: wrap`).
+One child of that row is itself a wrapping row limited by `max-width`. The
+column sizes the flexible item after it as if the inner row did not wrap.
+The outer row is then laid out taller, so the items after it overflow the
+column by the difference.
+
+Reproduce from the Lambda checkout with
+`./lambda.exe view temp/radiant-issues/flex_col4.html --headless --event-file temp/radiant-issues/flex_rects.json`
+(the rect assertions are expected to fail; their messages print the rectangles).
+In a 1400 × 960 viewport, the toolbar `#bar` is laid out at 102 px. The
+`flex: 1` stage gets 858 px, which is 960 − 74 − 28: the column used a 74 px
+toolbar, the height without the inner wrap. The 28 px footer starts at y = 960,
+outside the container. Expected: a 830 px stage and the footer at y = 932.
+`flex_col6.html`, which is the same page with the outer row set to `nowrap`,
+lays out correctly (96 + 836 + 28 = 960). So does the page without the inner
+wrapping row (74 + 858 + 28). The hypothetical main size of the outer row
+probably comes from a measurement pass that does not wrap the inner row at its
+`max-width`. That cause is unconfirmed. No Radiant source was changed.
+
 ## Imported native Radiant backlog
 
 These entries retain their original `RAD` IDs, evidence and historical wording
