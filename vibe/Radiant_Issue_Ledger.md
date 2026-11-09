@@ -8,7 +8,9 @@ Use stable IDs `RI-001`, `RI-002`, and so on. For each new issue record its
 status, affected code or test, reproduction, observed and expected behavior,
 and whether it blocks work in Lambda. Cite the applicable `S#` or `D#` ruling
 when one covers the issue. Record uncertain causes as unconfirmed, link any
-owner-side fix and verification, and retain the ID when the issue is resolved.
+owner-side fix and verification. Move resolved entries to the
+[fixed issue ledger](<Radiant_Issue_Ledger (fixed).md>), preserving their IDs
+and leaving an anchor link here for existing references.
 
 The [historical Radiant ledger](../../Lambda/vibe/radiant/Radiant_Issue_Ledger.md)
 in the sibling Lambda checkout retains existing `RAD` IDs and issue history.
@@ -47,54 +49,6 @@ Review the supported document-owned creation path and restore equivalent
 coverage where applicable, without removing or hiding the skipped cases.
 The separate MIDI live-device skip is conditional on hardware and is not
 classified as a defect here.
-
-<a id="ri-003"></a>
-
-### RI-003 — Startup fragment navigation is followed as a document redirect
-
-**Status:** FIXED in Radiant, 2026-11-09; full Lambda source rebuild remains
-blocked independently. **Observed:** 2026-11-09, macOS, debug Lambda host.
-**Lambda blocker:** the fragment loop is resolved for the two same-document
-timer replays (D9.1.1v4, D9.1.3v2); retain the original Lambda unit cases.
-
-From the Lambda checkout, create an HTML file under `temp/` containing
-`<div id="result"></div><script>setTimeout(function(){document.getElementById('result').setAttribute('data-timer','yes')},0);location.replace('#result');</script>`.
-Run `./lambda.exe view <file> --headless --event-file <events.json> --event-result <result.json>`
-with an event that asserts `#result` has `data-timer` equal to `yes`. The host
-exits 255 without a result; it logs `load_html_doc: too many document redirects`.
-The equivalent in-process Lambda tests for relative and absolute same-document
-navigation pass. The retained reproduction and log are under
-`Lambda/temp/radiant-adapter-test-migration/fragment.{html,json,log}`.
-
-**Confirmed cause and repair:** both redirect loops in
-[`cmd_layout.cpp`](../radiant/cmd_layout.cpp) treated startup fragment navigation
-as a replacement document. They now share `document_resolve_navigation_redirect`,
-which uses input's `url_equals_without_fragment` and updates the existing URL
-carrier in place. It clears the consumed request so the next viewer turn cannot
-reload it. Document, DOM, pool and host-owned script/timer state remain retained
-(D5.5.1, D6.3.3). Query/path changes and same-URL requests without a fragment
-still redirect or reload.
-
-**Verification:** the two original relative/absolute CLI replays failed with
-exit 255 before the repair. All eight
-[`test_navigation_cli.py`](../test/test_navigation_cli.py) cases pass afterward:
-relative/absolute/repeated/empty fragments, cross-document and query redirects,
-and relative/absolute `layout` output retaining timer-produced text. The six
-`view` replays pass 12 assertions. Eight native loader regressions verify retained
-ownership and redirect decisions. `make test-radiant-baseline` passes **770**
-tests across **45** runners with **45 existing skips** (RI-001, RI-002 and the
-hardware-dependent MIDI case); `make test-native-closure` also passes without
-Lambda runtime or DOM libraries. Input facade and diff checks pass.
-
-**Host qualification limit:** `make -C ../Lambda build` still fails on ambiguous
-`direct_call`/`expression` overloads in Lambda's `mvp_mir.cpp`. Before/after CLI
-checks used separately linked debug executables with current Radiant/input
-archives and the same last-successful Lambda runtime/adapter archives. A full
-current-source host rebuild remains pending. Reproduce the integration checks
-with `make test-navigation-cli LAMBDA_HOST=../Lambda/lambda.exe` after that
-independent build issue is repaired. Logs, binary/archive hashes and the
-isolated executables are under `temp/ri-003/`; replay artifacts are under
-`temp/navigation-cli/`.
 
 ## Imported native Radiant backlog
 
@@ -970,3 +924,9 @@ Lambda-owned and is retained in the [mixed historical record](../../Lambda/vibe/
 #### RAD22-9
 
 **`WebViewProp.src`/`srcdoc` are borrowed pointers.** They are documented as borrowed DOM-attribute storage in `radiant.hpp`; their lifetime is tied to the DOM node and is not retained through a `view_pool_reset_retained` (RAD01) — a relayout that frees attribute storage while a webview holds `src` would dangle. No `PersistentFieldRef` guards them.
+
+## Fixed issues
+
+<a id="ri-003"></a>
+
+- [RI-003 — Startup fragment navigation is followed as a document redirect](<Radiant_Issue_Ledger (fixed).md#ri-003>).
