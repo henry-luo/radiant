@@ -20,6 +20,38 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-004"></a>
+
+### RI-004 — Lambda pointer-event adapter expects an absent native event protocol
+
+**Status:** OPEN — confirmed integration compile failure; which checkout needs
+its protocol update is unconfirmed. **Observed:** 2026-11-10, macOS arm64.
+**Lambda blocker:** release host/adapter rebuild and execution validation for
+MVP/Full MIR retirement. Authority: **D9.1.1v4 / D9.1.3v2** (source ownership).
+
+Lambda starting HEAD `aee8f3242` (the affected adapter last changed in
+`41dc5ccc5`), Radiant HEAD `558eb3e`. From the Lambda checkout, reproduce after
+normal Premake generation with:
+`make -C build/premake config=release_native -f lambda-radiant-adapter-cpp.make LDDEPS= -j2`.
+
+`lambda/module/radiant/event.cpp:8594` reads
+`MousePositionEvent::pointer_type` and `RDT_POINTER_MOUSE`; lines 8600–8624 also
+require `RdtPointerSample`, `rdt_pointer_sample_of`, `samples`, pressure and pen
+axes, and `RDT_POINTER_SAMPLE_CAPACITY`. The checked-out owner header
+`radiant/event.hpp:169` defines `MousePositionEvent` with only position and
+movement fields. Compilation reports 20 missing-field/type/constant errors
+before its error limit. This is an interface mismatch, not a demonstrated MIR
+or interpreter defect. Expected: owner protocol and Lambda consumer agree on
+the native event ABI and the unchanged adapter compiles.
+
+Evidence in the Lambda checkout:
+`temp/mvp_full_mir_retirement/adapters.log` (full compile diagnostics),
+`vibe/impl/Lambda_Impl_MIR_Full_Retirement.md` (task checkpoint).
+The Lambda runtime archive itself builds with the retirement changes.
+Affected full-host linking and execution validation were stopped; no owner
+source/build edits, stale-adapter relink or protocol fallback was used.
+No Lambda/Radiant baseline was run.
+
 <a id="ri-001"></a>
 
 ### RI-001 — HTML/CSS integration cases skip missing fixtures
@@ -54,8 +86,9 @@ classified as a defect here.
 
 ### RI-003 — Property providers still live outside the unified Radiant archive
 
-**Status:** OPEN — reproduced release-link blocker. **Observed:** 2026-11-09,
-macOS arm64. **Lambda blocker:** yes, current-source MVP tuning/build validation.
+**Status:** RESOLVED — verified 2026-11-09 against Radiant `558eb3e`.
+**Observed:** 2026-11-09, macOS arm64. **Lambda blocker:** cleared for the
+current-source MVP release build and validation.
 Authority: **D9.1.1v4 / D9.1.3v2**; the current Lambda
 [split implementation checkpoint](../../lambda/vibe/impl/Lambda_Impl_Radiant_Split.md#current-checkpoint)
 requires both property providers in `libradiant.a`, with no separate property
@@ -84,8 +117,23 @@ Evidence in the Lambda checkout:
 `libradiant.a.provider-members.txt`, `libradiant-properties.a.provider-members.txt`;
 full link diagnostics: `temp/build_lambda-exe-split.log`.
 No Radiant source/build edits or Lambda link workarounds were made. MVP
-implementation/timing is stopped under the project-boundary rule until the
-owner archive is repaired. No baseline suite was run.
+implementation/timing was stopped under the project-boundary rule pending the
+owner repair. No baseline suite was run.
+
+**Resolution verification:** the updated owner manifest removes the separate
+property target and includes both providers in the native source list. Rebuilt
+`build/lib/release/libradiant.a` contains `view_prop_defaults.cpp.o` and
+`view_prop_ensure.cpp.o` exactly once; the four default symbols listed above
+are defined. The original Lambda split release build/link now exits zero with
+no dependency workaround. Typed and untyped Fibonacci goldens pass under MVP
+and Full MIR (4/4 smoke runs). This closes the archive/link blocker, not broader
+language or performance qualification (D9.1.1v4, D9.1.3v2).
+
+Verification: `Lambda/temp/mvp_untyped_tuning_next/ri003-verification.json`,
+`ri003-rebuild.log`, `ri003-successful-link.log`, and `ri003-recheck-tree.json`.
+The private host SHA256 is
+`cda6b0f4985ac9e440494d8b86badbbbe2c7d386e86e6483e1e45b7a4fb14363`.
+The original failing link log is preserved as `ri003-failed-link.log`.
 
 ## Imported native Radiant backlog
 
