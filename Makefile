@@ -33,38 +33,28 @@ endif
 CXXFLAGS ?= $(PROFILE_FLAGS) -Wno-return-type-c-linkage
 DEFINES = $(PROFILE_DEFINES) -DGL_SILENCE_DEPRECATION
 NATIVE_SOURCES := $(shell $(PYTHON) $(INPUT_ROOT)/scripts/build_sources.py radiant .)
-PROPERTY_SOURCES := $(shell $(PYTHON) $(INPUT_ROOT)/scripts/build_sources.py radiant-properties .)
 OBJCXX_SOURCES := $(shell $(PYTHON) $(INPUT_ROOT)/scripts/build_sources.py radiant . --objcxx)
 ifeq ($(strip $(NATIVE_SOURCES)),)
 $(error Radiant source list is empty)
 endif
-ifeq ($(strip $(PROPERTY_SOURCES)),)
-$(error Radiant property source list is empty)
-endif
 NATIVE_OBJECTS := $(addprefix build/obj/native/$(PROFILE)/,$(addsuffix .o,$(NATIVE_SOURCES)))
-PROPERTY_OBJECTS := $(addprefix build/obj/properties/$(PROFILE)/,$(addsuffix .o,$(PROPERTY_SOURCES)))
 
 .PHONY: all clean test-native test-radiant-baseline check-input-facade input-deps force-build-signature
-all: check-input-facade input-deps build/lib/$(PROFILE)/libradiant.a build/lib/$(PROFILE)/libradiant-properties.a
+all: check-input-facade input-deps build/lib/$(PROFILE)/libradiant.a
 
 check-input-facade:
 	$(PYTHON) scripts/check_input_facade.py
 
 # Flags, dependency paths and source membership are part of archive identity.
-export PROFILE CXX AR CPPFLAGS CXXFLAGS PLATFORM_FLAGS RADIANT_CPPFLAGS DEFINES NATIVE_SOURCES PROPERTY_SOURCES OBJCXX_SOURCES
+export PROFILE CXX AR CPPFLAGS CXXFLAGS PLATFORM_FLAGS RADIANT_CPPFLAGS DEFINES NATIVE_SOURCES OBJCXX_SOURCES
 force-build-signature:
 
 build/radiant-$(PROFILE)-build.json: force-build-signature $(INPUT_ROOT)/scripts/update_build_signature.py
 	$(PYTHON) $(INPUT_ROOT)/scripts/update_build_signature.py radiant
 
-$(NATIVE_OBJECTS) $(PROPERTY_OBJECTS): build/radiant-$(PROFILE)-build.json | input-deps
+$(NATIVE_OBJECTS): build/radiant-$(PROFILE)-build.json | input-deps
 
 build/lib/$(PROFILE)/libradiant.a: $(NATIVE_OBJECTS)
-	@mkdir -p $(@D)
-	rm -f $@
-	$(AR) rcs $@ $^
-
-build/lib/$(PROFILE)/libradiant-properties.a: $(PROPERTY_OBJECTS)
 	@mkdir -p $(@D)
 	rm -f $@
 	$(AR) rcs $@ $^
@@ -73,25 +63,21 @@ build/obj/native/$(PROFILE)/%.cpp.o: %.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 -fms-extensions $(if $(filter $<,$(OBJCXX_SOURCES)),-x objective-c++) -MMD -MP -MF $@.d -c $< -o $@
 
-build/obj/properties/$(PROFILE)/%.cpp.o: %.cpp
-	@mkdir -p $(@D)
-	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 -fms-extensions -MMD -MP -MF $@.d -c $< -o $@
-
 # These native host tests link the real archive and do not start a scripting runtime.
 NATIVE_TEST_NAMES = $(patsubst test/%.cpp,%,$(wildcard test/test_*_gtest.cpp test/css/*.cpp)) lib/test_own_tagged
 NATIVE_TEST_BINS = $(addprefix build/test/,$(NATIVE_TEST_NAMES))
 GTEST_FLAGS ?= $(shell pkg-config --cflags --libs gtest_main)
 
-build/test/%: test/%.cpp build/lib/$(PROFILE)/libradiant.a build/lib/$(PROFILE)/libradiant-properties.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-test-utils.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
+build/test/%: test/%.cpp build/lib/$(PROFILE)/libradiant.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-test-utils.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $^ $(GTEST_FLAGS) $(NATIVE_CLOSURE_LIBS) -o $@
 
 # Some isolated native suites supply their own host and renderer functions.
-build/test/test_layout_custom_gtest: test/test_layout_custom_gtest.cpp test/test_unlinked_layout_stubs.cpp build/lib/$(PROFILE)/libradiant.a build/lib/$(PROFILE)/libradiant-properties.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
+build/test/test_layout_custom_gtest: test/test_layout_custom_gtest.cpp test/test_unlinked_layout_stubs.cpp build/lib/$(PROFILE)/libradiant.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $^ $(GTEST_FLAGS) $(NATIVE_CLOSURE_LIBS) -o $@
 
-build/test/test_gif_player_gtest build/test/test_lottie_player_gtest: build/test/%: test/%.cpp test/test_animation_host_stubs.cpp test/test_media_player_stubs.cpp build/lib/$(PROFILE)/libradiant.a build/lib/$(PROFILE)/libradiant-properties.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
+build/test/test_gif_player_gtest build/test/test_lottie_player_gtest: build/test/%: test/%.cpp test/test_animation_host_stubs.cpp test/test_media_player_stubs.cpp build/lib/$(PROFILE)/libradiant.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $^ $(GTEST_FLAGS) $(NATIVE_CLOSURE_LIBS) -o $@
 
@@ -103,11 +89,11 @@ $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a $(INPUT_ROOT)/build/lib/$(PRO
 	@test -f $@
 
 # These recorder tests provide a controlled vector backend for native archives.
-build/test/test_display_list_gtest: test/test_display_list_gtest.cpp test/test_display_list_stubs.cpp build/lib/$(PROFILE)/libradiant.a build/lib/$(PROFILE)/libradiant-properties.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
+build/test/test_display_list_gtest: test/test_display_list_gtest.cpp test/test_display_list_stubs.cpp build/lib/$(PROFILE)/libradiant.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $^ $(GTEST_FLAGS) $(NATIVE_CLOSURE_LIBS) -o $@
 
-build/test/test_retained_display_list_gtest: test/test_retained_display_list_gtest.cpp test/test_retained_display_list_stubs.cpp test/test_unlinked_layout_stubs.cpp build/lib/$(PROFILE)/libradiant.a build/lib/$(PROFILE)/libradiant-properties.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
+build/test/test_retained_display_list_gtest: test/test_retained_display_list_gtest.cpp test/test_retained_display_list_stubs.cpp test/test_unlinked_layout_stubs.cpp build/lib/$(PROFILE)/libradiant.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $^ $(GTEST_FLAGS) $(NATIVE_CLOSURE_LIBS) -o $@
 
@@ -115,7 +101,7 @@ build/test/test_retained_display_list_gtest: test/test_retained_display_list_gte
 $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-test-utils.a: | input-deps
 	$(MAKE) -C "$(INPUT_ROOT)" PROFILE="$(PROFILE)" build/lib/$(PROFILE)/liblambda-test-utils.a
 
-build/test/test_state_store_gtest: test/test_state_store_gtest.cpp test/test_state_store_stubs.cpp build/lib/$(PROFILE)/libradiant.a build/lib/$(PROFILE)/libradiant-properties.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-test-utils.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
+build/test/test_state_store_gtest: test/test_state_store_gtest.cpp test/test_state_store_stubs.cpp build/lib/$(PROFILE)/libradiant.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-test-utils.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $^ $(GTEST_FLAGS) $(NATIVE_CLOSURE_LIBS) -o $@
 
@@ -138,6 +124,12 @@ build/test/test_radiant_media_backend_gtest: test/test_radiant_media_backend_gte
 	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(DEFINES) $(CXXFLAGS) -std=c++17 $< build/lib/$(PROFILE)/libradiant.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a $(GTEST_FLAGS) $(MEDIA_TEST_LIBS) -o $@
 
 test-radiant-baseline: test-native
+
+# Integration replays use an external host; native archives remain runtime-free.
+LAMBDA_HOST ?= ../Lambda/lambda.exe
+.PHONY: test-navigation-cli
+test-navigation-cli:
+	$(PYTHON) test/test_navigation_cli.py --host "$(LAMBDA_HOST)"
 
 test-native: check-input-facade $(NATIVE_TEST_BINS)
 	@mkdir -p temp
@@ -166,11 +158,11 @@ NATIVE_CLOSURE_LIBS ?= $(INPUT_ROOT)/build/deps/utf8proc/lib/libutf8proc.a \
   $(shell PKG_CONFIG_PATH="$(INPUT_ROOT)/build/deps/thorvg/lib/pkgconfig:$$PKG_CONFIG_PATH" pkg-config --libs --static thorvg 2>/dev/null | tr ' ' '\n' | sed -n 's/\.dylib$$/.a/p')
 
 .PHONY: test-native-closure
-test-native-closure: check-input-facade build/lib/$(PROFILE)/libradiant.a build/lib/$(PROFILE)/libradiant-properties.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
+test-native-closure: check-input-facade build/lib/$(PROFILE)/libradiant.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a $(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a
 	@mkdir -p build/test
 	$(CXX) $(CPPFLAGS) $(PLATFORM_FLAGS) $(RADIANT_CPPFLAGS) $(CXXFLAGS) -std=c++17 \
 	  test/test_native_archive_closure.cpp -o build/test/test_native_archive_closure \
-	  -Wl,-force_load,build/lib/$(PROFILE)/libradiant.a -Wl,-force_load,build/lib/$(PROFILE)/libradiant-properties.a \
+	  -Wl,-force_load,build/lib/$(PROFILE)/libradiant.a \
 	  -Wl,-force_load,$(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-input.a \
 	  -Wl,-force_load,$(INPUT_ROOT)/build/lib/$(PROFILE)/liblambda-lib.a $(NATIVE_CLOSURE_LIBS)
 	./build/test/test_native_archive_closure
@@ -179,4 +171,4 @@ endif
 clean:
 	rm -rf build
 
--include $(addsuffix .d,$(NATIVE_OBJECTS) $(PROPERTY_OBJECTS))
+-include $(addsuffix .d,$(NATIVE_OBJECTS))

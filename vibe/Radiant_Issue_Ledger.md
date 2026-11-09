@@ -8,7 +8,9 @@ Use stable IDs `RI-001`, `RI-002`, and so on. For each new issue record its
 status, affected code or test, reproduction, observed and expected behavior,
 and whether it blocks work in Lambda. Cite the applicable `S#` or `D#` ruling
 when one covers the issue. Record uncertain causes as unconfirmed, link any
-owner-side fix and verification, and retain the ID when the issue is resolved.
+owner-side fix and verification. Move resolved entries to the
+[fixed issue ledger](<Radiant_Issue_Ledger (fixed).md>), preserving their IDs
+and leaving an anchor link here for existing references.
 
 The [historical Radiant ledger](../../Lambda/vibe/radiant/Radiant_Issue_Ledger.md)
 in the sibling Lambda checkout retains existing `RAD` IDs and issue history.
@@ -959,3 +961,9 @@ Lambda-owned and is retained in the [mixed historical record](../../Lambda/vibe/
 #### RAD22-9
 
 **`WebViewProp.src`/`srcdoc` are borrowed pointers.** They are documented as borrowed DOM-attribute storage in `radiant.hpp`; their lifetime is tied to the DOM node and is not retained through a `view_pool_reset_retained` (RAD01) — a relayout that frees attribute storage while a webview holds `src` would dangle. No `PersistentFieldRef` guards them.
+
+## Fixed issues
+
+<a id="ri-003"></a>
+
+- [RI-003 — Startup fragment navigation is followed as a document redirect](<Radiant_Issue_Ledger (fixed).md#ri-003>).

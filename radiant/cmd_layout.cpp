@@ -3047,6 +3047,31 @@ static DomDocument* load_html_doc_no_redirect(Url *base, char* doc_url, int view
     return doc;
 }
 
+Url* document_resolve_navigation_redirect(DomDocument* doc) {
+    if (!doc || !doc->pending_navigation_url || !doc->pending_navigation_url[0]) {
+        return nullptr;
+    }
+    Url* target = doc->url
+        ? url_parse_with_base(doc->pending_navigation_url, doc->url)
+        : url_parse(doc->pending_navigation_url);
+    if (!target || !url_is_valid(target)) {
+        log_error("load_html_doc: invalid pending navigation URL: %s", doc->pending_navigation_url);
+        if (target) url_destroy(target);
+        return nullptr;
+    }
+    if (target->hash && url_equals_without_fragment(target, doc->url)) {
+        // fragment navigation retains the document, realm and timers. Keep the
+        // URL carrier shared with Input and the CLI, and retire the request so
+        // the viewer's next host turn cannot reload it (D5.5, D6.3).
+        log_info("load_html_doc: retaining document for fragment navigation to %s", url_get_href(target));
+        url_replace_contents(doc->url, target);
+        mem_free(doc->pending_navigation_url);
+        doc->pending_navigation_url = nullptr;
+        return nullptr;
+    }
+    return target;
+}
+
 DomDocument* load_html_doc_profiled(Url* base, char* doc_url, int viewport_width,
                                     int viewport_height,
                                     const DocumentJsHostConfig* js_host_config,
@@ -3063,17 +3088,8 @@ DomDocument* load_html_doc_profiled(Url* base, char* doc_url, int viewport_width
         DomDocument* doc = load_html_doc_no_redirect(current_base, current_doc_url,
             viewport_width, viewport_height, js_host_config, top_level_cookie_jar,
             timing, script_timing, false, print_media);
-        if (!doc || !doc->pending_navigation_url || !doc->pending_navigation_url[0]) {
-            if (owned_doc_url) mem_free(owned_doc_url);
-            return doc;
-        }
-
-        Url* resolved = doc->url
-            ? url_parse_with_base(doc->pending_navigation_url, doc->url)
-            : url_parse(doc->pending_navigation_url);
-        if (!resolved || !url_is_valid(resolved)) {
-            log_error("load_html_doc: invalid pending navigation URL: %s", doc->pending_navigation_url);
-            if (resolved) url_destroy(resolved);
+        Url* resolved = document_resolve_navigation_redirect(doc);
+        if (!resolved) {
             if (owned_doc_url) mem_free(owned_doc_url);
             return doc;
         }
@@ -5631,18 +5647,8 @@ static bool layout_single_file(
                                                 timing_file ? &html_load_timing : nullptr,
                                                 timing_file ? &document_script_timing : nullptr,
                                                 &js_host_config, nullptr, false);
-            if (!doc || !doc->pending_navigation_url || !doc->pending_navigation_url[0]) {
-                break;
-            }
-
-            Url* next_url = doc->url
-                ? url_parse_with_base(doc->pending_navigation_url, doc->url)
-                : url_parse(doc->pending_navigation_url);
-            if (!next_url || !url_is_valid(next_url)) {
-                log_error("[Layout] Invalid pending navigation URL: %s", doc->pending_navigation_url);
-                if (next_url) url_destroy(next_url);
-                break;
-            }
+            Url* next_url = document_resolve_navigation_redirect(doc);
+            if (!next_url) break;
 
             const char* next_href = url_get_href(next_url);
             log_info("[Layout] Following document navigation to %s", next_href ? next_href : "(null)");

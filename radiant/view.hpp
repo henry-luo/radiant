@@ -4831,6 +4831,8 @@ DomDocument* load_html_doc(Url *base, char* doc_filename, int viewport_width, in
                            bool defer_html_scripts = false,
                            bool print_media = false);
 void complete_deferred_html_scripts(DomDocument* doc);
+// Returns an owned cross-document URL; consumes startup fragment navigation in place.
+Url* document_resolve_navigation_redirect(DomDocument* doc);
 DomDocument* load_html_doc_profiled(Url* base, char* doc_filename, int viewport_width,
                                     int viewport_height,
                                     const DocumentJsHostConfig* js_host_config,
