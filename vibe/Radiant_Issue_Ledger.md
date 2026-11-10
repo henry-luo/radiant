@@ -153,6 +153,31 @@ wrapping row (74 + 858 + 28). The hypothetical main size of the outer row
 probably comes from a measurement pass that does not wrap the inner row at its
 `max-width`. That cause is unconfirmed. No Radiant source was changed.
 
+<a id="ri-008"></a>
+
+### RI-008 — font face source includes a missing alloca header
+
+**Status:** RESOLVED — Radiant now includes the selected input header at
+`lib/alloca.h`.
+**Observed:** 2026-11-10, macOS arm64 debug `make build`.
+**Lambda blocker:** yes — the split build cannot compile `libradiant.a`
+(D9.1.1v4, D9.1.3v2).
+
+Reproduce from the Lambda checkout with `make build`. The build reaches
+Radiant's `radiant/font_face.cpp` and fails at line 11 with
+`fatal error: 'lib/lambda_alloca.h' file not found`. The command supplies
+`-I/Users/henryluo/Projects/lambda-input`, but that checkout has
+`lib/alloca.h` and no `lib/lambda_alloca.h`; a search across the Lambda, input
+and Radiant checkouts found no file with the requested name. The current input
+header defines `LAMBDA_ALLOCA`. Expected: Radiant compiles against the current
+selected input headers and the Lambda split build proceeds.
+
+Radiant's three consumers now include `lib/alloca.h`, preserving the existing
+`LAMBDA_ALLOCA` call sites and behavior. This updates `font_face.cpp`, the
+reported blocker, and the same stale include in `render_border.cpp` and
+`rdt_vector_tvg.cpp`. A focused debug compilation of all three translation
+units passed.
+
 ## Imported native Radiant backlog
 
 These entries retain their original `RAD` IDs, evidence and historical wording
