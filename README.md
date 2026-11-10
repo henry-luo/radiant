@@ -4,6 +4,12 @@ Radiant is the native layout, rendering and UI engine. Under D9.1.1v4 it depends
 
 `radiant/` owns the native sources and `build_targets.json` is the manifest imported by Lambda. Input headers and archives resolve through `INPUT_ROOT` (default `../lambda-input`); Radiant does not link whole `lib` or `lambda` source directories. Radiant owns platform event capture, hit testing, layout, rendering and the state store; Lambda supplies event handling and scripting through native host interfaces (D9.1.1v4, D9.1.3v2).
 
+Run `./setup-mac-deps.sh`, `./setup-linux-deps.sh`, or
+`./setup-windows-deps.sh` to prepare input and install Radiant's graphics
+packages (D9.1.1v4, D9.1.3v2). Set `LAMBDA_INPUT_ROOT` or `INPUT_ROOT` to
+select the input checkout. Add `--dry-run` to inspect the steps; Linux and
+Windows setup still need native platform verification.
+
 `make PROFILE=debug` or `make PROFILE=release` builds `libradiant.a` against the matching input profile. `make radiant.exe` builds the standalone layout/render executable. It links Lambda's existing runtime and scripting adapters as the executable host, while the Radiant archive remains independent of the runtime. The executable supports `layout`, `render`, and `render-batch`; use `./radiant.exe layout --help` or `./radiant.exe render --help` for options.
 
 `make run-radiant-baseline` runs the owner-local native GTest suites and the layout baseline, even if one group fails. `make test-native` runs only native GTest suites. `make test-layout-smoke` loads every static fixture without a scripting host and checks for a produced view tree. The shared layout and media fixtures use the sibling `lambda-test` checkout. Device-specific cases may require local hardware and are reported as skipped when unavailable.

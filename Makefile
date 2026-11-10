@@ -11,7 +11,10 @@ RADIANT_CPPFLAGS = -I. -I$(INPUT_ROOT) -I$(INPUT_ROOT)/lib/re2 -I$(INPUT_ROOT)/l
   -I$(INPUT_ROOT)/lib/image/libavif/include -I$(INPUT_ROOT)/lib/image/libtiff/libtiff -I$(INPUT_ROOT)/lib/image/giflib \
   -I$(INPUT_ROOT)/lib/image/libnsbmp/include $(shell pkg-config --cflags fribidi libopenjp2 2>/dev/null) $(RADIANT_EXTRA_CPPFLAGS)
 ifeq ($(shell uname -s),Darwin)
+RADIANT_CPPFLAGS += -I$(shell brew --prefix)/opt/mbedtls@3/include
 PLATFORM_FLAGS ?= -mmacosx-version-min=15.7
+else ifeq ($(shell uname -s),Linux)
+RADIANT_CPPFLAGS += -I$(INPUT_ROOT)/build/deps/linux-support/include
 endif
 ifeq ($(PROFILE),debug)
 PROFILE_FLAGS = -O3 -g -fno-omit-frame-pointer
@@ -207,8 +210,8 @@ ifeq ($(shell uname -s),Darwin)
 RADIANT_BREW_PREFIX ?= $(shell brew --prefix)
 NATIVE_CLOSURE_LIBS ?= $(INPUT_ROOT)/build/deps/utf8proc/lib/libutf8proc.a \
   $(INPUT_ROOT)/build/lib/native/$(PROFILE)/libre2.a $(INPUT_ROOT)/build/deps/curl/lib/libcurl.a \
-  $(RADIANT_BREW_PREFIX)/lib/libnghttp2.a $(RADIANT_BREW_PREFIX)/lib/libmbedtls.a \
-  $(RADIANT_BREW_PREFIX)/lib/libmbedx509.a $(RADIANT_BREW_PREFIX)/lib/libmbedcrypto.a \
+  $(RADIANT_BREW_PREFIX)/lib/libnghttp2.a $(RADIANT_BREW_PREFIX)/opt/mbedtls@3/lib/libmbedtls.a \
+  $(RADIANT_BREW_PREFIX)/opt/mbedtls@3/lib/libmbedx509.a $(RADIANT_BREW_PREFIX)/opt/mbedtls@3/lib/libmbedcrypto.a \
   $(RADIANT_BREW_PREFIX)/lib/libuv.a $(INPUT_ROOT)/build/deps/brotli/lib/libbrotlidec.a \
   $(INPUT_ROOT)/build/deps/brotli/lib/libbrotlicommon.a $(INPUT_ROOT)/build/deps/thorvg/lib/libthorvg.a \
   $(INPUT_ROOT)/build/lib/native/$(PROFILE)/liblambda-image-codecs.a $(RADIANT_BREW_PREFIX)/opt/zlib/lib/libz.a \

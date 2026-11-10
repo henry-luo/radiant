@@ -93,7 +93,8 @@
             "radiant/rdt_speech_mac_static.cpp"
           ]
         }
-      ]
+      ],
+      "build_owner": "radiant"
     }
   ]
 }
