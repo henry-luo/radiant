@@ -8,7 +8,7 @@
 extern "C" {
 #include "lib/url.h"
 #include "lib/memtrack.h"
-#include "lib/lambda_alloca.h"
+#include "lib/alloca.h"
 #include "lib/str.h"
 }
 #include "lib/mem_grow.hpp"

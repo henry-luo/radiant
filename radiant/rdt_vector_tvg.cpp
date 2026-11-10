@@ -9,7 +9,7 @@
 #include "lib/atomic.h"
 #include "lib/ref_count.h"
 #include "lib/log.h"
-#include "lib/lambda_alloca.h"
+#include "lib/alloca.h"
 #include "lib/mem_grow.hpp"
 #include "lib/mem_factory.h"
 #include "lib/hashmap_helpers.h"
