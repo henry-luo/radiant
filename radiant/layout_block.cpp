@@ -2537,7 +2537,10 @@ static float apply_text_box_trim(ViewBlock* block, float end_trim_limit) {
     ViewBlock* last_line_block = nullptr;
     if (trim & TEXT_BOX_TRIM_START) {
         first_line_block = find_formatted_line_block(block, false);
-        if (first_line_block && !has_padding_or_border_between(block, first_line_block, true)) {
+        if (first_line_block && !has_padding_or_border_between(block, first_line_block, true) &&
+            // the innermost request already trimmed this formatted line.
+            !(first_line_block != block && first_line_block->blk &&
+              (first_line_block->block()->text_box_trim_applied & TEXT_BOX_TRIM_START))) {
             // CSS Inline 3 §5: text-box-edge is inherited; use the value from
             CssEnum over_edge, under_edge;
             get_text_box_edge(first_line_block, &over_edge, &under_edge);
@@ -5757,8 +5760,9 @@ void prescan_and_layout_floats(LayoutContext* lycon, DomNode* first_child, ViewB
         CssEnum float_value = get_element_float_value(elem);
         if (float_value == CSS_VALUE_LEFT || float_value == CSS_VALUE_RIGHT) {
             has_floats = true;
-        } else if (!has_floats && layout_resolved_display(child).outer == CSS_VALUE_BLOCK) {
-            return;
+        } else if (!has_floats) {
+            CssEnum outer = layout_resolved_display(child).outer;
+            if (outer == CSS_VALUE_BLOCK || outer == CSS_VALUE_LIST_ITEM) return;
         }
     }
     if (!has_floats) return;
@@ -5791,7 +5795,8 @@ void prescan_and_layout_floats(LayoutContext* lycon, DomNode* first_child, ViewB
         CssEnum float_value = get_element_float_value(elem);
         // Subsequent floats must be laid out in normal flow order
         if (float_value != CSS_VALUE_LEFT && float_value != CSS_VALUE_RIGHT) {
-            if (display.outer == CSS_VALUE_BLOCK) {
+            if (display.outer == CSS_VALUE_BLOCK || display.outer == CSS_VALUE_LIST_ITEM) {
+                // empty list items still advance normal flow before a following float.
                 break;  // Stop pre-scanning - remaining floats go through normal flow
             }
             if (layout_node_has_in_flow_inline_content(child)) {

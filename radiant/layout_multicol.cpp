@@ -4032,6 +4032,17 @@ static bool multicol_project_fragmented_inline_descendants(
         if (first_fragment_line_offset < 0.0f) first_fragment_line_offset = 0.0f;
         continuation_line_offset = normal_line_offset;
     }
+    if (child->blk && child->block()->box_decoration_break != CSS_VALUE_CLONE &&
+        child->block()->text_box_trim_applied) {
+        // slice restores half-leading at continuation edges, including trim-both.
+        continuation_line_offset = normal_line_offset;
+        if (parent_block->blk &&
+            (parent_block->block()->text_box_trim & TEXT_BOX_TRIM_START) &&
+            !(child->block()->text_box_trim & TEXT_BOX_TRIM_START)) {
+            // a multicol container trims each column unless the inner box owns that edge.
+            continuation_line_offset = 0.0f;
+        }
+    }
 
     float content_fragment_height = multicol_fragment_content_extent(child, fragment_height);
     int first_fragment_lines = 0;
@@ -4278,7 +4289,7 @@ static bool multicol_project_fragmented_inline_descendants(
             float normalized_x = multicol_normalize_inline_x(
                 items[i].original_x, 0.0f, inner_pitch, items[i].is_forced_break);
             float line_local_delta_y = items[i].original_y - items[i].line_y;
-            float fragment_line_offset = slice_start_trim && inner_fragment_index > 0
+            float fragment_line_offset = inner_fragment_index > 0
                 ? continuation_line_offset : first_fragment_line_offset;
             new_x = normalized_x +
                 parent_column_index * parent_pitch +
@@ -8013,7 +8024,8 @@ static float multicol_slice_text_box_trim_flow_height(
     if (child->block()->text_box_trim_applied & TEXT_BOX_TRIM_END) {
         flow_height -= child->block()->text_box_trim_end_amount;
     }
-    if (slice_start_trim && initial_fragment_offset > 0.0f) {
+    if (slice_start_trim) {
+        // the first fragment's removed leading is already part of the consumed flow.
         flow_height -= initial_fragment_offset + child->block()->text_box_trim_start_amount;
     } else if (slice_end_offset_trim) {
         flow_height -= initial_fragment_offset + normal_line_offset;

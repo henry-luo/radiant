@@ -6,6 +6,132 @@ Active issues remain in the [Radiant Issue Ledger](Radiant_Issue_Ledger.md).
 
 ## Fixed issues
 
+<a id="ri-010"></a>
+
+### RI-010 — Layout baseline mismatches after the host-path repair
+
+**Status:** RESOLVED, 2026-11-11, macOS arm64. **Lambda blocker:** cleared.
+The normal integration entry point passes all 18 categories: **5,631 passed /
+293 partial / 0 failed / 12 skipped**, all 5,936 cases present. Authority:
+**D9.1.1v4 / D9.1.3v2**, preserving **D5.5 / D6.3**. The user explicitly
+approved the scoped 16-file macOS reference correction as an exception to
+AGENTS.md rule 12. Original captures, fixture source, scored baselines and
+tolerances remain intact; the native and reference repairs are described below.
+
+**Original report and intermediate qualification:**
+
+The reported 5,904 layout startup failures are caused by Lambda adapters using
+the shared runner's default `radiant.exe` in workspaces containing `lambda.exe`.
+A two-site explicit-host patch, tested in an isolated review checkout, executes
+all 5,936 selected cases: 5,621 pass, 293 retain partial fidelity, 10 fail and
+12 input-event cases retain their skips. The user explicitly approved the two-file ownership exception, and that
+integration repair is applied; it is not a layout workaround.
+
+Initial ten cases:
+
+- `wpt-css-inline/text-box-trim-multicol-{002,004,006,007,008}`.
+- `wpt-css-text/text-spacing-trim-end-001` and `writing-system-line-break-001`.
+- `wpt-css-writing-modes/available-size-{022,023}`.
+- `wpt-css-lists/list-marker-position-crash`.
+
+Reproduce from this checkout with `node test/layout/test_radiant_layout.js --exe
+../Lambda/lambda.exe --host-cwd ../Lambda -c <category> -t <case> --json`.
+The exact original reports, isolated integrated host, ten retained view trees,
+full comparisons and fresh Chrome captures are under
+`temp/radiant-failed-20261111/`. `remaining-layout-comparisons.json` compares the
+original references; `fresh-comparisons.json` compares temporary fresh captures.
+
+Fresh capture repairs fragment ordering in the 006/008 observations without a
+native change; those two references therefore need an owner-side capture audit.
+For 002/004/007, remaining continuation text positions differ by 20px despite
+matching element boxes. The orthogonal 022/023 cases also require standards
+review: the native constrained height follows their WPT reftest's scrollport
+constraint, whereas current Chrome selects the larger viewport fallback under
+containment. See [CSS Writing Modes §7.3.1](https://www.w3.org/TR/css-writing-modes-3/#orthogonal-auto)
+and the fixtures' `available-size-022-ref.html` target. The CJK/font and list-marker
+causes are not yet confirmed.
+No reference, baseline score, fixture selection or tolerance was changed.
+
+The native replay-summary repair separately passes 326/326 reported UI cases,
+278 view cases with one existing speech skip, and the owner-native/layout gate.
+
+**Native layout follow-up, 2026-11-11:** `text-spacing-trim-end-001` now fits
+closing punctuation using its line-end half-space before wrapping, and
+`list-marker-position-crash` now preserves float source order across an empty
+list-item block. Both reach 100% element/text agreement with the stored and
+fresh browser captures. Three multicol trim/flow corrections bring all five
+reported multicol cases to 100% element/text agreement with fresh captures.
+Japanese hyphen-like punctuation now respects the content writing system,
+including explicit script subtags and inline/intrinsic boundaries.
+
+The unchanged full integration contract now reports **5,623 passed / 293 partial /
+8 failed / 12 skipped**, all 5,936 cases present. The dependencies at that checkpoint were:
+
+- Five multicol cases still fail their stored text-fragment references; their
+  fresh captures fully match the repaired native geometry. Reference ownership
+  and capture audit block further work on these comparisons in Radiant scope.
+- `writing-system-line-break-001` retains stored font/line differences. The
+  repaired Japanese box matches fresh Chrome; Chrome's `ja-Hang` box still breaks
+  before U+301C, contrary to the fixture assertion and the writing-system rule
+  in [CSS Text 3 §5.2](https://drafts.csswg.org/css-text-3/#line-break-property).
+  Native Hangul-script text retains the prohibited boundary. Reference/font and
+  browser behavior need owner review; no incorrect native break is introduced.
+- `available-size-{022,023}` retain the standards/browser disagreement. Both
+  native outputs have aside heights `[280,280,280,280,280,680,680,680,680]`, exactly
+  matching a fresh capture of their shared WPT reftest target. Chrome captures of
+  the tests instead use 680px for all nine boxes. The scrollport sizing rule is
+  preserved pending resolution of that disagreement.
+
+Qualification: **901 native tests plus static smoke**, all **4,481 owner geometry
+comparisons**, seven runner contracts and layout lint pass. Seven new native
+regressions cover trim geometry, flow height, punctuation, script tagging,
+inline/intrinsic breaks and float ordering. See the
+[implementation record](Radiant_Impl_Remaining_Layout_Repairs.md) and
+[pinned receipt](../temp/radiant-layout-20261111/verification-summary.json).
+No sibling source, corpus reference, scored baseline, selection or tolerance
+changes are included (D9.1.1v4 / D9.1.3v2).
+
+**Reference audit follow-up, 2026-11-11:** the remaining eight comparisons have
+independently generated macOS reference corrections prepared under
+`temp/radiant-reference-20261111/proposal/`. Five use ordinary browser recaptures;
+three use explicit, source-hashed standards controls through the existing corpus
+mechanism. The two orthogonal controls reproduce all nine aside geometries and
+line contents from a separate capture of the fixtures' shared WPT reference.
+The CJK control applies strict breaking only to the Hangul-script string, giving
+the required boundary without changing source text or prescribing geometry.
+Unmodified Chrome outputs are rejected by all three corrected standards oracles.
+
+Full/compact parity and the unchanged 5,936-case integration inventory pass in
+a temporary overlay: **5,631 passed / 293 partial / 0 failed / 12 skipped**.
+The 16-file additive patch preserves every existing reference and affects only
+macOS selection. At that checkpoint, applying it awaited an explicit exception
+to AGENTS.md rule 12, and the real corpus still had eight failures. The user then
+approved the reviewed scope; exactly those 16 additions were applied and their
+hashes verified without altering other dirty corpus files. See the
+[review and patch](../temp/radiant-reference-20261111/REVIEW.md).
+
+The standards review additionally completed native Hanb/Bopo/Hira/Kana script
+recognition and added an orthogonal containment sizing regression. The focused
+script checks fail before and pass after the mapping repair. The final owner
+gate passes **902 native tests plus smoke, all 4,481 geometry comparisons and
+seven runner contracts**; layout lint and its five contracts pass. This native
+follow-up needs no reference exception (D9.1.1v4 / D9.1.3v2).
+
+**Final applied qualification:** the real Lambda `test/test_run.js` layout
+integration group now exits zero with the same **5,631 passed / 293 partial /
+0 failed / 12 skipped** result as the isolated proposal. This run uses ordinary
+reference resolution, with no temporary overlay. Every newly added file matches
+its reviewed SHA-256; the corpus status delta contains exactly those 16 paths.
+The eight corrected cases have 100% element/text agreement in both full and
+compact formats. Existing partial cases and skips remain visible. Native source
+and executable hashes still match the passing owner gate described above.
+
+Final reports, explicit authorization and applied-reference identities are in
+`temp/radiant-reference-20261111/applied-integration/`, `authorization.json` and
+[verification-summary.json](../temp/radiant-reference-20261111/verification-summary.json).
+The unrelated pre-existing clone-capacity mismatch remains open as RI-011.
+Changes remain unstaged and uncommitted.
+
 <a id="ri-004-pointer-event-protocol"></a>
 
 ### RI-004 — Lambda pointer-event adapter expects an absent native event protocol

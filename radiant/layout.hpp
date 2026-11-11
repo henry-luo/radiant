@@ -461,7 +461,7 @@ inline bool is_typographic_character_unit(uint32_t cp) {
 }
 bool layout_text_allows_letter_break(uint32_t current, uint32_t next,
                                       CssEnum line_break, bool zwj_preceded,
-                                      bool cj_non_starter);
+                                      bool cj_non_starter, DomNode* owner = nullptr);
 bool layout_text_allows_ascii_opening_break(uint32_t current, uint32_t next);
 bool layout_text_source_word_start(const unsigned char* text, size_t byte_offset);
 bool layout_text_native_break_allowed(const LayoutTextBreaks& breaks, size_t offset,
@@ -470,7 +470,8 @@ bool layout_text_native_break_allowed(const LayoutTextBreaks& breaks, size_t off
 bool layout_text_break_opportunity(uint32_t first, uint32_t last,
     const unsigned char* next, const unsigned char* end,
     const LayoutTextBreaks& native_breaks, size_t offset,
-    bool break_anywhere, bool break_all, bool cjk_breaks, CssEnum line_break);
+    bool break_anywhere, bool break_all, bool cjk_breaks, CssEnum line_break,
+    DomNode* owner = nullptr);
 bool layout_text_autospace_pair(uint8_t flags, uint32_t previous, uint32_t current);
 float layout_text_autospace_advance(LayoutContext* lycon);
 bool is_line_break_ba(uint32_t codepoint);

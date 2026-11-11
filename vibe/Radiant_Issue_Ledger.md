@@ -22,46 +22,30 @@ observations still require re-verification. Add new Radiant issues here.
 
 <a id="ri-010"></a>
 
-### RI-010 — Ten layout baseline mismatches remain after the host-path repair
+RI-010 is [resolved in the fixed issue ledger](<Radiant_Issue_Ledger (fixed).md#ri-010>):
+all eight remaining layout comparisons pass after the approved reference repair.
+The normal 5,936-case integration gate has zero failures on macOS.
 
-**Status:** OPEN, 2026-11-11; causes remain partly unconfirmed. **Lambda blocker:**
-these comparisons keep Lambda's combined layout gate red once its independent
-missing-executable problem is repaired (D9.1.1v4 / D9.1.3v2).
+<a id="ri-011"></a>
 
-The reported 5,904 layout startup failures are caused by Lambda adapters using
-the shared runner's default `radiant.exe` in workspaces containing `lambda.exe`.
-A two-site explicit-host patch, tested in an isolated review checkout, executes
-all 5,936 selected cases: 5,621 pass, 293 retain partial fidelity, 10 fail and
-12 input-event cases retain their skips. The user explicitly approved the two-file ownership exception, and that
-integration repair is applied; it is not a layout workaround.
+### RI-011 — Cloned multicol text trim has a pre-existing capacity mismatch
 
-Remaining cases:
+**Status:** OPEN, 2026-11-11. **Task blocker:** no; this is an additional control,
+outside the ten reported failing comparisons (D9.1.1v4 / D9.1.3v2).
 
-- `wpt-css-inline/text-box-trim-multicol-{002,004,006,007,008}`.
-- `wpt-css-text/text-spacing-trim-end-001` and `writing-system-line-break-001`.
-- `wpt-css-writing-modes/available-size-{022,023}`.
-- `wpt-css-lists/list-marker-position-crash`.
+`wpt-css-inline/text-box-trim-multicol-003` uses `box-decoration-break:clone`.
+A fresh Chrome capture places four 80px lines, with their edge leading trimmed,
+in each 290px column; native layout places three and creates an extra row.
+Element agreement is 100%, text agreement is 30% against that fresh capture.
+The existing stored baseline still passes and is unchanged. Insufficient
+trim-aware fragment capacity is a suspected cause, not yet confirmed.
 
-Reproduce from this checkout with `node test/layout/test_radiant_layout.js --exe
-../Lambda/lambda.exe --host-cwd ../Lambda -c <category> -t <case> --json`.
-The exact original reports, isolated integrated host, ten retained view trees,
-full comparisons and fresh Chrome captures are under
-`temp/radiant-failed-20261111/`. `remaining-layout-comparisons.json` compares the
-original references; `fresh-comparisons.json` compares temporary fresh captures.
-
-Fresh capture repairs fragment ordering in the 006/008 observations without a
-native change; those two references therefore need an owner-side capture audit.
-For 002/004/007, remaining continuation text positions differ by 20px despite
-matching element boxes. The orthogonal 022/023 cases also require standards
-review: the native constrained height follows their WPT reftest's scrollport
-constraint, whereas current Chrome selects the larger viewport fallback under
-containment. See [CSS Writing Modes §7.3.1](https://www.w3.org/TR/css-writing-modes-3/#orthogonal-auto)
-and the fixtures' `available-size-022-ref.html` target. The CJK/font and list-marker
-causes are not yet confirmed.
-No reference, baseline score, fixture selection or tolerance was changed.
-
-The native replay-summary repair separately passes 326/326 reported UI cases,
-278 view cases with one existing speech skip, and the owner-native/layout gate.
+Reproduce with the shared layout tester and `-c wpt-css-inline -t
+text-box-trim-multicol-003.html`, then compare with a temporary fresh capture.
+`temp/radiant-layout-20261111/clone-control.cjs` compares the pinned pre-repair
+host and final host: their complete native layout trees are identical.
+`multicol-control.json` and `fresh-references/` retain the fresh mismatch.
+No clone repair or baseline/reference change is claimed in RI-010.
 
 Continued owner-local repairs (2026-11-11): RAD02-3 now clips positioned HTML
 paint, vector output and native hits; RAD03-3 / RAD04-3 share replaced-size

@@ -8,6 +8,7 @@
 #include "lambda/input/css/css_style.hpp"
 #include "lib/avl_tree.h"
 #include "lib/binsearch.h"
+#include "lib/str.h"
 #include "lib/font/font.h"
 #include "tagged.hpp"
 #include "lib/time_util.h"
@@ -41,7 +42,8 @@ static inline bool text_allows_soft_wrap_after_codepoint(uint32_t cp) {
 bool layout_text_break_opportunity(uint32_t first, uint32_t last,
     const unsigned char* next, const unsigned char* end,
     const LayoutTextBreaks& native_breaks, size_t offset,
-    bool break_anywhere, bool break_all, bool cjk_breaks, CssEnum line_break) {
+    bool break_anywhere, bool break_all, bool cjk_breaks, CssEnum line_break,
+    DomNode* owner) {
     // a text node's end is not a wrap opportunity; its parent resolves the following inline seam.
     if (next >= end) return false;
     if (break_anywhere || text_allows_soft_wrap_after_codepoint(last)) return true;
@@ -56,7 +58,7 @@ bool layout_text_break_opportunity(uint32_t first, uint32_t last,
     // intrinsic and used layout retain the same punctuation-attached units.
     return (!following || utf8proc_grapheme_break(last, following)) &&
         layout_text_allows_letter_break(last, following, line_break,
-                                         last == 0x200D, false);
+                                         last == 0x200D, false, owner);
 }
 
 
@@ -80,7 +82,7 @@ bool layout_inline_text_boundary_break(LayoutContext* lycon, DomNode* owner,
     return layout_text_break_opportunity(before, before,
         (const unsigned char*)seam + boundary, (const unsigned char*)seam + length,
         breaks, boundary, overflow_wrap == CSS_VALUE_ANYWHERE || line_break == CSS_VALUE_ANYWHERE || emergency,
-        word_break == CSS_VALUE_BREAK_ALL, word_break != CSS_VALUE_KEEP_ALL, line_break);
+        word_break == CSS_VALUE_BREAK_ALL, word_break != CSS_VALUE_KEEP_ALL, line_break, owner);
 }
 
 
@@ -696,6 +698,31 @@ static inline bool is_lang_japanese(const char* lang) {
         return lang[2] == '\0' || lang[2] == '-';
     }
     return false;
+}
+
+static bool text_uses_cjk_writing_system(DomNode* owner) {
+    const char* lang = resolve_lang(owner);
+    if (!lang) return false;
+    // an explicit script overrides the language's usual writing system (CSS Text 3 appendix F).
+    const char* subtag = strchr(lang, '-');
+    while (subtag && subtag[1]) {
+        subtag++;
+        const char* end = strchr(subtag, '-');
+        size_t length = end ? (size_t)(end - subtag) : strlen(subtag);
+        if (length == 1) break; // extensions and private-use subtags do not declare a script.
+        if (length == 4 && isalpha((unsigned char)subtag[0]) &&
+            isalpha((unsigned char)subtag[1]) && isalpha((unsigned char)subtag[2]) &&
+            isalpha((unsigned char)subtag[3])) {
+            return str_ieq_const(subtag, length, "Hani") ||
+                str_ieq_const(subtag, length, "Hans") || str_ieq_const(subtag, length, "Hant") ||
+                str_ieq_const(subtag, length, "Hanb") || str_ieq_const(subtag, length, "Bopo") ||
+                str_ieq_const(subtag, length, "Jpan") || str_ieq_const(subtag, length, "Hrkt") ||
+                str_ieq_const(subtag, length, "Hira") || str_ieq_const(subtag, length, "Kana");
+        }
+        subtag = end;
+    }
+    size_t language_length = strcspn(lang, "-");
+    return is_lang_japanese(lang) || str_ieq_const(lang, language_length, "zh");
 }
 
 // Unicode Line Break Class Helpers (UAX #14 / CSS Text 3 §5.2)
@@ -1648,11 +1675,14 @@ static bool text_ideographic_space_can_hang(uint32_t codepoint, CssEnum white_sp
 
 bool layout_text_allows_letter_break(uint32_t current, uint32_t next,
                                       CssEnum line_break, bool zwj_preceded,
-                                      bool cj_non_starter) {
+                                      bool cj_non_starter, DomNode* owner) {
     if (line_break == CSS_VALUE_ANYWHERE) return true;
     if (zwj_preceded || is_line_break_op(current) || next == 0x200D) return false;
     if (!next) return true;
-    if (is_line_break_cl(next) || is_line_break_ns(next) ||
+    bool cjk_hyphen = (next == 0x301C || next == 0x30A0) &&
+        (line_break == CSS_VALUE_NORMAL || line_break == CSS_VALUE_LOOSE) &&
+        text_uses_cjk_writing_system(owner);
+    if (is_line_break_cl(next) || (is_line_break_ns(next) && !cjk_hyphen) ||
         (cj_non_starter && is_line_break_cj(next))) return false;
     if (is_line_break_ex_is_sy(next) &&
         !(line_break == CSS_VALUE_LOOSE && is_fullwidth_ex(next))) return false;
@@ -3306,7 +3336,7 @@ LineFillStatus text_has_line_filled(LayoutContext* lycon, DomNode* text_node,
         if ((wrap_lines && codepoint == '-') ||
             (break_all && is_break_all_text_unit(codepoint) &&
             layout_text_allows_letter_break(codepoint, next_codepoint,
-                line_break, false, false)) ||
+                line_break, false, false, lycon->elmt)) ||
             (wrap_lines &&
              layout_text_allows_ascii_opening_break(codepoint, next_codepoint))) {
             // record the boundary after its visible glyph fits, before probing the next unit.
@@ -4383,7 +4413,8 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
     size_t auto_hyphen_word_characters = 0;
     size_t next_auto_hyphen_offset = SIZE_MAX;
     bool cj_is_non_starter = (line_break_val == CSS_VALUE_STRICT)
-        || (line_break_val != CSS_VALUE_LOOSE && is_lang_japanese(lang));
+        || (line_break_val != CSS_VALUE_LOOSE && is_lang_japanese(lang) &&
+            text_uses_cjk_writing_system(text_node));
     LayoutTextBreaks native_breaks((const char*)text_start,
         (size_t)(text_end - text_start), wrap_lines && !break_all);
     // CSS Text 3 §4.1.2: Track last non-whitespace codepoint for segment break
@@ -4458,9 +4489,11 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
         // UAX #14 LB13: punctuation with no break-before opportunity must stay
         // with the preceding inline content even when word-break is break-all.
         bool leading_no_break_punctuation =
-            is_line_break_cl(first_codepoint) ||
+            (is_line_break_cl(first_codepoint) ||
             is_line_break_ns(first_codepoint) ||
-            is_line_break_ex_is_sy(first_codepoint);
+            is_line_break_ex_is_sy(first_codepoint)) &&
+            !layout_text_allows_letter_break(lycon->line.prev_text_spacing_codepoint,
+                first_codepoint, line_break_val, false, cj_is_non_starter, text_node);
         // CSS Text §4.1.3: place hangable spaces on this line before considering an emergency seam.
         bool leading_hanging_space = text_ideographic_space_can_hang(first_codepoint, white_space) ||
             (white_space == CSS_VALUE_PRE_WRAP && (str < text_end && is_space(*str)));
@@ -4669,7 +4702,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
         lycon->line.prev_text_spacing_codepoint = last;
         if (wrap_lines && (is_space(last) || break_all || (has_id_line_break_class(last) && !keep_all)) &&
                 layout_text_allows_letter_break(last, peek_next_inline_codepoint(text_node, text_end),
-                    line_break_val, false, cj_is_non_starter)) {
+                    line_break_val, false, cj_is_non_starter, text_node)) {
             // publish the real outer edge to the same cross-node break machinery as ordinary text.
             layout_record_line_break_opportunity(lycon, text_end - 1, rect->width,
                 has_id_line_break_class(last) ? BRK_CJK : BRK_TEXT);
@@ -5143,7 +5176,24 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
             lycon->line.trailing_letter_spacing);
         if (wrap_lines && rect->x + rect->width - terminal_trim >
                 line_right + kTextLayoutSubpixelEpsilon) { // line filled up and wrapping enabled
-            if (text_ideographic_space_can_hang(codepoint, white_space)) {
+            float end_spacing_trim = trim_cjk_spacing &&
+                is_text_spacing_fullwidth_closing(codepoint)
+                ? font_get_halt_adjustment(font_box_handle(&lycon->font), codepoint) * 0.5f : 0.0f;
+            if (end_spacing_trim < 0.0f &&
+                rect->x + rect->width + end_spacing_trim - terminal_trim <=
+                    line_right + kTextLayoutSubpixelEpsilon &&
+                layout_text_allows_letter_break(codepoint,
+                    peek_next_inline_codepoint(text_node, next_ch), line_break_val,
+                    false, cj_is_non_starter, text_node)) {
+                // allow-end uses the remaining punctuation half-space before moving a fitting line.
+                rect->width += end_spacing_trim;
+                str = next_ch;
+                output_text(lycon, text_view, rect, str - text_start - rect->start_index, rect->width);
+                line_break(lycon);
+                if (str < text_end) goto LAYOUT_TEXT;
+                return;
+            }
+            else if (text_ideographic_space_can_hang(codepoint, white_space)) {
                 // CSS Text §4.1.3: hanging spaces take their line-end position before emergency wrapping.
             }
             else if ((str < text_end && is_space(*str)) && !collapse_spaces && white_space != CSS_VALUE_BREAK_SPACES) {
@@ -5477,7 +5527,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
             uint32_t next_cp = peek_next_inline_codepoint(text_node, str);
             bool allow_break = layout_text_allows_letter_break(
                 codepoint, next_cp, line_break_val, zwj_preceded,
-                cj_is_non_starter);
+                cj_is_non_starter, text_node);
             zwj_preceded = false;  // consumed
             if (allow_break) {
                 layout_record_line_break_opportunity(
@@ -5507,7 +5557,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
             if (wrap_lines && (is_line_break_cl(codepoint) || is_line_break_ns(codepoint))) {
                 uint32_t next_cp = peek_next_inline_codepoint(text_node, str);
                 if (layout_text_allows_letter_break(codepoint, next_cp, line_break_val,
-                        zwj_preceded, cj_is_non_starter)) {
+                        zwj_preceded, cj_is_non_starter, text_node)) {
                     record_fitting_text_break(lycon, text_node, rect, str,
                         is_line_break_cl(codepoint) ? BRK_CL : BRK_NS);
                 }

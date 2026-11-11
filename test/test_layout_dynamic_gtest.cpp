@@ -308,6 +308,163 @@ TEST_F(DynamicLayoutTest, NormalFontFaceRegistersTheNormalWeight) {
     EXPECT_EQ(face->weight, FONT_WEIGHT_NORMAL);
 }
 
+TEST_F(DynamicLayoutTest, SlicedTextBoxTrimRestoresContinuationLeading) {
+    load("<!doctype html><style>@font-face{font-family:Ahem;"
+         "src:url('../test/layout/data/font/Ahem.ttf')}html,body{margin:0}"
+         "#columns{columns:3;column-fill:auto;border:1px solid;width:800px;"
+         "height:360px;font:40px/80px Ahem;orphans:1;widows:1}"
+         "#trim{text-box-trim:trim-both;text-box-edge:text}"
+         "</style><div id='columns'><div id='trim'>"
+         "abc abc abc abc abc abc abc abc abc abc</div></div>");
+    DomElement* trim = element("trim");
+    ASSERT_NE(trim, nullptr);
+    ViewText* text = lam::view_require<RDT_VIEW_TEXT>(trim->first_child);
+    int index = 0;
+    for (TextRect* rect = text->rect; rect; rect = rect->next, index++) {
+        SCOPED_TRACE(index);
+        float expected = index < 4 ? index * 80.0f :
+            20.0f + ((index - 4) % 4) * 80.0f;
+        EXPECT_FLOAT_EQ(rect->y, expected);
+    }
+    EXPECT_EQ(index, 10);
+}
+
+TEST_F(DynamicLayoutTest, NestedStartTrimUsesTheInnermostRequest) {
+    load("<!doctype html><style>@font-face{font-family:Ahem;"
+         "src:url('../test/layout/data/font/Ahem.ttf')}html,body{margin:0}"
+         "#columns{columns:3;column-fill:auto;border:1px solid;width:800px;"
+         "height:290px;font:40px/80px Ahem;orphans:1;widows:1;text-box-trim:trim-both}"
+         "#trim{text-box-trim:trim-start;text-box-edge:text}"
+         "</style><div id='columns'><div id='trim'>"
+         "abc abc abc abc abc abc abc abc abc</div><div id='spacer' style='height:100px'></div></div>");
+    DomElement* trim = element("trim");
+    ASSERT_NE(trim, nullptr);
+    ViewText* text = lam::view_require<RDT_VIEW_TEXT>(trim->first_child);
+    ASSERT_NE(text->rect, nullptr);
+    EXPECT_FLOAT_EQ(trim->y + text->rect->y, 1.0f);
+    ASSERT_NE(element("spacer"), nullptr);
+    EXPECT_FLOAT_EQ(element("spacer")->y, 161.0f);
+}
+
+TEST_F(DynamicLayoutTest, MulticolStartTrimAppliesToContinuationColumns) {
+    load("<!doctype html><style>@font-face{font-family:Ahem;"
+         "src:url('../test/layout/data/font/Ahem.ttf')}html,body{margin:0}"
+         "#columns{columns:3;column-fill:auto;border:1px solid;width:800px;"
+         "height:240px;font:40px/80px Ahem;orphans:1;widows:1;text-box-trim:trim-both}"
+         "#trim{text-box-trim:trim-end;text-box-edge:text}.spacer{height:5px}"
+         "</style><div id='columns'><div class='spacer'></div><div id='trim'>"
+         "abc abc abc abc abc abc abc</div><div class='spacer'></div></div>");
+    DomElement* trim = element("trim");
+    ASSERT_NE(trim, nullptr);
+    ViewText* text = lam::view_require<RDT_VIEW_TEXT>(trim->first_child);
+    int index = 0;
+    for (TextRect* rect = text->rect; rect; rect = rect->next, index++) {
+        SCOPED_TRACE(index);
+        float expected = index < 2 ? 26.0f + index * 80.0f :
+            1.0f + ((index - 2) % 3) * 80.0f;
+        EXPECT_FLOAT_EQ(trim->y + rect->y, expected);
+    }
+    EXPECT_EQ(index, 7);
+}
+
+TEST_F(DynamicLayoutTest, ClosingPunctuationCanFitByTrimmingItsLineEnd) {
+    load("<!doctype html><style>@font-face{font-family:TrimTest;"
+         "src:url('../test/layout/data/support/fonts/noto/cjk/NotoSansCJKjp-Regular-subset-halt.otf')}"
+         "#trim{font:20px TrimTest;width:72px;text-spacing-trim:trim-start}"
+         "</style><div id='trim'>国国国）国国国）</div>");
+    DomElement* trim = element("trim");
+    ASSERT_NE(trim, nullptr);
+    ViewText* text = lam::view_require<RDT_VIEW_TEXT>(trim->first_child);
+    ASSERT_NE(text->rect, nullptr);
+    EXPECT_EQ(text->rect->length, strlen("国国国）"));
+    ASSERT_NE(text->rect->next, nullptr);
+    EXPECT_EQ(text->rect->next->length, strlen("国国国）"));
+    EXPECT_EQ(text->rect->next->next, nullptr);
+    EXPECT_FLOAT_EQ(text->rect->width, 70.0f);
+}
+
+TEST_F(DynamicLayoutTest, CjkHyphenBreakingRespectsExplicitScriptSubtags) {
+    load("<!doctype html><div id='ja' lang='ja'></div><div id='jp' lang='JA-jp'></div>"
+         "<div id='hang' lang='ja-Hang'></div><div id='latin' lang='zh-Latn'></div>"
+         "<div id='zh' lang='zh-Hant'></div><div id='ko' lang='ko'></div>"
+         "<div id='hani' lang='ko-Hani'></div><div id='extension' lang='ja-x-Hang'></div>"
+         "<div id='hanb' lang='zh-Hanb'></div><div id='bopo' lang='zh-Bopo'></div>"
+         "<div id='hira' lang='ja-Hira'></div><div id='kana' lang='en-Kana'></div>");
+    for (const char* id : {"ja", "jp", "hang", "latin", "zh", "ko", "hani", "extension",
+                            "hanb", "bopo", "hira", "kana"}) {
+        SCOPED_TRACE(id);
+        DomElement* owner = element(id);
+        ASSERT_NE(owner, nullptr);
+        bool allows = strcmp(id, "hang") != 0 && strcmp(id, "latin") != 0 && strcmp(id, "ko") != 0;
+        for (uint32_t punctuation : {0x301Cu, 0x30A0u}) {
+            for (CssEnum mode : {CSS_VALUE_NORMAL, CSS_VALUE_LOOSE, CSS_VALUE_STRICT}) {
+                EXPECT_EQ(layout_text_allows_letter_break(0x4EAC, punctuation, mode,
+                    false, false, owner), allows && mode != CSS_VALUE_STRICT);
+            }
+        }
+    }
+}
+
+TEST_F(DynamicLayoutTest, JapaneseWaveDashBreaksInFlowAndAcrossInlineSeams) {
+    load("<!doctype html><style>@font-face{font-family:CjkBreak;"
+         "src:url('../test/layout/data/font/NotoSansSC-Subset.otf')}"
+         "div{font:20px/20px CjkBreak;width:40px;line-break:loose}"
+         "</style><div id='plain' lang='ja'>東京〜大阪</div>"
+         "<div id='seam' lang='ja'><span>東京</span><span>〜大阪</span></div>"
+         "<div id='minimum' lang='ja' style='width:min-content'>東京〜大阪</div>");
+    DomElement* plain = element("plain");
+    DomElement* seam = element("seam");
+    DomElement* minimum = element("minimum");
+    ASSERT_NE(plain, nullptr);
+    ASSERT_NE(seam, nullptr);
+    ASSERT_NE(minimum, nullptr);
+    ViewText* text = lam::view_require<RDT_VIEW_TEXT>(plain->first_child);
+    ASSERT_NE(text->rect, nullptr);
+    EXPECT_EQ(text->rect->length, strlen("東京"));
+    ASSERT_NE(text->rect->next, nullptr);
+    EXPECT_EQ(text->rect->next->length, strlen("〜大"));
+    EXPECT_FLOAT_EQ(plain->height, 60.0f);
+    EXPECT_FLOAT_EQ(seam->height, plain->height);
+    EXPECT_FLOAT_EQ(minimum->width, 20.0f);
+}
+
+TEST_F(DynamicLayoutTest, FloatPrescanStopsAtAnEmptyListItem) {
+    load("<!doctype html><style>#host{width:200px}"
+         "#item{display:list-item;height:60px}#float{float:right;width:20px;height:20px}"
+         "</style><div id='host'><div id='item'></div><div id='float'></div></div>");
+    DomElement* item = element("item");
+    DomElement* floated = element("float");
+    ASSERT_NE(item, nullptr);
+    ASSERT_NE(floated, nullptr);
+    EXPECT_FLOAT_EQ(floated->y, item->y + item->height);
+}
+
+TEST_F(DynamicLayoutTest, OrthogonalFallbackUsesScrollportAcrossContainment) {
+    StrBuf* source = strbuf_create("<!doctype html><style>html{font:15px/1 sans-serif;writing-mode:vertical-lr}"
+         "article{writing-mode:horizontal-tb;height:50vh;overflow:hidden}"
+         "aside{writing-mode:vertical-rl;width:2em;margin:4em 0;padding:2em 0;"
+         "border:4px solid;overflow:hidden}div{width:calc(2em + 8px)}"
+         ".middle{contain:layout size}.scroll{contain:layout size}.large{height:120vh}"
+         "</style>");
+    const char* ids[] = {"middle", "scroll", "large"};
+    for (const char* id : ids) {
+        strbuf_append_format(source, "<article class='%s'><div class='%s'><aside id='%s'>",
+            id, strcmp(id, "scroll") == 0 ? "" : "middle", id);
+        for (int repeat = 0; repeat < 8; repeat++)
+            strbuf_append_str(source, "abcde fghijk lmnop qrstu vwxyz ");
+        strbuf_append_str(source, "</aside></div></article>");
+    }
+    load(source->str);
+    strbuf_free(source);
+    for (const char* id : {"middle", "scroll", "large"}) {
+        SCOPED_TRACE(id);
+        DomElement* aside = element(id);
+        ASSERT_NE(aside, nullptr);
+        // containment does not remove the nearest scrollport's fixed inline constraint.
+        EXPECT_FLOAT_EQ(aside->height, strcmp(id, "large") == 0 ? 680.0f : 280.0f);
+    }
+}
+
 TEST_F(DynamicLayoutTest, GridLastBaselineUsesTheLastLine) {
     load("<!doctype html><style>html,body{margin:0}"
          ".grid{display:grid;grid-template-columns:100px 100px;font:20px/20px serif}"

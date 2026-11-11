@@ -1782,7 +1782,7 @@ static TextIntrinsicWidths measure_text_intrinsic_segments(LayoutContext* lycon,
                 if (measure_minimum && layout_text_break_opportunity(ch, ch,
                         (const unsigned char*)text + i + 1,
                         (const unsigned char*)text + length, native_breaks, i + 1,
-                        break_anywhere, break_all, cjk_breaks, line_break)) {
+                        break_anywhere, break_all, cjk_breaks, line_break, lycon->elmt)) {
                     record_segment(i + 1);
                 }
             }
@@ -1887,7 +1887,7 @@ static TextIntrinsicWidths measure_text_intrinsic_segments(LayoutContext* lycon,
                     i += shaped_script_bytes;
                     if (measure_minimum && layout_text_break_opportunity(shaped_script_first, shaped_script_last,
                             &str[i], str + length, native_breaks, i,
-                            break_anywhere, break_all, cjk_breaks, line_break)) {
+                            break_anywhere, break_all, cjk_breaks, line_break, lycon->elmt)) {
                         record_segment(i);
                     }
                     continue;
@@ -1924,7 +1924,7 @@ static TextIntrinsicWidths measure_text_intrinsic_segments(LayoutContext* lycon,
                     // so min-content must retain each whole shaped cluster.
                     if (measure_minimum && layout_text_break_opportunity(cluster_first, cluster_last,
                             &str[i], str + length, native_breaks, i,
-                            break_anywhere, break_all, cjk_breaks, line_break)) {
+                            break_anywhere, break_all, cjk_breaks, line_break, lycon->elmt)) {
                         record_segment(i);
                     }
                     continue;
@@ -1959,7 +1959,7 @@ static TextIntrinsicWidths measure_text_intrinsic_segments(LayoutContext* lycon,
                 i += shaped_bytes;
                 if (measure_minimum && layout_text_break_opportunity(shaped_first_cp, shaped_last_cp,
                         &str[i], str + length, native_breaks, i,
-                        break_anywhere, break_all, cjk_breaks, line_break)) {
+                        break_anywhere, break_all, cjk_breaks, line_break, lycon->elmt)) {
                     // a shaped Latin run can end at a native CJK boundary;
                     // its advance must not carry into the following word.
                     record_segment(i);
@@ -2071,7 +2071,7 @@ static TextIntrinsicWidths measure_text_intrinsic_segments(LayoutContext* lycon,
 
         if (measure_minimum && layout_text_break_opportunity(codepoint, codepoint,
                 &str[i], str + length, native_breaks, i,
-                break_anywhere, break_all, cjk_breaks, line_break)) {
+                break_anywhere, break_all, cjk_breaks, line_break, lycon->elmt)) {
             record_segment(i);
         }
     }
@@ -2805,7 +2805,7 @@ bool layout_intrinsic_boundary_break(LayoutContext* lycon, DomNode* previous,
     if (child_atomic) return layout_atomic_wrap_neighbor_allows(before);
     if (previous_atomic) {
         return layout_atomic_wrap_neighbor_allows(after) &&
-            layout_text_allows_letter_break(0xFFFC, after, line_break, false, false);
+            layout_text_allows_letter_break(0xFFFC, after, line_break, false, false, owner);
     }
     if (!before || !after) return false;
     if (is_space(before) || is_space(after) || before == 0x200B) return true;
