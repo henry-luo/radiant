@@ -43,8 +43,12 @@ $(error Radiant source list is empty)
 endif
 NATIVE_OBJECTS := $(addprefix build/obj/native/$(PROFILE)/,$(addsuffix .o,$(NATIVE_SOURCES)))
 
-.PHONY: all clean test-native run-radiant-baseline check-input-facade input-deps force-build-signature test-layout-baseline test-layout-smoke
-all: check-input-facade input-deps build/lib/$(PROFILE)/libradiant.a
+.PHONY: all build-all-internal clean test-native run-radiant-baseline check-input-facade input-deps force-build-signature test-layout-baseline test-layout-smoke
+# keep compiler output in one log and show only diagnostics plus the final status.
+all:
+	@$(PYTHON) "$(INPUT_ROOT)/scripts/quiet_build.py" --label "Radiant ($(PROFILE))" --log "temp/build-$(PROFILE).log" -- $(MAKE) --no-print-directory build-all-internal
+
+build-all-internal: check-input-facade input-deps build/lib/$(PROFILE)/libradiant.a
 
 check-input-facade:
 	$(PYTHON) scripts/check_input_facade.py

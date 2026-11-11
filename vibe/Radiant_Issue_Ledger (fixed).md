@@ -776,6 +776,19 @@ unchanged. A source check finds no remaining `fprintf` or direct console writes
 in `event_sim.cpp`; string-buffer `snprintf` calls remain. `log.conf` was not
 changed. Authority: **D9.1.1v4 / D9.1.3v2**.
 
+**Correction (2026-11-11):** that cleanup incorrectly treated the human replay
+result as debug output. With filtered/disabled logging, the seven view-oriented
+UI fixtures and many Radiant view controls lost their required `Assertions:`
+and `Result:` lines despite passing machine results. `event_sim_print_results`
+now formats its existing user-facing banner into a project string buffer and
+writes it independently of logging. Diagnostics still use the logging API;
+the JSON result schema and counts remain unchanged. The native
+`EventSimResults.HumanAndMachineResultsRemainAvailableWithLoggingDisabled`
+regression fails before the repair and passes afterward for success, failure
+and no-assertion cases. Evidence lives under
+`temp/radiant-failed-20261111/result-contract-{before,after}.{json,log}`;
+integrated-host qualification is recorded separately when complete.
+
 <a id="rad01-3"></a>
 
 #### RAD01-3

@@ -20,6 +20,49 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-010"></a>
+
+### RI-010 — Ten layout baseline mismatches remain after the host-path repair
+
+**Status:** OPEN, 2026-11-11; causes remain partly unconfirmed. **Lambda blocker:**
+these comparisons keep Lambda's combined layout gate red once its independent
+missing-executable problem is repaired (D9.1.1v4 / D9.1.3v2).
+
+The reported 5,904 layout startup failures are caused by Lambda adapters using
+the shared runner's default `radiant.exe` in workspaces containing `lambda.exe`.
+A two-site explicit-host patch, tested in an isolated review checkout, executes
+all 5,936 selected cases: 5,621 pass, 293 retain partial fidelity, 10 fail and
+12 input-event cases retain their skips. The user explicitly approved the two-file ownership exception, and that
+integration repair is applied; it is not a layout workaround.
+
+Remaining cases:
+
+- `wpt-css-inline/text-box-trim-multicol-{002,004,006,007,008}`.
+- `wpt-css-text/text-spacing-trim-end-001` and `writing-system-line-break-001`.
+- `wpt-css-writing-modes/available-size-{022,023}`.
+- `wpt-css-lists/list-marker-position-crash`.
+
+Reproduce from this checkout with `node test/layout/test_radiant_layout.js --exe
+../Lambda/lambda.exe --host-cwd ../Lambda -c <category> -t <case> --json`.
+The exact original reports, isolated integrated host, ten retained view trees,
+full comparisons and fresh Chrome captures are under
+`temp/radiant-failed-20261111/`. `remaining-layout-comparisons.json` compares the
+original references; `fresh-comparisons.json` compares temporary fresh captures.
+
+Fresh capture repairs fragment ordering in the 006/008 observations without a
+native change; those two references therefore need an owner-side capture audit.
+For 002/004/007, remaining continuation text positions differ by 20px despite
+matching element boxes. The orthogonal 022/023 cases also require standards
+review: the native constrained height follows their WPT reftest's scrollport
+constraint, whereas current Chrome selects the larger viewport fallback under
+containment. See [CSS Writing Modes §7.3.1](https://www.w3.org/TR/css-writing-modes-3/#orthogonal-auto)
+and the fixtures' `available-size-022-ref.html` target. The CJK/font and list-marker
+causes are not yet confirmed.
+No reference, baseline score, fixture selection or tolerance was changed.
+
+The native replay-summary repair separately passes 326/326 reported UI cases,
+278 view cases with one existing speech skip, and the owner-native/layout gate.
+
 Continued owner-local repairs (2026-11-11): RAD02-3 now clips positioned HTML
 paint, vector output and native hits; RAD03-3 / RAD04-3 share replaced-size
 defaults; RAD16-5 no longer has an unreachable frame-clock tail. See the

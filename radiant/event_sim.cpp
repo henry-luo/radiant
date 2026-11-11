@@ -6298,6 +6298,18 @@ void event_sim_print_results(EventSimContext* ctx) {
     if (!ctx) return;
 
     int total = ctx->pass_count + ctx->fail_count;
+    // replay summaries are user-facing output and must survive disabled logging.
+    StrBuf* summary = strbuf_create("\n========================================\n EVENT SIMULATION RESULTS\n");
+    if (summary) {
+        if (ctx->test_name) strbuf_append_format(summary, " Test: %s\n", ctx->test_name);
+        strbuf_append_format(summary,
+            "========================================\n Events executed: %d\n Assertions: %d passed, %d failed\n",
+            ctx->current_index, ctx->pass_count, ctx->fail_count);
+        if (total > 0) strbuf_append_format(summary, " Result: %s\n", ctx->fail_count == 0 ? "PASS" : "FAIL");
+        strbuf_append_str(summary, "========================================\n");
+        fwrite(summary->str, 1, summary->length, stderr);
+        strbuf_free(summary);
+    }
     log_info("event_sim: results test=%s events=%d assertions=%d passed, %d failed",
         ctx->test_name ? ctx->test_name : "(unnamed)", ctx->current_index,
         ctx->pass_count, ctx->fail_count);
