@@ -1429,7 +1429,7 @@ TEST_F(PaintIrParityTest, ExternalLayerPlaceholdersMatchDirect) {
     char video_token = 0;
 
     paint_video_placeholder(&pl, (RdtVideo*)&video_token, 10.0f, 11.0f, 50.0f, 60.0f,
-                            0x105, &clip, 77);
+                            0x105, &clip, 77, true);
     paint_webview_layer_placeholder(&pl, &surface,
                                     12.0f, 13.0f, 70.0f, 80.0f,
                                     &clip, surface.generation);
@@ -1438,7 +1438,7 @@ TEST_F(PaintIrParityTest, ExternalLayerPlaceholdersMatchDirect) {
     lower();
 
     dl_video_placeholder(&direct, (RdtVideo*)&video_token, 10.0f, 11.0f, 50.0f, 60.0f,
-                         0x105, &clip, 77);
+                         0x105, &clip, 77, true);
     dl_webview_layer_placeholder(&direct, &surface,
                                  12.0f, 13.0f, 70.0f, 80.0f,
                                  &clip, surface.generation);

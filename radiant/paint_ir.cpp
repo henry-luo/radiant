@@ -870,7 +870,7 @@ void paint_draw_picture(PaintList* pl, RdtPicture* picture,
 void paint_video_placeholder(PaintList* pl, struct RdtVideo* video,
                              float dst_x, float dst_y, float dst_w, float dst_h,
                              int object_fit, const Bound* clip,
-                             uint64_t video_generation) {
+                             uint64_t video_generation, bool has_poster) {
     PaintCmd* cmd = paint_alloc_cmd(pl, PAINT_VIDEO_PLACEHOLDER);
     if (!cmd) return;
     cmd->video_placeholder.video = video;
@@ -879,6 +879,7 @@ void paint_video_placeholder(PaintList* pl, struct RdtVideo* video,
     cmd->video_placeholder.dst_w = dst_w;
     cmd->video_placeholder.dst_h = dst_h;
     cmd->video_placeholder.object_fit = object_fit;
+    cmd->video_placeholder.has_poster = has_poster;
     paint_assign_optional_clip(&cmd->video_placeholder.has_clip,
                                &cmd->video_placeholder.clip, clip);
     cmd->video_placeholder.video_generation = video_generation;
@@ -1456,7 +1457,7 @@ static void paint_ir_lower_raster_internal(const PaintList* pl, DisplayList* dl,
             const PaintVideoPlaceholder* p = &cmd->video_placeholder;
             dl_video_placeholder(dl, p->video, p->dst_x, p->dst_y, p->dst_w, p->dst_h,
                                  p->object_fit, paint_optional_clip(p->has_clip, &p->clip),
-                                 p->video_generation);
+                                 p->video_generation, p->has_poster);
             break;
         }
         case PAINT_WEBVIEW_LAYER_PLACEHOLDER: {

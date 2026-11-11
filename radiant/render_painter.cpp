@@ -113,11 +113,11 @@ void rc_draw_picture(RasterRenderContext* rdcon, RdtPicture* picture,
 void rc_video_placeholder(RasterRenderContext* rdcon, struct RdtVideo* video,
                           float dst_x, float dst_y, float dst_w, float dst_h,
                           int object_fit, const Bound* clip,
-                          uint64_t video_generation) {
+                          uint64_t video_generation, bool has_poster) {
     PaintRecordTarget target = rc_record_target(rdcon);
     paint_record_video_placeholder(&target, "rc_video_placeholder", video,
                                    dst_x, dst_y, dst_w, dst_h,
-                                   object_fit, clip, video_generation);
+                                   object_fit, clip, video_generation, has_poster);
 }
 
 void rc_webview_layer_placeholder(RasterRenderContext* rdcon, ImageSurface* surface,

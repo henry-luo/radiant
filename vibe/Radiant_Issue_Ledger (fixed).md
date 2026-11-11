@@ -885,3 +885,56 @@ Receipts: [verification summary](../temp/ledger-next-verification-summary.json),
 `temp/ledger-next-lint-contracts.log`. The verification summary pins the host
 and changed source/header/test hashes. Only ledger documentation changed after
 the passing aggregate.
+
+
+## 2026-11-11 flex, media and layout-cache delivery
+
+<a id="rad22-6"></a>
+
+#### RAD22-6
+
+**Poster image is not plumbed.** The idle/loading branch of `render_video_frames` (`render_video.cpp:452-457`) comments that a poster "would need to be passed through" and falls back to the play button; `poster` attribute support is missing.
+
+**Resolution (2026-11-11):** poster images are admitted independently of a
+playable source and rendered through the normal image path before playback.
+Object-fit/position, ancestor/content clips and retained image ownership share
+existing image mechanisms. Removing, replacing or failing a poster load clears
+its old borrow. Display-list and PaintIR placeholders carry a poster-presence
+bit, without another resource pointer. The compositor rechecks playback so a
+live frame wins over a retained pre-play recording; ready/idle cached media
+keeps the poster. Missing/broken images preserve the existing fallback.
+
+**Evidence:** the original CLI captures in `temp/ledger-impl/` show only the
+video background. Native pixel tests now cover no source, preload:none,
+contain letterboxing, cover/ancestor clipping, replacement/removal and a broken
+poster. The macOS decoder test also reproduces the retained-placeholder bug
+before its compositor repair and verifies live-frame pixels afterward. Its
+sandboxed audio-decoder start failure is retained separately from the passing
+native rerun. Receipts: `temp/ledger-impl-layout-final.{json,log}` and
+`temp/ledger-impl-retained-poster-{before,after}.{json,log}`. The
+[implementation record](Radiant_Impl_Ledger_Repairs.md) states the delivered
+scope. Authority: **D5.5 / D9.1.1v4 / D9.1.2v2 / D9.1.3v2**.
+
+### Core delivery qualification
+
+Under **D9.1.1v4 / D9.1.3v2**, the final `make -j8 run-radiant-baseline`
+passes **891 native tests plus one static corpus smoke test**, with one
+existing hardware MIDI skip; **7/7 runner contracts**; **3,851 static and 630
+dynamic geometry comparisons**, with six existing static skips and no failures.
+The final focused layout suite is **49/49**. The earlier aggregate's one
+`align_baseline_nested_column` failure was repaired and retained as a regression;
+fresh Chrome and the unchanged corpus reference agree. Its failed aggregate
+remains in `temp/ledger-impl-radiant-baseline-before-nested.log`.
+
+Layout-cast lint passes **89 checked / zero unmarked**, lint contracts **5/5**,
+and input-facade/diff checks pass. Native poster pixels, the macOS playback
+transition and PNG/SVG visual controls pass. No tolerance/reference/corpus or
+sibling implementation changed. Broader baseline, whitespace and decomposition
+reports remain PARTIAL as described in the implementation record.
+
+Receipts: [verification summary](../temp/ledger-impl-verification-summary.json),
+[aggregate log](../temp/ledger-impl-radiant-baseline.log),
+[geometry results](../temp/ledger-impl-layout-baseline.log), and
+[implementation record](Radiant_Impl_Ledger_Repairs.md). The summary pins the
+host and changed source/header/test identities; only documentation changed
+after the passing aggregate.

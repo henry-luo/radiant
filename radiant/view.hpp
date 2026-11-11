@@ -2681,6 +2681,7 @@ typedef struct FlexProp {
     int wrap;           // FlexWrap or CSS_VALUE_*
     int justify;        // JustifyContent or CSS_VALUE_*
     int align_items;    // AlignType or CSS_VALUE_*
+    CssSelfAlignment align_items_detail;
     int align_content;  // AlignType or CSS_VALUE_*
     float row_gap;
     float column_gap;

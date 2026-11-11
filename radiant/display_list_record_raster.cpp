@@ -51,7 +51,7 @@ void dl_blit_surface_scaled(DisplayList* dl, ImageSurface* src_surface,
 void dl_video_placeholder(DisplayList* dl, struct RdtVideo* video,
                           float dst_x, float dst_y, float dst_w, float dst_h,
                           int object_fit, const Bound* clip,
-                          uint64_t video_generation) {
+                          uint64_t video_generation, bool has_poster) {
     DisplayItem* item = dl_alloc_item(dl);
     if (!item) return;
     item->op = DL_VIDEO_PLACEHOLDER;
@@ -63,6 +63,7 @@ void dl_video_placeholder(DisplayList* dl, struct RdtVideo* video,
     item->video_placeholder.dst_w = dst_w;
     item->video_placeholder.dst_h = dst_h;
     item->video_placeholder.object_fit = object_fit;
+    item->video_placeholder.has_poster = has_poster;
     item->video_placeholder.clip = clip ? *clip : dl_unbounded_clip();
 }
 

@@ -1847,6 +1847,7 @@ float compute_view_last_text_baseline(
 } // namespace radiant
 
 CssEnum get_white_space_value(DomNode* node);
+CssEnum get_white_space_value(DomNode* node, LayoutContext* context);
 CssEnum get_text_wrap_mode_value(DomNode* node, LayoutContext* lycon = nullptr);
 bool layout_inline_flow_is_kept(LayoutContext* context);
 bool layout_inline_allows_soft_wrap(LayoutContext* context, DomNode* node);
@@ -4041,6 +4042,15 @@ typedef struct LayoutContext {
     uint64_t text_orientation_style_epoch, text_orientation_mutation_epoch;
     uint32_t text_orientation_generation, text_orientation_measurement_generation;
     ViewType text_orientation_view_type;
+    struct {
+        lam::Up<DomElement> owner;
+        lam::Up<BlockProp> block;
+        CssEnum value;
+        uint64_t style_epoch, mutation_epoch;
+        uint32_t layout_generation, measurement_generation;
+        ViewType view_type;
+        bool styles_resolved;
+    } white_space_cache;
     float root_font_size;
     lam::Up<FlexContainerLayout> flex_container; // integrated flex container layout
     lam::Up<GridContainerLayout> grid_container; // integrated grid container layout

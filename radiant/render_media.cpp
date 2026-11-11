@@ -151,6 +151,15 @@ ImageSurface* render_media_image_surface(ViewBlock* view) {
     if (!view) return nullptr;
     // Canvas backing pixels live in document state, outside the image embed slot.
     if (view->tag_id == MARKUP_NAME_CANVAS) return render_canvas_surface(view);
+    if (view->tag_id == MARKUP_NAME_VIDEO && view->embed && view->embedp()->poster) {
+        RdtVideo* video = view->embedp()->video;
+        RdtVideoState state = video ? rdt_video_get_state(video) : RDT_VIDEO_STATE_IDLE;
+        if (state != RDT_VIDEO_STATE_PLAYING && state != RDT_VIDEO_STATE_PAUSED)
+            return view->embedp()->poster;
+        RdtVideoFrame frame = {};
+        if (rdt_video_get_frame(video, &frame) != 0 || !frame.pixels)
+            return view->embedp()->poster;
+    }
     return view->embed ? view->embedp()->img : nullptr;
 }
 
@@ -411,7 +420,10 @@ void render_webview_layer_content(RasterRenderContext* rdcon, ViewBlock* view) {
 }
 
 void render_video_content(RasterRenderContext* rdcon, ViewBlock* view) {
-    if (!view->embed || !view->embedp()->video) return;
+    if (!view->embed) return;
+    bool has_poster = render_media_image_surface(view) != nullptr;
+    if (has_poster) render_media_image_content(rdcon, view);
+    if (!view->embedp()->video) return;
 
     float s = rdcon->raster_scale;
     float dst_x = rdcon->block.x + view->x * s;
@@ -428,5 +440,5 @@ void render_video_content(RasterRenderContext* rdcon, ViewBlock* view) {
                          object_fit_flags, &rdcon->block.clip,
                          rdcon->ui_context && rdcon->ui_context->document &&
                          rdcon->ui_context->document->state ?
-                             rdcon->ui_context->document->state->video_frame_generation : 0);
+                             rdcon->ui_context->document->state->video_frame_generation : 0, has_poster);
 }

@@ -2,6 +2,9 @@
 
 #include "event.hpp"
 
+void state_sync_selection_before_assert(DocState* state);
+void state_sync_dirty_flags_before_assert(DocState* state);
+
 /**
  * Presentation-only cache for selection painting.
  * EditingSelection and DomSelection own all logical boundaries.

@@ -914,6 +914,7 @@ typedef struct {
     float dst_x, dst_y, dst_w, dst_h;  // physical pixel coordinates
     Bound clip;              // rectangular clip bounds at recording time
     int object_fit;          // CssEnum
+    bool has_poster;         // poster pixels were recorded in the normal paint stream
 } DlVideoPlaceholder;
 
 // Webview layer placeholder: records the layout rect and clip for post-composite blit.
@@ -1261,7 +1262,7 @@ void dl_outer_shadow(DisplayList* dl,
 void dl_video_placeholder(DisplayList* dl, struct RdtVideo* video,
                           float dst_x, float dst_y, float dst_w, float dst_h,
                           int object_fit, const Bound* clip,
-                          uint64_t video_generation = 0);
+                          uint64_t video_generation = 0, bool has_poster = false);
 
 // Webview layer placeholder (rect + clip only; actual blit is post-composite)
 void dl_webview_layer_placeholder(DisplayList* dl, ImageSurface* surface,
@@ -1597,6 +1598,7 @@ typedef struct {
     bool has_clip;
     Bound clip;
     uint64_t video_generation;
+    bool has_poster;
 } PaintVideoPlaceholder;
 
 typedef struct {
@@ -1972,7 +1974,7 @@ void paint_draw_picture(PaintList* pl, RdtPicture* picture,
 void paint_video_placeholder(PaintList* pl, struct RdtVideo* video,
                              float dst_x, float dst_y, float dst_w, float dst_h,
                              int object_fit, const Bound* clip,
-                             uint64_t video_generation);
+                             uint64_t video_generation, bool has_poster = false);
 void paint_webview_layer_placeholder(PaintList* pl, ImageSurface* surface,
                                      float dst_x, float dst_y, float dst_w, float dst_h,
                                      const Bound* clip,
@@ -3576,10 +3578,10 @@ static inline void paint_record_video_placeholder(PaintRecordTarget* target, con
                                                   float dst_x, float dst_y,
                                                   float dst_w, float dst_h,
                                                   int object_fit, const Bound* clip,
-                                                  uint64_t video_generation) {
+                                                  uint64_t video_generation, bool has_poster = false) {
     if (!paint_record_begin_primitive(target, op)) return;
     dl_video_placeholder(target->display_list, video, dst_x, dst_y, dst_w, dst_h,
-                            object_fit, clip, video_generation);
+                            object_fit, clip, video_generation, has_poster);
 }
 
 static inline void paint_record_webview_layer_placeholder(PaintRecordTarget* target,
@@ -3856,7 +3858,7 @@ void rc_draw_picture(RasterRenderContext* rdcon, RdtPicture* picture,
 void rc_video_placeholder(RasterRenderContext* rdcon, struct RdtVideo* video,
                           float dst_x, float dst_y, float dst_w, float dst_h,
                           int object_fit, const Bound* clip,
-                          uint64_t video_generation);
+                          uint64_t video_generation, bool has_poster = false);
 void rc_webview_layer_placeholder(RasterRenderContext* rdcon, ImageSurface* surface,
                                   float dst_x, float dst_y, float dst_w, float dst_h,
                                   const Bound* clip,

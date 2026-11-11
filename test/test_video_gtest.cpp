@@ -16,10 +16,13 @@
 #include <math.h>
 
 #ifdef __APPLE__
+#define Rect MacOSRect
 #include <CoreFoundation/CoreFoundation.h>
+#undef Rect
 #endif
 
 #include "radiant/rdt_video.h"
+#include "radiant/render.hpp"
 #include "radiant/audio_bus.hpp"
 #include "test_audio_fixture.hpp"
 
@@ -480,6 +483,44 @@ TEST_F(RdtVideoTest, GetFrameDimensions) {
     EXPECT_GT(frame.height, 0);
     EXPECT_GE(frame.stride, frame.width * 4);  // RGBA = 4 bytes per pixel
     EXPECT_NE(frame.pixels, nullptr);
+}
+
+TEST_F(RdtVideoTest, PosterRemainsUntilPlaybackAndYieldsToDecodedFrame) {
+    ASSERT_TRUE(open_and_wait_ready());
+    ViewBlock view = {};
+    view.node_type = DOM_NODE_ELEMENT;
+    view.tag_id = MARKUP_NAME_VIDEO;
+    EmbedProp embed = {};
+    view.embed = lam::view_prop(&embed);
+    embed.video = lam::up(video);
+    ImageSurface poster = {};
+    embed.poster = lam::up(&poster);
+    EXPECT_EQ(render_media_image_surface(&view), &poster);
+    rdt_video_set_layout_rect(video, 100, 100);
+    rdt_video_play(video);
+    ASSERT_TRUE(audio_fixture_video_wait(video, RDT_VIDEO_STATE_PLAYING, 1000));
+    RdtVideoFrame frame = {};
+    if (!wait_for_frame(video, &frame, 2000, submix))
+        GTEST_SKIP() << "Native frame decode is unavailable in this environment";
+    EXPECT_EQ(render_media_image_surface(&view), nullptr);
+    uint32_t pixels[100 * 100];
+    for (auto& pixel : pixels) pixel = 0x01010101;
+    ImageSurface target = {};
+    target.width = target.height = 100;
+    target.pitch = 100 * 4;
+    target.pixels = (unsigned char*)pixels;
+    Arena* arena = arena_create_default();
+    ASSERT_NE(arena, nullptr);
+    DisplayList list = {};
+    dl_init(&list, arena);
+    // replay can retain a pre-play placeholder after the decoder has a live frame.
+    dl_video_placeholder(&list, video, 0.0f, 0.0f, 100.0f, 100.0f, 0, nullptr, 0, true);
+    render_video_frames(&list, &target, nullptr, nullptr);
+    EXPECT_EQ(pixels[50 * 100 + 50] >> 24, 255u);
+    dl_destroy(&list);
+    arena_destroy(arena);
+    rdt_video_pause(video);
+    EXPECT_EQ(render_media_image_surface(&view), nullptr);
 }
 
 TEST_F(RdtVideoTest, FramePixelsNotAllZero) {

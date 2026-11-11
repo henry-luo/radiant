@@ -21,6 +21,9 @@ CssEnum layout_flex_direction(ViewElement* container) {
 float get_cross_axis_size(ViewElement* item, FlexContainerLayout* flex_layout);
 static bool should_skip_flex_item(ViewElement* item);
 float calculate_item_baseline(ViewElement* item);
+static float flex_item_alignment_baseline(ViewElement* item, bool prefer_last);
+static CssSelfAlignment flex_cross_axis_self_alignment(
+    ViewElement* item, ViewBlock* container, int align_items, LayoutAxis cross_axis);
 static void sort_flex_items_by_order(View** items, int count);
 static int create_flex_lines(FlexContainerLayout* flex_layout, View** items, int item_count);
 static void resolve_flexible_lengths(FlexContainerLayout* flex_layout, FlexLineInfo* line);
@@ -142,8 +145,8 @@ static bool flex_finalize_auto_axis(FlexContainerLayout* flex,
 }
 
 struct FlexLineBaselineMetrics {
-    float max_pre;
-    float max_post;
+    float max_pre[2];
+    float max_post[2];
     float max_non_baseline_cross;
     bool has_baseline;
 };
@@ -446,7 +449,7 @@ static float flex_container_line_baseline(ViewBlock* container,
             return layout_vertical_item_baseline_from_content_edges(
                 container, static_cast<View*>(item));
         }
-        return item ? line->cross_position + calculate_item_baseline(item) : 0.0f;
+        return item ? line->cross_position + flex_item_alignment_baseline(item, prefer_last) : 0.0f;
     }
 
     int item_index = prefer_last ? line->item_count - 1 : 0;
@@ -2530,8 +2533,16 @@ static bool flex_alignment_is_baseline(int alignment) {
 }
 
 static bool flex_item_uses_baseline_alignment(ViewElement* item, int container_align_items) {
+    if (!item) return false;
+    LayoutAxisRefs margins(item, LAYOUT_AXIS_Y);
+    if (margins.margin_start_is_auto() || margins.margin_end_is_auto()) return false;
     return flex_alignment_is_baseline(
         flex_item_resolved_align_self(item, container_align_items));
+}
+
+static bool flex_item_uses_last_baseline(ViewElement* item, FlexContainerLayout* flex) {
+    return flex_cross_axis_self_alignment(item, flex->container,
+        flex->align_items, LAYOUT_AXIS_Y).last_baseline;
 }
 
 static float flex_item_outer_cross_for_baseline(ViewElement* item) {
@@ -2546,7 +2557,14 @@ static float flex_item_line_cross_size(ViewElement* item, FlexContainerLayout* f
 }
 
 static float flex_line_baseline_extent(const FlexLineBaselineMetrics* metrics) {
-    return metrics->max_pre + metrics->max_post;
+    return max(metrics->max_pre[0] + metrics->max_post[0],
+               metrics->max_pre[1] + metrics->max_post[1]);
+}
+
+static float flex_group_baseline_target(const FlexLineBaselineMetrics& metrics,
+                                        bool prefer_last, float available) {
+    // first and last sharing groups anchor at opposite ends of the flex line.
+    return prefer_last ? available - metrics.max_post[1] : metrics.max_pre[0];
 }
 
 static float flex_line_cross_size_from_metrics(const FlexLineBaselineMetrics* metrics) {
@@ -2569,11 +2587,13 @@ static FlexLineBaselineMetrics flex_collect_line_baseline_metrics(FlexLineInfo* 
 
         if (is_baseline_item && is_horizontal) {
             metrics.has_baseline = true;
-            float baseline = calculate_item_baseline(item);
+            bool prefer_last = flex_item_uses_last_baseline(item, flex_layout);
+            int group = prefer_last ? 1 : 0;
+            float baseline = flex_item_alignment_baseline(item, prefer_last);
             float outer_cross = flex_item_outer_cross_for_baseline(item);
             float post = outer_cross - baseline;
-            if (baseline > metrics.max_pre) metrics.max_pre = baseline;
-            if (post > metrics.max_post) metrics.max_post = post;
+            if (baseline > metrics.max_pre[group]) metrics.max_pre[group] = baseline;
+            if (post > metrics.max_post[group]) metrics.max_post[group] = post;
         } else {
             float item_cross = flex_item_line_cross_size(item, flex_layout);
             if (item_cross > metrics.max_non_baseline_cross) {
@@ -2683,6 +2703,25 @@ float calculate_item_baseline(ViewElement* item) {
     return margin_top + item->height;
 }
 
+static float flex_item_alignment_baseline(ViewElement* item, bool prefer_last) {
+    if (!item) return 0.0f;
+    ViewBlock* block = lam::view_as_block(item);
+    float margin = layout_axis_margin_start(item->bound, LAYOUT_AXIS_Y);
+    // without a sharing group, nested flex boxes derive their baseline from an in-flow child.
+    if (block && block->embed && block->embedp()->flex && block->embedp()->flex->has_baseline_child) {
+        float baseline = layout_flex_baseline_for_source(block, prefer_last);
+        if (baseline > 0.0f) return margin + baseline;
+    }
+    if (block && block->blk &&
+        (prefer_last || flex_item_is_anonymous_text(item) || flex_item_has_direct_text_content(item))) {
+        float baseline = prefer_last ? block->block()->last_line_baseline
+                                     : block->block()->first_line_baseline;
+        if (baseline > 0.0f) return margin + baseline;
+    }
+    if (!prefer_last) return calculate_item_baseline(item);
+    return margin + radiant::compute_element_last_baseline(nullptr, block, true);
+}
+
 float find_max_baseline(FlexLineInfo* line, int container_align_items) {
     float max_baseline = 0;
     bool found = false;
@@ -2692,7 +2731,7 @@ float find_max_baseline(FlexLineInfo* line, int container_align_items) {
         if (!item) continue;
 
         if (flex_item_uses_baseline_alignment(item, container_align_items)) {
-            float baseline = calculate_item_baseline(item);
+            float baseline = flex_item_alignment_baseline(item, false);
             if (baseline > max_baseline) {
                 max_baseline = baseline;
             }
@@ -2756,10 +2795,23 @@ void reposition_baseline_items(LayoutContext* lycon, ViewBlock* flex_container) 
         return;
     }
 
+    // late content supplies the final natural line sizes; distribute any remaining
+    // cross space again before anchoring baseline groups at either end of each line.
     for (int line_idx = 0; line_idx < flex_layout->line_count; line_idx++) {
         FlexLineInfo* line = &flex_layout->lines[line_idx];
+        FlexLineBaselineMetrics metrics = flex_collect_line_baseline_metrics(line, flex_layout);
+        line->cross_size = flex_line_cross_size_from_metrics(&metrics);
+    }
+    flex_finalize_auto_axis(flex_layout, flex_container, LAYOUT_AXIS_Y);
+    if (flex_layout->wrap != WRAP_NOWRAP) align_content(flex_layout);
+    for (int line_idx = 0; line_idx < flex_layout->line_count; line_idx++)
+        align_items_cross_axis(flex_layout, &flex_layout->lines[line_idx]);
 
-        float max_baseline = find_max_baseline(line, flex_layout->align_items);
+    for (int line_idx = 0; line_idx < flex_layout->line_count; line_idx++) {
+        FlexLineInfo* line = &flex_layout->lines[line_idx];
+        FlexLineBaselineMetrics line_metrics = flex_collect_line_baseline_metrics(line, flex_layout);
+        float available_cross = flex_layout->wrap == WRAP_NOWRAP
+            ? flex_layout->cross_axis_size : line->cross_size;
 
         for (int i = 0; i < line->item_count; i++) {
             ViewElement* item = lam::view_as_element(line->items[i]);
@@ -2767,7 +2819,9 @@ void reposition_baseline_items(LayoutContext* lycon, ViewBlock* flex_container) 
 
             if (!flex_item_uses_baseline_alignment(item, flex_layout->align_items)) continue;
 
-            float item_baseline = calculate_item_baseline(item);
+            bool prefer_last = flex_item_uses_last_baseline(item, flex_layout);
+            float max_baseline = flex_group_baseline_target(line_metrics, prefer_last, available_cross);
+            float item_baseline = flex_item_alignment_baseline(item, prefer_last);
 
             float item_margin_top = item->bound ? item->boundary()->margin.top : 0;
             float new_cross_pos = max_baseline - item_baseline + item_margin_top;
@@ -2810,65 +2864,11 @@ void reposition_baseline_items(LayoutContext* lycon, ViewBlock* flex_container) 
                 set_cross_axis_position(item, final_pos, flex_layout);
             }
         }
-        // CSS §9.4 Step 8: Update line cross size to account for baseline extent.
-        // For baseline-aligned items, the line cross must be at least
-        // max_pre_baseline + max_post_baseline. This fixes multi-line wrapping containers
-        // where the initial Phase 5 could not compute baselines (inner layouts not yet done).
-        FlexLineBaselineMetrics metrics = flex_collect_line_baseline_metrics(
-            line, flex_layout);
-        if (metrics.has_baseline) {
-            float new_cross = flex_line_cross_size_from_metrics(&metrics);
-            if (new_cross > line->cross_size) {
-                line->cross_size = new_cross;
-            }
-        }
     }
 
     // anonymous text fragments were positioned before this late baseline pass;
     // move them with their generated flex items after alignment resolves.
     apply_anonymous_flex_text_geometry(flex_layout);
-
-    {
-        bool has_explicit_height = !layout_block_has_automatic_height(flex_container);
-        if (flex_layout->line_count == 1 && !has_explicit_height) {
-            FlexLineInfo* line = &flex_layout->lines[0];
-            float new_height = layout_axis_border_box_extent(
-                flex_container, LAYOUT_AXIS_Y, line->cross_size);
-            if (new_height > flex_container->height) {
-                flex_container->height = new_height;
-                flex_layout->cross_axis_size = (float)line->cross_size;
-            }
-            align_items_cross_axis(flex_layout, line);
-        }
-    }
-
-    if (flex_layout->line_count > 1) {
-        float cross_pos = 0.0f;
-        bool positions_changed = false;
-        for (int i = 0; i < flex_layout->line_count; i++) {
-            if (flex_layout->lines[i].cross_position != cross_pos) {
-                positions_changed = true;
-            }
-            flex_layout->lines[i].cross_position = cross_pos;
-            cross_pos += flex_layout->lines[i].cross_size;
-        }
-
-        if (positions_changed) {
-            for (int line_idx = 0; line_idx < flex_layout->line_count; line_idx++) {
-                FlexLineInfo* line = &flex_layout->lines[line_idx];
-                align_items_cross_axis(flex_layout, line);
-            }
-
-            bool has_explicit_height = !layout_block_has_automatic_height(flex_container);
-            if (!has_explicit_height) {
-                float new_height = layout_axis_border_box_extent(
-                    flex_container, LAYOUT_AXIS_Y, cross_pos);
-                if (new_height > flex_container->height) {
-                    flex_container->height = new_height;
-                }
-            }
-        }
-    }
 
     log_leave();
 }
@@ -3359,6 +3359,8 @@ static CssSelfAlignment flex_cross_axis_self_alignment(
         ? item->fi->align_self : result.value;
     result.value = requested;
     if (requested == CSS_VALUE_AUTO || requested == CSS_VALUE__UNDEF) {
+        if (container->embed && container->embedp()->flex)
+            result = container->embedp()->flex->align_items_detail;
         result.value = static_cast<CssEnum>(
             radiant::resolve_align_self(requested, align_items));
         result.safe = false;
@@ -3377,7 +3379,7 @@ static CssSelfAlignment flex_cross_axis_self_alignment(
 void align_items_cross_axis(FlexContainerLayout* flex_layout, FlexLineInfo* line) {
     if (!flex_layout || !line || line->item_count == 0) return;
 
-    float max_baseline = find_max_baseline(line, flex_layout->align_items);
+    FlexLineBaselineMetrics line_metrics = flex_collect_line_baseline_metrics(line, flex_layout);
     // IMPORTANT: For ANY wrapping container (wrap or wrap-reverse), always use line cross size
     // This is because align-content affects line sizes, and items should align within their line
     bool use_line_cross = (flex_layout->wrap != WRAP_NOWRAP);
@@ -3513,7 +3515,9 @@ void align_items_cross_axis(FlexContainerLayout* flex_layout, FlexLineInfo* line
                 }
             } else if (effective_align == ALIGN_BASELINE) {
                 if (is_main_axis_horizontal(flex_layout)) {
-                    float item_baseline = calculate_item_baseline(item);
+                    float max_baseline = flex_group_baseline_target(
+                        line_metrics, cross_alignment.last_baseline, available_cross_size);
+                    float item_baseline = flex_item_alignment_baseline(item, cross_alignment.last_baseline);
                     cross_pos = max_baseline - item_baseline + margin_cross_start;
                     if (cross_pos < margin_cross_start) {
                         cross_pos = margin_cross_start;

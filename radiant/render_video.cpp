@@ -398,6 +398,7 @@ void render_video_frames(DisplayList* dl, ImageSurface* surface, DocState* rstat
             p.clip_left = vp->clip.left; p.clip_top = vp->clip.top;
             p.clip_right = vp->clip.right; p.clip_bottom = vp->clip.bottom;
             p.has_controls = (vp->object_fit & 0x100) != 0;  // controls flag packed in high bits
+            p.has_poster = vp->has_poster;
             cached++;
         }
 
@@ -409,6 +410,16 @@ void render_video_frames(DisplayList* dl, ImageSurface* surface, DocState* rstat
         }
 
         RdtVideoState state = rdt_video_get_state(video);
+        RdtVideoFrame frame = {};
+        bool live_frame = (state == RDT_VIDEO_STATE_PLAYING || state == RDT_VIDEO_STATE_PAUSED) &&
+            rdt_video_get_frame(video, &frame) == 0 && frame.pixels;
+
+        // poster pixels use ordinary image paint so fit, clips and retained resource ownership agree.
+        if (vp->has_poster && !live_frame) {
+            if ((vp->object_fit & 0x100) != 0)
+                render_play_button_overlay(surface, vp->dst_x, vp->dst_y, vp->dst_w, vp->dst_h);
+            continue;
+        }
 
         // error state: draw error overlay
         if (state == RDT_VIDEO_STATE_ERROR) {
@@ -416,15 +427,13 @@ void render_video_frames(DisplayList* dl, ImageSurface* surface, DocState* rstat
             continue;
         }
 
-        // idle/loading: show poster if available, else large play button
+        // idle/loading without a poster retains the existing play affordance.
         if (state == RDT_VIDEO_STATE_IDLE || state == RDT_VIDEO_STATE_LOADING) {
-            // poster image would need to be passed through; for now show play button
             render_play_button_overlay(surface, vp->dst_x, vp->dst_y, vp->dst_w, vp->dst_h);
             continue;
         }
 
-        RdtVideoFrame frame = {};
-        if (rdt_video_get_frame(video, &frame) != 0) {
+        if (!live_frame && rdt_video_get_frame(video, &frame) != 0) {
             continue;  // no frame available yet
         }
 
@@ -469,6 +478,8 @@ void render_video_frames_cached(DocState* rstate, ImageSurface* surface, UiConte
         if (!video) continue;
 
         RdtVideoState state = rdt_video_get_state(video);
+        if (p.has_poster && state != RDT_VIDEO_STATE_PLAYING && state != RDT_VIDEO_STATE_PAUSED)
+            continue;
 
         // skip blit for off-viewport videos
         if (!is_video_visible(p.dst_x, p.dst_y, p.dst_w, p.dst_h,

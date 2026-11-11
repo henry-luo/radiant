@@ -2080,7 +2080,7 @@ static bool inline_node_is_unbreakable_text(LayoutContext* lycon, DomNode* node)
         // ASCII has no customary word boundaries, but break-all changes its
         // letter units; the whole-run lookahead must not make them atomic.
         bool wrap_lines = layout_inline_allows_soft_wrap(lycon, node);
-        CssEnum white_space = get_white_space_value(node);
+        CssEnum white_space = get_white_space_value(node, lycon);
         if (wrap_lines &&
             (word_break == CSS_VALUE_BREAK_ALL || line_break == CSS_VALUE_ANYWHERE)) return false;
         const unsigned char* text = node->text_data();
@@ -3160,7 +3160,7 @@ LineFillStatus text_has_line_filled(LayoutContext* lycon, DomNode* text_node,
     unsigned char* text_end = str + strlen(text);
     float text_width = 0.0f;
     CssEnum text_transform = get_text_transform_from_node(text_node);
-    CssEnum white_space = get_white_space_value(text_node);
+    CssEnum white_space = get_white_space_value(text_node, lycon);
     bool collapse_spaces = ws_collapse_spaces(white_space);
     bool collapse_newlines = layout_text_collapses_segment_breaks(text_node);
     bool trim_cjk_spacing = should_apply_text_spacing_trim(lycon, text_node);
@@ -4316,7 +4316,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
         }
     }
 
-    CssEnum white_space = get_white_space_value(text_node);  // todo: white-space should be put in BlockContext
+    CssEnum white_space = get_white_space_value(text_node, lycon);
     const RadiantWhitespaceSpec* whitespace = layout_text_is_leader(text_node) ? nullptr : text_whitespace(lycon, text_node);
     bool collapse_spaces = whitespace ? whitespace->collapse : ws_collapse_spaces(white_space);
     bool ruby_segment_breaks = layout_ruby_annotation_content(text_node);

@@ -20,6 +20,18 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+Latest bounded implementation (2026-11-11): horizontal flex baseline groups,
+video posters, a pass-local whitespace cache, and alignment/batch module
+extractions are implemented under D9.1.1v4 / D9.1.3v2. RAD22-6 is archived;
+broader baseline, whitespace and monolith entries retain explicit PARTIAL
+scope. See [the implementation record](Radiant_Impl_Ledger_Repairs.md) and the
+final qualification receipt in the fixed ledger.
+
+Final gate: **891 native tests plus static smoke, 7 runner contracts and all
+4,481 geometry comparisons pass**, with the existing hardware/static skips.
+Layout-cast lint and its five contracts pass. See the
+[pinned verification receipt](../temp/ledger-impl-verification-summary.json).
+
 Continued review on 2026-11-11 repairs RAD04-7, RAD07-1 and RAD15-5 and removes
 the redundant float prescan estimates reported as RAD03-2 / RAD04-2. Six more
 historical reports are already resolved in current source and have scoped
@@ -108,6 +120,13 @@ checking. The standing layout/header/boundary debt above is unchanged.
 
 #### RAD02-1
 
+**Status (2026-11-11): PARTIAL — first bounded extraction delivered.**
+`css_alignment.cpp` / `css_alignment.hpp` own container/self alignment resolution
+and the stores shared with the dispatcher. Native alignment behavior is covered
+by existing and added geometry controls; the remaining property groups still
+need decomposition. See [implementation record](Radiant_Impl_Ledger_Repairs.md).
+Authority: **D9.1.1v4 / D9.1.3v2**.
+
 **The 726k monolith.** `resolve_css_style.cpp` (~13.9k lines) is the largest file in the repo, and the ~248-case `resolve_css_property` switch (`resolve_css_style.cpp:4632`) is navigable only through comment GROUP banners. *Improvement:* split by property group into separate translation units keyed off a shared dispatch table.
 
 <a id="rad02-2"></a>
@@ -148,19 +167,21 @@ checking. The standing layout/header/boundary debt above is unchanged.
 
 #### RAD03-1
 
-**Status (2026-11-11): PARTIAL.** The named helper is no longer a stub.
-Fresh native controls instead reproduced lost `first`/`last` modifiers in
-Radiant's `align-items` resolver and a grid pass that always selected first
-baselines. The owner-local grid repair preserves the compound value, uses
-laid-out line metrics, separates first/last sharing groups and places last
-groups at the block end of a fixed row. Controls cover multiline items,
-independent mixed groups, fixed/auto rows and retained last-to-first changes;
-the original failing controls remain in
-`temp/ledger-next-controls-before.{json,log}`. Tests live in
-`test/test_layout_dynamic_gtest.cpp`. Flex last-baseline handling, row-spanning
-and orthogonal baseline groups remain open/unqualified; this does not claim
-complete CSS baseline support. Related: RAD04-1 and RAD08-5. Authority:
-**D9.1.1v4 / D9.1.3v2**.
+**Status (2026-11-11): PARTIAL — horizontal core delivered.** Grid first/last
+sharing groups and horizontal flex container/self alignment now preserve the
+compound value and select the correct line baseline. Flex keeps both groups
+independent, refreshes natural cross sizes after content layout and redistributes
+wrapped-line space before final alignment. Controls cover auto/fixed heights,
+mixed groups, row reversal, retained changes, wrapped stretch, auto margins
+and explicit start overrides. Local Chrome confirms the wrapped geometry.
+
+Orthogonal baselines, spanning grid items and exhaustive nested-container
+baseline export remain unqualified. The original failing flex controls and
+passing-after evidence are retained under `temp/ledger-impl-*`; see the
+[bounded implementation record](Radiant_Impl_Ledger_Repairs.md). Related:
+RAD04-1 and RAD08-5. Authority: **D9.1.1v4 / D9.1.3v2**.
+
+The historical stub description below predates the current implementation.
 
 **Last-baseline alignment is unimplemented.** `compute_element_last_baseline` (`layout_alignment.cpp:242`) is a `// TODO: Implement proper last baseline calculation` returning `-1`. `LayoutOutput::last_baseline` (`layout.hpp`) therefore never carries a real value, so `align-items: last baseline` in flex/grid degrades to first-baseline/edge alignment.
 
@@ -208,7 +229,7 @@ Lambda event-dispatch portion remains in the [mixed historical record](../../Lam
 #### RAD04-1
 
 **Status (2026-11-11): PARTIAL.** See [RAD03-1](#rad03-1) for the fresh native
-grid repair, failing-before/passing-after controls and remaining scope. The
+flex/grid repairs, failing-before/passing-after controls and remaining scope. The
 historical stub description below predates the current helper implementation.
 
 **`compute_element_last_baseline` is a stub.** `layout_alignment.cpp:237` has `// TODO: Implement proper last baseline calculation` and returns `-1`, so *last*-baseline alignment (`align-items: last baseline`) silently degrades to no-baseline for flex and grid items. *Improvement:* mirror the recursive first-baseline logic over the last in-flow child.
@@ -315,6 +336,15 @@ historical stub description below predates the current helper implementation.
 
 #### RAD06-6
 
+**Status (2026-11-11): PARTIAL — layout hot-path cache delivered.** Text
+layout, wrapping and lookahead share a pass-local result by parent, invalidated
+by style/mutation epochs, layout/measurement generations and owner/view changes.
+Inline overrides, UA defaults and retained style changes have native controls.
+Context-free paint/query helpers retain their resolver, and the related
+collapsed-whitespace bounds observation remains unqualified. No performance
+claim is made. See [implementation and receipts](Radiant_Impl_Ledger_Repairs.md).
+Authority: **D5.5 / D9.1.1v4 / D9.1.3v2**.
+
 **`white-space` is re-walked per text node.** `layout_text.cpp:2642` carries `todo: white-space should be put in BlockContext`; `get_white_space_value` climbs the ancestor chain on every text node. Related: `:2700` `todo: probably should still set it bounds` for fully-collapsed whitespace nodes.
 
 <a id="rad06-7"></a>
@@ -406,7 +436,7 @@ historical stub description below predates the current helper implementation.
 #### RAD08-5
 
 **Status (2026-11-11): PARTIAL.** See [RAD03-1](#rad03-1) for the fresh native
-grid repair, failing-before/passing-after controls and remaining scope. The
+flex/grid repairs, failing-before/passing-after controls and remaining scope. The
 historical stub description below predates the current helper implementation.
 
 **Incomplete last-baseline alignment.** `layout_alignment.cpp:242` carries `// TODO: Implement proper last baseline calculation`; `align-items:last baseline` is not fully spec-correct.
@@ -717,6 +747,14 @@ Lambda-owned and is retained in the [mixed historical record](../../Lambda/vibe/
 
 #### RAD17-1
 
+**Status (2026-11-11): PARTIAL — batch module extracted.** `state_batch.cpp`
+owns begin/end batching and presentation/dirty synchronization. The existing
+internal header exposes shared synchronization helpers instead of copying them.
+The state suite covers interleaved document batches and native state invariants.
+Other state-store families and deferred callbacks remain open. See the
+[implementation record](Radiant_Impl_Ledger_Repairs.md). Authority:
+**D5.5 / D9.1.1v4 / D9.1.3v2**.
+
 **`state_store.cpp` remains a large monolith** spanning interned names, dump, lifecycle, generic state, constraints, dropdowns, immutable mode, batching, dirty/reflow, caret/selection presentation, focus, and clipboard. It is the prime split candidate in this subsystem — a natural decomposition follows the function-prefix families (`doc_state_*`, `form_*`, `view_state_*`, `selection_*`, `caret_*`, `state_dump_*`).
 
 <a id="rad17-2"></a>
@@ -883,9 +921,7 @@ Lambda-owned and is retained in the [mixed historical record](../../Lambda/vibe/
 
 <a id="rad22-6"></a>
 
-#### RAD22-6
-
-**Poster image is not plumbed.** The idle/loading branch of `render_video_frames` (`render_video.cpp:452-457`) comments that a poster "would need to be passed through" and falls back to the play button; `poster` attribute support is missing.
+- [RAD22-6](<Radiant_Issue_Ledger (fixed).md#rad22-6>).
 
 <a id="rad22-7"></a>
 

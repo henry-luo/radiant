@@ -3,7 +3,9 @@
 #include "radiant/layout.hpp"
 #include "radiant/tagged.hpp"
 #include "radiant/view.hpp"
+#include "radiant/render.hpp"
 #include "lambda/input/input.hpp"
+#include "lambda/io/image_io.h"
 #include "lib/file.h"
 #include "lib/mem.h"
 #include "lib/strbuf.h"
@@ -264,6 +266,225 @@ TEST_F(DynamicLayoutTest, GridKeepsFirstAndLastBaselineGroupsSeparate) {
         EXPECT_FLOAT_EQ(child->y, entry.y);
         EXPECT_FLOAT_EQ(child->height, entry.height);
     }
+}
+
+TEST_F(DynamicLayoutTest, FlexFirstAndLastBaselinesUseSeparateLineMetrics) {
+    load("<!doctype html><style>html,body{margin:0}"
+         ".row{display:flex;width:200px;font:20px/20px serif}.row>div{width:100px;flex:none}"
+         "#first{align-items:first baseline}#last{align-items:last baseline}"
+         "#fixed{align-items:last baseline;height:100px}"
+         "</style><div class='row' id='first'>"
+         "<div id='firstTall'>One<br>Two<br>Three</div><div id='firstShort'>One</div></div>"
+         "<div class='row' id='last'>"
+         "<div id='lastTall'>One<br>Two<br>Three</div><div id='lastShort'>One</div></div>"
+         "<div class='row' id='fixed'>"
+         "<div id='fixedTall'>One<br>Two<br>Three</div><div id='fixedShort'>One</div></div>");
+    ASSERT_NE(document, nullptr);
+    for (const char* prefix : {"first", "last", "fixed"}) {
+        SCOPED_TRACE(prefix);
+        char tall_id[24], short_id[24];
+        snprintf(tall_id, sizeof(tall_id), "%sTall", prefix);
+        snprintf(short_id, sizeof(short_id), "%sShort", prefix);
+        DomElement* tall = element(tall_id);
+        DomElement* short_item = element(short_id);
+        ASSERT_NE(tall, nullptr);
+        ASSERT_NE(short_item, nullptr);
+        EXPECT_FLOAT_EQ(tall->height, 60.0f);
+        EXPECT_FLOAT_EQ(short_item->height, 20.0f);
+        EXPECT_FLOAT_EQ(tall->y, strcmp(prefix, "fixed") == 0 ? 40.0f : 0.0f);
+        EXPECT_FLOAT_EQ(short_item->y - tall->y,
+            strcmp(prefix, "first") == 0 ? 0.0f : 40.0f);
+    }
+    ASSERT_TRUE(element("last")->set_attribute("style", "align-items:first baseline"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, true);
+    EXPECT_FLOAT_EQ(element("lastShort")->y, element("lastTall")->y);
+}
+
+TEST_F(DynamicLayoutTest, FlexKeepsFirstAndLastBaselineGroupsSeparate) {
+    load("<!doctype html><style>html,body{margin:0}"
+         "#row{display:flex;flex-direction:row-reverse;width:400px;height:100px;font:20px/20px serif}"
+         "#row>div{width:100px;flex:none}.first{align-self:first baseline}.last{align-self:last baseline}"
+         "</style><div id='row'><div id='firstTall' class='first'>One<br>Two<br>Three</div>"
+         "<div id='firstShort' class='first'>One</div><div id='lastTall' class='last'>One<br>Two</div>"
+         "<div id='lastShort' class='last'>One</div></div>");
+    ASSERT_NE(document, nullptr);
+    const struct { const char* id; float y; float height; } expected[] = {
+        {"firstTall", 0.0f, 60.0f}, {"firstShort", 0.0f, 20.0f},
+        {"lastTall", 60.0f, 40.0f}, {"lastShort", 80.0f, 20.0f},
+    };
+    for (const auto& entry : expected) {
+        SCOPED_TRACE(entry.id);
+        DomElement* child = element(entry.id);
+        ASSERT_NE(child, nullptr);
+        EXPECT_FLOAT_EQ(child->y, entry.y);
+        EXPECT_FLOAT_EQ(child->height, entry.height);
+    }
+}
+
+TEST_F(DynamicLayoutTest, FlexLastBaselineRespectsWrappedLinesAndAutoMargins) {
+    load("<!doctype html><style>html,body{margin:0}.row{display:flex;font:20px/20px serif;"
+         "align-items:last baseline;height:200px;width:200px;flex-wrap:wrap;align-content:stretch}"
+         ".row>div{width:100px;flex:none}#auto{height:100px;width:300px;flex-wrap:nowrap}"
+         "</style><div class='row'><div id='a'>One<br>Two<br>Three</div><div id='b'>One</div>"
+         "<div id='c'>One<br>Two</div><div id='d'>One</div></div>"
+         "<div class='row' id='auto'><div id='tall'>One<br>Two<br>Three</div>"
+         "<div id='margin' style='margin-top:auto'>One</div>"
+         "<div id='start' style='align-self:start'>One</div></div>");
+    ASSERT_NE(document, nullptr);
+    const struct { const char* id; float y; } expected[] = {
+        {"a", 50.0f}, {"b", 90.0f}, {"c", 160.0f}, {"d", 180.0f},
+        {"tall", 40.0f}, {"margin", 80.0f}, {"start", 0.0f},
+    };
+    for (const auto& entry : expected) {
+        SCOPED_TRACE(entry.id);
+        ASSERT_NE(element(entry.id), nullptr);
+        EXPECT_FLOAT_EQ(element(entry.id)->y, entry.y);
+    }
+}
+
+TEST_F(DynamicLayoutTest, NestedColumnWithoutBaselineGroupUsesItsFirstChild) {
+    load("<!doctype html><style>html,body{margin:0}div{display:flex}"
+         "#row{width:100px;height:100px;align-items:baseline}"
+         ".column{flex-direction:column}</style><div id='row'>"
+         "<div style='width:50px;height:60px'></div><div id='column' class='column'>"
+         "<div style='width:50px;height:80px' class='column'>"
+         "<div style='width:50px;height:30px' class='column'></div>"
+         "<div style='width:50px;height:40px' class='column'></div></div></div></div>");
+    ASSERT_NE(document, nullptr);
+    ASSERT_NE(element("column"), nullptr);
+    EXPECT_FLOAT_EQ(element("column")->y, 30.0f);
+    EXPECT_FLOAT_EQ(element("column")->height, 80.0f);
+}
+
+TEST_F(DynamicLayoutTest, WhitespaceCacheTracksOverridesAndRetainedStyleChanges) {
+    load("<!doctype html><style>html,body{margin:0}#host,#ua{font:10px/10px monospace}</style>"
+         "<div id='host' style='white-space:pre'>A  B\nC<span id='override' style='white-space:normal'> D  E</span></div>"
+         "<pre id='ua'>A  B\nC</pre>");
+    ASSERT_NE(document, nullptr);
+    LayoutContext context = {};
+    context.doc = lam::up(document);
+    DomNode* inherited = element("host")->first_child;
+    DomNode* overridden = element("override")->first_child;
+    DomNode* ua = element("ua")->first_child;
+    ASSERT_NE(inherited, nullptr);
+    ASSERT_NE(overridden, nullptr);
+    ASSERT_NE(ua, nullptr);
+    for (int query = 0; query < 3; query++)
+        EXPECT_EQ(get_white_space_value(inherited, &context), CSS_VALUE_PRE);
+    EXPECT_EQ(get_white_space_value(overridden, &context), CSS_VALUE_NORMAL);
+    EXPECT_EQ(get_white_space_value(ua, &context), CSS_VALUE_PRE);
+    EXPECT_FLOAT_EQ(element("host")->height, 20.0f);
+    EXPECT_FLOAT_EQ(element("ua")->height, 20.0f);
+    EXPECT_EQ(get_white_space_value(inherited, &context), CSS_VALUE_PRE);
+    ASSERT_TRUE(element("host")->set_attribute("style", "white-space:normal"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, true);
+    EXPECT_EQ(get_white_space_value(inherited, &context), CSS_VALUE_NORMAL);
+    EXPECT_EQ(get_white_space_value(overridden, &context), CSS_VALUE_NORMAL);
+    EXPECT_EQ(get_white_space_value(ua, &context), CSS_VALUE_PRE);
+    EXPECT_FLOAT_EQ(element("host")->height, 10.0f);
+    EXPECT_FLOAT_EQ(element("ua")->height, 20.0f);
+}
+
+TEST_F(DynamicLayoutTest, VideoPosterPaintsWithoutSourceAndSurvivesReplacement) {
+    ASSERT_EQ(write_text_file_atomic("temp/ledger-impl-poster.svg",
+        "<svg xmlns='http://www.w3.org/2000/svg' width='100' height='50'>"
+        "<rect width='50' height='50' fill='red'/><rect x='50' width='50' height='50' fill='lime'/></svg>"), 0);
+    ASSERT_EQ(write_text_file_atomic("temp/ledger-impl-poster-blue.svg",
+        "<svg xmlns='http://www.w3.org/2000/svg' width='100' height='50'>"
+        "<rect width='100' height='50' fill='blue'/></svg>"), 0);
+    load("<!doctype html><style>html,body{margin:0}video{display:block;width:100px;height:100px;"
+         "object-fit:contain;background:#123456}</style>"
+         "<video id='video' poster='ledger-impl-poster.svg'></video>");
+    ASSERT_NE(document, nullptr);
+    DomElement* video = element("video");
+    ASSERT_NE(video, nullptr);
+    ASSERT_NE(video->embed, nullptr);
+    ASSERT_NE(video->embed->poster, nullptr);
+    ViewBlock* view = lam::view_require_block(static_cast<View*>(video));
+    EXPECT_EQ(render_media_image_surface(view), video->embed->poster.get());
+    for (int phase = 0; phase < 4; phase++) {
+        SCOPED_TRACE(phase);
+        if (phase > 0) {
+            ASSERT_TRUE(video->set_attribute("poster", phase == 1 ? "ledger-impl-poster-blue.svg"
+                : phase == 2 ? "" : "ledger-impl-no-such-poster.svg"));
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, true);
+        }
+        char output[80];
+        snprintf(output, sizeof(output), "temp/ledger-impl-poster-native-%d.png", phase);
+        render_html_doc(&ui, document->view_tree, output);
+        ASSERT_FALSE(ui.render_failed);
+        int width, height, channels;
+        unsigned char* pixels = image_load(output, &width, &height, &channels, 4);
+        ASSERT_NE(pixels, nullptr);
+        ASSERT_GE(width, 100);
+        ASSERT_GE(height, 100);
+        const unsigned char* left = pixels + (50 * width + 25) * 4;
+        const unsigned char* right = pixels + (50 * width + 75) * 4;
+        const unsigned char* letterbox = pixels + (10 * width + 25) * 4;
+        EXPECT_EQ(left[0], phase == 0 ? 255 : phase == 1 ? 0 : 0x12);
+        EXPECT_EQ(left[1], phase < 2 ? 0 : 0x34);
+        EXPECT_EQ(left[2], phase == 0 ? 0 : phase == 1 ? 255 : 0x56);
+        EXPECT_EQ(right[0], phase < 2 ? 0 : 0x12);
+        EXPECT_EQ(right[1], phase == 0 ? 255 : phase == 1 ? 0 : 0x34);
+        EXPECT_EQ(right[2], phase == 0 ? 0 : phase == 1 ? 255 : 0x56);
+        EXPECT_EQ(letterbox[0], 0x12);
+        EXPECT_EQ(letterbox[1], 0x34);
+        EXPECT_EQ(letterbox[2], 0x56);
+        image_free(pixels);
+    }
+    EXPECT_EQ(video->embed->poster, nullptr);
+}
+
+TEST_F(DynamicLayoutTest, VideoPosterUsesImagePaintBeforePreloadedPlayback) {
+    ASSERT_EQ(write_text_file_atomic("temp/ledger-impl-preload-poster.svg",
+        "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'>"
+        "<rect width='10' height='10' fill='red'/></svg>"), 0);
+    load("<!doctype html><style>html,body{margin:0}video{display:block;width:100px;height:100px}</style>"
+         "<video id='video' preload='none' src='../test/media/test_video_audio.mp4' "
+         "poster='ledger-impl-preload-poster.svg'></video>");
+    ASSERT_NE(document, nullptr);
+    DomElement* video = element("video");
+    ASSERT_NE(video, nullptr);
+    ASSERT_NE(video->embed, nullptr);
+    ASSERT_NE(video->embed->poster, nullptr);
+    ViewBlock* view = lam::view_require_block(static_cast<View*>(video));
+    EXPECT_EQ(render_media_image_surface(view), video->embed->poster.get());
+    render_html_doc(&ui, document->view_tree, "temp/ledger-impl-preload-native.png");
+    ASSERT_FALSE(ui.render_failed);
+    int width, height, channels;
+    unsigned char* pixels = image_load("temp/ledger-impl-preload-native.png", &width, &height, &channels, 4);
+    ASSERT_NE(pixels, nullptr);
+    const unsigned char* pixel = pixels + (50 * width + 50) * 4;
+    EXPECT_EQ(pixel[0], 255);
+    EXPECT_EQ(pixel[1], 0);
+    EXPECT_EQ(pixel[2], 0);
+    image_free(pixels);
+}
+
+TEST_F(DynamicLayoutTest, VideoPosterSharesImageFitAndAncestorClip) {
+    ASSERT_EQ(write_text_file_atomic("temp/ledger-impl-clipped-poster.svg",
+        "<svg xmlns='http://www.w3.org/2000/svg' width='100' height='50'>"
+        "<rect width='50' height='50' fill='red'/><rect x='50' width='50' height='50' fill='lime'/></svg>"), 0);
+    load("<!doctype html><style>html,body{margin:0;background:white}"
+         "#clip{width:75px;height:100px;overflow:hidden}"
+         "video{display:block;width:100px;height:100px;object-fit:cover}"
+         "</style><div id='clip'><video poster='ledger-impl-clipped-poster.svg'></video></div>");
+    ASSERT_NE(document, nullptr);
+    render_html_doc(&ui, document->view_tree, "temp/ledger-impl-poster-clipped.png");
+    ASSERT_FALSE(ui.render_failed);
+    int width, height, channels;
+    unsigned char* pixels = image_load("temp/ledger-impl-poster-clipped.png", &width, &height, &channels, 4);
+    ASSERT_NE(pixels, nullptr);
+    const unsigned char* left = pixels + (10 * width + 25) * 4;
+    const unsigned char* right = pixels + (10 * width + 60) * 4;
+    const unsigned char* outside = pixels + (10 * width + 85) * 4;
+    EXPECT_EQ(left[0], 255); EXPECT_EQ(left[1], 0);
+    EXPECT_EQ(right[0], 0); EXPECT_EQ(right[1], 255);
+    EXPECT_EQ(outside[0], 255); EXPECT_EQ(outside[1], 255); EXPECT_EQ(outside[2], 255);
+    image_free(pixels);
 }
 
 TEST_F(DynamicLayoutTest, StandardSpaceEvenlyDistributesEdgeAndInteriorGaps) {
