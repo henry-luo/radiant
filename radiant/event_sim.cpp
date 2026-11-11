@@ -5898,7 +5898,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
         // ===== Utilities =====
 
         case SIM_EVENT_LOG:
-            fprintf(stderr, "[EVENT_SIM] %s\\n", ev->message ? ev->message : "(no message)");
+            log_info("event_sim: %s", ev->message ? ev->message : "(no message)");
             break;
 
         case SIM_EVENT_RENDER:
@@ -6298,19 +6298,13 @@ void event_sim_print_results(EventSimContext* ctx) {
     if (!ctx) return;
 
     int total = ctx->pass_count + ctx->fail_count;
-    fprintf(stderr, "\n");
-    fprintf(stderr, "========================================\n");
-    fprintf(stderr, " EVENT SIMULATION RESULTS\n");
-    if (ctx->test_name) {
-        fprintf(stderr, " Test: %s\n", ctx->test_name);
-    }
-    fprintf(stderr, "========================================\n");
-    fprintf(stderr, " Events executed: %d\n", ctx->current_index);
-    fprintf(stderr, " Assertions: %d passed, %d failed\n", ctx->pass_count, ctx->fail_count);
+    log_info("event_sim: results test=%s events=%d assertions=%d passed, %d failed",
+        ctx->test_name ? ctx->test_name : "(unnamed)", ctx->current_index,
+        ctx->pass_count, ctx->fail_count);
     if (total > 0) {
-        fprintf(stderr, " Result: %s\n", ctx->fail_count == 0 ? "PASS" : "FAIL");
+        if (ctx->fail_count == 0) log_info("event_sim: result PASS");
+        else log_error("event_sim: result FAIL");
     }
-    fprintf(stderr, "========================================\n");
 
     // The human summary remains useful for local runs, but the unified UI
     // runner consumes this stable protocol instead of scraping presentation

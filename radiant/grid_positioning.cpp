@@ -14,6 +14,9 @@ extern "C" {
 
 static bool grid_item_ignores_percentage_max_width(ViewBlock* item,
                                                     GridContainerLayout* grid_layout);
+static CssSelfAlignment resolve_grid_item_self_alignment_detail(
+    ViewBlock* item, const GridItemProp* grid_item, ViewBlock* container,
+    int container_alignment, bool horizontal);
 
 static bool grid_item_inline_area_is_definite(const GridItemProp* grid_item,
                                                const GridContainerLayout* grid_layout) {
@@ -253,9 +256,18 @@ static bool grid_item_ignores_percentage_max_width(ViewBlock* item,
         layout_intrinsic_min_size_keyword(item, true) == CSS_VALUE_MIN_CONTENT;
 }
 
-static float compute_grid_item_alignment_baseline(::LayoutContext* lycon, ViewBlock* item) {
-    float baseline = radiant::compute_element_first_baseline(lycon, item, true);
-    if (!item || baseline < 0.0f) return baseline;
+static float compute_grid_item_alignment_baseline(::LayoutContext* lycon, ViewBlock* item,
+                                                  bool prefer_last) {
+    if (!item) return -1.0f;
+    // laid-out line metrics precede structural fallbacks such as a <br> border edge.
+    float baseline = item->blk ? (prefer_last ? item->block()->last_line_baseline
+                                             : item->block()->first_line_baseline) : -1.0f;
+    if (baseline <= 0.0f) {
+        baseline = prefer_last
+            ? radiant::compute_element_last_baseline(lycon, item, true)
+            : radiant::compute_element_first_baseline(lycon, item, true);
+    }
+    if (baseline < 0.0f) return baseline;
 
     // Child-derived baselines can carry absolute y after an earlier alignment
     // pass; grid row math needs the baseline relative to the item's border box.
@@ -280,6 +292,18 @@ static float compute_grid_item_baseline_alignment_height(GridContainerLayout* gr
         intrinsic_height = item->content_height;
     }
     return intrinsic_height > 0.0f ? intrinsic_height : item->height;
+}
+
+static int grid_item_baseline_group(GridContainerLayout* grid, ViewBlock* item) {
+    GridItemProp* gi = grid_item_prop(item);
+    if (!item || !gi) return -1;
+    CssSelfAlignment alignment = resolve_grid_item_self_alignment_detail(
+        item, gi, grid->container, grid->align_items, false);
+    if (!radiant::alignment_is_baseline(alignment.value)) return -1;
+    int row = (alignment.last_baseline ? gi->computed_grid_row_end - 1
+                                       : gi->computed_grid_row_start) - 1;
+    if (row < 0 || row >= grid->computed_row_count) return -1;
+    return row * 2 + (alignment.last_baseline ? 1 : 0);
 }
 
 // Align all grid items
@@ -307,9 +331,10 @@ void align_grid_items(GridContainerLayout* grid_layout) {
     if (has_baseline_alignment && grid_layout->computed_row_count > 0) {
         int row_count = grid_layout->computed_row_count;
         ScratchScope scope(&grid_layout->lycon->scratch);
-        float* row_max_baseline = scope.array_zero<float>(row_count);
-        float* row_max_below = scope.array_zero<float>(row_count);
-        int* row_baseline_count = scope.array_zero<int>(row_count);
+        // first and last baselines form separate sharing groups in each row.
+        float* row_max_baseline = scope.array_zero<float>((size_t)row_count * 2);
+        float* row_max_below = scope.array_zero<float>((size_t)row_count * 2);
+        int* row_baseline_count = scope.array_zero<int>((size_t)row_count * 2);
         float* item_baseline_shift = scope.array_zero<float>(grid_layout->item_count);
 
         // First pass: compute baselines and find per-row max above/below baseline
@@ -318,15 +343,12 @@ void align_grid_items(GridContainerLayout* grid_layout) {
             GridItemProp* gi = grid_item_prop(item);
             if (!item || !gi) continue;
 
-            int resolved = radiant::resolve_align_self(
-                gi->align_self_grid, grid_layout->align_items);
-            if (!radiant::alignment_is_baseline(resolved)) continue;
+            int group = grid_item_baseline_group(grid_layout, item);
+            if (group < 0) continue;
+            row_baseline_count[group]++;
 
-            int row_idx = gi->computed_grid_row_start - 1;
-            if (row_idx < 0 || row_idx >= row_count) continue;
-            row_baseline_count[row_idx]++;
-
-            float baseline = compute_grid_item_alignment_baseline(grid_layout->lycon, item);
+            float baseline = compute_grid_item_alignment_baseline(
+                grid_layout->lycon, item, group % 2 != 0);
             if (baseline < 0) baseline = item->height;
 
             // Baseline track sizing uses the item's auto block size, not its
@@ -335,21 +357,23 @@ void align_grid_items(GridContainerLayout* grid_layout) {
                 grid_layout, item);
             float below = alignment_height - baseline;
             if (below < 0.0f) below = 0.0f;
-            if (baseline > row_max_baseline[row_idx])
-                row_max_baseline[row_idx] = baseline;
-            if (below > row_max_below[row_idx])
-                row_max_below[row_idx] = below;
+            if (baseline > row_max_baseline[group])
+                row_max_baseline[group] = baseline;
+            if (below > row_max_below[group])
+                row_max_below[group] = below;
         }
 
         // Check if any row needs to resize for baseline alignment
         bool rows_changed = false;
         for (int r = 0; r < row_count; r++) {
-            if (row_baseline_count[r] <= 0) continue;
-            float needed = row_max_baseline[r] + row_max_below[r];
+            int first = r * 2, last = first + 1;
+            if (row_baseline_count[first] <= 0 && row_baseline_count[last] <= 0) continue;
+            float needed = max(row_max_baseline[first] + row_max_below[first],
+                               row_max_baseline[last] + row_max_below[last]);
             radiant::grid::EnhancedGridTrack* row_track = &(*grid_layout->computed_rows)[r];
             bool track_allows_content_growth =
                 radiant::grid::grid_track_allows_content_growth(*row_track);
-            bool has_baseline_group = row_baseline_count[r] > 1;
+            bool has_baseline_group = row_baseline_count[first] > 1 || row_baseline_count[last] > 1;
             bool should_resize = has_baseline_group
                 ? fabsf(needed - row_track->base_size) > 0.5f
                 : needed > row_track->base_size + 0.5f;
@@ -419,17 +443,19 @@ void align_grid_items(GridContainerLayout* grid_layout) {
             GridItemProp* gi = grid_item_prop(item);
             if (!item || !gi) continue;
 
-            int resolved = radiant::resolve_align_self(
-                gi->align_self_grid, grid_layout->align_items);
-            if (!radiant::alignment_is_baseline(resolved)) continue;
+            int group = grid_item_baseline_group(grid_layout, item);
+            if (group < 0) continue;
 
-            int row_idx = gi->computed_grid_row_start - 1;
-            if (row_idx < 0 || row_idx >= row_count) continue;
-
-            float baseline = compute_grid_item_alignment_baseline(grid_layout->lycon, item);
+            float baseline = compute_grid_item_alignment_baseline(
+                grid_layout->lycon, item, group % 2 != 0);
             if (baseline < 0) baseline = item->height;
 
-            float shift = row_max_baseline[row_idx] - baseline;
+            float shift = row_max_baseline[group] - baseline;
+            if (group % 2 != 0) {
+                // last-baseline groups align to the area's block end when space remains.
+                float group_height = row_max_baseline[group] + row_max_below[group];
+                shift += max(0.0f, gi->track_area_height - group_height);
+            }
             if (shift > 0.01f) {
                 item_baseline_shift[i] = shift;
             }
@@ -501,6 +527,9 @@ static CssSelfAlignment resolve_grid_item_self_alignment_detail(
     if (inline_axis && (requested == CSS_VALUE_AUTO || requested == CSS_VALUE__UNDEF) &&
         container && container->embed && container->embedp()->grid) {
         result = container->embedp()->grid->justify_items_detail;
+    } else if (!inline_axis && (requested == CSS_VALUE_AUTO || requested == CSS_VALUE__UNDEF) &&
+        container && container->embed && container->embedp()->grid) {
+        result = container->embedp()->grid->align_items_detail;
     }
     result.value = requested;
     int resolved = resolve_grid_item_self_alignment(

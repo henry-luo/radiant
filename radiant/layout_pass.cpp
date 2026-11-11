@@ -607,11 +607,12 @@ LayoutMeasureScope::~LayoutMeasureScope() {
 
 KnownDimensions layout_known_dimensions_from_block(::ViewBlock* block) {
     KnownDimensions known = known_dimensions_none();
-    if (block && block->blk && block->block_mut()->given_width > 0.0f) {
+    // zero is a definite CSS size; only negative givens represent an unknown axis.
+    if (block && block->blk && block->block()->given_width >= 0.0f) {
         known.width = block->block()->given_width;
         known.has_width = true;
     }
-    if (block && block->blk && block->block_mut()->given_height > 0.0f) {
+    if (block && block->blk && block->block()->given_height >= 0.0f) {
         known.height = block->block()->given_height;
         known.has_height = true;
     }

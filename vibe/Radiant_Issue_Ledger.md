@@ -20,6 +20,14 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+Continued review on 2026-11-11 repairs RAD04-7, RAD07-1 and RAD15-5 and removes
+the redundant float prescan estimates reported as RAD03-2 / RAD04-2. Six more
+historical reports are already resolved in current source and have scoped
+re-verification records in the fixed ledger. RAD03-1 / RAD04-1 / RAD08-5 remain
+PARTIAL: native grid first/last baseline groups are repaired, while broader
+baseline behavior remains open. The completed verification receipt is linked
+in the continued owner qualification entry in the fixed ledger.
+
 Reviewed 2026-11-11 under D9.1.1v4 / D9.1.3v2: RI-001, RI-002, RI-007, RI-009
 and RAD22-7 have owner-local repairs and verification. Eleven imported
 reports were already resolved in current source; their original observations
@@ -88,9 +96,7 @@ checking. The standing layout/header/boundary debt above is unchanged.
 
 <a id="rad01-3"></a>
 
-#### RAD01-3
-
-**Incremental relayout correctness is implicit.** The skip-clean optimization depends on `layout_height_contribution` being exactly recomputed on every non-skipped child (`layout_block.cpp`). There is no assertion tying the cached contribution to the actual advance, so a bug there manifests as silently mis-placed siblings rather than a crash.
+- [RAD01-3](<Radiant_Issue_Ledger (fixed).md#rad01-3>).
 
 <a id="rad01-5"></a>
 
@@ -142,13 +148,25 @@ checking. The standing layout/header/boundary debt above is unchanged.
 
 #### RAD03-1
 
+**Status (2026-11-11): PARTIAL.** The named helper is no longer a stub.
+Fresh native controls instead reproduced lost `first`/`last` modifiers in
+Radiant's `align-items` resolver and a grid pass that always selected first
+baselines. The owner-local grid repair preserves the compound value, uses
+laid-out line metrics, separates first/last sharing groups and places last
+groups at the block end of a fixed row. Controls cover multiline items,
+independent mixed groups, fixed/auto rows and retained last-to-first changes;
+the original failing controls remain in
+`temp/ledger-next-controls-before.{json,log}`. Tests live in
+`test/test_layout_dynamic_gtest.cpp`. Flex last-baseline handling, row-spanning
+and orthogonal baseline groups remain open/unqualified; this does not claim
+complete CSS baseline support. Related: RAD04-1 and RAD08-5. Authority:
+**D9.1.1v4 / D9.1.3v2**.
+
 **Last-baseline alignment is unimplemented.** `compute_element_last_baseline` (`layout_alignment.cpp:242`) is a `// TODO: Implement proper last baseline calculation` returning `-1`. `LayoutOutput::last_baseline` (`layout.hpp`) therefore never carries a real value, so `align-items: last baseline` in flex/grid degrades to first-baseline/edge alignment.
 
 <a id="rad03-2"></a>
 
-#### RAD03-2
-
-**Hard-coded float-width estimate.** `layout_block.cpp:4123` uses `float float_width = 100.0f; // Conservative estimate` in place of a real float measurement, so float space reservation can be wrong for floats whose actual width differs materially from 100px.
+- [RAD03-2](<Radiant_Issue_Ledger (fixed).md#rad03-2>).
 
 <a id="rad03-3"></a>
 
@@ -158,9 +176,7 @@ checking. The standing layout/header/boundary debt above is unchanged.
 
 <a id="rad03-4"></a>
 
-#### RAD03-4
-
-**BFC line-break detection uses a hard-coded inline tag whitelist.** `layout_block.cpp:7562-7578` decides whether a block should suppress the parent line break by matching a long list of inline/inline-block tag ids (`HTM_TAG_SPAN`, `HTM_TAG_A`, …) *before* styles are resolved. This is fragile: a new inline-level element, or an unusual tag defaulting to inline via CSS, will be mis-classified. *Improvement:* defer the decision until after `dom_node_resolve_style`, or drive it from the UA stylesheet's default `display` rather than a tag list.
+- [RAD03-4](<Radiant_Issue_Ledger (fixed).md#rad03-4>).
 
 <a id="rad03-5"></a>
 
@@ -191,13 +207,15 @@ Lambda event-dispatch portion remains in the [mixed historical record](../../Lam
 
 #### RAD04-1
 
+**Status (2026-11-11): PARTIAL.** See [RAD03-1](#rad03-1) for the fresh native
+grid repair, failing-before/passing-after controls and remaining scope. The
+historical stub description below predates the current helper implementation.
+
 **`compute_element_last_baseline` is a stub.** `layout_alignment.cpp:237` has `// TODO: Implement proper last baseline calculation` and returns `-1`, so *last*-baseline alignment (`align-items: last baseline`) silently degrades to no-baseline for flex and grid items. *Improvement:* mirror the recursive first-baseline logic over the last in-flow child.
 
 <a id="rad04-2"></a>
 
-#### RAD04-2
-
-**Hard-coded float-width estimate.** `layout_block.cpp:4123` uses `float float_width = 100.0f; // Conservative estimate` instead of measuring the float, so a float's effect on available width is guessed. *Improvement:* run `layout_measure_intrinsic` for the float and use its max-content width.
+- [RAD04-2](<Radiant_Issue_Ledger (fixed).md#rad04-2>).
 
 <a id="rad04-3"></a>
 
@@ -207,9 +225,7 @@ Lambda event-dispatch portion remains in the [mixed historical record](../../Lam
 
 <a id="rad04-5"></a>
 
-#### RAD04-5
-
-**`max_iterations` caps truncate silently.** The float-avoidance / find-y loops in the block driver and `block_context_find_y_for_width` cap at 100 iterations with no error logged when the cap is hit (see RAD03); a pathological float stack silently stops converging. Mentioned here because the sizing services (`compute_shrink_to_fit_width`, percentage resolution) feed those loops.
+- [RAD04-5](<Radiant_Issue_Ledger (fixed).md#rad04-5>).
 
 <a id="rad04-6"></a>
 
@@ -219,9 +235,7 @@ Lambda event-dispatch portion remains in the [mixed historical record](../../Lam
 
 <a id="rad04-7"></a>
 
-#### RAD04-7
-
-**`KnownDimensions` counts only positive givens as known.** `layout_known_dimensions_from_block` (`layout_pass.cpp:185`) treats a `given_width` of exactly 0 as *unknown*, so a legitimately zero-width element cannot key slot 0. This is usually benign but is an implicit contract worth documenting at the call sites.
+- [RAD04-7](<Radiant_Issue_Ledger (fixed).md#rad04-7>).
 
 ### RAD05 — Intrinsic Sizing
 
@@ -329,9 +343,7 @@ Lambda event-dispatch portion remains in the [mixed historical record](../../Lam
 
 <a id="rad07-1"></a>
 
-#### RAD07-1
-
-**Duplicated CSS→`FontStyleDesc` mapping.** The weight/slant mapping exists twice: inline in `setup_font` (`font.cpp:109-129`) and in `font_style_desc_from_prop` (`view.hpp:437`), and a third variant maps CssEnum→`FontWeight` in `register_font_face` (`font_face.cpp:438-447`). They can drift (e.g. `font.cpp` handles `bolder`/`lighter` keywords; `register_font_face` handles only `bold`/`normal` + numeric range). *Improvement:* have `setup_font` and `register_font_face` both route through one shared mapping helper.
+- [RAD07-1](<Radiant_Issue_Ledger (fixed).md#rad07-1>).
 
 <a id="rad07-2"></a>
 
@@ -393,13 +405,15 @@ Lambda event-dispatch portion remains in the [mixed historical record](../../Lam
 
 #### RAD08-5
 
+**Status (2026-11-11): PARTIAL.** See [RAD03-1](#rad03-1) for the fresh native
+grid repair, failing-before/passing-after controls and remaining scope. The
+historical stub description below predates the current helper implementation.
+
 **Incomplete last-baseline alignment.** `layout_alignment.cpp:242` carries `// TODO: Implement proper last baseline calculation`; `align-items:last baseline` is not fully spec-correct.
 
 <a id="rad08-6"></a>
 
-#### RAD08-6
-
-**space-evenly workaround.** `space-evenly` is routed through a custom `x-justify-content` property in style resolution rather than a first-class CSS value (`layout_flex_multipass.cpp:831` note). This is a resolution-layer patch that should be normalized.
+- [RAD08-6](<Radiant_Issue_Ledger (fixed).md#rad08-6>).
 
 <a id="rad08-7"></a>
 
@@ -553,9 +567,7 @@ Focused evidence: `css_grid_auto_fit`, `css_grid_named_lines`, `css_grid_capacit
 
 <a id="rad13-2"></a>
 
-#### RAD13-2
-
-**PDF success paths emit `log_error` noise.** Multiple non-error PDF outcomes log at error level — e.g. "fallback effect group rendered as passthrough content" (`render_pdf.cpp:1033`) and the raster-fallback effect-group notice (`:598`) fire on the *success* path where a fallback is the intended behavior. This makes real PDF errors hard to spot. *Improvement:* demote intended fallbacks to `log_debug`.
+- [RAD13-2](<Radiant_Issue_Ledger (fixed).md#rad13-2>).
 
 <a id="rad13-3"></a>
 
@@ -649,9 +661,7 @@ Lambda-owned and is retained in the [mixed historical record](../../Lambda/vibe/
 
 <a id="rad15-5"></a>
 
-#### RAD15-5
-
-**`event_sim_print_results` uses `fprintf(stderr,...)`.** Scoped to the test harness, but a deviation from the project no-`fprintf` guidance.
+- [RAD15-5](<Radiant_Issue_Ledger (fixed).md#rad15-5>).
 
 ### RAD16 — Animation & Frame Scheduling
 
@@ -889,9 +899,7 @@ Lambda-owned and is retained in the [mixed historical record](../../Lambda/vibe/
 
 <a id="rad22-9"></a>
 
-#### RAD22-9
-
-**`WebViewProp.src`/`srcdoc` are borrowed pointers.** They are documented as borrowed DOM-attribute storage in `radiant.hpp`; their lifetime is tied to the DOM node and is not retained through a `view_pool_reset_retained` (RAD01) — a relayout that frees attribute storage while a webview holds `src` would dangle. No `PersistentFieldRef` guards them.
+- [RAD22-9](<Radiant_Issue_Ledger (fixed).md#rad22-9>).
 
 ## Fixed issues
 

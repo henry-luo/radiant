@@ -964,24 +964,30 @@ inline void font_prop_copy(FontProp* destination, const FontProp* source, Pool* 
     font_cache_pin_handle(destination->font_handle);
 }
 
+inline FontWeight radiant_font_weight_from_css(CssEnum weight, int16_t numeric_weight = 0) {
+    if (numeric_weight > 0) return (FontWeight)numeric_weight;
+    // css keyword IDs overlap the numeric-weight range, so decode keywords first.
+    if (weight == CSS_VALUE_NORMAL) return FONT_WEIGHT_NORMAL;
+    if (weight == CSS_VALUE_BOLD || weight == CSS_VALUE_BOLDER) return FONT_WEIGHT_BOLD;
+    if (weight == CSS_VALUE_LIGHTER) return FONT_WEIGHT_LIGHT;
+    if (weight >= 100 && weight <= 900) return (FontWeight)weight;
+    return FONT_WEIGHT_NORMAL;
+}
+
+inline FontSlant radiant_font_slant_from_css(CssEnum style) {
+    if (style == CSS_VALUE_ITALIC) return FONT_SLANT_ITALIC;
+    if (style == CSS_VALUE_OBLIQUE) return FONT_SLANT_OBLIQUE;
+    return FONT_SLANT_NORMAL;
+}
+
 // build a FontStyleDesc from a FontProp (for font_load_glyph fallback resolution)
 inline FontStyleDesc font_style_desc_from_prop(const FontProp* fp) {
     FontStyleDesc sd = {};
     sd.family  = fp->family;
     sd.size_px = font_prop_used_size(fp);
 
-    // Use numeric weight if set, otherwise map from CssEnum keyword
-    if (fp->font_weight_numeric > 0) {
-        sd.weight = (FontWeight)fp->font_weight_numeric;
-    } else {
-        sd.weight  = (fp->font_weight == CSS_VALUE_BOLD || fp->font_weight == CSS_VALUE_BOLDER)
-                     ? FONT_WEIGHT_BOLD : (fp->font_weight == CSS_VALUE_LIGHTER)
-                     ? FONT_WEIGHT_LIGHT : FONT_WEIGHT_NORMAL;
-    }
-
-    sd.slant   = (fp->font_style == CSS_VALUE_ITALIC)  ? FONT_SLANT_ITALIC
-               : (fp->font_style == CSS_VALUE_OBLIQUE) ? FONT_SLANT_OBLIQUE
-               : FONT_SLANT_NORMAL;
+    sd.weight = radiant_font_weight_from_css(fp->font_weight, fp->font_weight_numeric);
+    sd.slant = radiant_font_slant_from_css(fp->font_style);
     sd.platform_fallback_family = fp->platform_fallback_family;
     return sd;
 }
@@ -993,18 +999,6 @@ inline FontStyleDesc font_style_desc_system_ui(float size_px) {
     sd.weight = FONT_WEIGHT_NORMAL;
     sd.slant = FONT_SLANT_NORMAL;
     return sd;
-}
-
-inline FontWeight radiant_font_weight_from_css(CssEnum weight) {
-    if (weight == CSS_VALUE_BOLD) return FONT_WEIGHT_BOLD;
-    if (weight >= 100 && weight <= 900) return (FontWeight)weight;
-    return FONT_WEIGHT_NORMAL;
-}
-
-inline FontSlant radiant_font_slant_from_css(CssEnum style) {
-    if (style == CSS_VALUE_ITALIC) return FONT_SLANT_ITALIC;
-    if (style == CSS_VALUE_OBLIQUE) return FONT_SLANT_OBLIQUE;
-    return FONT_SLANT_NORMAL;
 }
 
 // a pass-local run in an anonymous flex/grid item's flattened text sequence.
@@ -2711,6 +2705,7 @@ typedef struct GridProp {
     int justify_items;           // CSS_VALUE_STRETCH, etc.
     CssSelfAlignment justify_items_detail;  // preserves safe/unsafe and baseline modifiers
     int align_items;             // CSS_VALUE_STRETCH, etc.
+    CssSelfAlignment align_items_detail;  // preserves first/last baseline for grid items
     int grid_auto_flow;          // CSS_VALUE_ROW, CSS_VALUE_COLUMN
     // Grid gap properties
     float row_gap;

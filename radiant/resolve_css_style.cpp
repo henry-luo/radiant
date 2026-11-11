@@ -1378,7 +1378,11 @@ static void resolve_flex_grid_container_alignment(LayoutContext* lycon,
     alloc_flex_prop(lycon, block);
     alloc_grid_prop(lycon, block);
     resolve_keyword_slot(value, &block->embedp()->flex->align_items);
-    resolve_keyword_slot(value, &block->embedp()->grid->align_items);
+    CssSelfAlignment alignment = css_parse_self_alignment_value(value, false);
+    if (alignment.value != CSS_VALUE__UNDEF) {
+        block->embedp()->grid->align_items = alignment.value;
+        block->embedp()->grid->align_items_detail = alignment;
+    }
 }
 
 static void css_store_self_alignment(LayoutContext* lycon, ViewSpan* span,

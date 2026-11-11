@@ -5748,75 +5748,20 @@ bool layout_node_has_in_flow_inline_content(DomNode* node, bool descend_blocks) 
 void prescan_and_layout_floats(LayoutContext* lycon, DomNode* first_child, ViewBlock* parent_block) {
     if (!first_child) return;
     bool has_floats = false;
-    bool has_inline_content = false;
-    float preceding_content_width = 0.0f;  // Estimated width of content before first float
-    float container_width = lycon->block.content_width;
-    DomNode* first_float_node = nullptr;
     for (DomNode* child = first_child; child; child = child->next_sibling) {
-        if (!child->is_element()) {
-            if (child->is_text()) {
-                DomText* text = child->as_text();
-                if (text && text->text && !first_float_node) {
-                    const char* p = text->text;
-                    int char_count = 0;
-                    while (*p) {
-                        if (!str_char_is_ascii_space(*p)) char_count++;
-                        p++;
-                    }
-                    preceding_content_width += char_count * 8.0f;
-                    if (char_count > 0) has_inline_content = true;
-                }
-            }
-            continue;
-        }
+        if (!child->is_element()) continue;
         DomElement* elem = child->as_element();
         if (elem->float_prelaid()) continue;
         CssEnum float_value = get_element_float_value(elem);
         if (float_value == CSS_VALUE_LEFT || float_value == CSS_VALUE_RIGHT) {
             has_floats = true;
-            if (!first_float_node) first_float_node = child;
-            continue;
-        }
-        if (!first_float_node) {
-            DisplayValue display = layout_resolved_display(child);
-            if (elem->tag() == MARKUP_NAME_BUTTON) {
-                display = layout_button_used_display(elem, display);
-            }
-            if (display.outer == CSS_VALUE_INLINE || display.outer == CSS_VALUE_INLINE_BLOCK) {
-                // css 2.1 §9.5: an empty inline box does not consume line
-                // space before a later float and must not suppress float prescan.
-                if (display.outer == CSS_VALUE_INLINE
-                    ? layout_node_has_in_flow_inline_content(child) : true) {
-                    has_inline_content = true;
-                }
-                for (DomNode* text_node = elem->first_child; text_node; text_node = text_node->next_sibling) {
-                    if (text_node->is_text()) {
-                        DomText* text = text_node->as_text();
-                        if (text && text->text) {
-                            const char* p = text->text;
-                            int char_count = 0;
-                            while (*p) {
-                                if (!str_char_is_ascii_space(*p)) char_count++;
-                                p++;
-                            }
-                            preceding_content_width += char_count * 8.0f;
-                        }
-                    }
-                }
-            } else if (display.outer == CSS_VALUE_BLOCK) {
-                return;
-            }
-        }
-    }
-    if (!has_floats) {
-        return;
-    }
-    if (has_inline_content && container_width > 0) {
-        float float_width = 100.0f;  // Conservative estimate
-        if (preceding_content_width + float_width > container_width) {
+        } else if (!has_floats && layout_resolved_display(child).outer == CSS_VALUE_BLOCK) {
             return;
         }
     }
+    if (!has_floats) return;
+    // the placement walk stops at in-flow content and measures each float;
+    // guessed text and float widths cannot decide whether that walk is needed.
     // CSS 2.1 §9.5: Floats belong to their nearest BFC ancestor, not to non-BFC
     if (!lycon->block.establishing_element && parent_block) {
         if (block_context_establishes_bfc(parent_block)) {

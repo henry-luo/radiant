@@ -4,6 +4,33 @@
 #include "radiant/view.hpp"
 #include <math.h>
 
+TEST(FontStyleTest, SharedCssMappingPreservesKeywordsAndNumericWeights) {
+    const struct { CssEnum css; FontWeight weight; } weights[] = {
+        {CSS_VALUE_NORMAL, FONT_WEIGHT_NORMAL},
+        {CSS_VALUE_BOLD, FONT_WEIGHT_BOLD},
+        {CSS_VALUE_BOLDER, FONT_WEIGHT_BOLD},
+        {CSS_VALUE_LIGHTER, FONT_WEIGHT_LIGHT},
+        {(CssEnum)100, (FontWeight)100},
+        {(CssEnum)500, (FontWeight)500},
+        {(CssEnum)900, (FontWeight)900},
+    };
+    for (const auto& entry : weights) {
+        for (CssEnum slant : {CSS_VALUE_NORMAL, CSS_VALUE_ITALIC, CSS_VALUE_OBLIQUE}) {
+            FontProp prop = {};
+            prop.font_weight = entry.css;
+            prop.font_style = slant;
+            FontStyleDesc style = font_style_desc_from_prop(&prop);
+            EXPECT_EQ(style.weight, entry.weight);
+            EXPECT_EQ(radiant_font_weight_from_css(entry.css), entry.weight);
+            EXPECT_EQ(style.slant, radiant_font_slant_from_css(slant));
+        }
+    }
+    FontProp numeric = {};
+    numeric.font_weight = CSS_VALUE_BOLD;
+    numeric.font_weight_numeric = 950;
+    EXPECT_EQ(font_style_desc_from_prop(&numeric).weight, (FontWeight)950);
+}
+
 #ifdef __APPLE__
 // keep MacTypes' Rect separate from Radiant's geometry.
 #define Rect MacOSRect

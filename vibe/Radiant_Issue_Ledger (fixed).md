@@ -689,3 +689,199 @@ feature/refactoring work and source-audit-only limitations remain explicit.
 Receipts: `temp/ledger-radiant-baseline.log`,
 `temp/layout-baseline/results.log`, `temp/ledger-layout-lint-after.log`,
 `temp/ledger-lint-contracts.log`, and the focused before/after logs above.
+
+
+## 2026-11-11 continued owner repairs and re-verification
+
+<a id="rad03-2"></a>
+
+#### RAD03-2
+
+**Hard-coded float-width estimate.** `layout_block.cpp:4123` uses `float float_width = 100.0f; // Conservative estimate` in place of a real float measurement, so float space reservation can be wrong for floats whose actual width differs materially from 100px.
+
+**Resolution (2026-11-11):** removed the obsolete 100px float-width and
+8px-per-character prescan gate from `prescan_and_layout_floats`. The placement
+walk already stops at preceding in-flow content and lays each admitted float
+out through `layout_block`; a guessed combined width cannot improve that
+decision. The preliminary scan still rejects floats behind a preceding block
+and avoids work when no float exists. This is removal of redundant estimation,
+not a claimed newly reproduced pixel mismatch. The unchanged original controls
+and repaired source both pass `FloatPrescanUsesActualGeometryAndFlowOrder`,
+covering leading floats, empty preceding inlines, preceding blocks and retained
+width changes through 180px, 40px and 220px. Duplicate report: RAD04-2.
+Authority: **D9.1.1v4 / D9.1.3v2**.
+
+<a id="rad04-2"></a>
+
+#### RAD04-2
+
+**Hard-coded float-width estimate.** `layout_block.cpp:4123` uses `float float_width = 100.0f; // Conservative estimate` instead of measuring the float, so a float's effect on available width is guessed. *Improvement:* run `layout_measure_intrinsic` for the float and use its max-content width.
+
+**Resolution (2026-11-11):** the same obsolete prescan gate as
+[RAD03-2](#rad03-2) was removed. Actual float layout remains the sizing authority;
+no replacement estimate or hard-coded measurement was added. The original
+geometry controls pass before and after the cleanup. Authority:
+**D9.1.1v4 / D9.1.3v2**.
+
+<a id="rad04-7"></a>
+
+#### RAD04-7
+
+**`KnownDimensions` counts only positive givens as known.** `layout_known_dimensions_from_block` (`layout_pass.cpp:185`) treats a `given_width` of exactly 0 as *unknown*, so a legitimately zero-width element cannot key slot 0. This is usually benign but is an implicit contract worth documenting at the call sites.
+
+**Resolution (2026-11-11):** reproduced a real cache-key collision:
+`layout_known_dimensions_from_block` returned an unknown axis for a specified
+zero width or height, and the resulting entry was incorrectly reusable for an
+`auto` query. It now uses the same nonnegative-given contract as the context
+helper and reads properties without mutable access. Negative givens remain
+unknown. `LayoutCacheTest.ZeroDimensionsRemainDistinctFromAutoCacheKeys`
+fails on the original source for both axes and passes after the repair,
+including actual cache store/query isolation. Receipts:
+`temp/ledger-next-layout-before.{json,log}` and
+`temp/ledger-next-layout-final.{json,log}`. Authority:
+**D9.1.1v4 / D9.1.3v2**.
+
+<a id="rad07-1"></a>
+
+#### RAD07-1
+
+**Duplicated CSS→`FontStyleDesc` mapping.** The weight/slant mapping exists twice: inline in `setup_font` (`font.cpp:109-129`) and in `font_style_desc_from_prop` (`view.hpp:437`), and a third variant maps CssEnum→`FontWeight` in `register_font_face` (`font_face.cpp:438-447`). They can drift (e.g. `font.cpp` handles `bolder`/`lighter` keywords; `register_font_face` handles only `bold`/`normal` + numeric range). *Improvement:* have `setup_font` and `register_font_face` both route through one shared mapping helper.
+
+**Resolution (2026-11-11):** `setup_font` already called
+`font_style_desc_from_prop`, but that helper still duplicated the conversion
+used by font-face registration. More seriously, the font-face helper interpreted
+`CSS_VALUE_NORMAL` (318) as numeric weight 318 because CSS keyword IDs overlap
+the numeric interval. The shared weight helper now decodes keywords before
+numeric weights; `font_style_desc_from_prop` delegates both weight and slant
+to the same helpers as `register_font_face`. Explicit numeric-property weights,
+including 950, retain precedence. `FontStyleTest` reproduces the original
+normal/bolder/lighter and encoded-numeric discrepancies; the native
+`NormalFontFaceRegistersTheNormalWeight` case checks the real registry entry is
+400. Receipts: `temp/ledger-next-font-before.{json,log}`,
+`temp/ledger-next-font-after.{json,log}` and
+`temp/ledger-next-layout-final.{json,log}`. Authority:
+**D9.1.1v4 / D9.1.3v2**.
+
+<a id="rad15-5"></a>
+
+#### RAD15-5
+
+**`event_sim_print_results` uses `fprintf(stderr,...)`.** Scoped to the test harness, but a deviation from the project no-`fprintf` guidance.
+
+**Resolution (2026-11-11):** replaced the result banner's direct
+stderr writes and the utility `SIM_EVENT_LOG` write with project logging,
+each prefixed `event_sim:`. Passing summaries use `log_info`; a failing summary
+uses `log_error`. The result JSON schema, counts and file-writing path are
+unchanged. A source check finds no remaining `fprintf` or direct console writes
+in `event_sim.cpp`; string-buffer `snprintf` calls remain. `log.conf` was not
+changed. Authority: **D9.1.1v4 / D9.1.3v2**.
+
+<a id="rad01-3"></a>
+
+#### RAD01-3
+
+**Incremental relayout correctness is implicit.** The skip-clean optimization depends on `layout_height_contribution` being exactly recomputed on every non-skipped child (`layout_block.cpp`). There is no assertion tying the cached contribution to the actual advance, so a bug there manifests as silently mis-placed siblings rather than a crash.
+
+**Reverified (2026-11-11):** the current
+`layout_can_shift_clean_block` rejects reuse unless the cached height
+contribution matches the finite used height within its existing 0.1px check.
+It also excludes margins/collapse, floats, vertical flow and unstable subtrees.
+The normal path recomputes the contribution from the actual advance delta.
+The historical implicit-only precondition is therefore already explicit in
+the reuse gate; an assertion is not needed to reject that invalid reuse.
+This source audit does not establish every incremental-layout combination.
+No production change was needed. Authority: **D9.1.1v4 / D9.1.3v2**.
+
+<a id="rad03-4"></a>
+
+#### RAD03-4
+
+**BFC line-break detection uses a hard-coded inline tag whitelist.** `layout_block.cpp:7562-7578` decides whether a block should suppress the parent line break by matching a long list of inline/inline-block tag ids (`HTM_TAG_SPAN`, `HTM_TAG_A`, …) *before* styles are resolved. This is fragile: a new inline-level element, or an unusual tag defaulting to inline via CSS, will be mis-classified. *Improvement:* defer the decision until after `dom_node_resolve_style`, or drive it from the UA stylesheet's default `display` rather than a tag list.
+
+**Reverified (2026-11-11):** the tag whitelist no longer exists.
+The current `layout_block` line-break decision uses its resolved display,
+inline-atomic/table classification, float state and out-of-flow state, rather
+than a span/a/etc. tag inventory. Animated `display:none` also restores the
+saved parent context. This closes the named obsolete whitelist report, not
+all possible block/inline interactions. No production change was needed.
+Authority: **D9.1.1v4 / D9.1.3v2**.
+
+<a id="rad04-5"></a>
+
+#### RAD04-5
+
+**`max_iterations` caps truncate silently.** The float-avoidance / find-y loops in the block driver and `block_context_find_y_for_width` cap at 100 iterations with no error logged when the cap is hit (see RAD03); a pathological float stack silently stops converging. Mentioned here because the sizing services (`compute_shrink_to_fit_width`, percentage resolution) feed those loops.
+
+**Reverified (2026-11-11):** all four current capped float searches
+already log exhaustion: `RAD_CAP_FLOAT_FIND_Y` in `block_context.cpp`,
+`RAD_CAP_FLOAT_PLACE` in `layout_positioned.cpp`, and `RAD_CAP_FLOAT_LINE_Y` /
+`RAD_CAP_BFC_FLOAT_AVOID` in `layout_block.cpp`. This closes the report that
+the caps truncate silently; the limits themselves remain. Source verification
+only; no cap was weakened and no pathological convergence claim is made.
+Authority: **D9.1.1v4 / D9.1.3v2**.
+
+<a id="rad08-6"></a>
+
+#### RAD08-6
+
+**space-evenly workaround.** `space-evenly` is routed through a custom `x-justify-content` property in style resolution rather than a first-class CSS value (`layout_flex_multipass.cpp:831` note). This is a resolution-layer patch that should be normalized.
+
+**Reverified (2026-11-11):** standard `justify-content:space-evenly`
+is parsed by the shared content-alignment parser, stored as
+`CSS_VALUE_SPACE_EVENLY` and consumed by native space distribution. The old
+`x-justify-content` route is absent. The native
+`StandardSpaceEvenlyDistributesEdgeAndInteriorGaps` control verifies equal
+edge/interior gaps at widths 400px and, after retained mutation, 200px.
+No production change was needed. Authority: **D9.1.1v4 / D9.1.3v2**.
+
+<a id="rad13-2"></a>
+
+#### RAD13-2
+
+**PDF success paths emit `log_error` noise.** Multiple non-error PDF outcomes log at error level — e.g. "fallback effect group rendered as passthrough content" (`render_pdf.cpp:1033`) and the raster-fallback effect-group notice (`:598`) fire on the *success* path where a fallback is the intended behavior. This makes real PDF errors hard to spot. *Improvement:* demote intended fallbacks to `log_debug`.
+
+**Reverified (2026-11-11):** `render_pdf.cpp` now delegates PDF
+writing through `radiant_pdf_export_write` and has no `log_error` calls or
+the reported effect-fallback success notices. The former native implementation
+is gone. This source-level result concerns the Radiant wrapper only; it does
+not qualify diagnostics in an optional external PDF writer. No production
+change was needed. Authority: **S2.6.6v3 / D9.1.1v4 / D9.1.3v2**.
+
+<a id="rad22-9"></a>
+
+#### RAD22-9
+
+**`WebViewProp.src`/`srcdoc` are borrowed pointers.** They are documented as borrowed DOM-attribute storage in `radiant.hpp`; their lifetime is tied to the DOM node and is not retained through a `view_pool_reset_retained` (RAD01) — a relayout that frees attribute storage while a webview holds `src` would dangle. No `PersistentFieldRef` guards them.
+
+**Reverified (2026-11-11):** source admission already uses
+`radiant_retain_webview_src` / `radiant_retain_webview_srcdoc`, which store
+pool-domain pointers through `PersistentFieldRef`. The historical claim that
+those guards are absent is obsolete. The owning document/pool lifetime remains
+the contract; this source audit is not a platform-webview mutation/teardown
+stress test. No production change was needed. Authority:
+**D5.5 / D9.1.1v4 / D9.1.3v2**.
+
+## 2026-11-11 continued owner qualification
+
+Under **D9.1.1v4 / D9.1.3v2**, `make -j8 run-radiant-baseline` passes on the
+complete repaired source: **882 native tests plus one static corpus smoke
+test**, with one existing hardware MIDI skip; **7/7 runner contracts**;
+**3,851 static and 630 dynamic geometry comparisons**, with six existing static
+fixture skips and no failures. The focused native layout suite passes **41/41**
+and the font suite **4/4**. No baseline tolerance, reference, fixture corpus or
+sibling implementation was changed.
+
+`make lint ARGS='--rule ^no-int-cast-radiant$'` passes with **89 checked casts
+and zero unmarked casts**; `make test-lint` passes **5/5**. The input-facade
+and whitespace checks pass. The grid baseline entries remain explicitly
+PARTIAL, including flex, spanning-row and orthogonal qualification limits.
+The six source-reverified historical reports above retain their narrower
+verification limits.
+
+Receipts: [verification summary](../temp/ledger-next-verification-summary.json),
+[aggregate log](../temp/ledger-next-radiant-baseline.log),
+[geometry results](../temp/ledger-next-layout-baseline.log),
+`temp/ledger-next-layout-final.{json,log}`, `temp/ledger-next-lint.log`, and
+`temp/ledger-next-lint-contracts.log`. The verification summary pins the host
+and changed source/header/test hashes. Only ledger documentation changed after
+the passing aggregate.

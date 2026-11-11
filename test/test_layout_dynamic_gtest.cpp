@@ -9,6 +9,35 @@
 #include "lib/strbuf.h"
 #include "lib/url.h"
 
+TEST(LayoutCacheTest, ZeroDimensionsRemainDistinctFromAutoCacheKeys) {
+    ViewBlock block = {};
+    BlockProp parent_blk = {};
+    block.blk = lam::view_prop(&parent_blk);
+    AvailableSpace space = AvailableSpace::make_indefinite();
+    radiant::LayoutCache cache = {};
+    radiant::layout_cache_init(&cache);
+    for (bool horizontal : {true, false}) {
+        SCOPED_TRACE(horizontal ? "width" : "height");
+        parent_blk.given_width = horizontal ? 0.0f : -1.0f;
+        parent_blk.given_height = horizontal ? -1.0f : 0.0f;
+        radiant::KnownDimensions zero = radiant::layout_known_dimensions_from_block(&block);
+        EXPECT_EQ(zero.has_width, horizontal);
+        EXPECT_EQ(zero.has_height, !horizontal);
+        radiant::layout_cache_store(&cache, zero, space,
+            radiant::RunMode::ComputeSize, radiant::size_f(0.0f, 0.0f));
+        parent_blk.given_width = parent_blk.given_height = -1.0f;
+        radiant::KnownDimensions automatic = radiant::layout_known_dimensions_from_block(&block);
+        EXPECT_FALSE(automatic.has_width);
+        EXPECT_FALSE(automatic.has_height);
+        radiant::SizeF result = {};
+        EXPECT_FALSE(radiant::layout_cache_get(&cache, automatic, space,
+            radiant::RunMode::ComputeSize, &result));
+        EXPECT_TRUE(radiant::layout_cache_get(&cache, zero, space,
+            radiant::RunMode::ComputeSize, &result));
+        radiant::layout_cache_init(&cache);
+    }
+}
+
 class DynamicLayoutTest : public ::testing::Test {
 protected:
     UiContext ui = {};
@@ -167,6 +196,139 @@ TEST_F(DynamicLayoutTest, HtmlColorAttributesUseNamedCssColors) {
     EXPECT_EQ(font->in_line->color.g, 0);
     EXPECT_EQ(font->in_line->color.b, 0);
     EXPECT_TRUE(font->in_line->has_color);
+}
+
+TEST_F(DynamicLayoutTest, NormalFontFaceRegistersTheNormalWeight) {
+    load("<!doctype html><style>@font-face{font-family:LedgerNormal;"
+         "src:url('../test/layout/data/font/Ahem.ttf');font-weight:normal}"
+         "</style><div>Text</div>");
+    ASSERT_NE(document, nullptr);
+    FontStyleDesc style = {};
+    style.family = "LedgerNormal";
+    style.size_px = 16.0f;
+    style.weight = FONT_WEIGHT_NORMAL;
+    style.slant = FONT_SLANT_NORMAL;
+    const FontFaceDesc* face = font_face_find(ui.font_ctx, &style);
+    ASSERT_NE(face, nullptr);
+    EXPECT_EQ(face->weight, FONT_WEIGHT_NORMAL);
+}
+
+TEST_F(DynamicLayoutTest, GridLastBaselineUsesTheLastLine) {
+    load("<!doctype html><style>html,body{margin:0}"
+         ".grid{display:grid;grid-template-columns:100px 100px;font:20px/20px serif}"
+         "#first{align-items:first baseline}#last{align-items:last baseline}"
+         "</style><div class='grid' id='first'>"
+         "<div id='firstTall'>One<br>Two<br>Three</div><div id='firstShort'>One</div></div>"
+         "<div class='grid' id='last'>"
+         "<div id='lastTall'>One<br>Two<br>Three</div><div id='lastShort'>One</div></div>");
+    ASSERT_NE(document, nullptr);
+    for (const char* prefix : {"first", "last"}) {
+        char tall_id[24], short_id[24];
+        snprintf(tall_id, sizeof(tall_id), "%sTall", prefix);
+        snprintf(short_id, sizeof(short_id), "%sShort", prefix);
+        DomElement* tall = element(tall_id);
+        DomElement* short_item = element(short_id);
+        ASSERT_NE(tall, nullptr);
+        ASSERT_NE(short_item, nullptr);
+        EXPECT_FLOAT_EQ(tall->height, 60.0f);
+        EXPECT_FLOAT_EQ(short_item->height, 20.0f);
+        EXPECT_FLOAT_EQ(short_item->y - tall->y,
+            strcmp(prefix, "last") == 0 ? 40.0f : 0.0f);
+    }
+    ASSERT_TRUE(element("last")->set_attribute("style", "align-items:first baseline"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, true);
+    EXPECT_FLOAT_EQ(element("lastShort")->y, element("lastTall")->y);
+    EXPECT_FLOAT_EQ(element("lastShort")->height, 20.0f);
+}
+
+TEST_F(DynamicLayoutTest, GridKeepsFirstAndLastBaselineGroupsSeparate) {
+    load("<!doctype html><style>html,body{margin:0}"
+         "#grid{display:grid;grid-template-columns:100px 100px 100px 100px;"
+         "grid-template-rows:100px;font:20px/20px serif}"
+         ".first{align-self:first baseline}.last{align-self:last baseline}"
+         "</style><div id='grid'>"
+         "<div id='firstTall' class='first'>One<br>Two<br>Three</div>"
+         "<div id='firstShort' class='first'>One</div>"
+         "<div id='lastTall' class='last'>One<br>Two</div>"
+         "<div id='lastShort' class='last'>One</div></div>");
+    ASSERT_NE(document, nullptr);
+    const struct { const char* id; float y; float height; } expected[] = {
+        {"firstTall", 0.0f, 60.0f}, {"firstShort", 0.0f, 20.0f},
+        {"lastTall", 60.0f, 40.0f}, {"lastShort", 80.0f, 20.0f},
+    };
+    for (const auto& entry : expected) {
+        SCOPED_TRACE(entry.id);
+        DomElement* child = element(entry.id);
+        ASSERT_NE(child, nullptr);
+        EXPECT_FLOAT_EQ(child->y, entry.y);
+        EXPECT_FLOAT_EQ(child->height, entry.height);
+    }
+}
+
+TEST_F(DynamicLayoutTest, StandardSpaceEvenlyDistributesEdgeAndInteriorGaps) {
+    load("<!doctype html><style>html,body{margin:0}"
+         "#row{display:flex;justify-content:space-evenly;width:400px}"
+         "#row>div{width:40px;height:10px;flex:none}</style>"
+         "<div id='row'><div id='one'></div><div id='two'></div><div id='three'></div></div>");
+    ASSERT_NE(document, nullptr);
+    for (float width : {400.0f, 200.0f}) {
+        if (width == 200.0f) {
+            ASSERT_TRUE(element("row")->set_attribute("style", "width:200px"));
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, true);
+        }
+        float gap = (width - 120.0f) / 4.0f;
+        float expected_x = gap;
+        for (const char* id : {"one", "two", "three"}) {
+            DomElement* child = element(id);
+            ASSERT_NE(child, nullptr);
+            EXPECT_FLOAT_EQ(child->x, expected_x);
+            expected_x += 40.0f + gap;
+        }
+    }
+}
+
+TEST_F(DynamicLayoutTest, FloatPrescanUsesActualGeometryAndFlowOrder) {
+    load("<!doctype html><style>html,body{margin:0}.section{width:320px;height:100px}"
+         ".floating{float:left;width:180px;height:30px}"
+         ".box{display:inline-block;width:100px;height:10px;vertical-align:top}"
+         "</style><div class='section'><div id='early' class='floating'></div>"
+         "<span id='earlyBox' class='box'></span></div>"
+         "<div class='section'><span></span><div id='empty' class='floating'></div>"
+         "<span id='emptyBox' class='box'></span></div>"
+         "<div class='section'><div style='height:20px'></div>"
+         "<div id='late' class='floating'></div><span id='lateBox' class='box'></span></div>");
+    ASSERT_NE(document, nullptr);
+    for (float width : {180.0f, 40.0f, 220.0f}) {
+        for (const char* id : {"early", "empty", "late"}) {
+            SCOPED_TRACE(::testing::Message() << id << " width=" << width);
+            DomElement* floating = element(id);
+            ASSERT_NE(floating, nullptr);
+            if (width != 180.0f) {
+                char style[48];
+                snprintf(style, sizeof(style), "width:%.0fpx", width);
+                ASSERT_TRUE(floating->set_attribute("style", style));
+            }
+        }
+        if (width != 180.0f) {
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, true);
+        }
+        for (const char* id : {"early", "empty", "late"}) {
+            SCOPED_TRACE(::testing::Message() << id << " width=" << width);
+            DomElement* floating = element(id);
+            char box_id[24];
+            snprintf(box_id, sizeof(box_id), "%sBox", id);
+            DomElement* box = element(box_id);
+            ASSERT_NE(box, nullptr);
+            EXPECT_FLOAT_EQ(floating->width, width);
+            EXPECT_FLOAT_EQ(floating->x, 0.0f);
+            EXPECT_FLOAT_EQ(floating->y, strcmp(id, "late") == 0 ? 20.0f : 0.0f);
+            EXPECT_EQ(floating->float_prelaid(), strcmp(id, "late") != 0);
+            EXPECT_FLOAT_EQ(box->x, width);
+        }
+    }
 }
 
 TEST_F(DynamicLayoutTest, MatchParentTracksParentDirection) {
