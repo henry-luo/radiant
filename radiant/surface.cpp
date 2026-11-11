@@ -144,9 +144,9 @@ static void image_surface_apply_svg_metadata(ImageSurface* surface,
     if (!meta.has_width && meta.has_height && meta.has_ratio) meta.width = meta.height * meta.ratio;
     if (meta.width <= 0.0f && fallback_width > 0.0f) meta.width = fallback_width;
     if (meta.height <= 0.0f && fallback_height > 0.0f) meta.height = fallback_height;
-    if (meta.width <= 0.0f) meta.width = 300.0f;
+    if (meta.width <= 0.0f) meta.width = REPLACED_DEFAULT_WIDTH;
     if (meta.height <= 0.0f) {
-        meta.height = meta.has_ratio && meta.width > 0.0f ? meta.width / meta.ratio : 150.0f;
+        meta.height = meta.has_ratio && meta.width > 0.0f ? meta.width / meta.ratio : REPLACED_DEFAULT_HEIGHT;
     }
 
     surface->width = svg_dimension_to_image_px(meta.width);

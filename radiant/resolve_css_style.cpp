@@ -2416,6 +2416,7 @@ static bool css_property_consumes_substitution(CssPropertyCode property) {
         case CSS_PROPERTY_TRANSFORM_ORIGIN: case CSS_PROPERTY_PERSPECTIVE_ORIGIN:
         case CSS_PROPERTY_FILTER: case CSS_PROPERTY_BACKDROP_FILTER:
         case CSS_PROPERTY_OPACITY: case CSS_PROPERTY_VISIBILITY:
+        case CSS_PROPERTY_CLIP:
         case CSS_PROPERTY_HYPHENATE_LIMIT_CHARS: case CSS_PROPERTY_Z_INDEX: case CSS_PROPERTY_ORDER:
         case CSS_PROPERTY_FLEX_GROW: case CSS_PROPERTY_FLEX_SHRINK: case CSS_PROPERTY_FLEX_BASIS:
         case CSS_PROPERTY_FLEX:
@@ -7299,6 +7300,46 @@ static bool resolve_common_keyword_property(LayoutContext* lycon, ViewSpan* span
     return false;
 }
 
+static void resolve_legacy_clip(LayoutContext* context, ViewSpan* span, const CssValue* value) {
+    if (!context || !span || !value) return;
+    PositionProp* position = span->ensure_position(context);
+    if (!position) return;
+    if (css_value_keyword_equals(value, CSS_VALUE_INHERIT)) {
+        DomElement* parent = dom_parent_element(span);
+        position->clip = parent ? parent->positionp()->clip : LegacyClipRect{};
+        return;
+    }
+    position->clip = {};
+    if (value->type != CSS_VALUE_TYPE_FUNCTION ||
+        !css_function_name_is(value->data.function, "rect")) return;
+    const CssFunction* function = value->data.function;
+    const CssValue* edges[4] = {};
+    size_t count = 0;
+    for (int i = 0; i < function->arg_count; i++) {
+        const CssValue* argument = function->args[i];
+        if (!argument) return;
+        int parts = argument->type == CSS_VALUE_TYPE_LIST ? argument->data.list.count : 1;
+        for (int j = 0; j < parts; j++) {
+            if (count == 4) return;
+            edges[count++] = argument->type == CSS_VALUE_TYPE_LIST ? argument->data.list.values[j] : argument;
+        }
+    }
+    if (count != 4) return;
+    LegacyClipRect clip = {};
+    for (size_t side = 0; side < 4; side++) {
+        const CssValue* edge = edges[side];
+        if (css_value_keyword_equals(edge, CSS_VALUE_AUTO)) clip.auto_edges |= 1u << side;
+        else {
+            // percentages are forbidden; auto edges stay unresolved until final border-box sizing.
+            clip.edges[side] = resolve_element_definite_length_value(
+                context, span, CSS_PROPERTY_CLIP, edge);
+            if (!isfinite(clip.edges[side])) return;
+        }
+    }
+    clip.active = true;
+    position->clip = clip;
+}
+
 static bool css_property_is_ignored(CssPropertyCode property) {
     static const CssPropertyCode ignored[] = {
         CSS_PROPERTY_DISPLAY, CSS_PROPERTY_MARGIN_TRIM,
@@ -7320,7 +7361,7 @@ static bool css_property_is_ignored(CssPropertyCode property) {
         CSS_PROPERTY_SCROLL_PADDING_BLOCK, CSS_PROPERTY_SCROLL_PADDING_BLOCK_START,
         CSS_PROPERTY_SCROLL_PADDING_BLOCK_END, CSS_PROPERTY_SCROLL_PADDING_INLINE,
         CSS_PROPERTY_SCROLL_PADDING_INLINE_START, CSS_PROPERTY_SCROLL_PADDING_INLINE_END,
-        CSS_PROPERTY_BORDER_IMAGE, CSS_PROPERTY_CLIP,
+        CSS_PROPERTY_BORDER_IMAGE,
         CSS_PROPERTY_ANIMATION, CSS_PROPERTY_ANIMATION_NAME,
         CSS_PROPERTY_ANIMATION_DURATION, CSS_PROPERTY_ANIMATION_TIMING_FUNCTION,
         CSS_PROPERTY_ANIMATION_DELAY, CSS_PROPERTY_ANIMATION_ITERATION_COUNT,
@@ -9745,6 +9786,9 @@ void css_apply_computed_property(CssPropertyCode prop_id,
             if (!inset_side_declaration_wins(lycon, radiant_css_box_side(prop_id), decl)) break;
             resolve_inset_sides(lycon, span, radiant_css_box_side(prop_id), radiant_css_box_side(prop_id),
                                 prop_id, value, true);
+            break;
+        case CSS_PROPERTY_CLIP:
+            resolve_legacy_clip(lycon, span, value);
             break;
         case CSS_PROPERTY_Z_INDEX: {
             ensure_span_position(lycon, span);

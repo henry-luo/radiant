@@ -25,6 +25,7 @@ typedef struct RenderWalkBlockPhase {
     bool pa_has_clip_transform;
     bool opened_transform;
     bool opened_clip;
+    bool opened_legacy_clip;
     bool opened_effect_group;
     bool stop_after_self;
 } RenderWalkBlockPhase;
@@ -163,6 +164,8 @@ static bool render_walk_block_begin(RenderPaintBlockDriver* ctx, ViewBlock* bloc
 
     p->opened_clip = backend->begin_clip && backend->end_clip &&
         backend->begin_clip(backend->ctx, block, state->x, state->y, RENDER_CLIP_SHAPE);
+    p->opened_legacy_clip = backend->begin_clip && backend->end_clip &&
+        backend->begin_clip(backend->ctx, block, state->x, state->y, RENDER_CLIP_LEGACY);
 
     PaintEffectGroup group = {};
     bool has_effect_group = render_walk_block_effect_group(block, state->x, state->y, &group,
@@ -326,6 +329,7 @@ static void render_walk_block_finish(RenderPaintBlockDriver* ctx, ViewBlock* blo
         backend->end_effect_group(backend->ctx);
     }
 
+    if (p->opened_legacy_clip) backend->end_clip(backend->ctx);
     if (p->opened_clip) {
         backend->end_clip(backend->ctx);
     }
@@ -514,12 +518,15 @@ static void render_walk_stacking_path(RenderBackend* backend, RenderWalkState* s
     if (block->in_line && block->inl()->has_color) state->color = block->inl()->color;
     bool shape_clip = backend->begin_clip && backend->end_clip &&
         backend->begin_clip(backend->ctx, block, state->x, state->y, RENDER_CLIP_SHAPE);
+    bool legacy_clip = backend->begin_clip && backend->end_clip &&
+        backend->begin_clip(backend->ctx, block, state->x, state->y, RENDER_CLIP_LEGACY);
     bool content_clip = backend->begin_clip && backend->end_clip &&
         backend->begin_clip(backend->ctx, block, state->x, state->y, RENDER_CLIP_CONTENTS);
     if (backend->begin_block_children) backend->begin_block_children(backend->ctx, block);
     render_walk_stacking_path(backend, state, child, target);
     if (backend->end_block_children) backend->end_block_children(backend->ctx, block);
     if (content_clip) backend->end_clip(backend->ctx);
+    if (legacy_clip) backend->end_clip(backend->ctx);
     if (shape_clip) backend->end_clip(backend->ctx);
     *state = saved;
 }

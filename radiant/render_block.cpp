@@ -374,6 +374,7 @@ typedef struct RenderBlockPhase {
     RenderElementMarkerScope marker_scope;
     RenderTransformScope transform_scope;
     RenderClipScope css_clip_scope;
+    RenderClipScope legacy_clip_scope;
     RenderEffectGroup effect_group;
     bool self_hidden;
 } RenderBlockPhase;
@@ -450,6 +451,8 @@ static RenderBlockPhase render_block_begin_phase(RasterRenderContext* rdcon, Vie
     render_block_setup_font(rdcon, block);
 
     phase.css_clip_scope = render_clip_push_css_scope(rdcon, block,
+        phase.parent_block.x, phase.parent_block.y, rdcon->raster_scale);
+    phase.legacy_clip_scope = render_clip_push_legacy_scope(rdcon, block,
         phase.parent_block.x, phase.parent_block.y, rdcon->raster_scale);
     phase.effect_group = render_effect_group_begin(rdcon, block, &phase.parent_block);
     return phase;
@@ -599,6 +602,7 @@ static void render_raster_stacking_path(RasterRenderContext* rdcon, View* owner,
     FontBox font = rdcon->font;
     Color color = rdcon->color;
     RenderClipScope css_clip = render_clip_push_css_scope(rdcon, block, saved.x, saved.y, rdcon->raster_scale);
+    RenderClipScope legacy_clip = render_clip_push_legacy_scope(rdcon, block, saved.x, saved.y, rdcon->raster_scale);
     rdcon->block.x += block->x * rdcon->raster_scale;
     rdcon->block.y += block->y * rdcon->raster_scale;
     render_block_setup_font(rdcon, block);
@@ -608,6 +612,7 @@ static void render_raster_stacking_path(RasterRenderContext* rdcon, View* owner,
     RenderClipScope overflow = render_clip_push_overflow_scope(rdcon, block, origin_x, origin_y);
     render_raster_stacking_path(rdcon, child, target);
     if (overflow.active) render_clip_pop_scope(rdcon, &overflow);
+    if (legacy_clip.active) render_clip_pop_scope(rdcon, &legacy_clip);
     if (css_clip.active) render_clip_pop_scope(rdcon, &css_clip);
     rdcon->block = saved; rdcon->font = font; rdcon->color = color;
 }
@@ -666,6 +671,8 @@ static void render_block_finish_phase(RasterRenderContext* rdcon, ViewBlock* blo
     }
 
     render_effect_group_finish(&phase->effect_group, block, &rdcon->block.clip);
+
+    if (phase->legacy_clip_scope.active) render_clip_pop_scope(rdcon, &phase->legacy_clip_scope);
 
     if (phase->css_clip_scope.active) {
         uint64_t tc1 = time_now_ns();

@@ -2460,7 +2460,7 @@ typedef struct RadiantStackPaintList {
     int count;
 } RadiantStackPaintList;
 
-enum RenderClipKind { RENDER_CLIP_SHAPE, RENDER_CLIP_CONTENTS };
+enum RenderClipKind { RENDER_CLIP_SHAPE, RENDER_CLIP_CONTENTS, RENDER_CLIP_LEGACY };
 
 struct RenderBackend {
     lam::Up<RenderContext> ctx;   // the backend's context: RasterRenderContext, SvgRenderContext or PdfRenderContext
@@ -4102,6 +4102,9 @@ typedef struct RenderClipScope {
 } RenderClipScope;
 
 const char* render_clip_css_value(ViewElement* view);
+bool render_clip_legacy_geometry(ViewBlock* block, Bound* clip);
+RenderClipScope render_clip_push_legacy_scope(RasterRenderContext* context, ViewBlock* block,
+    float parent_x, float parent_y, float scale);
 RenderClipScope render_clip_push_css_scope(RasterRenderContext* rdcon, ViewBlock* block,
                                            float parent_x, float parent_y, float scale);
 bool render_clip_push_vector_css(PaintList* paint, ViewElement* element,

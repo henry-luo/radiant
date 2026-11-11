@@ -60,6 +60,7 @@ struct CssUsedGeometry {
     CssEnum position, clear, float_prop;
     int z_index;
     bool has_z_index;
+    LegacyClipRect clip;
 };
 // retained flow restores used lengths without changing the computed record's clean baseline.
 void css_used_geometry_capture(LayoutContext* context, DomElement* element, CssUsedGeometry* geometry);

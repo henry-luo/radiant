@@ -352,6 +352,19 @@ void target_block_view(EventContext* evcon, ViewBlock* block) {
     evcon->block.x = pa_block.x + block->x + fixed.x - layer_parent_offset.x;
     evcon->block.y = pa_block.y + block->y + fixed.y - layer_parent_offset.y;
     MousePositionEvent* event = &evcon->event.mouse_position;
+    Bound legacy_clip;
+    if (render_clip_legacy_geometry(block, &legacy_clip) &&
+        (event->x < evcon->block.x + legacy_clip.left ||
+         event->x >= evcon->block.x + legacy_clip.right ||
+         event->y < evcon->block.y + legacy_clip.top ||
+         event->y >= evcon->block.y + legacy_clip.bottom)) {
+        // a legacy clip suppresses the owner's border and every descendant hit before scrolling.
+        evcon->block = pa_block;
+        evcon->event.mouse_position.x = pointer_x;
+        evcon->event.mouse_position.y = pointer_y;
+        log_leave();
+        return;
+    }
     // an invisible box cannot claim the hit; traversal still reaches visible descendants.
     bool self_unhittable = view_visibility_is_hidden(block) || event_view_pointer_events_none(
         static_cast<View*>(block));

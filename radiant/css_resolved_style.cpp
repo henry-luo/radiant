@@ -437,6 +437,7 @@ static void css_geometry_transfer(LayoutContext* context, DomElement* element,
         css_transfer_value<capture>(&position->float_prop, &geometry->float_prop);
         css_transfer_value<capture>(&position->z_index, &geometry->z_index);
         css_transfer_value<capture>(&position->has_z_index, &geometry->has_z_index);
+        css_transfer_value<capture>(&position->clip, &geometry->clip);
     }
     if (capture || element->flex_item()) {
         FlexItemProp initial;

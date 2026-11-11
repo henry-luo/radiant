@@ -49,7 +49,8 @@ void layout_replaced_image_facts(ReplacedIntrinsicFacts* facts, ImageSurface* im
             facts->has_natural_aspect_ratio = image->natural_aspect_ratio > 0.0f;
         }
         // intrinsic consumers need concrete fallback axes without promoting them to natural metadata.
-        layout_replaced_default_object_size(facts, 300.0f, 150.0f, &facts->width, &facts->height);
+        layout_replaced_default_object_size(facts, REPLACED_DEFAULT_WIDTH, REPLACED_DEFAULT_HEIGHT,
+            &facts->width, &facts->height);
         facts->has_default_size = !facts->has_natural_width || !facts->has_natural_height;
         return;
     }
@@ -106,9 +107,9 @@ bool layout_replaced_content_size(const ReplacedIntrinsicFacts* facts,
     float max_w = fmaxf(min_w, c.max_width), max_h = fmaxf(min_h, c.max_height);
     float w = auto_width ? facts->has_natural_width ? facts->natural_width
         : facts->has_natural_height && ratio > 0.0f ? facts->natural_height * ratio
-        : fminf(300.0f, available_width) : c.width;
+        : fminf(REPLACED_DEFAULT_WIDTH, available_width) : c.width;
     float h = auto_height ? facts->has_natural_height ? facts->natural_height
-        : ratio > 0.0f ? fmaxf(0.0f, (w + edge_x) / ratio - edge_y) : 150.0f : c.height;
+        : ratio > 0.0f ? fmaxf(0.0f, (w + edge_x) / ratio - edge_y) : REPLACED_DEFAULT_HEIGHT : c.height;
     if (auto_width && !auto_height && ratio > 0.0f)
         w = fmaxf(0.0f, (fmaxf(min_h, fminf(h, max_h)) + edge_y) * ratio - edge_x);
     if (auto_height && !auto_width && ratio > 0.0f)
@@ -144,12 +145,12 @@ bool layout_replaced_default_size(NameId tag, float* width, float* height) {
         case MARKUP_NAME_SVG:
         case MARKUP_NAME_SCENE3D:
         case MARKUP_NAME_GEOMAP:
-            default_width = 300.0f;
-            default_height = 150.0f;
+            default_width = REPLACED_DEFAULT_WIDTH;
+            default_height = REPLACED_DEFAULT_HEIGHT;
             break;
         case MARKUP_NAME_AUDIO:
-            default_width = 300.0f;
-            default_height = 54.0f;
+            default_width = REPLACED_DEFAULT_WIDTH;
+            default_height = AUDIO_DEFAULT_HEIGHT;
             break;
         default:
             return false;
@@ -386,7 +387,7 @@ bool layout_replaced_intrinsic_axis_size(LayoutContext* lycon, ViewBlock* block,
 
 ReplacedSvgIntrinsicSize layout_replaced_svg_intrinsic_size(DomElement* element,
                                                             float constrained_width) {
-    ReplacedSvgIntrinsicSize result = {300.0f, 150.0f};
+    ReplacedSvgIntrinsicSize result = {REPLACED_DEFAULT_WIDTH, REPLACED_DEFAULT_HEIGHT};
     if (!element) return result;
     Element* svg = dom_element_backing(lam::dom_require_element(element));
     SvgIntrinsicSize intrinsic = calculate_svg_intrinsic_size(svg);

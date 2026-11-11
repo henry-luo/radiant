@@ -1753,7 +1753,8 @@ bool layout_image_intrinsic_size(DomElement* element, ImageSurface* image,
     float height = (from_image || image->encoded_height <= 0 ? (float)image->height : (float)image->encoded_height) / density;
     if (image->format == IMAGE_FORMAT_SVG) {
         ReplacedIntrinsicFacts facts = {}; layout_replaced_image_facts(&facts, image, from_image, density);
-        layout_replaced_default_object_size(&facts, 300.0f, 150.0f, &width, &height);
+        layout_replaced_default_object_size(&facts, REPLACED_DEFAULT_WIDTH, REPLACED_DEFAULT_HEIGHT,
+            &width, &height);
     }
     if (width <= 0.0f || height <= 0.0f) return false;
     *out_width = width;

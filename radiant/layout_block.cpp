@@ -5157,9 +5157,11 @@ void layout_inline_svg(LayoutContext* lycon, ViewBlock* block) {
     SvgAnimationSourceScope animation_sources(block->as_element()->doc);
     layout_apply_svg_animated_dimensions(lycon, block);
     Element* native_elem = dom_element_backing(lam::dom_require_element(block));
+    float default_width = 0.0f, default_height = 0.0f;
+    layout_replaced_default_size(MARKUP_NAME_SVG, &default_width, &default_height);
     if (!native_elem) {
-        block->width = 300;  // HTML default for SVG
-        block->height = 150;
+        block->width = default_width;
+        block->height = default_height;
         return;
     }
     SvgIntrinsicSize intrinsic = calculate_svg_intrinsic_size(native_elem);
@@ -5255,7 +5257,7 @@ void layout_inline_svg(LayoutContext* lycon, ViewBlock* block) {
         } else if (intrinsic.has_intrinsic_width) {
             content_width = intrinsic.width;
         } else {
-            content_width = 300;  // HTML default
+            content_width = default_width;
         }
         if (use_zero_ratio_slot) {
             content_height = 0.0f;
@@ -5270,7 +5272,7 @@ void layout_inline_svg(LayoutContext* lycon, ViewBlock* block) {
         } else if (used_aspect_ratio > 0) {
             content_height = content_width / used_aspect_ratio;
         } else {
-            content_height = 150;  // HTML default
+            content_height = default_height;
         }
     }
     if (width_is_automatic && height_is_automatic && used_aspect_ratio > 0.0f) {
@@ -7894,8 +7896,8 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
         !block->get_attribute(MARKUP_NAME_DATA);
     bool object_uses_default_size = block->is_element() &&
         layout_object_uses_default_size(block->as_element());
-    float default_width = 300.0f;
-    float default_height = 150.0f;
+    float default_width = 0.0f;
+    float default_height = 0.0f;
     layout_replaced_default_size(elmt_name, &default_width, &default_height);
     if (elmt_name == MARKUP_NAME_IFRAME || elmt_name == MARKUP_NAME_VIDEO ||
         is_open_popover_object ||

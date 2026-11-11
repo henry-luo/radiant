@@ -2009,6 +2009,16 @@ typedef struct VectorPathProp {
     int dash_pattern_length;        // Length of dash pattern
 } VectorPathProp;
 
+struct LegacyClipRect {
+    float edges[4]; // top, right, bottom, left offsets from the border box
+    uint8_t auto_edges;
+    bool active;
+};
+
+constexpr float REPLACED_DEFAULT_WIDTH = 300.0f;
+constexpr float REPLACED_DEFAULT_HEIGHT = 150.0f;
+constexpr float AUDIO_DEFAULT_HEIGHT = 54.0f;
+
 // tier-2: view-pool, rebuilt each relayout
 typedef struct PositionProp {
     CssEnum position;     // static, relative, absolute, fixed, sticky
@@ -2031,6 +2041,7 @@ typedef struct PositionProp {
     float inline_relative_x, inline_relative_y; // offsets already applied in the parent inline frame
     CssEnum clear;        // clear property for floats
     CssEnum float_prop;   // float property (left, right, none)
+    LegacyClipRect clip;
     lam::Up<ViewBlock> first_abs_child;   // first child absolute/fixed positioned view
     lam::Up<ViewBlock> last_abs_child;    // last child absolute/fixed positioned view
     lam::Up<ViewBlock> next_abs_sibling;    // next sibling absolute/fixed positioned view

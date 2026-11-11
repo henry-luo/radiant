@@ -783,8 +783,8 @@ bool layout_canvas_natural_size(ViewBlock* block, float* out_width, float* out_h
 
     // Canvas attributes define its bitmap coordinate space, which remains its
     // natural size when CSS leaves the corresponding box size automatic.
-    *out_width = html_pixel_dimension_or_default(element, "width", 300.0f, true);
-    *out_height = html_pixel_dimension_or_default(element, "height", 150.0f, true);
+    *out_width = html_pixel_dimension_or_default(element, "width", REPLACED_DEFAULT_WIDTH, true);
+    *out_height = html_pixel_dimension_or_default(element, "height", REPLACED_DEFAULT_HEIGHT, true);
     return true;
 }
 
@@ -794,10 +794,10 @@ static void apply_html_replaced_default(LayoutContext* lycon, DomNode* element,
                                         bool default_invalid, bool ensure_block,
                                         bool default_when_missing = true) {
     block->display.inner = RDT_DISPLAY_REPLACED;
-    if (context_default) apply_html_context_default_size(lycon, 300.0f, 150.0f);
+    if (context_default) apply_html_context_default_size(lycon, REPLACED_DEFAULT_WIDTH, REPLACED_DEFAULT_HEIGHT);
     if (ensure_block) block->ensure_block(lycon);
     HtmlDimensionPolicy policy = {
-        300.0f, 150.0f, 0.0f, 0.0f, false, require_digit_start,
+        REPLACED_DEFAULT_WIDTH, REPLACED_DEFAULT_HEIGHT, 0.0f, 0.0f, false, require_digit_start,
         !context_default && default_when_missing, default_invalid, false, persist_in_block
     };
     apply_html_dimension_attributes(lycon, element, block, &policy);
@@ -1500,7 +1500,7 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         block->ensure_block(lycon);
         // Parse HTML width/height attributes; default 300x150 per HTML spec.
         HtmlDimensionPolicy policy = {
-            300.0f, 150.0f, 0.0f, 0.0f,
+            REPLACED_DEFAULT_WIDTH, REPLACED_DEFAULT_HEIGHT, 0.0f, 0.0f,
             true, false, true, false, true, true
         };
         apply_html_dimension_attributes(lycon, elmt, block, &policy);
@@ -1523,10 +1523,10 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
             block->ensure_block(lycon);
             radiant::css_resolved_style_note_axis(lycon, LAYOUT_AXIS_X);
             radiant::css_resolved_style_note_axis(lycon, LAYOUT_AXIS_Y);
-            lycon->block.given_width = 300;
-            block->blk->given_width = 300;
-            lycon->block.given_height = 54;
-            block->blk->given_height = 54;
+            lycon->block.given_width = REPLACED_DEFAULT_WIDTH;
+            block->blk->given_width = REPLACED_DEFAULT_WIDTH;
+            lycon->block.given_height = AUDIO_DEFAULT_HEIGHT;
+            block->blk->given_height = AUDIO_DEFAULT_HEIGHT;
         }
         // audio-only playback uses the same media ownership path as <video>.
         initialize_html_media(lycon, elmt, block, false);

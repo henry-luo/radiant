@@ -4,6 +4,8 @@
 #include "radiant/tagged.hpp"
 #include "radiant/view.hpp"
 #include "radiant/render.hpp"
+#include "radiant/event_hit_test.hpp"
+#include "radiant/event.hpp"
 #include "lambda/input/input.hpp"
 #include "lambda/io/image_io.h"
 #include "lib/file.h"
@@ -150,6 +152,97 @@ protected:
         EXPECT_FLOAT_EQ(status->height, 28.0f);
     }
 };
+
+TEST_F(DynamicLayoutTest, LegacyClipBoundsOwnPaintDescendantsAndNativeHits) {
+    load("<!doctype html><style>html,body{margin:0;background:white}"
+         "#box{position:absolute;left:20px;top:20px;width:100px;height:80px;"
+         "background:red;clip:rect(10px,60px,50px,20px)}"
+         "#child{position:absolute;left:25px;top:15px;width:10px;height:10px;"
+         "background:blue;z-index:1}</style><div id='box'><div id='child'></div></div>");
+    ASSERT_NE(document, nullptr);
+    DomElement* box = element("box");
+    ASSERT_NE(box, nullptr);
+    const char* styles[] = {"", "clip:rect(auto 50px auto auto)",
+        "clip:rect(60px,20px,10px,50px)", "clip:auto",
+        "position:relative;clip:rect(0px,0px,0px,0px)",
+        "position:fixed;clip:rect(-10px,60px,50px,-10px);clip-path:inset(20px)"};
+    const float points[][2] = {{25,25}, {50,40}, {90,60}, {50,90}};
+    const bool visible[][4] = {{false,true,false,false}, {true,true,false,true},
+        {false,false,false,false}, {true,true,true,true}, {true,true,true,true},
+        {false,true,false,false}};
+    for (size_t phase = 0; phase < sizeof(styles) / sizeof(styles[0]); phase++) {
+        SCOPED_TRACE(phase);
+        if (phase) {
+            ASSERT_TRUE(box->set_attribute("style", styles[phase]));
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, true);
+        }
+        char output[96];
+        snprintf(output, sizeof(output), "temp/ledger-next-clip-%zu.png", phase);
+        render_html_doc(&ui, document->view_tree, output);
+        ASSERT_FALSE(ui.render_failed);
+        snprintf(output, sizeof(output), "temp/ledger-next-clip-%zu.svg", phase);
+        char* svg = render_view_tree_to_svg(&ui, document->view_tree->root, 1200.0f, 800.0f);
+        ASSERT_NE(svg, nullptr);
+        EXPECT_TRUE(save_svg_to_file(svg, output));
+        mem_free(svg);
+        snprintf(output, sizeof(output), "temp/ledger-next-clip-%zu.png", phase);
+        int width, height, channels;
+        unsigned char* pixels = image_load(output, &width, &height, &channels, 4);
+        ASSERT_NE(pixels, nullptr);
+        for (size_t i = 0; i < 4; i++) {
+            SCOPED_TRACE(i);
+            const unsigned char* pixel = pixels +
+                ((size_t)points[i][1] * (size_t)width + (size_t)points[i][0]) * 4;
+            EXPECT_EQ(pixel[1], visible[phase][i] ? 0 : 255);
+            // the clip rectangle covers both the owner's border box and lifted descendants.
+            EventContext context = {};
+            context.ui_context = &ui;
+            context.target_document = document;
+            context.event.type = RDT_EVENT_MOUSE_MOVE;
+            context.event.mouse_position.x = context.viewport_pointer_x = points[i][0];
+            context.event.mouse_position.y = context.viewport_pointer_y = points[i][1];
+            target_html_doc(&context, document->view_tree);
+            DomNode* hit = context.target;
+            bool hit_box = hit == box || (hit && hit->parent == box);
+            // clip-path hit testing is a separate existing conformance limit.
+            if (phase != 5) EXPECT_EQ(hit_box, visible[phase][i]);
+        }
+        image_free(pixels);
+    }
+}
+
+TEST_F(DynamicLayoutTest, LegacyClipResolvesLengthsInheritanceAndAutoEdgesAfterSizing) {
+    load("<!doctype html><style>html,body{margin:0}#parent{font-size:10px;"
+         "--edge:2em;clip:rect(calc(1em + 2px),auto,auto,var(--edge))}"
+         "#child{position:absolute;width:100px;height:80px;clip:inherit}"
+         "</style><div id='parent'><div id='child'></div></div>");
+    ASSERT_NE(document, nullptr);
+    DomElement* parent = element("parent");
+    DomElement* child = element("child");
+    ASSERT_NE(parent, nullptr);
+    ASSERT_NE(child, nullptr);
+    Bound clip;
+    EXPECT_FALSE(render_clip_legacy_geometry(lam::view_require_block(parent), &clip));
+    ASSERT_TRUE(render_clip_legacy_geometry(lam::view_require_block(child), &clip));
+    EXPECT_FLOAT_EQ(clip.left, 20.0f);
+    EXPECT_FLOAT_EQ(clip.top, 12.0f);
+    EXPECT_FLOAT_EQ(clip.right, 100.0f);
+    EXPECT_FLOAT_EQ(clip.bottom, 80.0f);
+    ASSERT_TRUE(parent->set_attribute("style", "font-size:20px"));
+    ASSERT_TRUE(child->set_attribute("style", "width:150px;height:90px"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, true);
+    ASSERT_TRUE(render_clip_legacy_geometry(lam::view_require_block(child), &clip));
+    EXPECT_FLOAT_EQ(clip.left, 40.0f);
+    EXPECT_FLOAT_EQ(clip.top, 22.0f);
+    EXPECT_FLOAT_EQ(clip.right, 150.0f);
+    EXPECT_FLOAT_EQ(clip.bottom, 90.0f);
+    ASSERT_TRUE(child->set_attribute("style", "clip:unset"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, true);
+    EXPECT_FALSE(render_clip_legacy_geometry(lam::view_require_block(child), &clip));
+}
 
 TEST_F(DynamicLayoutTest, ColumnFlexMeasuresNestedWrappingRows) {
     load_nested_flex_toolbar("wrap", "wrap");

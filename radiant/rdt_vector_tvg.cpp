@@ -1691,8 +1691,8 @@ static RdtPicture* svg_picture_create(const char* data, int size, const char* so
 
     // intrinsic size
     SvgIntrinsicSize isz = calculate_svg_intrinsic_size(svg_root);
-    float w = isz.width  > 0 ? isz.width  : 300.0f;
-    float h = isz.height > 0 ? isz.height : 150.0f;
+    float w = isz.width  > 0 ? isz.width  : REPLACED_DEFAULT_WIDTH;
+    float h = isz.height > 0 ? isz.height : REPLACED_DEFAULT_HEIGHT;
 
     RdtPicture* p = (RdtPicture*)mem_calloc(1, sizeof(RdtPicture), MEM_CAT_RENDER); // OBJ_HEAP_OK: the caller owns the picture; RdtPicture::release frees it
     p->kind = RdtPicture::KIND_SVG_DOM;

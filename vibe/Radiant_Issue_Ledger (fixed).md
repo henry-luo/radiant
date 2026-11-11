@@ -938,3 +938,47 @@ Receipts: [verification summary](../temp/ledger-impl-verification-summary.json),
 [implementation record](Radiant_Impl_Ledger_Repairs.md). The summary pins the
 host and changed source/header/test identities; only documentation changed
 after the passing aggregate.
+
+## Continued native clip and default-size repairs — 2026-11-11
+
+**Final owner qualification:** `make -j8 run-radiant-baseline test-native-closure`
+passes 893 native tests plus static smoke, 7 runner contracts, all 3,851 static
+and 630 dynamic geometry comparisons and native archive closure. One hardware
+MIDI test and six static fixtures retain their existing skips. Layout-cast lint
+checks 89 casts with zero unmarked; its five contracts, the input facade and
+diff checks pass. The [receipt](../temp/ledger-next-verification-summary.json)
+pins source and executable/archive hashes; only documentation changed afterward.
+Six PNG/SVG clip states independently match fresh Chrome pixels. The original
+failing native clip report remains in `temp/ledger-next-clip-before.{json,log}`.
+
+<a id="rad02-3"></a>
+
+#### RAD02-3
+
+**`clip: rect()` not parsed.** `resolve_css_style.cpp:9908` has a TODO to parse `rect()` values into scroller clip bounds; currently ignored.
+
+**Resolved (2026-11-11):** the native dispatcher now resolves rectangle lengths and auto edges into view-owned position data. Shared border-box geometry clips the positioned HTML owner, descendant paint, vector output and native hits, including retained updates. Two native controls pass; six raster/vector states match fresh Chrome pixels. See the [implementation and scoped limits](Radiant_Impl_Ledger_Clip_Defaults.md#rad02-3--legacy-rectangle-clipping) and [qualification receipt](../temp/ledger-next-verification-summary.json). Authority: **D5.5 / D9.1.1v4 / D9.1.3v2**.
+
+<a id="rad03-3"></a>
+
+#### RAD03-3
+
+**Replaced-element 300×150 defaults are duplicated.** The HTML default replaced size appears as scattered literals — e.g. `layout_block.cpp:5849` (`... : 300.0f`) and `5864` (`given_height = 150.0f`), plus the `layout_measure.cpp` intrinsic path (RAD05). Correct per spec but duplicated rather than centralized in one constant, so a change must be made in several places.
+
+**Resolved (2026-11-11):** replaced width/height and audio height now have one native constant definition. Inline SVG, HTML hints, sizing, SVG metadata and picture fallbacks share those constants or the existing `layout_replaced_default_size` provider. Full geometry qualification preserves existing sizes; see the [implementation record](Radiant_Impl_Ledger_Clip_Defaults.md#rad03-3--rad04-3--replaced-defaults). Authority: **D9.1.1v4 / D9.1.3v2**.
+
+<a id="rad04-3"></a>
+
+#### RAD04-3
+
+**Hard-coded replaced defaults are duplicated.** The 300×150 (and 300×54 audio) intrinsic defaults live both in `layout_measure.cpp:105`+ and scattered through `layout_block.cpp` (SVG/iframe/hr paths). Centralizing them into one table would remove the drift risk.
+
+**Resolved (2026-11-11):** the duplicate replaced defaults are consolidated with [RAD03-3](#rad03-3); the existing tag-based sizing provider remains authoritative. See [implementation and qualification](Radiant_Impl_Ledger_Clip_Defaults.md#rad03-3--rad04-3--replaced-defaults). Authority: **D9.1.1v4 / D9.1.3v2**.
+
+<a id="rad16-5"></a>
+
+#### RAD16-5
+
+**`radiant_frame_clock_start` has dead trailing statements.** The `#else` fallthrough stores `running = 0` and returns `false`, but the two statements after the `#endif` (`frame_clock.cpp:369`-`370`) are unreachable on every platform — harmless but confusing.
+
+**Resolved (2026-11-11):** removed the shared trailing store/return after the platform selection. The macOS defensive mode rejection remains inside its own branch, and all branches now return explicitly. Native animation/scheduler regressions remain in the aggregate gate. See the [implementation record](Radiant_Impl_Ledger_Clip_Defaults.md#rad16-5--frame-clock-control-flow). Authority: **D9.1.1v4 / D9.1.3v2**.

@@ -631,6 +631,35 @@ bool render_clip_push_vector_css(PaintList* paint, ViewElement* element,
     return paint_list_count(paint) > before;
 }
 
+bool render_clip_legacy_geometry(ViewBlock* block, Bound* bounds) {
+    if (!block || !bounds || !block->position ||
+        !layout_block_is_out_of_flow_positioned(block) || !block->positionp()->clip.active) return false;
+    const LegacyClipRect& clip = block->positionp()->clip;
+    float edges[4];
+    const float defaults[] = {0.0f, block->width, block->height, 0.0f};
+    for (size_t side = 0; side < 4; side++)
+        edges[side] = clip.auto_edges & (1u << side) ? defaults[side] : clip.edges[side];
+    *bounds = {edges[3], edges[0], fmaxf(edges[3], edges[1]), fmaxf(edges[0], edges[2])};
+    return true;
+}
+
+RenderClipScope render_clip_push_legacy_scope(RasterRenderContext* context, ViewBlock* block,
+        float parent_x, float parent_y, float scale) {
+    Bound clip;
+    if (!context || !render_clip_legacy_geometry(block, &clip)) return {};
+    float x = parent_x + block->x * scale, y = parent_y + block->y * scale;
+    ScratchMark memory = scratch_scope_begin(&context->scratch);
+    ClipShape* shape = render_clip_alloc_shape(&context->scratch, &memory);
+    if (shape) {
+        shape->type = CLIP_SHAPE_INSET;
+        shape->inset = {x + clip.left * scale, y + clip.top * scale,
+            (clip.right - clip.left) * scale, (clip.bottom - clip.top) * scale, 0.0f, 0.0f};
+    }
+    RenderClipScope scope = {};
+    render_clip_push_owned_shape(context, &scope, shape, &memory, render_state_current_transform(context));
+    return scope;
+}
+
 bool render_clip_overflow_geometry(ViewBlock* block, Bound* clip, Corner* radius) {
     if (!clip || !radius || !layout_block_overflow_clip(block, clip)) return false;
     *radius = {};
@@ -680,7 +709,12 @@ bool render_clip_push_vector(PaintList* paint, ViewElement* element,
     if (kind == RENDER_CLIP_SHAPE) return render_clip_push_vector_css(paint, element, abs_x, abs_y);
     ViewBlock* block = lam::view_as_block(element);
     Bound clip; Corner radius;
-    if (!paint || !render_clip_overflow_bounds(block, abs_x, abs_y, 1.0f,
+    if (!paint) return false;
+    if (kind == RENDER_CLIP_LEGACY) {
+        if (!render_clip_legacy_geometry(block, &clip)) return false;
+        clip = {abs_x + clip.left, abs_y + clip.top, abs_x + clip.right, abs_y + clip.bottom};
+        radius = {};
+    } else if (!render_clip_overflow_bounds(block, abs_x, abs_y, 1.0f,
             visible, transform, &clip, &radius)) return false;
     RdtPath* path = render_path_create_rounded_rect(
         {clip.left, clip.top, clip.right - clip.left, clip.bottom - clip.top}, &radius);

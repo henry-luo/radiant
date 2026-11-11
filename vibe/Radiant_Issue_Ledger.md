@@ -20,6 +20,16 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+Continued owner-local repairs (2026-11-11): RAD02-3 now clips positioned HTML
+paint, vector output and native hits; RAD03-3 / RAD04-3 share replaced-size
+defaults; RAD16-5 no longer has an unreachable frame-clock tail. See the
+[implementation and qualification](Radiant_Impl_Ledger_Clip_Defaults.md).
+The original reports are retained in the fixed ledger with scoped limits.
+Final gate: **893 native tests plus static smoke, all 4,481 geometry comparisons,
+7 runner contracts and native archive closure pass**. Existing hardware/static
+skips remain; layout lint checks 89 casts with zero unmarked and its five
+contracts pass. See the [pinned receipt](../temp/ledger-next-verification-summary.json).
+
 Latest bounded implementation (2026-11-11): horizontal flex baseline groups,
 video posters, a pass-local whitespace cache, and alignment/batch module
 extractions are implemented under D9.1.1v4 / D9.1.3v2. RAD22-6 is archived;
@@ -137,9 +147,7 @@ Authority: **D9.1.1v4 / D9.1.3v2**.
 
 <a id="rad02-3"></a>
 
-#### RAD02-3
-
-**`clip: rect()` not parsed.** `resolve_css_style.cpp:9908` has a TODO to parse `rect()` values into scroller clip bounds; currently ignored.
+- [RAD02-3](<Radiant_Issue_Ledger (fixed).md#rad02-3>).
 
 <a id="rad02-4"></a>
 
@@ -191,9 +199,7 @@ The historical stub description below predates the current implementation.
 
 <a id="rad03-3"></a>
 
-#### RAD03-3
-
-**Replaced-element 300×150 defaults are duplicated.** The HTML default replaced size appears as scattered literals — e.g. `layout_block.cpp:5849` (`... : 300.0f`) and `5864` (`given_height = 150.0f`), plus the `layout_measure.cpp` intrinsic path (RAD05). Correct per spec but duplicated rather than centralized in one constant, so a change must be made in several places.
+- [RAD03-3](<Radiant_Issue_Ledger (fixed).md#rad03-3>).
 
 <a id="rad03-4"></a>
 
@@ -240,9 +246,7 @@ historical stub description below predates the current helper implementation.
 
 <a id="rad04-3"></a>
 
-#### RAD04-3
-
-**Hard-coded replaced defaults are duplicated.** The 300×150 (and 300×54 audio) intrinsic defaults live both in `layout_measure.cpp:105`+ and scattered through `layout_block.cpp` (SVG/iframe/hr paths). Centralizing them into one table would remove the drift risk.
+- [RAD04-3](<Radiant_Issue_Ledger (fixed).md#rad04-3>).
 
 <a id="rad04-5"></a>
 
@@ -725,9 +729,7 @@ Lambda-owned and is retained in the [mixed historical record](../../Lambda/vibe/
 
 <a id="rad16-5"></a>
 
-#### RAD16-5
-
-**`radiant_frame_clock_start` has dead trailing statements.** The `#else` fallthrough stores `running = 0` and returns `false`, but the two statements after the `#endif` (`frame_clock.cpp:369`-`370`) are unreachable on every platform — harmless but confusing.
+- [RAD16-5](<Radiant_Issue_Ledger (fixed).md#rad16-5>).
 
 <a id="rad16-6"></a>
 

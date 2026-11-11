@@ -334,6 +334,8 @@ bool radiant_frame_clock_start(RadiantFrameClock* clock) {
         clock->native_started = true;
         return true;
     }
+    frame_clock_store_int(&platform->running, 0);
+    return false;
 #elif defined(_WIN32)
     platform->thread_handle = CreateThread(NULL, 0, frame_clock_windows_thread_main,
                                            platform, 0, NULL);
@@ -370,9 +372,6 @@ bool radiant_frame_clock_start(RadiantFrameClock* clock) {
     frame_clock_store_int(&platform->running, 0);
     return false;
 #endif
-
-    frame_clock_store_int(&platform->running, 0);
-    return false;
 }
 
 void radiant_frame_clock_shutdown(RadiantFrameClock* clock) {
