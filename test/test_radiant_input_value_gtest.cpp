@@ -7,6 +7,8 @@
 #include "radiant/loader_runtime_host.hpp"
 #include "radiant/reactive_render_host.hpp"
 #include "radiant/stylesheet_sync.hpp"
+#include "radiant/resource_loaders.h"
+#include "lambda/network/network_resource_manager.h"
 #include "lambda/input/css/dom_element.hpp"
 #include "lambda/input/css/css_engine.hpp"
 #include "lambda/input/input.hpp"
@@ -71,6 +73,44 @@ TEST(RadiantInputValueTest, NativeInlineStylesheetsTrackTextAndDocumentOrder) {
     ASSERT_EQ(document->stylesheet_count, 1);
     EXPECT_EQ(document->stylesheets[0]->owner_element, second);
 }
+TEST(RadiantInputValueTest, DownloadedStylesheetsUseOwnerOrderAcrossCompletionOrder) {
+    NativeInputDocument fixture;
+    DomDocument* document = fixture.document;
+    ASSERT_NE(document, nullptr);
+    ASSERT_TRUE(css_property_system_init(document->document_pool));
+    DomElement* root = dom_create_backed_element_identity(document, "head", nullptr, false);
+    DomElement* first = dom_create_backed_element_identity(document, "link", nullptr, false);
+    DomElement* middle = dom_create_backed_element_identity(document, "style", nullptr, false);
+    DomElement* last = dom_create_backed_element_identity(document, "link", nullptr, false);
+    ASSERT_TRUE(root && first && middle && last);
+    document->root = lam::up(root);
+    ASSERT_TRUE(root->append_child(first));
+    ASSERT_TRUE(root->append_child(middle));
+    ASSERT_TRUE(root->append_child(last));
+    const char* css = ".sample { color: red; }";
+    DomText* text = DomText::create_detached_copy(document, css, strlen(css));
+    ASSERT_NE(text, nullptr);
+    ASSERT_TRUE(middle->append_child(text));
+    ASSERT_TRUE(radiant_sync_inline_stylesheet(middle));
+    NetworkResource resource = {};
+    char url[] = "https://example.test/order.css";
+    char path[] = "test/fixtures/stylesheet-order.css";
+    resource.url = url;
+    resource.local_path = path;
+    resource.state = STATE_COMPLETED;
+    resource.owner_element = last;
+    process_css_resource(&resource, document);
+    resource.state = STATE_CACHED;
+    resource.owner_element = first;
+    process_css_resource(&resource, document);
+    ASSERT_EQ(document->stylesheet_count, 3);
+    EXPECT_EQ(document->stylesheets[0]->owner_element, first);
+    EXPECT_EQ(document->stylesheets[1]->owner_element, middle);
+    EXPECT_EQ(document->stylesheets[2]->owner_element, last);
+    EXPECT_EQ(document->stylesheets[0]->rule_count, 1u);
+    EXPECT_EQ(document->stylesheets[2]->rule_count, 1u);
+}
+
 static Runtime* loader_test_get(UiContext* host) { loader_test_host = host; return loader_test_runtime; }
 static void loader_test_finish(DomDocument* doc, Runtime* runtime) {
     loader_test_document = doc;

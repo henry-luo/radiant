@@ -2395,6 +2395,7 @@ void render_block_view_content(RasterRenderContext* rdcon, ViewBlock* block,
 // render embedded HTML through the ordinary child, scrolling and stacking phases.
 double render_block_paint_children(RasterRenderContext* rdcon, ViewBlock* block);
 void render_embed_doc(RasterRenderContext* rdcon, ViewBlock* block);
+ViewBlock* render_document_canvas_background_view(View* root_view);
 Color render_document_canvas_background(View* root_view);
 Color render_document_output_background(View* root_view);
 void render_inline_view(RasterRenderContext* rdcon, ViewSpan* view_span);

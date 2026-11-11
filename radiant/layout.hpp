@@ -4942,6 +4942,7 @@ void layout_flow_children(LayoutContext* lycon, DomNode* first_child,
                           bool finalize_line = false,
                           void (*prepare_child)(LayoutContext*, DomNode*) = nullptr);
 void layout_center_button_text(LayoutContext* lycon, ViewBlock* block);
+DisplayValue layout_button_used_display(DomElement* element, DisplayValue computed);
 float layout_button_content_center_offset(ViewBlock* block, float content_extent);
 void layout_shift_content_baselines(LayoutContext* lycon, ViewBlock* block, float delta);
 // CSS Shadow DOM: return the tree that supplies a host's rendered children;

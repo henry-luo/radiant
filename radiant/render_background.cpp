@@ -32,6 +32,25 @@ static BackgroundLayer* background_layer_at(BackgroundProp* background, int inde
     return const_cast<BackgroundLayer*>(background_layer_at(static_cast<const BackgroundProp*>(background), index));
 }
 
+ViewBlock* render_document_canvas_background_view(View* root) {
+    if (!root || root->view_type != RDT_VIEW_BLOCK) return nullptr;
+    ViewBlock* html = static_cast<ViewBlock*>(root);
+    BackgroundProp* background = html->bound ? html->boundary()->background.get() : nullptr;
+    bool has_image = false;
+    for (int i = 0; background && i < background_layer_count(background); i++) {
+        const BackgroundLayer* layer = background_layer_at(background, i);
+        has_image |= layer->image || layer->gradient_type != GRADIENT_NONE;
+    }
+    if (background && (background->color.a || has_image)) return html;
+    if (html->tag_id != MARKUP_NAME_HTML) return html;
+    for (View* child = html->first_child; child; child = child->next_sibling) {
+        if (child->view_type == RDT_VIEW_BLOCK && child->is_element() &&
+                child->as_element()->tag_id == MARKUP_NAME_BODY)
+            return static_cast<ViewBlock*>(child);
+    }
+    return html;
+}
+
 struct BackgroundGlyphMask {
     const GlyphBitmap* bitmap;
     float x, y;
@@ -1907,6 +1926,12 @@ static bool record_background(PaintList* paint, UiContext* ui, ViewBlock* view, 
         PaintList image_layer;
         context.paint = glyph_mask ? &image_layer : paint;
         background_source_rects(ui, view, layer, rect, painting_area ? *painting_area : rect, 1.0f, &position, &clip);
+        if (!text_only && ui->document && ui->document->view_tree &&
+                render_document_canvas_background_view(ui->document->view_tree->root) == view) {
+            // canvas images cover the viewport even when out-of-flow content leaves body empty.
+            clip = {0.0f, 0.0f, fmaxf(ui->viewport_width, clip.x + clip.width),
+                fmaxf(ui->viewport_height, clip.y + clip.height)};
+        }
         context.image = layer->image ? load_document_image(ui->document, ui, layer->image) : nullptr;
         if (layer->image && !context.image) continue;
         // semantic image commands borrow decoded pixels; metadata alone is

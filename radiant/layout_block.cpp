@@ -5513,7 +5513,7 @@ void layout_materialize_pseudo_content(LayoutContext* lycon, ViewBlock* block,
 
 void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display);
 
-static DisplayValue layout_button_used_display(DomElement* element,
+DisplayValue layout_button_used_display(DomElement* element,
                                                 DisplayValue computed) {
     if (!element || element->tag() != MARKUP_NAME_BUTTON ||
         computed.outer == CSS_VALUE_NONE || computed.outer == CSS_VALUE_CONTENTS) {

@@ -4,7 +4,80 @@ Resolved native Radiant issues under D9.1.1v4 and D9.1.3v2. Entries retain
 their original IDs, reproduction evidence, fixes and verification limits.
 Active issues remain in the [Radiant Issue Ledger](Radiant_Issue_Ledger.md).
 
+Verification for RI-013/RI-014/RI-015 (2026-11-11): Lambda's final
+`make test-radiant-baseline` exits 0 with **8,163 passed / 299 partial / 20 skipped**
+of 8,482 cases and no failures. Owner `make test-native` passes 902 tests with
+one unrelated, reproducible speech-provider failure recorded as RI-016.
+The Lambda core gate passes 7,412/7,413, with its separate watercolor timeout
+recorded as LR12-45. References, tolerances, deadlines and expected outputs
+are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
+
 ## Fixed issues
+
+<a id="ri-013"></a>
+
+### RI-013 — Downloaded CSS overrides later document styles
+
+**Status:** RESOLVED, 2026-11-11. **Lambda blocker:** cleared for the public
+Kian Hup login rendering task. Ownership: **D9.1.1v4 / D9.1.3v2**.
+
+`process_css_resource()` appended a downloaded sheet without its link owner
+and bypassed inline styles' document-order sorting. A dynamically inserted
+Bootstrap link could therefore override the template and page styles after
+its download completed. The handler now sets `owner_element` and uses the
+promoted `radiant_append_document_stylesheet()` helper; the duplicate append
+and array-growth implementation is removed.
+
+The owner regression
+`RadiantInputValueTest.DownloadedStylesheetsUseOwnerOrderAcrossCompletionOrder`
+loads completed/cached resources in reverse order around an inline style and
+checks all three owners. It and the existing inline mutation/order test pass.
+The Lambda host separately repairs `link.rel` reflection and parser-blocking
+head insertion order under **D8.4.4 / D6.3**.
+
+<a id="ri-014"></a>
+
+### RI-014 — A zero-height body loses its canvas background image
+
+**Status:** RESOLVED, 2026-11-11. **Lambda blocker:** cleared for login rendering.
+Ownership: **D9.1.1v4 / D9.1.3v2**.
+
+`lambda.exe view https://kianhup.com/login` loaded the 6x6 tile, but all body
+content is absolutely positioned and the body's height is zero. Native canvas
+propagation handled only color, leaving the image's painting area empty.
+The shared background recorder now extends the selected canvas image layer's
+painting area to the viewport. Canvas source selection also checks root
+images before propagating a body background, rather than checking color alone.
+Image positioning remains based on the existing box geometry; transformed,
+contained and fragmented canvas backgrounds are outside this repair's checks.
+The relevant CSS rule is [CSS Backgrounds 3 §2.11](https://www.w3.org/TR/css-backgrounds-3/#special-backgrounds).
+
+Lambda integration fixture `canvas_body_background` passes its viewport pixel
+assertions beyond a zero-height body and verifies that a root background color
+suppresses body propagation. PNG and SVG exports retain the tile through the
+shared recorder. Live comparison evidence is in
+`../../lambda/temp/kianhup-style/native-final.png` and `browser.png`.
+
+<a id="ri-015"></a>
+
+### RI-015 — Authored inline buttons bypass atomic button layout
+
+**Status:** RESOLVED, 2026-11-11. **Lambda blocker:** cleared for login rendering.
+Ownership: **D9.1.1v4 / D9.1.3v2**.
+
+With `button { display:inline; font-size:14px; height:2.4em }`, inline dispatch
+bypassed the existing HTML button used-display transformation in
+`layout_block.cpp`. Inline decoration supplied a 30px box instead of the
+authored 33.6px height; the surrounding login panel was 11.68px too short.
+The helper is now shared through `layout.hpp` and applied before dispatch,
+so inline buttons reach their existing atomic layout and paint code.
+
+The `canvas_body_background` integration fixture checks the 33.6px button
+height. The live panel measures 231.800px versus Chromium's 231.78125px and
+the button 33.600px versus 33.59375px. A 0.574px button text width difference
+remains as font-metric residue; heading and input widths match. Integer-cast
+layout lint passes. Geometry and replay logs are under
+`../../lambda/temp/kianhup-style/`.
 
 <a id="ri-010"></a>
 

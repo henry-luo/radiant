@@ -4,6 +4,7 @@
 // Integrates with CSS parser, image loader, native font system, and SVG parser
 
 #include "resource_loaders.h"
+#include "stylesheet_sync.hpp"
 #include "network_integration.h"
 #include "lambda/network/network_resource_manager.h"
 #include "lambda/network/resource_processor_hook.h"
@@ -53,30 +54,6 @@ static bool resource_file_looks_like_svg(const char* path) {
         }
     }
     return false;
-}
-
-// Helper: Add stylesheet to document
-static bool add_stylesheet_to_document(DomDocument* doc, CssStylesheet* sheet) {
-    if (!doc || !sheet) return false;
-
-    if (doc->stylesheet_count >= doc->stylesheet_capacity) {
-        if (!doc->document_pool) {
-            log_error("resource_loaders: cannot expand stylesheet array without document pool");
-            return false;
-        }
-
-        // document stylesheet arrays are pool-owned after initial HTML load, so
-        // network CSS must grow by copying instead of reallocating pool memory.
-        if (!lam::pool_copy_grow_array(doc->document_pool, &doc->stylesheets,
-                                       &doc->stylesheet_capacity, doc->stylesheet_count,
-                                       doc->stylesheet_count + 1, 4, true)) {
-            log_error("resource_loaders: failed to expand stylesheet array");
-            return false;
-        }
-    }
-
-    doc->stylesheets[doc->stylesheet_count++] = sheet;
-    return true;
 }
 
 // CSS resource handler
@@ -167,8 +144,9 @@ void process_css_resource(NetworkResource* res, struct DomDocument* doc) {
 
     log_debug("network: parsed CSS stylesheet with %zu rules", sheet->rule_count);
 
-    // add stylesheet to document
-    if (!add_stylesheet_to_document(doc, sheet)) {
+    // completion order must not override the link's position in the cascade.
+    sheet->owner_element = res->owner_element;
+    if (!radiant_append_document_stylesheet(doc, sheet)) {
         log_error("network: failed to add stylesheet to document");
         return;
     }

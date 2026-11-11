@@ -5033,6 +5033,8 @@ void layout_flow_node(LayoutContext* lycon, DomNode *node) {
         }
 
         DisplayValue display = layout_resolved_display(node);
+        // inline buttons still own an atomic box and their authored dimensions.
+        display = layout_button_used_display(elem, display);
         if (layout_empty_mathml_element(lycon, node, display)) {
             lycon->depth--;
             return;

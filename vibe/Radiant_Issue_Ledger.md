@@ -20,6 +20,80 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-016"></a>
+
+### RI-016 — Native macOS speech rejects an invalid voice too late
+
+**Status:** OPEN, 2026-11-11. **Lambda task blocker:** no; speech is outside
+the Kian Hup rendering path. Native ownership: **D9.1.1v4 / D9.1.3v2**.
+The root cause is **unconfirmed**.
+
+`make test-native INPUT_ROOT=/Users/henry/Projects/lambda-input -j6` completes
+902 passing tests but fails
+`RadiantNativeMedia.SpeechProviderReportsAnUnavailableVoice`. A focused repeat
+also fails: a request for `invalid.lambda.test.voice` returns a job in state 0
+with a null error instead of immediate `RDT_SPEECH_FAILED` and a `no voice`
+error. No audio playback is requested by this check.
+
+Both `radiant/rdt_speech_avf.mm` and
+`test/test_radiant_media_backend_gtest.cpp` are unchanged from HEAD. The
+provider uses `AVSpeechSynthesisVoice voiceWithIdentifier:` and rejects the
+request immediately only if that lookup returns nil. Whether this platform
+returns a fallback voice or another provider state prevents rejection has
+not been isolated. No source or test changes were made for this separate
+failure. Evidence in the sibling Lambda checkout:
+`temp/kianhup-style/baseline-owner-native.log` and `test-owner-speech.log`.
+
+<a id="ri-012"></a>
+
+### RI-012 — Forced window capture repaint omits login fragment foreground
+
+**Status:** OPEN, 2026-11-11. **Task blocker:** no; Lambda's blank-login
+startup failure is fixed, and the normally presented window surface contains
+the complete login form. This report concerns native capture/repaint behavior
+owned by Radiant under D9.1.1v4 / D9.1.3v2. The cause is **unconfirmed**.
+
+With the current Lambda debug host and its pending `navigator.cookieEnabled`
+fix, `lambda.exe view https://kianhup.com/login` initializes the public Acro
+template and Angular controller successfully. DOM assertions confirm visible
+username/password fields and Login text. A `capture_surface` event with the
+default `render:true` produces only the background and panel, omitting the
+logo, heading, labels, inputs and button. A capture with `render:false` after
+the same load reads the complete presented surface. Waiting 1500 ms before
+the forced capture does not change its result. A local static/late-revealed
+`fragment` control did not reproduce the omission.
+
+Reproduce from the sibling Lambda checkout after building its pending fix:
+
+```sh
+./lambda.exe view https://kianhup.com/login --event-file temp/kianhup-blank/login-window-delayed-events.json
+./lambda.exe view https://kianhup.com/login --event-file temp/kianhup-blank/login-window-readback-events.json
+```
+
+Evidence under `../../lambda/temp/kianhup-blank/`: `login-window.png` (forced
+repaint, foreground absent), `login-window-readback.png` (presented surface,
+foreground present), corresponding event JSON and stdout files. The delayed
+stdout records both fragments as `display:inline`, `visibility:visible`,
+`opacity:1` with nonzero bounds. `login.png` and `login-result.json` record the
+passing headless replay. Direct OS window capture was unavailable; the
+comparison uses Radiant's own surface readback.
+
+Relevant entry points: `radiant/event_sim_render.cpp` `read_surface()` calls
+`event_sim_render_surface()` by default, whereas `render:false` calls
+`ui_context_materialize_surface()`; `radiant/event_sim.cpp`
+`event_sim_render_surface()` suspends the GPU compositor around
+`render_html_doc()`. Whether compositor state, retained paint, or another
+native invalidation path causes the omission remains unconfirmed. No native
+source workaround or repair was attempted for this capture issue. Recheck
+after the RI-013/RI-014/RI-015 login repairs: both presented-surface and forced
+repaint captures now retain all foreground at 793x620. The exact cause of the
+earlier omission was not isolated, so this observation does not attribute it
+to a particular fix. Evidence: `../../lambda/temp/kianhup-style/native-final.png`,
+`native-forced-final.png`, and corresponding stdout/event files. Lambda verification:
+`make test-radiant-baseline` passes, with 8,160 passed, 299 partial and 20
+skipped of 8,479 tests; this observation is outside that gate's scored cases.
+
+
 <a id="ri-010"></a>
 
 RI-010 is [resolved in the fixed issue ledger](<Radiant_Issue_Ledger (fixed).md#ri-010>):
@@ -967,6 +1041,18 @@ Other state-store families and deferred callbacks remain open. See the
 - [RAD22-9](<Radiant_Issue_Ledger (fixed).md#rad22-9>).
 
 ## Fixed issues
+
+<a id="ri-013"></a>
+
+- [RI-013 — Downloaded CSS overrides later document styles](<Radiant_Issue_Ledger (fixed).md#ri-013>).
+
+<a id="ri-014"></a>
+
+- [RI-014 — A zero-height body loses its canvas background image](<Radiant_Issue_Ledger (fixed).md#ri-014>).
+
+<a id="ri-015"></a>
+
+- [RI-015 — Authored inline buttons bypass atomic button layout](<Radiant_Issue_Ledger (fixed).md#ri-015>).
 
 <a id="ri-003"></a>
 

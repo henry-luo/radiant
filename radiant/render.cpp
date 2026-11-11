@@ -61,27 +61,9 @@ static bool inline_span_has_direct_text_fragment(ViewSpan* span) {
 }
 
 Color render_document_canvas_background(View* root_view) {
-    Color background = {};
-    if (!root_view || root_view->view_type != RDT_VIEW_BLOCK) return background;
-
-    ViewBlock* html_block = lam::view_require_block(root_view);
-    if (html_block->bound && html_block->boundary_mut()->background &&
-        html_block->boundary()->background->color.a > 0) {
-        return html_block->boundary()->background->color;
-    }
-    for (View* child = html_block->first_child; child;
-         child = static_cast<View*>(child->next_sibling)) {
-        if (child->view_type != RDT_VIEW_BLOCK) continue;
-        ViewBlock* child_block = lam::view_require_block(child);
-        const char* name = child_block->node_name();
-        if (!name || !str_ieq_cstr(name, "body")) continue;
-        if (child_block->bound && child_block->boundary_mut()->background &&
-            child_block->boundary()->background->color.a > 0) {
-            return child_block->boundary()->background->color;
-        }
-        break;
-    }
-    return background;
+    ViewBlock* source = render_document_canvas_background_view(root_view);
+    return source && source->bound && source->boundary()->background
+        ? source->boundary()->background->color : Color{};
 }
 
 Color render_document_output_background(View* root_view) {

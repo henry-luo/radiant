@@ -81,7 +81,7 @@ static void stylesheet_reorder_document(DomDocument* doc) {
     }
 }
 
-static bool stylesheet_append_document(DomDocument* doc,
+bool radiant_append_document_stylesheet(DomDocument* doc,
                                                   CssStylesheet* sheet) {
     if (!doc || !doc->document_pool || !sheet) return false;
     if (doc->stylesheet_count >= doc->stylesheet_capacity) {
@@ -143,7 +143,7 @@ bool radiant_sync_inline_stylesheet(DomElement* elem) {
         }
     }
 
-    if (!stylesheet_append_document(doc, sheet)) {
+    if (!radiant_append_document_stylesheet(doc, sheet)) {
         return false;
     }
     doc->services.keyframe_registry = nullptr;
