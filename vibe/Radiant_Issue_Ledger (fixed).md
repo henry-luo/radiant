@@ -14,6 +14,89 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-018"></a>
+
+### RI-018 — Online exports exhaust memory before viewport PNG encoding
+
+**Status:** RESOLVED for the four original reproductions, 2026-11-11.
+**Lambda task blocker:** cleared for APR, Azure, F# and Leaflet captures.
+Ownership **D9.1.1v4 / D9.1.2v2 / D9.1.3v2**; precise carrier ownership
+**D6.3**, map shape mutation **D3.4.3**. Coordinated sibling edits authorized
+by the user. The original observations had separate allocation causes.
+
+- Leaflet's collapsed-cell borders and fragmented-simple backgrounds were
+  lowered without clearing the pending PaintIR list. Later cells replayed
+  every earlier border. Both raster boundary paths now use the existing
+  `paint_record_lower_pending` gateway. Leaflet's display list fell from
+  4,452,044 commands to 8,862 and the 1200x800 PNG exports successfully.
+- Azure/F# exposed Lambda String boxing that reflagged every indexed property
+  through copied shape prefixes. The Azure allocation snapshot showed
+  1.77GB/30M allocations in the transition arena; a native allocation stack
+  identified `mvp_lmd_box_primitive` / `type_tree_retype_target`. Lambda now
+  constructs the complete unpublished index/length shape once, preserving
+  subclass identity, UTF16 units and immutable descriptors. Azure post-script
+  allocator reservation fell from 1,925,873,344 to 160,050,837 bytes. APR,
+  Azure and F# now have canonical loaded-document PNGs.
+- Follow-up Studio capture exposed input's legacy all-frame GIF loader
+  bypassing the process memory policy. It now admits its existing preflight
+  estimate through `memtrack_allow_allocation` before giflib expansion. GIFs
+  that exceed the shared budget retain the independent still-frame path;
+  the configured budget is unchanged. Studio's image category fell from
+  1,059,694,508 to 711,756,076 bytes and PNG encoding succeeds. Its selected
+  initial frame is mostly blank; this is load/export qualification, not a
+  claim of full visual fidelity.
+
+Verification: `RadiantDocumentTest.BoundaryFragmentsAreConsumedOncePerBox`
+checks exact linear command counts and empty pending lists for 32 collapsed
+border and fragmented-background flushes; it and collapsed-table geometry
+pass 2/2. Required Radiant integer-cast lint passes. The full Lambda JavaScript
+native executable passes 859/859 tests, including long-wrapper memory and
+UTF16/descriptor checks. Input image I/O passes 35/35, including budget
+rejection and retained still decoding. The final Radiant baseline passes 8,164 with
+299 partial / 20 skipped of 8,483 and no failed gate. The final Lambda gate
+passes 7,415/7,415, including 859 JS and 368 GC stress cases; Lambda
+LR03-46 records the later private-object fallback repair and Ko-fi PNG.
+
+Evidence in Lambda `temp/online-recovery/`: `azure-memory.json`,
+`azure-string-fixed-memory.json`, `azure-arena-trace-output.log`,
+`leaflet-dl-trace-output.log`, `leaflet-border-fixed.log`,
+`border-fragment-tests.log`, `js-mvp-suite.log`, `radiant-baseline.log`,
+`studio-image-trace3-output.log`, `studio-budget-fixed-output.log`;
+input `temp/online-gif-tests.log`. Canonical PNGs/logs are under
+Lambda `test/online/snapshots/`. Temporary allocator instrumentation was removed.
+
+
+<a id="ri-017"></a>
+
+### RI-017 — One-shot exports drain recurring animation before capture
+
+**Status:** RESOLVED, 2026-11-11. **Lambda task blocker:** cleared for finite
+HTML file/source exports. Ownership **D9.1.1v4 / D9.1.3v2**; snapshot contract
+**D10.1.7**. The user authorized coordinated sibling source updates.
+
+`render_export_load_html_document` and `render_export_load_html_source`
+left `auto_close_event_loop` and `virtual_clock_enabled` false. Recurring rAF
+and timers therefore kept the host in its long-lived drain loop before PNG
+encoding. Native layout suspends the script CPU watchdog, so this can also
+outlive its wall-time allowance. A stack sample on Boldare located the loop
+under `js_event_loop_drain_impl` / `js_animation_frame_drain` / layout checkpoints.
+
+Both loaders now use one shared export configuration helper with finite
+virtual-clock capture. The selected frame runs load handlers and queued rAF,
+without advancing a future timer. Scripts and assertions remain enabled.
+`RadiantViewTest.FileExportsCaptureRecurringFramesWithoutAdvancingDelayedTimers`
+verifies PNG, SVG and PDF output, load/rAF execution and exclusion of a delayed
+1000ms timer. It and `StaticSnapshotDoesNotAdvanceTimersDuringNativeLayout`
+and `FailsUnsettledSnapshotAndContinuesLayoutBatch` pass (3/3). Boldare now
+loads and exports its canonical Lambda PNG; a full failed-side corpus retry
+is recorded in Lambda's ignored capture manifest. Not every former timeout
+is attributed to this cause.
+
+Evidence: Lambda `temp/online-recovery/ri017-tests.log`, original
+`saas_landing_003/sample.txt`, and
+`test/online/snapshots/saas_landing_003-lambda.png` with its capture logs.
+
+
 <a id="ri-013"></a>
 
 ### RI-013 — Downloaded CSS overrides later document styles

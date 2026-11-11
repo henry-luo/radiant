@@ -20,6 +20,37 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-019"></a>
+
+### RI-019 — Reflow aborts when the focused target becomes non-focusable
+
+**Status:** OPEN, 2026-11-11. **Lambda task blocker:** no for the selected finite
+snapshot milestone; the native focus invariant remains unresolved. Native state ownership:
+**D9.1.1v4 / D9.1.3v2**. The invalidation cause is **unconfirmed**.
+
+From Lambda `ff7085cf9`, `./lambda.exe render https://designmodo.com/postcards/faq/ -o ./temp/online-recovery/focus-046.png -vw 1200 -vh 800`
+and the equivalent command for `https://pulsetic.com/` both terminate with
+SIGABRT in about 38 seconds. Both report:
+`state_machine: assertion failed after doc_state_request_reflow: focused target is not focusable`
+and `radiant_state_assert_valid`, `state_machine.cpp:1193`.
+Expected: handle focus invalidation as page state changes and finish export;
+do not disable the assertion or suppress the crash in the launcher.
+
+Evidence in Lambda: `test/online/snapshots/saas_landing_046-lambda-output.log`,
+`saas_landing_046-lambda.log`, and corresponding `saas_landing_138` logs;
+`temp/online-recovery/probe_results.json` preserves exit signals and timings.
+After RI-017, both selected finite snapshots load/export successfully. This
+does not repair focus invalidation during later interactive reflow. The assertion
+remains enabled; no focus-state workaround was added.
+
+<a id="ri-018"></a>
+
+- [RI-018 — Online exports exhaust memory before viewport PNG encoding](<Radiant_Issue_Ledger (fixed).md#ri-018>).
+
+<a id="ri-017"></a>
+
+- [RI-017 — One-shot exports drain recurring animation before capture](<Radiant_Issue_Ledger (fixed).md#ri-017>).
+
 <a id="ri-016"></a>
 
 ### RI-016 — Native macOS speech rejects an invalid voice too late

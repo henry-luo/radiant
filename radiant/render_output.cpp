@@ -190,12 +190,22 @@ struct RenderExportSourceRequest {
     bool block_remote_resources;
     bool xhtml;
 };
+static DocumentJsHostConfig render_export_js_host_config(RenderExportSession* session,
+        InputResourcePolicy resource_policy) {
+    DocumentJsHostConfig config = {};
+    config.ui_context = session->ui_context;
+    // one-shot exports settle the selected frame, not recurring page activity (D10.1.7).
+    config.auto_close_event_loop = true;
+    config.virtual_clock_enabled = true;
+    config.resource_policy = resource_policy;
+    return config;
+}
+
 static DomDocument* render_export_load_html_source(RenderExportSession* session,
         int layout_width, int layout_height, void* request) {
     RenderExportSourceRequest* source = (RenderExportSourceRequest*)request;
-    DocumentJsHostConfig config = {};
-    config.ui_context = session->ui_context;
-    config.resource_policy = source->block_remote_resources ? INPUT_RESOURCE_LOCAL_ONLY : INPUT_RESOURCE_ALLOW_NETWORK;
+    DocumentJsHostConfig config = render_export_js_host_config(session,
+        source->block_remote_resources ? INPUT_RESOURCE_LOCAL_ONLY : INPUT_RESOURCE_ALLOW_NETWORK);
     Url* base = source->base_url ? url_parse_with_base(source->base_url, session->base_url) : nullptr;
     if (source->base_url && !base) return nullptr;
     DomDocument* doc = load_html_source_doc(source->source, layout_width, layout_height,
@@ -207,9 +217,8 @@ static DomDocument* render_export_load_html_source(RenderExportSession* session,
 static DomDocument* render_export_load_html_document(RenderExportSession* session,
         int layout_width, int layout_height, void* request) {
     RenderExportHtmlRequest* html_request = (RenderExportHtmlRequest*)request;
-    DocumentJsHostConfig config = {};
-    config.ui_context = session->ui_context;
-    config.resource_policy = html_request ? html_request->resource_policy : INPUT_RESOURCE_ALLOW_NETWORK;
+    DocumentJsHostConfig config = render_export_js_host_config(session,
+        html_request ? html_request->resource_policy : INPUT_RESOURCE_ALLOW_NETWORK);
     RenderPagedOptions paged_defaults = render_paged_options_default();
     if (html_request && html_request->paged) config.paged_media = html_request->paged_options ? html_request->paged_options : &paged_defaults;
     return html_request && html_request->html_file

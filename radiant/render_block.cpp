@@ -272,7 +272,9 @@ void render_element_marker_end(RasterRenderContext* rdcon, RenderElementMarkerSc
 static bool render_collapsed_borders(RasterRenderContext* rdcon, ViewBlock* view, Rect rect) {
     if (!render_paint_boundary_emit_collapsed_borders(
             rdcon->paint_list, view, rect, rdcon->raster_scale)) return false;
-    paint_ir_lower_raster_fragment(rdcon->paint_list, rdcon->dl);
+    // consume each cell fragment once; retaining it replays every earlier border on the next cell.
+    PaintRecordTarget target = rc_record_target(rdcon);
+    paint_record_lower_pending(&target);
     return true;
 }
 
@@ -293,7 +295,8 @@ void render_bound(RasterRenderContext* rdcon, ViewBlock* view) {
         return;
     }
     if (render_paint_boundary_emit_fragmented_simple(rdcon->paint_list, view, rect)) {
-        paint_ir_lower_raster_fragment(rdcon->paint_list, rdcon->dl);
+        PaintRecordTarget target = rc_record_target(rdcon);
+        paint_record_lower_pending(&target);
         return;
     }
 
