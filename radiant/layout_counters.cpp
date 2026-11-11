@@ -342,7 +342,7 @@ static void parse_counter_spec(const char* spec,
             } else if (long_value < INT_MIN) {
                 value = INT_MIN;
             } else {
-                value = (int)long_value;
+                value = (int)long_value; // INT_CAST_OK: parsed integer was clamped to the int range above.
             }
             // Move pointer past the parsed number
             if (endptr > p) {
@@ -598,7 +598,7 @@ static int int_to_lower_greek(int value, char* buffer, size_t buffer_size) {
         temp[temp_len++] = (char)(0xCE + (greek_letters[idx] >= 0x03C0 ? 1 : 0));
         temp[temp_len++] = (char)(0x80 + (greek_letters[idx] & 0x3F));
         value = value / count - 1;
-    } while (value >= 0 && temp_len < (int)sizeof(temp) - 2);
+    } while (value >= 0 && temp_len < (int)sizeof(temp) - 2); // INT_CAST_OK: fixed byte-buffer capacity.
     // Reverse pairs
     int len = 0;
     for (int i = temp_len - 2; i >= 0 && len < (int)buffer_size - 2; i -= 2) { // INT_CAST_OK: size comparison

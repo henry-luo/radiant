@@ -7863,7 +7863,9 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
                 child_width = layout_apply_min_max_border_box_axis(child_view, basis, true);
             }
             LayoutContainingBlockScope child_cb_scope(lycon, LAYOUT_AXIS_X, width);
-            float child_height = calculate_max_content_height(lycon, child, width);
+            // nested rows wrap at their hypothetical content width, while percentages retain the parent basis.
+            float child_content_width = layout_content_size_from_border_box(child_view, child_width, true);
+            float child_height = calculate_max_content_height(lycon, child, child_content_width);
             child_height = intrinsic_child_height_with_minimum(
                 lycon, child_elem, child_height, width);
 

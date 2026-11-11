@@ -224,6 +224,17 @@ protected:
         return dom_elem;
     }
 
+    DomText* create_detached_text(const char* content) {
+        // detached nodes still belong to the document arena and use native backing.
+        MarkBuilder builder(input);
+        return dom_text_create_detached(content ? builder.createString(content) : nullptr, doc);
+    }
+
+    DomComment* create_detached_comment(const char* tag, const char* content) {
+        MarkBuilder builder(input);
+        return dom_comment_create_detached(builder.element(tag).text(content).final().element, doc);
+    }
+
     // Helper: Parse HTML and build DOM
     DomElement* parse_html_and_build_dom(const char* html_content) {
         String* type_str = create_string(pool, "html");
@@ -3057,10 +3068,7 @@ TEST_F(DomIntegrationTest, InlineCssomSnapshotOwnsFullNamesAcrossAttributeChange
 // ============================================================================
 
 TEST_F(DomIntegrationTest, DomText_Create) {
-    GTEST_SKIP() << "Standalone node creation no longer supported";
-    DomText* text = nullptr;  // Dummy to allow compilation
-    return;
-//     DomText* text = dom_text_create(pool, "Hello World");
+    DomText* text = create_detached_text("Hello World");
     ASSERT_NE(text, nullptr);
     EXPECT_EQ(text->node_type, DOM_NODE_TEXT);
     EXPECT_STREQ(dom_text_get_content(text), "Hello World");
@@ -3068,81 +3076,66 @@ TEST_F(DomIntegrationTest, DomText_Create) {
     EXPECT_EQ(text->parent, nullptr);
     EXPECT_EQ(text->next_sibling, nullptr);
     EXPECT_EQ(text->prev_sibling, nullptr);
+    EXPECT_TRUE(dom_node_registry_owns(doc, text));
 }
 
 TEST_F(DomIntegrationTest, DomText_CreateEmpty) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return; return;
-    DomText* text = nullptr;
-//     DomText* text = dom_text_create(pool, "");
+    DomText* text = create_detached_text("");
     ASSERT_NE(text, nullptr);
     EXPECT_STREQ(dom_text_get_content(text), "");
     EXPECT_EQ(text->length, 0u);
 }
 
 TEST_F(DomIntegrationTest, DomText_CreateNull) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return; return;
-    DomText* text = nullptr;
-//     DomText* text = dom_text_create(pool, nullptr);
-    EXPECT_EQ(text, nullptr);
+    EXPECT_EQ(create_detached_text(nullptr), nullptr);
 }
 
 TEST_F(DomIntegrationTest, DomText_SetContent) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return; return;
-    DomText* text = nullptr;
-//     DomText* text = dom_text_create(pool, "Initial");
+    DomElement* parent = create_element_with_backing("div");
+    DomText* text = parent->append_text("Initial");
     ASSERT_NE(text, nullptr);
-
     EXPECT_TRUE(dom_text_set_content(text, "Updated Content"));
     EXPECT_STREQ(dom_text_get_content(text), "Updated Content");
     EXPECT_EQ(text->length, 15u);
+    EXPECT_STREQ(dom_element_to_element(parent)->items[0].get_string()->chars, "Updated Content");
 }
 
 TEST_F(DomIntegrationTest, DomText_SetContentEmpty) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return; return;
-    DomText* text = nullptr;
-//     DomText* text = dom_text_create(pool, "Some Text");
+    DomElement* parent = create_element_with_backing("div");
+    DomText* text = parent->append_text("Some Text");
     ASSERT_NE(text, nullptr);
-
     EXPECT_TRUE(dom_text_set_content(text, ""));
     EXPECT_STREQ(dom_text_get_content(text), "");
     EXPECT_EQ(text->length, 0u);
 }
 
 TEST_F(DomIntegrationTest, DomText_SetContentNull) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return; return;
-    DomText* text = nullptr;
-//     DomText* text = dom_text_create(pool, "Text");
+    DomElement* parent = create_element_with_backing("div");
+    DomText* text = parent->append_text("Text");
     ASSERT_NE(text, nullptr);
-
     EXPECT_FALSE(dom_text_set_content(text, nullptr));
-    // Original content should remain
     EXPECT_STREQ(dom_text_get_content(text), "Text");
 }
 
 TEST_F(DomIntegrationTest, DomText_LongContent) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return; return;
-    DomText* text = nullptr;
     const char* long_text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
                            "Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. "
                            "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.";
-//     DomText* text = dom_text_create(pool, long_text);
+    DomText* text = create_detached_text(long_text);
     ASSERT_NE(text, nullptr);
     EXPECT_STREQ(dom_text_get_content(text), long_text);
     EXPECT_EQ(text->length, strlen(long_text));
 }
 
 TEST_F(DomIntegrationTest, DomText_SpecialCharacters) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return; return;
-    DomText* text = nullptr;
     const char* special = "Text with\nnewlines\tand\ttabs & special <chars>";
-//     DomText* text = dom_text_create(pool, special);
+    DomText* text = create_detached_text(special);
     ASSERT_NE(text, nullptr);
     EXPECT_STREQ(dom_text_get_content(text), special);
 }
 
 // ============================================================================
 // DomComment Tests (New Node Type)
-// NOTE: Standalone comment tests skipped - new API requires parent element
 // ============================================================================
 
 TEST_F(DomIntegrationTest, DomComment_CreateComment) {
@@ -3270,45 +3263,39 @@ TEST_F(DomIntegrationTest, NodeType_GetType) {
 // }
 
 TEST_F(DomIntegrationTest, NodeType_IsElement) {
-    GTEST_SKIP() << "Standalone node creation no longer supported";
-    DomElement* element = nullptr; DomText* text = nullptr; DomComment* comment = nullptr;
-    return;
-    element = create_element_with_backing("div");
-//     DomText* text = dom_text_create(pool, "text");
-//     DomComment* comment = dom_comment_create(pool, DOM_NODE_COMMENT, "comment", "content");
-
+    DomElement* element = create_element_with_backing("div");
+    DomText* text = element->append_text("text");
+    DomComment* comment = element->append_comment("content");
+    ASSERT_NE(text, nullptr);
+    ASSERT_NE(comment, nullptr);
     EXPECT_TRUE(element->is_element());
     EXPECT_FALSE(text->is_element());
     EXPECT_FALSE(comment->is_element());
-    // EXPECT_FALSE(nullptr->is_element());  // Cannot call method on nullptr
 }
 
 TEST_F(DomIntegrationTest, NodeType_IsText) {
-    GTEST_SKIP() << "Standalone node creation no longer supported";
-    DomElement* element = nullptr; DomText* text = nullptr; DomComment* comment = nullptr;
-    return;
-    element = create_element_with_backing("div");
-//     DomText* text = dom_text_create(pool, "text");
-//     DomComment* comment = dom_comment_create(pool, DOM_NODE_COMMENT, "comment", "content");
-
+    DomElement* element = create_element_with_backing("div");
+    DomText* text = element->append_text("text");
+    DomComment* comment = element->append_comment("content");
+    ASSERT_NE(text, nullptr);
+    ASSERT_NE(comment, nullptr);
     EXPECT_FALSE(element->is_text());
     EXPECT_TRUE(text->is_text());
     EXPECT_FALSE(comment->is_text());
 }
 
 TEST_F(DomIntegrationTest, NodeType_IsComment) {
-    GTEST_SKIP() << "Standalone node creation no longer supported";
-    DomElement* element = nullptr; DomText* text = nullptr; DomComment* comment = nullptr; DomComment* comment1 = nullptr; DomComment* comment2 = nullptr; DomComment* doctype = nullptr;
-    return;
-    element = create_element_with_backing("div");
-//     DomText* text = dom_text_create(pool, "text");
-//     DomComment* comment = dom_comment_create(pool, DOM_NODE_COMMENT, "comment", "content");
-//     DomComment* doctype = dom_comment_create(pool, DOM_NODE_DOCTYPE, "!DOCTYPE", "html");
-
+    DomElement* element = create_element_with_backing("div");
+    DomText* text = element->append_text("text");
+    DomComment* comment = element->append_comment("content");
+    DomComment* doctype = create_detached_comment("!DOCTYPE", "html");
+    ASSERT_NE(text, nullptr);
+    ASSERT_NE(comment, nullptr);
+    ASSERT_NE(doctype, nullptr);
     EXPECT_FALSE(element->is_comment());
     EXPECT_FALSE(text->is_comment());
     EXPECT_TRUE(comment->is_comment());
-    EXPECT_TRUE(doctype->is_comment());  // DOCTYPE also returns true
+    EXPECT_TRUE(doctype->is_comment());
 }
 
 // ============================================================================
@@ -3316,329 +3303,178 @@ TEST_F(DomIntegrationTest, NodeType_IsComment) {
 // ============================================================================
 
 TEST_F(DomIntegrationTest, MixedTree_ElementWithTextChild) {
-    GTEST_SKIP() << "Standalone node creation no longer supported";
-    DomElement* div = nullptr; DomText* text = nullptr;
-    return;
-    div = create_element_with_backing("div");
-//     DomText* text = dom_text_create(pool, "Hello World");
-
-    // Manually link text node as child
-    text->parent = lam::up(div);
-    div->first_child = lam::own(text);
-
+    DomElement* div = create_element_with_backing("div");
+    DomText* text = div->append_text("Hello World");
+    ASSERT_NE(text, nullptr);
     EXPECT_EQ(text->parent, div);
-    EXPECT_EQ(div->first_child, (void*)text);
-    // dom_element_count_child_elements only counts element children, not text nodes
+    EXPECT_EQ(div->first_child, text);
+    EXPECT_EQ(div->last_child, text);
     EXPECT_EQ(div->count_child_elements(), 0);
 }
 
 TEST_F(DomIntegrationTest, MixedTree_ElementWithCommentChild) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return;
-    DomElement* div = nullptr; DomElement* span = nullptr; DomElement* span1 = nullptr; DomElement* span2 = nullptr;
-    DomText* text = nullptr; DomText* text1 = nullptr; DomText* text2 = nullptr; DomText* inner_text = nullptr; DomText* text3 = nullptr;
-    DomComment* comment = nullptr; DomComment* comment1 = nullptr; DomComment* comment2 = nullptr; DomComment* doctype = nullptr;
-//     DomElement* div = create_element_with_backing("div");
-//     DomComment* comment = dom_comment_create(pool, DOM_NODE_COMMENT, "comment", " TODO: Add content ");
-
-    // Manually link comment node as child
-    comment->parent = lam::up(div);
-    div->first_child = lam::own(comment);
-
+    DomElement* div = create_element_with_backing("div");
+    DomComment* comment = div->append_comment(" TODO: Add content ");
+    ASSERT_NE(comment, nullptr);
     EXPECT_EQ(comment->parent, div);
-    EXPECT_EQ(div->first_child, (void*)comment);
+    EXPECT_EQ(div->first_child, comment);
+    EXPECT_EQ(div->last_child, comment);
 }
 
 TEST_F(DomIntegrationTest, MixedTree_ElementTextElement) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return;
-    DomElement* div = nullptr; DomElement* span = nullptr; DomElement* span1 = nullptr; DomElement* span2 = nullptr;
-    DomText* text = nullptr; DomText* text1 = nullptr; DomText* text2 = nullptr; DomText* inner_text = nullptr; DomText* text3 = nullptr;
-    DomComment* comment = nullptr; DomComment* comment1 = nullptr; DomComment* comment2 = nullptr; DomComment* doctype = nullptr;
-//     DomElement* div = create_element_with_backing("div");
-//     DomElement* span1 = create_element_with_backing("span");
-//     DomText* text = dom_text_create(pool, " middle text ");
-//     DomElement* span2 = create_element_with_backing("span");
-
-    // Manually link children
-    div->append_child(span1);
-
-    text->parent = lam::up(div);
-    span1->next_sibling = lam::own(text);
-    text->prev_sibling = lam::up(span1);
-
-    span2->parent = lam::up(div);
-    text->next_sibling = lam::own(span2);
-    span2->prev_sibling = lam::up(text);
-
-    // dom_element_count_child_elements only counts DomElement* children (2 spans), not text nodes
+    DomElement* div = create_element_with_backing("div");
+    DomElement* span1 = create_element_with_backing("span");
+    DomElement* span2 = create_element_with_backing("span");
+    ASSERT_TRUE(div->append_child(span1));
+    DomText* text = div->append_text(" middle text ");
+    ASSERT_NE(text, nullptr);
+    ASSERT_TRUE(div->append_child(span2));
     EXPECT_EQ(div->count_child_elements(), 2);
-    EXPECT_EQ(div->first_child, (void*)span1);
-    EXPECT_EQ(span1->next_sibling, (void*)text);
-    EXPECT_EQ(text->next_sibling, (void*)span2);
+    EXPECT_EQ(div->first_child, span1);
+    EXPECT_EQ(span1->next_sibling, text);
+    EXPECT_EQ(text->next_sibling, span2);
     EXPECT_EQ(span2->next_sibling, nullptr);
+    EXPECT_EQ(div->last_child, span2);
 }
 
 TEST_F(DomIntegrationTest, MixedTree_AllNodeTypes) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return;
-    DomElement* div = nullptr; DomElement* span = nullptr; DomElement* span1 = nullptr; DomElement* span2 = nullptr;
-    DomText* text = nullptr; DomText* text1 = nullptr; DomText* text2 = nullptr; DomText* inner_text = nullptr; DomText* text3 = nullptr;
-    DomComment* comment = nullptr; DomComment* comment1 = nullptr; DomComment* comment2 = nullptr; DomComment* doctype = nullptr;
-//     DomElement* div = create_element_with_backing("div");
-//     DomComment* comment = dom_comment_create(pool, DOM_NODE_COMMENT, "comment", " Comment ");
-//     DomText* text1 = dom_text_create(pool, "Text before");
-//     DomElement* span = create_element_with_backing("span");
-//     DomText* text2 = dom_text_create(pool, "Text after");
-
-    // Manually link all children
-    comment->parent = lam::up(div);
-    div->first_child = lam::own(comment);
-
-    text1->parent = lam::up(div);
-    comment->next_sibling = lam::own(text1);
-    text1->prev_sibling = lam::up(comment);
-
-    span->parent = lam::up(div);
-    text1->next_sibling = lam::own(span);
-    span->prev_sibling = lam::up(text1);
-
-    text2->parent = lam::up(div);
-    span->next_sibling = lam::own(text2);
-    text2->prev_sibling = lam::up(span);
-
-    // dom_element_count_child_elements has undefined behavior on mixed trees (it casts
-    // first_child to DomElement* and reads next_sibling at wrong offset for DomText/DomComment).
-    // Don't test it here - just verify the node structure manually.
-
-    // Verify chain
-    DomNode* current = div->first_child;
-    EXPECT_EQ(current->node_type, DOM_NODE_COMMENT);
-
-    current = ((DomComment*)current)->next_sibling;
-    EXPECT_EQ(current->node_type, DOM_NODE_TEXT);
-
-    current = ((DomText*)current)->next_sibling;
-    EXPECT_EQ(current->node_type, DOM_NODE_ELEMENT);
-
-    current = ((DomElement*)current)->next_sibling;
-    EXPECT_EQ(current->node_type, DOM_NODE_TEXT);
+    DomElement* div = create_element_with_backing("div");
+    DomComment* comment = div->append_comment(" Comment ");
+    DomText* text1 = div->append_text("Text before");
+    DomElement* span = create_element_with_backing("span");
+    ASSERT_NE(comment, nullptr);
+    ASSERT_NE(text1, nullptr);
+    ASSERT_TRUE(div->append_child(span));
+    DomText* text2 = div->append_text("Text after");
+    ASSERT_NE(text2, nullptr);
+    EXPECT_EQ(div->first_child, comment);
+    EXPECT_EQ(comment->next_sibling, text1);
+    EXPECT_EQ(text1->next_sibling, span);
+    EXPECT_EQ(span->next_sibling, text2);
+    EXPECT_EQ(text2->next_sibling, nullptr);
+    EXPECT_EQ(div->count_child_elements(), 1);
 }
 
 TEST_F(DomIntegrationTest, MixedTree_NavigateSiblings) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return;
-    DomElement* div = nullptr; DomElement* span = nullptr; DomElement* span1 = nullptr; DomElement* span2 = nullptr;
-    DomText* text = nullptr; DomText* text1 = nullptr; DomText* text2 = nullptr; DomText* inner_text = nullptr; DomText* text3 = nullptr;
-    DomComment* comment = nullptr; DomComment* comment1 = nullptr; DomComment* comment2 = nullptr; DomComment* doctype = nullptr;
     DomElement* parent = create_element_with_backing("div");
-//     DomText* text1 = dom_text_create(pool, "First");
+    DomText* text1 = parent->append_text("First");
     DomElement* elem = create_element_with_backing("span");
-//     DomText* text2 = dom_text_create(pool, "Second");
-
-    // Manually link children
-    text1->parent = lam::up(parent);
-    parent->first_child = lam::own(text1);
-
-    elem->parent = lam::up(parent);
-    text1->next_sibling = lam::own(elem);
-    elem->prev_sibling = lam::up(text1);
-
-    text2->parent = lam::up(parent);
-    elem->next_sibling = lam::own(text2);
-    text2->prev_sibling = lam::up(elem);
-
-    // Forward navigation
-    EXPECT_EQ(text1->next_sibling, (void*)elem);
-    EXPECT_EQ(elem->next_sibling, (void*)text2);
+    ASSERT_NE(text1, nullptr);
+    ASSERT_TRUE(parent->append_child(elem));
+    DomText* text2 = parent->append_text("Second");
+    ASSERT_NE(text2, nullptr);
+    EXPECT_EQ(text1->next_sibling, elem);
+    EXPECT_EQ(elem->next_sibling, text2);
     EXPECT_EQ(text2->next_sibling, nullptr);
-
-    // Backward navigation
     EXPECT_EQ(text1->prev_sibling, nullptr);
-    EXPECT_EQ(elem->prev_sibling, (void*)text1);
-    EXPECT_EQ(text2->prev_sibling, (void*)elem);
+    EXPECT_EQ(elem->prev_sibling, text1);
+    EXPECT_EQ(text2->prev_sibling, elem);
 }
 
 TEST_F(DomIntegrationTest, MixedTree_RemoveTextNode) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return;
-    DomElement* div = nullptr; DomElement* span = nullptr; DomElement* span1 = nullptr; DomElement* span2 = nullptr;
-    DomText* text = nullptr; DomText* text1 = nullptr; DomText* text2 = nullptr; DomText* inner_text = nullptr; DomText* text3 = nullptr;
-    DomComment* comment = nullptr; DomComment* comment1 = nullptr; DomComment* comment2 = nullptr; DomComment* doctype = nullptr;
-//     DomElement* div = create_element_with_backing("div");
-//     DomText* text = dom_text_create(pool, "Remove me");
-//     DomElement* span = create_element_with_backing("span");
-
-    // Manually link text and span as children
-    text->parent = lam::up(div);
-    div->first_child = lam::own(text);
-
-    span->parent = lam::up(div);
-    text->next_sibling = lam::own(span);
-    span->prev_sibling = lam::up(text);
-
-    // dom_element_count_child_elements only counts DomElement* children (1 span)
+    DomElement* div = create_element_with_backing("div");
+    DomText* text = div->append_text("Remove me");
+    DomElement* span = create_element_with_backing("span");
+    ASSERT_NE(text, nullptr);
+    ASSERT_TRUE(div->append_child(span));
     EXPECT_EQ(div->count_child_elements(), 1);
-
-    // Remove the text node manually
-    div->first_child = lam::own(span);
-    span->prev_sibling = nullptr;
-    text->parent = nullptr;
-    text->next_sibling = nullptr;
-
+    ASSERT_TRUE(dom_text_remove(text));
     EXPECT_EQ(div->count_child_elements(), 1);
-    EXPECT_EQ(div->first_child, (void*)span);
+    EXPECT_EQ(div->first_child, span);
+    EXPECT_EQ(div->last_child, span);
+    EXPECT_EQ(span->prev_sibling, nullptr);
+    EXPECT_EQ(text->parent, nullptr);
+    EXPECT_EQ(text->next_sibling, nullptr);
+    EXPECT_EQ(dom_element_to_element(div)->length, 1);
 }
 
 TEST_F(DomIntegrationTest, MixedTree_InsertTextBefore) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return;
-    DomElement* div = nullptr; DomElement* span = nullptr; DomElement* span1 = nullptr; DomElement* span2 = nullptr;
-    DomText* text = nullptr; DomText* text1 = nullptr; DomText* text2 = nullptr; DomText* inner_text = nullptr; DomText* text3 = nullptr;
-    DomComment* comment = nullptr; DomComment* comment1 = nullptr; DomComment* comment2 = nullptr; DomComment* doctype = nullptr;
-//     DomElement* div = create_element_with_backing("div");
-//     DomElement* span = create_element_with_backing("span");
-//     DomText* text = dom_text_create(pool, "Insert before span");
-
-    // First add span
-    div->append_child(span);
-
-    // Then manually insert text before span
-    text->parent = lam::up(div);
-    div->first_child = lam::own(text);
-    text->next_sibling = lam::own(span);
-    span->prev_sibling = lam::up(text);
-
-    EXPECT_EQ(div->first_child, (void*)text);
-    EXPECT_EQ(text->next_sibling, (void*)span);
+    DomElement* div = create_element_with_backing("div");
+    DomElement* span = create_element_with_backing("span");
+    ASSERT_TRUE(div->append_child(span));
+    DomText* text = div->append_text("Insert before span");
+    ASSERT_NE(text, nullptr);
+    ASSERT_TRUE(dom_insert_prepared_backed_text(div, text, span));
+    EXPECT_EQ(div->first_child, text);
+    EXPECT_EQ(text->next_sibling, span);
+    EXPECT_EQ(span->prev_sibling, text);
+    EXPECT_EQ(span->next_sibling, nullptr);
+    EXPECT_EQ(div->last_child, span);
+    EXPECT_EQ(dom_element_to_element(div)->length, 2);
 }
 
 TEST_F(DomIntegrationTest, MixedTree_MultipleTextNodes) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return;
-    DomElement* div = nullptr; DomElement* span = nullptr; DomElement* span1 = nullptr; DomElement* span2 = nullptr;
-    DomText* text = nullptr; DomText* text1 = nullptr; DomText* text2 = nullptr; DomText* inner_text = nullptr; DomText* text3 = nullptr;
-    DomComment* comment = nullptr; DomComment* comment1 = nullptr; DomComment* comment2 = nullptr; DomComment* doctype = nullptr;
     DomElement* p = create_element_with_backing("p");
-//     DomText* text1 = dom_text_create(pool, "First ");
-//     DomText* text2 = dom_text_create(pool, "second ");
-//     DomText* text3 = dom_text_create(pool, "third.");
-
-    // Manually link all text nodes
-    text1->parent = lam::up(p);
-    p->first_child = lam::own(text1);
-
-    text2->parent = lam::up(p);
-    text1->next_sibling = lam::own(text2);
-    text2->prev_sibling = lam::up(text1);
-
-    text3->parent = lam::up(p);
-    text2->next_sibling = lam::own(text3);
-    text3->prev_sibling = lam::up(text2);
-
-    // dom_element_count_child_elements has undefined behavior on mixed trees - don't test it
-    EXPECT_EQ(text1->next_sibling, (void*)text2);
-    EXPECT_EQ(text2->next_sibling, (void*)text3);
+    DomText* text1 = p->append_text("First ");
+    DomText* text2 = p->append_text("second ");
+    DomText* text3 = p->append_text("third.");
+    ASSERT_NE(text1, nullptr);
+    ASSERT_NE(text2, nullptr);
+    ASSERT_NE(text3, nullptr);
+    EXPECT_EQ(text1->next_sibling, text2);
+    EXPECT_EQ(text2->next_sibling, text3);
+    EXPECT_EQ(p->last_child, text3);
+    EXPECT_EQ(p->count_child_elements(), 0);
 }
 
 TEST_F(DomIntegrationTest, MixedTree_NestedWithText) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return;
-    DomElement* div = nullptr; DomElement* span = nullptr; DomElement* span1 = nullptr; DomElement* span2 = nullptr;
-    DomText* text = nullptr; DomText* text1 = nullptr; DomText* text2 = nullptr; DomText* inner_text = nullptr; DomText* text3 = nullptr;
-    DomComment* comment = nullptr; DomComment* comment1 = nullptr; DomComment* comment2 = nullptr; DomComment* doctype = nullptr;
-    // <div>Text1<span>Inner text</span>Text2</div>
-//     DomElement* div = create_element_with_backing("div");
-//     DomText* text1 = dom_text_create(pool, "Text1");
-//     DomElement* span = create_element_with_backing("span");
-//     DomText* inner_text = dom_text_create(pool, "Inner text");
-//     DomText* text2 = dom_text_create(pool, "Text2");
-
-    // Link text1, span, text2 to div
-    text1->parent = lam::up(div);
-    div->first_child = lam::own(text1);
-
-    span->parent = lam::up(div);
-    text1->next_sibling = lam::own(span);
-    span->prev_sibling = lam::up(text1);
-
-    // Link inner_text to span
-    inner_text->parent = lam::up(span);
-    span->first_child = lam::own(inner_text);
-
-    text2->parent = lam::up(div);
-    span->next_sibling = lam::own(text2);
-    text2->prev_sibling = lam::up(span);
-
-    // dom_element_count_child_elements has undefined behavior on mixed trees - don't test it
-    EXPECT_EQ(div->count_child_elements(), 1);  // Only counts elements correctly
-    // span has text child, but dom_element_count_child_elements has UB on it - don't test
+    DomElement* div = create_element_with_backing("div");
+    DomText* text1 = div->append_text("Text1");
+    DomElement* span = create_element_with_backing("span");
+    ASSERT_NE(text1, nullptr);
+    ASSERT_TRUE(div->append_child(span));
+    DomText* inner_text = span->append_text("Inner text");
+    DomText* text2 = div->append_text("Text2");
+    ASSERT_NE(inner_text, nullptr);
+    ASSERT_NE(text2, nullptr);
+    EXPECT_EQ(div->count_child_elements(), 1);
+    EXPECT_EQ(text1->next_sibling, span);
+    EXPECT_EQ(span->next_sibling, text2);
     EXPECT_EQ(inner_text->parent, span);
+    EXPECT_EQ(span->count_child_elements(), 0);
 }
 
 TEST_F(DomIntegrationTest, MixedTree_CommentsBetweenElements) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return;
-    DomElement* div = nullptr; DomElement* span = nullptr; DomElement* span1 = nullptr; DomElement* span2 = nullptr;
-    DomText* text = nullptr; DomText* text1 = nullptr; DomText* text2 = nullptr; DomText* inner_text = nullptr; DomText* text3 = nullptr;
-    DomComment* comment = nullptr; DomComment* comment1 = nullptr; DomComment* comment2 = nullptr; DomComment* doctype = nullptr;
-//     DomElement* div = create_element_with_backing("div");
+    DomElement* div = create_element_with_backing("div");
     DomElement* h1 = create_element_with_backing("h1");
-//     DomComment* comment1 = dom_comment_create(pool, DOM_NODE_COMMENT, "comment", " Section 1 ");
     DomElement* p1 = create_element_with_backing("p");
-//     DomComment* comment2 = dom_comment_create(pool, DOM_NODE_COMMENT, "comment", " Section 2 ");
     DomElement* p2 = create_element_with_backing("p");
-
-    // Link all nodes as children of div
-    div->append_child(h1);
-
-    comment1->parent = lam::up(div);
-    h1->next_sibling = lam::own(comment1);
-    comment1->prev_sibling = lam::up(h1);
-
-    p1->parent = lam::up(div);
-    comment1->next_sibling = lam::own(p1);
-    p1->prev_sibling = lam::up(comment1);
-
-    comment2->parent = lam::up(div);
-    p1->next_sibling = lam::own(comment2);
-    comment2->prev_sibling = lam::up(p1);
-
-    p2->parent = lam::up(div);
-    comment2->next_sibling = lam::own(p2);
-    p2->prev_sibling = lam::up(comment2);
-
-    // dom_element_count_child_elements only counts DomElement* children (h1, p1, p2 = 3 elements)
+    ASSERT_TRUE(div->append_child(h1));
+    DomComment* comment1 = div->append_comment(" Section 1 ");
+    ASSERT_NE(comment1, nullptr);
+    ASSERT_TRUE(div->append_child(p1));
+    DomComment* comment2 = div->append_comment(" Section 2 ");
+    ASSERT_NE(comment2, nullptr);
+    ASSERT_TRUE(div->append_child(p2));
     EXPECT_EQ(div->count_child_elements(), 3);
-
-    // Verify only elements match when filtering
+    DomNode* expected[] = {h1, comment1, p1, comment2, p2};
     DomNode* current = div->first_child;
-    int element_count = 0;
-    while (current) {
-        if (current->is_element()) {
-            element_count++;
-        }
-        DomNodeType type = current->node_type;
-        if (type == DOM_NODE_ELEMENT) {
-            current = ((DomElement*)current)->next_sibling;
-        } else if (type == DOM_NODE_TEXT) {
-            current = ((DomText*)current)->next_sibling;
-        } else {
-            current = ((DomComment*)current)->next_sibling;
-        }
+    DomNode* previous = nullptr;
+    for (DomNode* node : expected) {
+        ASSERT_EQ(current, node);
+        EXPECT_EQ(current->prev_sibling, previous);
+        EXPECT_EQ(current->parent, div);
+        previous = current;
+        current = current->next_sibling;
     }
-    EXPECT_EQ(element_count, 3);  // h1, p1, p2
+    EXPECT_EQ(current, nullptr);
+    EXPECT_EQ(div->last_child, p2);
 }
 
 TEST_F(DomIntegrationTest, MixedTree_DoctypeAtStart) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return;
-    DomElement* div = nullptr; DomElement* span = nullptr; DomElement* span1 = nullptr; DomElement* span2 = nullptr;
-    DomText* text = nullptr; DomText* text1 = nullptr; DomText* text2 = nullptr; DomText* inner_text = nullptr; DomText* text3 = nullptr;
-    DomComment* comment = nullptr; DomComment* comment1 = nullptr; DomComment* comment2 = nullptr; DomComment* doctype = nullptr;
+    DomComment* doctype = create_detached_comment("!DOCTYPE", "html");
     DomElement* html = create_element_with_backing("html");
-//     DomComment* doctype = dom_comment_create(pool, DOM_NODE_DOCTYPE, "!DOCTYPE", "html");
     DomElement* head = create_element_with_backing("head");
     DomElement* body = create_element_with_backing("body");
-
-    // Simulate: <!DOCTYPE html><html><head></head><body></body></html>
-    // Note: In real DOM, DOCTYPE is typically not a child of html,
-    // but for testing we'll add it as a sibling
-    html->append_child(head);
-    html->append_child(body);
-
+    ASSERT_NE(doctype, nullptr);
+    ASSERT_TRUE(html->append_child(head));
+    ASSERT_TRUE(html->append_child(body));
     EXPECT_EQ(doctype->node_type, DOM_NODE_DOCTYPE);
     EXPECT_STREQ(doctype->tag_name, "!DOCTYPE");
+    EXPECT_EQ(doctype->parent, nullptr);
+    EXPECT_TRUE(dom_node_registry_owns(doc, doctype));
+    EXPECT_EQ(html->first_child, head);
+    EXPECT_EQ(html->last_child, body);
 }
 
 // ============================================================================
@@ -3646,46 +3482,36 @@ TEST_F(DomIntegrationTest, MixedTree_DoctypeAtStart) {
 // ============================================================================
 
 TEST_F(DomIntegrationTest, Memory_TextNodeDestroy) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return;
-    DomText* text = nullptr; DomComment* comment = nullptr; DomElement* div = nullptr; DomElement* span = nullptr;
-//     DomText* text = dom_text_create(pool, "Test text");
+    DomText* text = create_detached_text("Test text");
     ASSERT_NE(text, nullptr);
-
-    // Should not crash
     dom_text_destroy(text);
+    // node storage remains document-owned until fixture teardown.
+    EXPECT_TRUE(dom_node_registry_owns(doc, text));
 }
 
 TEST_F(DomIntegrationTest, Memory_CommentNodeDestroy) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return;
-    DomText* text = nullptr; DomComment* comment = nullptr; DomElement* div = nullptr; DomElement* span = nullptr;
-//     DomComment* comment = dom_comment_create(pool, DOM_NODE_COMMENT, "comment", "Test comment");
+    DomComment* comment = create_detached_comment("!--", "Test comment");
     ASSERT_NE(comment, nullptr);
-
-    // Should not crash
     dom_comment_destroy(comment);
+    EXPECT_TRUE(dom_node_registry_owns(doc, comment));
 }
 
 TEST_F(DomIntegrationTest, Memory_MixedTreeCleanup) {
-    GTEST_SKIP() << "Standalone node creation no longer supported"; return;
-    DomText* text = nullptr; DomComment* comment = nullptr; DomElement* div = nullptr; DomElement* span = nullptr;
-//     DomElement* div = create_element_with_backing("div");
-//     DomText* text = dom_text_create(pool, "Text");
-//     DomComment* comment = dom_comment_create(pool, DOM_NODE_COMMENT, "comment", "Comment");
-//     DomElement* span = create_element_with_backing("span");
-
-    // Manually link nodes
-    text->parent = lam::up(div);
-    div->first_child = lam::own(text);
-
-    comment->parent = lam::up(div);
-    text->next_sibling = lam::own(comment);
-    comment->prev_sibling = lam::up(text);
-
-    span->parent = lam::up(div);
-    comment->next_sibling = lam::own(span);
-    span->prev_sibling = lam::up(comment);
-
-    // dom_element_count_child_elements has undefined behavior on mixed trees - don't use it
+    DomElement* div = create_element_with_backing("div");
+    DomText* text = div->append_text("Text");
+    DomComment* comment = div->append_comment("Comment");
+    DomElement* span = create_element_with_backing("span");
+    ASSERT_NE(text, nullptr);
+    ASSERT_NE(comment, nullptr);
+    ASSERT_TRUE(div->append_child(span));
+    EXPECT_EQ(div->first_child, text);
+    EXPECT_EQ(text->next_sibling, comment);
+    EXPECT_EQ(comment->next_sibling, span);
+    EXPECT_EQ(div->last_child, span);
+    EXPECT_EQ(div->count_child_elements(), 1);
+    // TearDown destroys the document containing every node kind.
+    EXPECT_TRUE(dom_node_registry_owns(doc, text));
+    EXPECT_TRUE(dom_node_registry_owns(doc, comment));
 }
 
 // ============================================================================

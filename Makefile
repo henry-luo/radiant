@@ -49,6 +49,13 @@ all: check-input-facade input-deps build/lib/$(PROFILE)/libradiant.a
 check-input-facade:
 	$(PYTHON) scripts/check_input_facade.py
 
+.PHONY: lint test-lint
+lint:
+	$(PYTHON) scripts/lint.py $(ARGS)
+
+test-lint:
+	$(PYTHON) test/test_lint.py
+
 # Flags, dependency paths and source membership are part of archive identity.
 export PROFILE CXX AR CPPFLAGS CXXFLAGS PLATFORM_FLAGS RADIANT_CPPFLAGS DEFINES NATIVE_SOURCES OBJCXX_SOURCES
 force-build-signature:

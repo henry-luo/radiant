@@ -20,6 +20,14 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+Reviewed 2026-11-11 under D9.1.1v4 / D9.1.3v2: RI-001, RI-002, RI-007, RI-009
+and RAD22-7 have owner-local repairs and verification. Eleven imported
+reports were already resolved in current source; their original observations
+and the precise scope of re-verification are retained in the fixed ledger.
+The full native and static/dynamic layout aggregate passes; layout-cast lint
+and its five contract checks also pass.
+The remaining imported feature/refactoring reports are not claimed fixed.
+
 <a id="ri-004"></a>
 
 ### RI-004 — Lambda pointer-event adapter expects an absent native event protocol
@@ -31,160 +39,18 @@ The descriptive anchor distinguishes this report from the
 [older resolved layout issue](<Radiant_Issue_Ledger (fixed).md#ri-004>) that was
 independently assigned RI-004; both original IDs are preserved.
 
-<a id="ri-001"></a>
-
-### RI-001 — HTML/CSS integration cases skip missing fixtures
-
-**Status:** OPEN — test coverage gap. **Observed:** 2026-11-09, macOS,
-`make run-radiant-baseline` (debug). **Lambda blocker:** not established.
-
-The owner-local `test_html_css_gtest` run skipped 19 cases because fixture files
-could not be loaded. For example, `LoadSimpleBoxTestHTML` could not load
-`test/html/simple_box_test.html`, and `LayoutData_Flex_NestedContent` reported
-a missing layout file. The remaining 30 cases passed. Reproduce with
-`./build/test/test_html_css_gtest` after building the baseline. Determine
-whether the fixtures should be supplied or the test paths corrected, and verify
-the affected cases execute; this report does not establish a rendering defect.
-
-<a id="ri-002"></a>
-
-### RI-002 — DOM integration cases skip unsupported standalone node creation
-
-**Status:** OPEN — test coverage gap. **Observed:** 2026-11-09, macOS,
-`make run-radiant-baseline` (debug). **Lambda blocker:** not established.
-
-`test/css/test_css_dom_integration.cpp` contains 25 existing skipped cases
-that report standalone node creation is no longer supported. Reproduce with
-`./build/test/css/test_css_dom_integration` after building the baseline.
-Review the supported document-owned creation path and restore equivalent
-coverage where applicable, without removing or hiding the skipped cases.
-The separate MIDI live-device skip is conditional on hardware and is not
-classified as a defect here.
-
 The native static-layout qualification and unified-archive provider entries
 were independently recorded as `RI-003`. They are now `RI-005` and `RI-006`,
 respectively; `RI-003` remains the fixed startup-fragment navigation issue.
-
-<a id="ri-005"></a>
-
-### RI-005 — Native static layout baseline needs execution qualification
-
-**Status:** FIXED — the standard aggregate passes all 3,851 static and 630
-dynamic geometry comparisons. See the [repair and qualification record](<Radiant_Issue_Ledger (fixed).md#ri-005>).
-
-<a id="ri-006"></a>
-
-### RI-006 — Property providers still live outside the unified Radiant archive
-
-**Status:** RESOLVED — verified 2026-11-09 against Radiant `558eb3e`.
-**Observed:** 2026-11-09, macOS arm64. **Lambda blocker:** cleared for the
-current-source MVP release build and validation.
-Authority: **D9.1.1v4 / D9.1.3v2**; the current Lambda
-[split implementation checkpoint](../../Lambda/vibe/impl/Lambda_Impl_Radiant_Split.md#current-checkpoint)
-requires both property providers in `libradiant.a`, with no separate property
-archive target.
-
-Lambda HEAD `1540d9228429f3385c1526d3bfabc85d715a423e`; Radiant HEAD `0c664052c753b66016e34267e65fe59bd11ce6bd`.
-From the Lambda checkout, reproduce with:
-`make build-lambda-split SPLIT_PROFILE=release SPLIT_OUTPUT=temp/mvp_untyped_tuning_next/starting-release.exe JOBS=2`.
-The native archives build, but the host link fails with undefined
-`BLOCK_PROP_DEFAULT`, `BOUNDARY_PROP_DEFAULT`, `EMBED_PROP_DEFAULT`,
-`GRID_ITEM_PROP_DEFAULT`, and numerous property-provider symbols.
-
-The cause is confirmed in the owning build: `Makefile`'s `libradiant.a` rule
-archives only `NATIVE_OBJECTS`; `PROPERTY_OBJECTS` remain in the separate
-`libradiant-properties.a` rule. `build_targets.json` still declares the separate
-`radiant-properties` target. `ar t build/lib/release/libradiant.a` contains neither
-`view_prop_defaults.cpp.o` nor `view_prop_ensure.cpp.o`, while the property
-archive contains both. The merged Lambda integration deliberately removed the
-separate provider link and its checks require each provider once in Radiant.
-Expected: the owner manifest/build produce the unified archive containing both
-providers once, so the existing Lambda consumer links without restoring the
-retired separate dependency.
-
-Evidence in the Lambda checkout:
-`temp/mvp_untyped_tuning_next/starting-tree.json`, `starting-build.log`,
-`libradiant.a.provider-members.txt`, `libradiant-properties.a.provider-members.txt`;
-full link diagnostics: `temp/build_lambda-exe-split.log`.
-No Radiant source/build edits or Lambda link workarounds were made. MVP
-implementation/timing was stopped under the project-boundary rule pending the
-owner repair. No baseline suite was run.
-
-**Resolution verification:** the updated owner manifest removes the separate
-property target and includes both providers in the native source list. Rebuilt
-`build/lib/release/libradiant.a` contains `view_prop_defaults.cpp.o` and
-`view_prop_ensure.cpp.o` exactly once; the four default symbols listed above
-are defined. The original Lambda split release build/link now exits zero with
-no dependency workaround. Typed and untyped Fibonacci goldens pass under MVP
-and Full MIR (4/4 smoke runs). This closes the archive/link blocker, not broader
-language or performance qualification (D9.1.1v4, D9.1.3v2).
-
-Verification: `Lambda/temp/mvp_untyped_tuning_next/ri003-verification.json`,
-`ri003-rebuild.log`, `ri003-successful-link.log`, and `ri003-recheck-tree.json`.
-The private host SHA256 is
-`cda6b0f4985ac9e440494d8b86badbbbe2c7d386e86e6483e1e45b7a4fb14363`.
-The original failing link log is preserved as `ri003-failed-link.log`.
-
-<a id="ri-007"></a>
-
-### RI-007 — Column flex measures a nested wrapping row too short
-
-**Status:** OPEN — reproduced in static HTML; native cause unconfirmed.
-**Observed:** 2026-11-10, macOS debug `lambda.exe view --headless`.
-**Lambda blocker:** no. The paint demo (`test/demo/paint/`) gives its toolbar
-rows that do not depend on this case.
-
-A `flex-direction: column` container holds a wrapping row (`flex-wrap: wrap`).
-One child of that row is itself a wrapping row limited by `max-width`. The
-column sizes the flexible item after it as if the inner row did not wrap.
-The outer row is then laid out taller, so the items after it overflow the
-column by the difference.
-
-Reproduce from the Lambda checkout with
-`./lambda.exe view temp/radiant-issues/flex_col4.html --headless --event-file temp/radiant-issues/flex_rects.json`
-(the rect assertions are expected to fail; their messages print the rectangles).
-In a 1400 × 960 viewport, the toolbar `#bar` is laid out at 102 px. The
-`flex: 1` stage gets 858 px, which is 960 − 74 − 28: the column used a 74 px
-toolbar, the height without the inner wrap. The 28 px footer starts at y = 960,
-outside the container. Expected: a 830 px stage and the footer at y = 932.
-`flex_col6.html`, which is the same page with the outer row set to `nowrap`,
-lays out correctly (96 + 836 + 28 = 960). So does the page without the inner
-wrapping row (74 + 858 + 28). The hypothetical main size of the outer row
-probably comes from a measurement pass that does not wrap the inner row at its
-`max-width`. That cause is unconfirmed. No Radiant source was changed.
-
-<a id="ri-008"></a>
-
-### RI-008 — font face source includes a missing alloca header
-
-**Status:** RESOLVED — Radiant now includes the selected input header at
-`lib/alloca.h`.
-**Observed:** 2026-11-10, macOS arm64 debug `make build`.
-**Lambda blocker:** yes — the split build cannot compile `libradiant.a`
-(D9.1.1v4, D9.1.3v2).
-
-Reproduce from the Lambda checkout with `make build`. The build reaches
-Radiant's `radiant/font_face.cpp` and fails at line 11 with
-`fatal error: 'lib/lambda_alloca.h' file not found`. The command supplies
-`-I/Users/henryluo/Projects/lambda-input`, but that checkout has
-`lib/alloca.h` and no `lib/lambda_alloca.h`; a search across the Lambda, input
-and Radiant checkouts found no file with the requested name. The current input
-header defines `LAMBDA_ALLOCA`. Expected: Radiant compiles against the current
-selected input headers and the Lambda split build proceeds.
-
-Radiant's three consumers now include `lib/alloca.h`, preserving the existing
-`LAMBDA_ALLOCA` call sites and behavior. This updates `font_face.cpp`, the
-reported blocker, and the same stale include in `render_border.cpp` and
-`rdt_vector_tvg.cpp`. A focused debug compilation of all three translation
-units passed.
 
 ## Imported native Radiant backlog
 
 These entries retain their original `RAD` IDs, evidence and historical wording
 from the Lambda-hosted ledger. Ownership was reviewed against the split on
-2026-11-09 (D9.1.1v4, D9.1.3v2), but the imported claims and old line numbers
-have not been reverified against current code. Duplicate or related entries
-remain separately identified until the owner reviews them.
+2026-11-09 (D9.1.1v4, D9.1.3v2). The 2026-11-11 resolved-entry links below
+identify the reports rechecked in current source. Remaining claims and old line
+numbers still need re-verification; duplicate or related open entries retain
+their original IDs.
 
 <a id="rad13-l1"></a>
 
@@ -228,9 +94,7 @@ checking. The standing layout/header/boundary debt above is unchanged.
 
 <a id="rad01-5"></a>
 
-#### RAD01-5
-
-**Class-name handling is still a single-token stub.** The deprecated `RDT_VIEW_MATH` enum span has been removed, but the class-name path in `view_pool.cpp` still assumes a single class ("TODO: split on whitespace for multiple classes").
+- [RAD01-5](<Radiant_Issue_Ledger (fixed).md#rad01-5>).
 
 ### RAD02 — CSS Style Resolution & Computed Style
 
@@ -254,15 +118,11 @@ checking. The standing layout/header/boundary debt above is unchanged.
 
 <a id="rad02-4"></a>
 
-#### RAD02-4
-
-**No named colors in the HTML-attr parser.** `parse_html_color` (`resolve_htm_style.cpp:90`) handles hex/`rgb()` only, with a TODO for named colors (`resolve_htm_style.cpp:100`). Because presentational attributes use this parser and CSS uses `resolve_color_value`, a named color works in a stylesheet but not in a `bgcolor` attribute.
+- [RAD02-4](<Radiant_Issue_Ledger (fixed).md#rad02-4>).
 
 <a id="rad02-6"></a>
 
-#### RAD02-6
-
-**Two color parsers.** `parse_html_color` (htm) vs `resolve_color_value` (css) — see item 4. Consolidating would remove a class of "works one place, not the other" bugs.
+- [RAD02-6](<Radiant_Issue_Ledger (fixed).md#rad02-6>).
 
 <a id="rad02-7"></a>
 
@@ -327,7 +187,6 @@ descendant measurement if invalidation does not propagate. Recheck those
 claims against current native invalidation before deciding on a fix. The
 Lambda event-dispatch portion remains in the [mixed historical record](../../Lambda/vibe/radiant/Radiant_Issue_Ledger.md#rad04-4).
 
-
 <a id="rad04-1"></a>
 
 #### RAD04-1
@@ -368,9 +227,7 @@ Lambda event-dispatch portion remains in the [mixed historical record](../../Lam
 
 <a id="rad05-1"></a>
 
-#### RAD05-1
-
-**Dead `IntrinsicSizeCache` struct.** The header struct (`layout.hpp`), including its four-slot per-width `HeightCacheEntry` height cache, has zero references anywhere. The real cache is the four `DomElement` fields (`dom_element.hpp:434-437`) and caches **width only**. *Improvement:* delete the struct, or wire up its height cache to fix issue 2.
+- [RAD05-1](<Radiant_Issue_Ledger (fixed).md#rad05-1>).
 
 <a id="rad05-2"></a>
 
@@ -454,9 +311,7 @@ Lambda event-dispatch portion remains in the [mixed historical record](../../Lam
 
 <a id="rad06-8"></a>
 
-#### RAD06-8
-
-**Legacy `@font-face` cruft in the font bridge.** `font_face.cpp:341` `parse_font_face_rule_OLD` is a dead lexbor path (fonts are RAD07's domain, cross-linked here only because it is reached from the inline text path via `setup_font`).
+- [RAD06-8](<Radiant_Issue_Ledger (fixed).md#rad06-8>).
 
 <a id="rad06-9"></a>
 
@@ -480,9 +335,7 @@ Lambda event-dispatch portion remains in the [mixed historical record](../../Lam
 
 <a id="rad07-2"></a>
 
-#### RAD07-2
-
-**Legacy dead code in `font_face.cpp`.** `parse_font_face_rule_OLD` (`font_face.cpp:341-385`) is an entire lexbor-dependent function, including a hardcoded "Liberation Sans" registration and a `rule == NULL` "hardcoded @font-face" path, left inside a block comment. It is dead but clutters the file and encodes a stale design. *Improvement:* delete it.
+- [RAD07-2](<Radiant_Issue_Ledger (fixed).md#rad07-2>).
 
 <a id="rad07-3"></a>
 
@@ -518,9 +371,7 @@ Lambda event-dispatch portion remains in the [mixed historical record](../../Lam
 
 <a id="rad08-1"></a>
 
-#### RAD08-1
-
-**Fixed-size global measurement cache.** `static MeasurementCacheEntry measurement_cache[1000]` with `static int cache_count` (`layout_flex_measurement.cpp:555`) is a process-global, capacity-capped array ("Fixed size for simplicity") — not per-document. Overflow logs an error and drops the entry (`:571`); a document with more than 1000 measured nodes silently loses caching, and there is a theoretical cross-document bleed risk mitigated only by the generation counter. *Improvement:* a per-`ViewTree` hash-map cache with real eviction.
+- [RAD08-1](<Radiant_Issue_Ledger (fixed).md#rad08-1>).
 
 <a id="rad08-2"></a>
 
@@ -536,9 +387,7 @@ Lambda event-dispatch portion remains in the [mixed historical record](../../Lam
 
 <a id="rad08-4"></a>
 
-#### RAD08-4
-
-**`has_flex_item_prop` duplicated across all three files.** It is re-defined as a `static` in `layout_flex.cpp:39`, `layout_flex_measurement.cpp:438`, and `layout_flex_multipass.cpp:268`, and the measurement file additionally carries its own `flex_measurement_direction_is_row` (`:68`) parallel to `is_main_axis_horizontal`. Divergence between copies is a live risk. *Improvement:* hoist the shared predicates into `layout.hpp`.
+- [RAD08-4](<Radiant_Issue_Ledger (fixed).md#rad08-4>).
 
 <a id="rad08-5"></a>
 
@@ -754,9 +603,7 @@ Focused evidence: `css_grid_auto_fit`, `css_grid_named_lines`, `css_grid_capacit
 
 <a id="rad14-4"></a>
 
-#### RAD14-4
-
-**Fixed clip-stack depth in the ThorVG backend.** `RDT_MAX_CLIP_DEPTH` is hard-coded to 8 (`rdt_vector_tvg.cpp:1461`); overflow is logged and the clip dropped (`:1476`). Deeply nested SVG clip paths beyond depth 8 silently lose clipping.
+- [RAD14-4](<Radiant_Issue_Ledger (fixed).md#rad14-4>).
 
 <a id="rad14-5"></a>
 
@@ -794,7 +641,6 @@ of `radiant/event_sim.cpp`. Recheck the current implementation and whether
 a native decomposition is justified. Lambda's `event.cpp` dispatcher remains
 Lambda-owned and is retained in the [mixed historical record](../../Lambda/vibe/radiant/Radiant_Issue_Ledger.md#rad15-4).
 
-
 <a id="rad15-2"></a>
 
 #### RAD15-2
@@ -823,9 +669,7 @@ Lambda-owned and is retained in the [mixed historical record](../../Lambda/vibe/
 
 <a id="rad16-2"></a>
 
-#### RAD16-2
-
-**Hard parser caps silently truncate.** `parse_keyframes_content` caps at 64 stops and 32 declarations per stop (`css_animation.cpp:343`/`347`), with 64-byte name and 256-byte value buffers (`css_animation.cpp:413`/`434`). Overflow is dropped without a warning. *Improvement:* at least `log_warn` on overflow, or grow dynamically.
+- [RAD16-2](<Radiant_Issue_Ledger (fixed).md#rad16-2>).
 
 <a id="rad16-3"></a>
 
@@ -873,9 +717,7 @@ Lambda-owned and is retained in the [mixed historical record](../../Lambda/vibe/
 
 <a id="rad17-3"></a>
 
-#### RAD17-3
-
-**`s_in_batch` is a file-static global**, not a `DocState` field. It gates whether mutation-time asserts fire, so it is not per-document and is unsafe if multiple documents or threads mutate state concurrently. *Improvement:* move it into `DocState` alongside `active_cascade_depth`/`transition_depth`.
+- [RAD17-3](<Radiant_Issue_Ledger (fixed).md#rad17-3>).
 
 <a id="rad17-5"></a>
 
@@ -1037,9 +879,7 @@ Lambda-owned and is retained in the [mixed historical record](../../Lambda/vibe/
 
 <a id="rad22-7"></a>
 
-#### RAD22-7
-
-**GIF finish leaves a dangling `surface->pixels` briefly.** `gif_animation_finish` frees the frames, after which `surface->pixels` points at freed memory until it is nulled two lines later (`gif_player.cpp:55-64`) — a narrow window, but any interleaved read during teardown would be a use-after-free.
+- [RAD22-7](<Radiant_Issue_Ledger (fixed).md#rad22-7>).
 
 <a id="rad22-8"></a>
 
@@ -1062,3 +902,31 @@ Lambda-owned and is retained in the [mixed historical record](../../Lambda/vibe/
 <a id="ri-004-layout"></a>
 
 - [RI-004 — Dynamic baseline exposes native anonymous-table and match-parent mismatches](<Radiant_Issue_Ledger (fixed).md#ri-004>).
+
+<a id="ri-001"></a>
+
+- [RI-001 — HTML/CSS integration cases skip missing fixtures](<Radiant_Issue_Ledger (fixed).md#ri-001>).
+
+<a id="ri-002"></a>
+
+- [RI-002 — DOM integration cases skip unsupported standalone node creation](<Radiant_Issue_Ledger (fixed).md#ri-002>).
+
+<a id="ri-005"></a>
+
+- [RI-005 — Native static layout baseline needs execution qualification](<Radiant_Issue_Ledger (fixed).md#ri-005>).
+
+<a id="ri-006"></a>
+
+- [RI-006 — Property providers still live outside the unified Radiant archive](<Radiant_Issue_Ledger (fixed).md#ri-006>).
+
+<a id="ri-007"></a>
+
+- [RI-007 — Column flex measures a nested wrapping row too short](<Radiant_Issue_Ledger (fixed).md#ri-007>).
+
+<a id="ri-008"></a>
+
+- [RI-008 — font face source includes a missing alloca header](<Radiant_Issue_Ledger (fixed).md#ri-008>).
+
+<a id="ri-009"></a>
+
+- [RI-009 — Required standalone layout lint target is absent](<Radiant_Issue_Ledger (fixed).md#ri-009>).

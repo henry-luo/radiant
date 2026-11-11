@@ -4104,7 +4104,7 @@ static bool output_break_at_last_space(LayoutContext* lycon, DomNode* text_node,
             if (continuation < text_end && *continuation) {
                 continuation_bytes = decode_text_codepoint_or_byte(
                     continuation, text_end, &continuation_cp);
-                text_len = (int)(continuation + continuation_bytes - text_start - rect->start_index);
+                text_len = (int)(continuation + continuation_bytes - text_start - rect->start_index); // INT_CAST_OK: UTF-8 byte count for this text rectangle.
                 *soft_hyphen_leading_width =
                     measure_current_glyph_advance(lycon, continuation_cp, trim_cjk_spacing);
                 *soft_hyphen_leading_bytes = continuation_bytes;
@@ -4134,7 +4134,7 @@ static bool output_break_at_last_space(LayoutContext* lycon, DomNode* text_node,
             uint32_t continuation_cp = 0;
             int continuation_bytes = decode_text_codepoint_or_byte(
                 continuation, text_end, &continuation_cp);
-            text_len = (int)(continuation + continuation_bytes - text_start - rect->start_index);
+                text_len = (int)(continuation + continuation_bytes - text_start - rect->start_index); // INT_CAST_OK: UTF-8 byte count for this text rectangle.
             *soft_hyphen_leading_width = measure_current_glyph_advance(
                 lycon, continuation_cp, trim_cjk_spacing);
             *soft_hyphen_leading_bytes = continuation_bytes;
@@ -5174,7 +5174,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
                     // CSS Text §4: collapsible whitespace at the line edge is removed.
                     skip_collapsible_space_sequence(&str, collapse_newlines, text_end);
                     rect->width = 0.0f;
-                    rect->length = (int)(str - text_start - rect->start_index);
+    rect->length = (int)(str - text_start - rect->start_index); // INT_CAST_OK: UTF-8 byte count for this text rectangle.
                     lycon->line.clear_trailing_space();
                     lycon->line.has_space = true;
                     if (wrap_lines && !lycon->line.is_line_start) {

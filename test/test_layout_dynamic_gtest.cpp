@@ -80,7 +80,94 @@ protected:
         load(html->str);
         strbuf_free(html);
     }
+
+    void load_nested_flex_toolbar(const char* outer_wrap, const char* inner_wrap) {
+        StrBuf* html = strbuf_create("<!doctype html><style>"
+            "html,body{margin:0}"
+            "#app{width:1400px;height:960px;display:flex;flex-direction:column}"
+            "#bar{display:flex;align-items:center;gap:10px;padding:8px;flex-wrap:");
+        strbuf_append_str(html, outer_wrap);
+        strbuf_append_str(html, "}.group{display:flex;align-items:center;gap:4px}"
+            ".wrap{max-width:420px;flex-wrap:");
+        strbuf_append_str(html, inner_wrap);
+        strbuf_append_str(html, "}.group span{display:inline-block;width:90px;height:24px}"
+            "#stage{flex:1;overflow:hidden}#status{height:28px}"
+            "</style><div id='app'><div id='bar'>");
+        const int counts[] = {4, 7, 3, 4};
+        for (int group = 0; group < 4; group++) {
+            strbuf_append_str(html, group == 1 ? "<div class='group wrap'>" : "<div class='group'>");
+            for (int child = 0; child < counts[group]; child++)
+                strbuf_append_str(html, "<span></span>");
+            strbuf_append_str(html, "</div>");
+        }
+        strbuf_append_str(html, "</div><main id='stage'></main><footer id='status'></footer></div>");
+        load(html->str);
+        strbuf_free(html);
+    }
+
+    void check_flex_toolbar(float toolbar_height) {
+        DomElement* toolbar = element("bar");
+        DomElement* stage = element("stage");
+        DomElement* status = element("status");
+        ASSERT_NE(toolbar, nullptr);
+        ASSERT_NE(stage, nullptr);
+        ASSERT_NE(status, nullptr);
+        EXPECT_FLOAT_EQ(toolbar->height, toolbar_height);
+        EXPECT_FLOAT_EQ(stage->y, toolbar_height);
+        EXPECT_FLOAT_EQ(stage->height, 960.0f - toolbar_height - 28.0f);
+        EXPECT_FLOAT_EQ(status->y, 932.0f);
+        EXPECT_FLOAT_EQ(status->height, 28.0f);
+    }
 };
+
+TEST_F(DynamicLayoutTest, ColumnFlexMeasuresNestedWrappingRows) {
+    load_nested_flex_toolbar("wrap", "wrap");
+    ASSERT_NE(document, nullptr);
+    check_flex_toolbar(102.0f);
+    DomElement* inner = element("bar")->first_child->next_sibling->as_element();
+    ASSERT_NE(inner, nullptr);
+    ASSERT_TRUE(inner->set_attribute("style", "max-width:300px"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, true);
+    check_flex_toolbar(96.0f);
+}
+
+TEST_F(DynamicLayoutTest, ColumnFlexMeasuresNowrapToolbarWithWrappingChild) {
+    load_nested_flex_toolbar("nowrap", "wrap");
+    ASSERT_NE(document, nullptr);
+    check_flex_toolbar(96.0f);
+}
+
+TEST_F(DynamicLayoutTest, ColumnFlexMeasuresWrappingToolbarWithNowrapChild) {
+    load_nested_flex_toolbar("wrap", "nowrap");
+    ASSERT_NE(document, nullptr);
+    check_flex_toolbar(74.0f);
+}
+
+TEST_F(DynamicLayoutTest, HtmlColorAttributesUseNamedCssColors) {
+    load("<!doctype html><body id='body' bgcolor='navy'>"
+         "<font id='font' color='ReD'>Text</font>"
+         "<table><tr><td id='cell' bgcolor='lime'>Cell</td></tr></table>");
+    ASSERT_NE(document, nullptr);
+    for (const char* id : {"body", "cell"}) {
+        DomElement* node = element(id);
+        ASSERT_NE(node, nullptr);
+        ASSERT_NE(node->bound, nullptr);
+        ASSERT_NE(node->bound->background, nullptr);
+        Color color = node->bound->background->color;
+        EXPECT_EQ(color.r, 0);
+        EXPECT_EQ(color.g, strcmp(id, "cell") == 0 ? 255 : 0);
+        EXPECT_EQ(color.b, strcmp(id, "body") == 0 ? 128 : 0);
+        EXPECT_EQ(color.a, 255);
+    }
+    DomElement* font = element("font");
+    ASSERT_NE(font, nullptr);
+    ASSERT_NE(font->in_line, nullptr);
+    EXPECT_EQ(font->in_line->color.r, 255);
+    EXPECT_EQ(font->in_line->color.g, 0);
+    EXPECT_EQ(font->in_line->color.b, 0);
+    EXPECT_TRUE(font->in_line->has_color);
+}
 
 TEST_F(DynamicLayoutTest, MatchParentTracksParentDirection) {
     load_alignment_matrix("match", "");

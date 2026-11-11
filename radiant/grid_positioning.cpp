@@ -20,8 +20,8 @@ static bool grid_item_inline_area_is_definite(const GridItemProp* grid_item,
     if (!grid_item || !grid_layout || !grid_layout->computed_columns) return false;
     int start = grid_item->computed_grid_column_start - 1;
     int end = grid_item->computed_grid_column_end - 1;
-    if (start < 0 || end <= start || end > (int)grid_layout->computed_columns->size()) {
-        return false; // INT_CAST_OK: grid line indices are stored as int; track count is bounded.
+    if (start < 0 || end <= start || end > (int)grid_layout->computed_columns->size()) { // INT_CAST_OK: grid line indices are stored as int; track count is bounded.
+        return false;
     }
     for (int index = start; index < end; index++) {
         const radiant::grid::EnhancedGridTrack& track =

@@ -956,7 +956,7 @@ bool layout_prepare_generated_effects(LayoutContext* context, DomNode* root) {
     if (!context || context->paged || context->generated_effects_prepared) return true;
     int budget = context->node_limit - context->node_count;
     bool supported = view_geometry_walk_dom_tree(root, [](DomNode* node, void* data) {
-        if (--*(int*)data < 0) return false;
+        if (--*(int*)data < 0) return false; // INT_CAST_OK: callback payload points to the integer node budget.
         if (!node->is_element()) return true;
         DomElement* element = node->as_element();
         const char* custom = custom_layout_name_for_element(element);

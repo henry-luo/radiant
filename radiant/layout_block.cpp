@@ -1656,7 +1656,7 @@ static int find_first_letter_boundary(const unsigned char* text, int text_len) {
         }
     }
     if (!found_letter) return 0;
-    return (int)(after_letter - content_start);
+    return (int)(after_letter - content_start); // INT_CAST_OK: UTF-8 byte offset within the text run.
 }
 
 static bool is_text_all_whitespace(const unsigned char* data) {
@@ -1720,7 +1720,7 @@ static void create_first_letter_pseudo(LayoutContext* lycon, ViewBlock* block) {
     const unsigned char* p = text_data;
     while (*p && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) p++;
     if (!*p) return;
-    int ws_offset = (int)(p - text_data);
+    int ws_offset = (int)(p - text_data); // INT_CAST_OK: UTF-8 byte offset within the text run.
     int boundary = find_first_letter_boundary(p, text_len - ws_offset);
     if (boundary <= 0) {
         return;

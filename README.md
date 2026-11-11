@@ -14,6 +14,12 @@ Windows setup still need native platform verification.
 
 `make run-radiant-baseline` runs the owner-local native GTest suites and the layout baseline, even if one group fails. `make test-native` runs only native GTest suites. `make test-layout-smoke` loads every static fixture without a scripting host and checks for a produced view tree. The shared layout and media fixtures use the sibling `lambda-test` checkout. Device-specific cases may require local hardware and are reported as skipped when unavailable.
 
+`make lint ARGS='--rule ^no-int-cast-radiant$'` runs the owner-local layout
+integer-cast rule using `ast-grep` (`brew install ast-grep`). Integer exceptions
+require a same-line `// INT_CAST_OK: <reason>` comment. `make test-lint` checks
+the gate's rejection and suppression behavior. The rule belongs to Radiant
+under D9.1.1v4 / D9.1.3v2 and needs no Lambda runtime or Python clang module.
+
 `make test-layout-baseline` builds `radiant.exe` by default, runs the native smoke pass, and compares the existing `baseline` and `baseline-js` suites against browser geometry using `test/layout/test_radiant_layout.js`. The executable's script host uses the configured runtime and adapter archives in `LAMBDA_ROOT` (default `../Lambda`), which also supplies package/WPT resources; it does not invoke `lambda.exe`. Select a different executable in the runner with `--exe <path>` (also `--radiant-exe`), or set `RADIANT_EXE` for the make target. The native archive and smoke target remain independent of Lambda runtime (D9.1.1v4, D9.1.3v2). Existing mismatches fail the target. No scored baseline or reference is weakened to make it pass.
 
 For example, `./radiant.exe layout page.html --view-output temp/page.json` writes a view tree, and `./radiant.exe render page.html -o temp/page.png` renders an image. To run a selected fixture with a specific host, use `node test/layout/test_radiant_layout.js --exe ./radiant.exe --host-cwd ../Lambda -c baseline -t baseline_801_display_block.html`.

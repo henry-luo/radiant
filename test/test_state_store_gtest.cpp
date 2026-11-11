@@ -390,6 +390,28 @@ protected:
     }
 };
 
+TEST_F(StateStoreDomMutationTest, BatchesNestIndependentlyAcrossDocuments) {
+    NativeInputDocument other;
+    ASSERT_NE(other.document, nullptr);
+    ASSERT_NE(state_store_create(other.document), nullptr);
+    DocState* second = other.document->state;
+    ASSERT_NE(second, nullptr);
+    state_begin_batch(state());
+    state_begin_batch(state());
+    state_begin_batch(second);
+    EXPECT_EQ(state()->state_batch_depth, 2u);
+    EXPECT_EQ(second->state_batch_depth, 1u);
+    state_end_batch(state());
+    EXPECT_EQ(state()->state_batch_depth, 1u);
+    state_end_batch(second);
+    EXPECT_EQ(second->state_batch_depth, 0u);
+    EXPECT_EQ(state()->state_batch_depth, 1u);
+    state_end_batch(state());
+    state_end_batch(state());
+    EXPECT_EQ(state()->state_batch_depth, 0u);
+    state_store_destroy(other.document);
+}
+
 TEST_F(StateStoreDomMutationTest, NativeOptionPseudoStatesFollowLiveSelectedness) {
     live->tag_name = lam::up("option");
     SelectorQueryScratch query;

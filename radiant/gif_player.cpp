@@ -51,14 +51,7 @@ void GifAnimation::finish(AnimationInstance* anim) {
     log_debug("gif animation finished: %d frames, %d loops", 
               frames ? frames->frame_count : 0, loops_completed);
 
-    // Free the GifFrames data
-    if (frames) {
-        image_gif_free(frames);
-        frames = NULL;
-    }
-    // The frame pixels are gone. A cache-owned surface outlives this document's
-    // scheduler, so it returns to its own decoded still rather than to no pixels
-    // (teardown audit: a cancelled GIF left the cache entry blank).
+    // detach borrowed frame pixels before freeing them; cached surfaces retain their decoded still.
     if (surface && surface->owned_pixels) {
         surface->pixels = surface->owned_pixels;
         surface->pitch = still_pitch;
@@ -68,6 +61,10 @@ void GifAnimation::finish(AnimationInstance* anim) {
         image_surface_bump_generation(surface);
     } else {
         image_surface_detach_pixels(surface);
+    }
+    if (frames) {
+        image_gif_free(frames);
+        frames = NULL;
     }
     anim->state = NULL;
     lam::Temp<GifAnimation> self(this);  // the finished animation releases its player

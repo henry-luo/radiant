@@ -751,9 +751,7 @@ TEST_F(HtmlCssIntegrationTest, CompleteHtmlCssPipeline_NestedElements) {
 TEST_F(HtmlCssIntegrationTest, LoadSimpleBoxTestHTML) {
     std::string html_content = read_file("test/html/simple_box_test.html");
 
-    if (html_content.empty()) {
-        GTEST_SKIP() << "Could not load test/html/simple_box_test.html";
-    }
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     printf("\n=== Testing Real File: simple_box_test.html ===\n");
 
@@ -793,9 +791,7 @@ TEST_F(HtmlCssIntegrationTest, LoadSimpleBoxTestHTML) {
 TEST_F(HtmlCssIntegrationTest, LoadAndParseSampleHTML) {
     std::string html_content = read_file("test/layout/data/page/sample1.html");
 
-    if (html_content.empty()) {
-        GTEST_SKIP() << "Could not load test/layout/data/page/sample1.html";
-    }
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     printf("\n=== Testing Real File: sample1.html ===\n");
 
@@ -822,9 +818,7 @@ TEST_F(HtmlCssIntegrationTest, LoadAndParseSampleHTML) {
 TEST_F(HtmlCssIntegrationTest, VerifyInlineStylesInSampleHTML) {
     std::string html_content = read_file("test/layout/data/page/sample1.html");
 
-    if (html_content.empty()) {
-        GTEST_SKIP() << "Could not load test/layout/data/page/sample1.html";
-    }
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -846,8 +840,8 @@ TEST_F(HtmlCssIntegrationTest, ProcessMultipleHTMLFiles) {
     std::vector<std::string> additional_files = {
         "test/html/simple_box_test.html",
         "test/html/box.html",
-        "test/layout/data/table/table_simple.html",
-        "test/layout/data/css2.1/whitespace-001.htm"
+        "test/layout/data/baseline/table_simple.html",
+        "test/layout/data/baseline/whitespace-001.htm"
     };
 
     printf("\n=== Testing Multiple HTML Files ===\n");
@@ -1003,9 +997,7 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_AllPageFiles) {
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Baseline_EmptyDocument) {
     std::string html_content = read_file("test/layout/data/baseline/baseline_001_empty_document.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1016,9 +1008,7 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Baseline_EmptyDocument) {
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Baseline_SingleDiv) {
     std::string html_content = read_file("test/layout/data/baseline/baseline_002_single_div.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1033,9 +1023,7 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Baseline_SingleDiv) {
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Baseline_FlexContainer) {
     std::string html_content = read_file("test/layout/data/baseline/baseline_007_simple_flexbox.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1051,9 +1039,7 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Baseline_FlexContainer) {
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Baseline_DisplayTypes) {
     std::string html_content = read_file("test/layout/data/baseline/baseline_801_display_block.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1064,9 +1050,7 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Baseline_DisplayTypes) {
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Baseline_BoxModel) {
     std::string html_content = read_file("test/layout/data/baseline/box_001_width_height.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1089,9 +1073,7 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Baseline_BoxModel) {
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Flex_BasicLayout) {
     std::string html_content = read_file("test/layout/data/baseline/flex_001_basic_layout.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1107,9 +1089,7 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Flex_BasicLayout) {
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Flex_WrapAlignment) {
     std::string html_content = read_file("test/layout/data/baseline/flex_002_wrap.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1119,10 +1099,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Flex_WrapAlignment) {
 }
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Flex_NestedContent) {
-    std::string html_content = read_file("test/layout/data/flex/flex_019_nested_flex.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/flex_019_nested_flex.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1136,10 +1114,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Flex_NestedContent) {
 // ============================================================================
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Grid_BasicLayout) {
-    std::string html_content = read_file("test/layout/data/grid/grid_001_basic_layout.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/grid_001_basic_layout.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1154,10 +1130,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Grid_BasicLayout) {
 }
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Grid_TemplateAreas) {
-    std::string html_content = read_file("test/layout/data/grid/grid_005_template_areas.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/grid_005_template_areas.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1167,10 +1141,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Grid_TemplateAreas) {
 }
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Grid_NestedGrid) {
-    std::string html_content = read_file("test/layout/data/grid/grid_012_nested_grid.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/grid_012_nested_grid.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1184,10 +1156,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Grid_NestedGrid) {
 // ============================================================================
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Table_BasicTable) {
-    std::string html_content = read_file("test/layout/data/table/table_001_basic_layout.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/table_001_basic_layout.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1203,10 +1173,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Table_BasicTable) {
 }
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Table_BorderCollapse) {
-    std::string html_content = read_file("test/layout/data/table/table_006_border_collapse.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/table_006_border_collapse.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1216,10 +1184,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Table_BorderCollapse) {
 }
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Table_ColspanRowspan) {
-    std::string html_content = read_file("test/layout/data/table/table_018_complex_spanning.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/table_018_complex_spanning.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1233,10 +1199,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Table_ColspanRowspan) {
 // ============================================================================
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Position_FloatLeft) {
-    std::string html_content = read_file("test/layout/data/position/float-001.htm");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/float-001.htm");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1251,10 +1215,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Position_FloatLeft) {
 }
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Position_Absolute) {
-    std::string html_content = read_file("test/layout/data/position/position_008_absolute_corners.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/position_008_absolute_corners.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1264,10 +1226,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Position_Absolute) {
 }
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Position_Combined) {
-    std::string html_content = read_file("test/layout/data/position/position_015_all_types_combined.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/position_015_all_types_combined.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1281,10 +1241,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Position_Combined) {
 // ============================================================================
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Box_FloatClear) {
-    std::string html_content = read_file("test/layout/data/box/float-001.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/baseline_814_clear_float.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1294,10 +1252,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Box_FloatClear) {
 }
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Box_Borders) {
-    std::string html_content = read_file("test/layout/data/box/box_004_borders.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/box_004_borders.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1312,10 +1268,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Box_Borders) {
 }
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Box_Overflow) {
-    std::string html_content = read_file("test/layout/data/box/box_012_overflow.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/box_012_overflow.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1330,9 +1284,7 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Box_Overflow) {
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_TextFlow_FontFamilies) {
     std::string html_content = read_file("test/layout/data/baseline/text_flow_751_mixed_font_families.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1348,9 +1300,7 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_TextFlow_FontFamilies) {
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_TextFlow_Wrapping) {
     std::string html_content = read_file("test/layout/data/baseline/text_flow_741_text_wrapping_sans.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1365,9 +1315,7 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_TextFlow_Wrapping) {
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Page_Sample2) {
     std::string html_content = read_file("test/layout/data/page/sample2.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1381,9 +1329,7 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Page_Sample2) {
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Page_Sample5) {
     std::string html_content = read_file("test/layout/data/page/sample5.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1397,10 +1343,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Page_Sample5) {
 // ============================================================================
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Medium_DocumentStructure) {
-    std::string html_content = read_file("test/layout/data/medium/combo_001_document_structure.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/page/combo_001_document_structure.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1417,10 +1361,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Medium_DocumentStructure) {
 }
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Medium_NestedLists) {
-    std::string html_content = read_file("test/layout/data/medium/list_002_nested_lists.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/list_002_nested_lists.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1434,10 +1376,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Medium_NestedLists) {
 // ============================================================================
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Basic_Colors) {
-    std::string html_content = read_file("test/layout/data/basic/color-001.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/color-001.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1452,10 +1392,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Basic_Colors) {
 }
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Basic_Margins) {
-    std::string html_content = read_file("test/layout/data/basic/margin-collapse-001.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/margin-collapse-001.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1465,10 +1403,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Basic_Margins) {
 }
 
 TEST_F(HtmlCssIntegrationTest, LayoutData_Basic_Images) {
-    std::string html_content = read_file("test/layout/data/basic/image_001_basic_layout.html");
-    if (html_content.empty()) {
-        GTEST_SKIP() << "File not found";
-    }
+    std::string html_content = read_file("test/layout/data/baseline/image_001_basic_layout.html");
+    ASSERT_FALSE(html_content.empty()) << "Required HTML fixture could not be loaded";
 
     Input* input = parse_html_string(html_content.c_str());
     ASSERT_NE(input, nullptr);
@@ -1491,8 +1427,8 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_BatchProcessing) {
         "test/layout/data/baseline/flex_001_basic_layout.html",
 
         // Grid samples
-        "test/layout/data/grid/grid_001_basic_layout.html",
-        "test/layout/data/grid/grid_003_span_cells.html",
+        "test/layout/data/baseline/grid_001_basic_layout.html",
+        "test/layout/data/baseline/grid_003_span_cells.html",
 
         // Table samples (moved to baseline)
         "test/layout/data/baseline/table_001_basic_table.html",
@@ -1503,12 +1439,12 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_BatchProcessing) {
         "test/layout/data/baseline/position_007_absolute_basic.html",
 
         // Box samples
-        "test/layout/data/box/box_004_borders.html",
-        "test/layout/data/box/float-001.html",
+        "test/layout/data/baseline/box_004_borders.html",
+        "test/layout/data/baseline/baseline_814_clear_float.html",
 
         // Page samples
-        "test/layout/data/page/sample3.html",
-        "test/layout/data/page/sample4.html",
+        "test/layout/data/baseline/sample3.html",
+        "test/layout/data/baseline-js/sample4.html",
 
         nullptr
     };
