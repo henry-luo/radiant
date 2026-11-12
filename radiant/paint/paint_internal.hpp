@@ -34,6 +34,8 @@ struct PaintDab {
     float smudge, smudge_length, smudge_radius, grain;
     float shift[5];              // dh, dl, dhsl_s, dv, dhsv_s
     int32_t smudge_bucket;
+    int32_t pigment;             // pigment-table row on a pigment target; -1 otherwise
+    float amount, thickness;     // pigment load and paint body per unit coverage (PE8)
     const PaintView* tip;        // null for the procedural mask
     uint8_t profile, blend;
     PaintRect box;               // clipped candidate pixels
@@ -41,7 +43,9 @@ struct PaintDab {
 };
 
 // Decodes and validates one row against `params`; unimplemented features must hold their
-// neutral values (pigment -1; amount, water and thickness 0).
+// neutral values. Water stays 0 (PE9). On an rgba or coverage target pigment is -1 and amount and
+// thickness are 0; on a pigment target the dab names a pigment and uses no lock-alpha, colorize,
+// posterize or blend mode.
 bool paint_dab_decode(const float* row, int32_t width, int32_t height, const PaintDabParams* params,
     PaintDab* dab, const char** reason);
 
@@ -91,6 +95,110 @@ static inline float paint_dab_mask(const PaintDab* dab, float dx, float dy) {
     if (f > 1.0f) f = 1.0f;
     return f * edge;
 }
+
+static inline float paint_paper(const PaintView* paper, int32_t x, int32_t y) {
+    int32_t px = x % paper->width, py = y % paper->height;
+    return paint_clamp01(((const float*)paper->data)[(int64_t)py * paper->row_stride + (int64_t)px * paper->pixel_stride]);
+}
+
+// a dab's coverage at a pixel after paper grain: the dab reaches peaks fully and valleys by (1 - grain).
+static inline float paint_grained(const PaintDab* dab, const PaintView* paper, float m, int32_t x, int32_t y) {
+    return dab->grain > 0.0f ? m * (1.0f - dab->grain + dab->grain * paint_paper(paper, x, y)) : m;
+}
+
+// what one dab deposits once its colour is resolved.
+struct PaintInk {
+    float color[3];
+    float target_alpha;          // libmypaint eraser_target_alpha: 1 paints, 0 erases
+    float lock, colorize, posterize, levels;
+    uint8_t blend;
+};
+
+static inline float paint_blend_channel(uint8_t mode, float b, float s) {
+    switch (mode) {
+    case PAINT_BLEND_MULTIPLY: return b * s;
+    case PAINT_BLEND_SCREEN: return b + s - b * s;
+    case PAINT_BLEND_OVERLAY: return b <= 0.5f ? 2.0f * b * s : 1.0f - 2.0f * (1.0f - b) * (1.0f - s);
+    case PAINT_BLEND_DARKEN: return fminf(b, s);
+    case PAINT_BLEND_LIGHTEN: return fmaxf(b, s);
+    case PAINT_BLEND_ADD: return fminf(1.0f, b + s);
+    default: return s;
+    }
+}
+
+static inline float paint_lum(const float* c) { return 0.3f * c[0] + 0.59f * c[1] + 0.11f * c[2]; }
+
+// W3C SetLum with ClipColor: the colour's hue and saturation at luminosity l.
+static inline void paint_set_lum(const float* c, float l, float* out) {
+    float d = l - paint_lum(c);
+    for (int i = 0; i < 3; i++) out[i] = c[i] + d;
+    float lum = paint_lum(out), mn = fminf(out[0], fminf(out[1], out[2])), mx = fmaxf(out[0], fmaxf(out[1], out[2]));
+    for (int i = 0; i < 3; i++) {
+        if (mn < 0.0f && lum - mn > 0.0f) out[i] = lum + (out[i] - lum) * lum / (lum - mn);
+        if (mx > 1.0f && mx - lum > 0.0f) out[i] = lum + (out[i] - lum) * (1.0f - lum) / (mx - lum);
+    }
+}
+
+// one premultiplied sample under a dab of strength a: the normal part (with its blend mode)
+// moves toward (target_alpha * colour, target_alpha); lock alpha, colorize and posterize recolour
+// what is there without adding coverage (libmypaint's dab modes, applied in that order).
+static inline void paint_apply(float* p, const PaintInk* ink, float a) {
+    float an = a * (1.0f - ink->lock) * (1.0f - ink->colorize) * (1.0f - ink->posterize);
+    if (an > 0.0f) {
+        float src[3] = {ink->color[0], ink->color[1], ink->color[2]};
+        if (ink->blend != PAINT_BLEND_NORMAL && p[3] > 0.0f)
+            for (int c = 0; c < 3; c++) {
+                float b = paint_clamp01(p[c] / p[3]);
+                src[c] = (1.0f - p[3]) * src[c] + p[3] * paint_blend_channel(ink->blend, b, src[c]);
+            }
+        float keep = 1.0f - an, gain = an * ink->target_alpha;
+        for (int c = 0; c < 3; c++) p[c] = gain * src[c] + keep * p[c];
+        p[3] = gain + keep * p[3];
+    }
+    float recolour[3];
+    if (ink->lock > 0.0f) {
+        float al = a * ink->lock;
+        for (int c = 0; c < 3; c++) p[c] = al * ink->color[c] * p[3] + (1.0f - al) * p[c];
+    }
+    if (ink->colorize > 0.0f && p[3] > 0.0f) {
+        float ac = a * ink->colorize, backdrop[3] = {p[0] / p[3], p[1] / p[3], p[2] / p[3]};
+        paint_set_lum(ink->color, paint_lum(backdrop), recolour);
+        for (int c = 0; c < 3; c++) p[c] = ac * recolour[c] * p[3] + (1.0f - ac) * p[c];
+    }
+    if (ink->posterize > 0.0f && p[3] > 0.0f) {
+        float ap = a * ink->posterize;
+        for (int c = 0; c < 3; c++) {
+            float level = roundf(paint_clamp01(p[c] / p[3]) * ink->levels) / ink->levels;
+            p[c] = ap * level * p[3] + (1.0f - ap) * p[c];
+        }
+    }
+}
+
+// a pigment pixel's film fields: tK[B], tS[B] and t.
+static inline int32_t paint_film_fields(int32_t bands) { return 2 * bands + 1; }
+
+// one pigment pixel under coverage c (PE8): erasing lifts film, smudging moves it toward the bucket's
+// film, and the rest deposits `ink` (paint per unit coverage). Deposit alone is additive.
+static inline void paint_film_apply(float* p, int32_t fields, float c, float eraser, float smudge,
+        const float* bucket, const float* ink) {
+    if (eraser < 1.0f) {
+        float keep = 1.0f - c * (1.0f - eraser);
+        for (int32_t f = 0; f < fields; f++) p[f] *= keep;
+    }
+    if (smudge > 0.0f) {
+        float keep = 1.0f - c * smudge, gain = c * smudge;
+        for (int32_t f = 0; f < fields; f++) p[f] = keep * p[f] + gain * bucket[f];
+    }
+    float deposit = c * (1.0f - smudge) * eraser;
+    if (deposit > 0.0f)
+        for (int32_t f = 0; f < fields; f++) p[f] += deposit * ink[f];
+}
+
+// renders one dab into a pigment target (PE8): pickup and smudge in film space, then deposit.
+void paint_pigment_dab(PaintTiles* target, const PaintDab* dab, const PaintDabParams* params);
+
+// presentation of a pigment layer (PE7 steps 2 and 5); params are validated by paint_present.
+PaintResult paint_present_pigment(const PaintTiles* layer, PaintRect rect, PaintView* out, const PaintPresentParams* params);
 
 // sRGB helpers built on lib/color.h; encoding rounds exactly as lround(encode(v) * 255).
 float paint_srgb_decode_u8(uint8_t sample);

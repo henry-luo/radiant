@@ -4987,6 +4987,9 @@ void paged_block_before(LayoutContext* lycon, ViewBlock* block, BlockContext* pa
 // after the parent's cursor passed the finished child: forced break-after,
 // monolithic and break-inside: avoid boxes, keep chains, widows
 void paged_block_after(LayoutContext* lycon, ViewBlock* block);
+// capture resolved formatting rows before their scratch layouts retire; shared flow owns their page breaks.
+void paged_flex_rows(LayoutContext* lycon, ViewBlock* block, FlexContainerLayout* flex);
+void paged_grid_rows(LayoutContext* lycon, ViewBlock* block, GridContainerLayout* grid);
 // after a line's used height is final and before the block cursor advances:
 // a line that crosses the fragmentainer end moves to the next one (with its
 // orphans); the hook adjusts lycon->block.advance_y when it shifts the line

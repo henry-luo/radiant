@@ -80,7 +80,8 @@ PaintResult paint_import(PaintTiles* target, const PaintView* source, int32_t or
 PaintResult paint_present(const PaintTiles* layer, PaintRect rect, PaintView* out, const PaintPresentParams* params) {
     const char* reason = nullptr;
     if (!paint_tiles_valid(layer, &reason)) return paint_fail(PAINT_ERROR_ARGUMENT, reason);
-    if (layer->format != PAINT_FORMAT_RGBA) return paint_fail(PAINT_ERROR_ARGUMENT, "present needs an rgba layer");
+    if (layer->format != PAINT_FORMAT_RGBA && layer->format != PAINT_FORMAT_PIGMENT)
+        return paint_fail(PAINT_ERROR_ARGUMENT, "present needs an rgba or pigment layer");
     if (!params) return paint_fail(PAINT_ERROR_ARGUMENT, "present parameters are missing");
     if (paint_rect_empty(rect) || rect.x0 < 0 || rect.y0 < 0 || rect.x1 > layer->width || rect.y1 > layer->height)
         return paint_fail(PAINT_ERROR_ARGUMENT, "present rectangle must lie inside the layer");
@@ -88,6 +89,24 @@ PaintResult paint_present(const PaintTiles* layer, PaintRect rect, PaintView* ou
         out->width != rect.x1 - rect.x0 || out->height != rect.y1 - rect.y0 ||
         out->pixel_stride < 4 || out->row_stride < (int64_t)out->width * out->pixel_stride)
         return paint_fail(PAINT_ERROR_ARGUMENT, "present output must be rect-sized u8 RGBA");
+    if (layer->format == PAINT_FORMAT_PIGMENT) {
+        // a pigment layer shows its own substrate, so it takes no background.
+        if (params->has_background) return paint_fail(PAINT_ERROR_ARGUMENT, "a pigment layer takes no present background");
+        if (!params->band_matrix && layer->bands != 3) return paint_fail(PAINT_ERROR_ARGUMENT, "a pigment layer without 3 bands needs a band matrix");
+        if (params->band_matrix)
+            for (int32_t i = 0; i < layer->bands * 3; i++)
+                if (!(params->band_matrix[i] >= -4.0f && params->band_matrix[i] <= 4.0f))
+                    return paint_fail(PAINT_ERROR_ARGUMENT, "band matrix entries must be in [-4, 4]");
+        if (params->has_lighting) {
+            bool finite = isfinite(params->light[0]) && isfinite(params->light[1]) && isfinite(params->light[2]);
+            if (!finite || !(params->light[2] > 0.0f)) return paint_fail(PAINT_ERROR_ARGUMENT, "light direction must be finite with z > 0");
+            if (!(params->relief >= 0.0f && params->relief <= 1000.0f) || !(params->diffuse >= 0.0f && params->diffuse <= 1.0f) ||
+                !(params->specular >= 0.0f && params->specular <= 1.0f) || !(params->shininess >= 1.0f && params->shininess <= 512.0f))
+                return paint_fail(PAINT_ERROR_ARGUMENT, "lighting needs relief in [0, 1000], diffuse and specular in [0, 1], shininess in [1, 512]");
+        }
+        return paint_present_pigment(layer, rect, out, params);
+    }
+    if (params->has_lighting) return paint_fail(PAINT_ERROR_ARGUMENT, "lighting needs a pigment layer");
     float bg[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     if (params->has_background) {
         for (int c = 0; c < 4; c++)

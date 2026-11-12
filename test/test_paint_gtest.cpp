@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "radiant/paint/paint.hpp"
 
 namespace {
@@ -11,11 +12,12 @@ namespace {
 struct TestLayer {
     PaintTiles tiles = {};
     PaintView* views = nullptr;
-    TestLayer(int32_t width, int32_t height, int32_t tile, PaintFormat format, PaintElem elem, bool allocate = true) {
+    TestLayer(int32_t width, int32_t height, int32_t tile, PaintFormat format, PaintElem elem, bool allocate = true,
+              int32_t bands = 0) {
         tiles.width = width; tiles.height = height; tiles.tile_size = tile;
         tiles.tiles_x = (width + tile - 1) / tile; tiles.tiles_y = (height + tile - 1) / tile;
-        tiles.format = format; tiles.elem = elem;
-        int32_t channels = format == PAINT_FORMAT_RGBA ? 4 : 1;
+        tiles.format = format; tiles.elem = elem; tiles.bands = bands;
+        int32_t channels = format == PAINT_FORMAT_RGBA ? 4 : format == PAINT_FORMAT_PIGMENT ? paint_pigment_channels(bands) : 1;
         size_t sample = elem == PAINT_ELEM_F32 ? sizeof(float) : 1;
         views = (PaintView*)calloc((size_t)tiles.tiles_x * tiles.tiles_y, sizeof(PaintView));
         for (int32_t i = 0; i < tiles.tiles_x * tiles.tiles_y; i++) {
@@ -33,6 +35,7 @@ struct TestLayer {
         PaintView& v = views[(y / tiles.tile_size) * tiles.tiles_x + x / tiles.tile_size];
         return (float*)v.data + (y % tiles.tile_size) * v.row_stride + (x % tiles.tile_size) * v.pixel_stride;
     }
+    float* pigment(int32_t x, int32_t y) { return rgba(x, y); }   // a pixel's 3B + 2 fields
     float coverage(int32_t x, int32_t y) {
         PaintView& v = views[(y / tiles.tile_size) * tiles.tiles_x + x / tiles.tile_size];
         int64_t at = (y % tiles.tile_size) * v.row_stride + (x % tiles.tile_size) * v.pixel_stride;
@@ -391,4 +394,408 @@ TEST(PaintEngine, SampleAveragesUnderAFootprint) {
     ASSERT_EQ(paint_sample(&layer.tiles, 60.0f, 10.0f, 2.0f, out).status, PAINT_OK);
     EXPECT_FLOAT_EQ(out[3], 0.0f);
     EXPECT_EQ(paint_sample(&layer.tiles, NAN, 10.0f, 2.0f, out).status, PAINT_ERROR_ARGUMENT);
+}
+
+// ---- pigment medium (PE8) ----
+
+namespace {
+
+// a 3-band pigment layer whose allocated tiles start clean over a white substrate.
+struct PigmentLayer : TestLayer {
+    PigmentLayer(int32_t width, int32_t height, float substrate = 1.0f, bool allocate = true)
+        : TestLayer(width, height, 64, PAINT_FORMAT_PIGMENT, PAINT_ELEM_F32, allocate, 3) {
+        for (int b = 0; b < 3; b++) tiles.substrate[b] = substrate;
+        for (int32_t i = 0; allocate && i < tiles.tiles_x * tiles.tiles_y; i++)
+            for (int32_t k = 0; k < 64 * 64; k++)
+                for (int b = 0; b < 3; b++) ((float*)views[i].data)[k * 11 + paint_pigment_r(3) + b] = substrate;
+    }
+};
+
+// Washes' colour-to-KS inversion (procart.watercolor.pigment): K/S = (1 - R)^2 / 2R at a scattering of 3.
+void km_pigment(const float rgb[3], float* row) {
+    for (int b = 0; b < 3; b++) {
+        float r = rgb[b] < 0.02f ? 0.02f : (rgb[b] > 0.992f ? 0.992f : rgb[b]);
+        row[3 + b] = 3.0f;
+        row[b] = (1.0f - r) * (1.0f - r) / (2.0f * r) * 3.0f;
+    }
+}
+
+void pigment_row(float* row, float x, float y, float radius, int pigment, float amount) {
+    dab_row(row, x, y, radius);
+    row[PAINT_DAB_PIGMENT] = (float)pigment; row[PAINT_DAB_AMOUNT] = amount; row[PAINT_DAB_THICKNESS] = amount;
+}
+
+PaintDabParams pigment_params(const float* table, int32_t count) {
+    PaintDabParams params = PLAIN;
+    params.pigment_bands = 3; params.pigments = table; params.pigment_count = count;
+    return params;
+}
+
+void present_pixel(const PaintTiles* layer, int32_t x, int32_t y, const PaintPresentParams* params, uint8_t out[4]) {
+    PaintView view = {out, PAINT_ELEM_U8, 1, 1, 4, 4, 4};
+    PaintRect rect = {x, y, x + 1, y + 1};
+    ASSERT_EQ(paint_present(layer, rect, &view, params).status, PAINT_OK);
+}
+
+const PaintPresentParams LINEAR_OUT = {false, false, {0, 0, 0, 0}, false, {0, 0, 1}, 0, 0, 0, 1, nullptr};
+
+}  // namespace
+
+TEST(PaintEngine, PigmentCleanLayerShowsItsSubstrate) {
+    PigmentLayer layer(64, 64, 0.5f);
+    PigmentLayer sparse(128, 64, 0.25f, false);   // clean (empty) tiles read as the layer's substrate
+    uint8_t px[4];
+    present_pixel(&layer.tiles, 10, 10, &LINEAR_OUT, px);
+    EXPECT_EQ(px[0], 128); EXPECT_EQ(px[1], 128); EXPECT_EQ(px[2], 128); EXPECT_EQ(px[3], 255);
+    present_pixel(&sparse.tiles, 100, 10, &LINEAR_OUT, px);
+    EXPECT_EQ(px[0], 64); EXPECT_EQ(px[3], 255);
+    // a film with thickness but no pigment (a clear medium) shows the substrate too
+    layer.pigment(10, 10)[paint_pigment_t(3)] = 2.0f;
+    present_pixel(&layer.tiles, 10, 10, &LINEAR_OUT, px);
+    EXPECT_EQ(px[0], 128);
+}
+
+TEST(PaintEngine, PigmentKubelkaMunkLimits) {
+    PigmentLayer layer(64, 64, 0.5f);
+    uint8_t px[4];
+    float* p = layer.pigment(1, 1);
+    p[3] = p[4] = p[5] = 400.0f;                                   // a thick pure scatterer is white
+    present_pixel(&layer.tiles, 1, 1, &LINEAR_OUT, px);
+    EXPECT_GE(px[0], 254);
+    p = layer.pigment(2, 1);
+    p[0] = p[1] = p[2] = 400.0f; p[3] = p[4] = p[5] = 0.01f;       // a thick strong absorber is black
+    present_pixel(&layer.tiles, 2, 1, &LINEAR_OUT, px);
+    EXPECT_LE(px[0], 1);
+    p = layer.pigment(3, 1);
+    p[0] = 0.5f;                                                   // a pure absorber passes light twice
+    present_pixel(&layer.tiles, 3, 1, &LINEAR_OUT, px);
+    EXPECT_NEAR(px[0], lround(0.5 * exp(-1.0) * 255.0), 1);
+    EXPECT_EQ(px[1], 128);
+    // an opaque film of one pigment shows R_inf = 1 + K/S - sqrt((K/S)^2 + 2 K/S)
+    p = layer.pigment(4, 1);
+    p[0] = 60.0f; p[3] = 120.0f;                                   // K/S = 0.5, S t = 120
+    present_pixel(&layer.tiles, 4, 1, &LINEAR_OUT, px);
+    EXPECT_NEAR(px[0], lround((1.5 - sqrt(1.25)) * 255.0), 1);
+}
+
+TEST(PaintEngine, PigmentDepositIsAdditiveAndCommutes) {
+    float yellow[3] = {0.9f, 0.75f, 0.05f}, blue[3] = {0.05f, 0.15f, 0.8f}, table[12];
+    km_pigment(yellow, table); km_pigment(blue, table + 6);
+    PaintDabParams params = pigment_params(table, 2);
+    float rows[2 * PAINT_DAB_COLUMNS];
+    pigment_row(rows, 32.0f, 32.0f, 10.0f, 0, 0.6f);
+    pigment_row(rows + PAINT_DAB_COLUMNS, 32.0f, 32.0f, 10.0f, 1, 0.6f);
+    PigmentLayer forward(64, 64), backward(64, 64);
+    ASSERT_EQ(paint_dabs(&forward.tiles, rows, 2, PAINT_DAB_COLUMNS, &params).status, PAINT_OK);
+    ASSERT_EQ(paint_dabs(&backward.tiles, rows + PAINT_DAB_COLUMNS, 1, PAINT_DAB_COLUMNS, &params).status, PAINT_OK);
+    ASSERT_EQ(paint_dabs(&backward.tiles, rows, 1, PAINT_DAB_COLUMNS, &params).status, PAINT_OK);
+    const float* f = forward.pigment(32, 32);
+    for (int k = 0; k < 11; k++) EXPECT_EQ(f[k], backward.pigment(32, 32)[k]) << k;
+    // the film holds both deposits: K and S add, and so does the thickness
+    EXPECT_FLOAT_EQ(f[0], 0.6f * (table[0] + table[6]));
+    EXPECT_FLOAT_EQ(f[paint_pigment_t(3)], 1.2f);
+    EXPECT_FLOAT_EQ(f[paint_pigment_r(3)], 1.0f);                  // the substrate is untouched
+}
+
+TEST(PaintEngine, PigmentBlueOverYellowMixesTowardGreen) {
+    float yellow[3] = {0.9f, 0.75f, 0.05f}, blue[3] = {0.05f, 0.15f, 0.8f}, table[12];
+    km_pigment(yellow, table); km_pigment(blue, table + 6);
+    PaintDabParams params = pigment_params(table, 2);
+    PigmentLayer layer(64, 64);
+    float row[PAINT_DAB_COLUMNS];
+    pigment_row(row, 20.0f, 32.0f, 14.0f, 0, 1.0f);               // a yellow patch
+    ASSERT_EQ(paint_dabs(&layer.tiles, row, 1, PAINT_DAB_COLUMNS, &params).status, PAINT_OK);
+    pigment_row(row, 44.0f, 32.0f, 14.0f, 1, 1.0f);               // blue overlapping it
+    ASSERT_EQ(paint_dabs(&layer.tiles, row, 1, PAINT_DAB_COLUMNS, &params).status, PAINT_OK);
+    uint8_t y[4], b[4], g[4];
+    present_pixel(&layer.tiles, 10, 32, &LINEAR_OUT, y);
+    present_pixel(&layer.tiles, 54, 32, &LINEAR_OUT, b);
+    present_pixel(&layer.tiles, 32, 32, &LINEAR_OUT, g);
+    EXPECT_GT(y[0], y[2]); EXPECT_GT(b[2], b[0]);                 // the unmixed patches keep their hues
+    EXPECT_GT(g[1], g[0]); EXPECT_GT(g[1], g[2]);                 // the overlap is green
+    EXPECT_GT(g[1] - g[0], 20); EXPECT_GT(g[1] - g[2], 20);
+}
+
+TEST(PaintEngine, PigmentDryingPreservesAppearance) {
+    float red[3] = {0.8f, 0.1f, 0.1f}, table[6];
+    km_pigment(red, table);
+    PaintDabParams params = pigment_params(table, 1);
+    PigmentLayer whole(64, 64), halves(64, 64);
+    float row[PAINT_DAB_COLUMNS];
+    pigment_row(row, 32.0f, 32.0f, 12.0f, 0, 0.3f);               // a thin glaze
+    ASSERT_EQ(paint_dabs(&whole.tiles, row, 1, PAINT_DAB_COLUMNS, &params).status, PAINT_OK);
+    ASSERT_EQ(paint_dabs(&halves.tiles, row, 1, PAINT_DAB_COLUMNS, &params).status, PAINT_OK);
+    uint8_t before[4], after[4], split[4];
+    present_pixel(&whole.tiles, 32, 32, &LINEAR_OUT, before);
+    PaintRect all = {0, 0, 64, 64};
+    ASSERT_EQ(paint_pigment_dry(&whole.tiles, all, 1.0f).status, PAINT_OK);
+    ASSERT_EQ(paint_pigment_dry(&halves.tiles, all, 0.5f).status, PAINT_OK);
+    ASSERT_EQ(paint_pigment_dry(&halves.tiles, all, 1.0f).status, PAINT_OK);
+    present_pixel(&whole.tiles, 32, 32, &LINEAR_OUT, after);
+    present_pixel(&halves.tiles, 32, 32, &LINEAR_OUT, split);
+    for (int c = 0; c < 3; c++) { EXPECT_NEAR(after[c], before[c], 1) << c; EXPECT_NEAR(split[c], before[c], 1) << c; }
+    const float* p = whole.pigment(32, 32);
+    EXPECT_FLOAT_EQ(p[0], 0.0f); EXPECT_FLOAT_EQ(p[paint_pigment_t(3)], 0.0f);   // no wet film is left
+    EXPECT_NEAR(p[paint_pigment_h(3)], 0.3f, 1e-6f);                            // its body became relief
+    // a glaze over the dried layer stays transparent: the red substrate shows through blue
+    float blue[3] = {0.1f, 0.1f, 0.8f}, glaze[6];
+    km_pigment(blue, glaze);
+    PaintDabParams glazing = pigment_params(glaze, 1);
+    pigment_row(row, 32.0f, 32.0f, 12.0f, 0, 0.1f);
+    ASSERT_EQ(paint_dabs(&whole.tiles, row, 1, PAINT_DAB_COLUMNS, &glazing).status, PAINT_OK);
+    uint8_t glazed[4];
+    present_pixel(&whole.tiles, 32, 32, &LINEAR_OUT, glazed);
+    // an opaque film of the glaze's blue shows R_inf(K/S = 4.05) = 0.0995 in red, about 25
+    EXPECT_LT(glazed[0], before[0]); EXPECT_GT(glazed[0], 31);
+    EXPECT_EQ(paint_pigment_dry(&whole.tiles, all, 0.0f).status, PAINT_ERROR_ARGUMENT);
+}
+
+TEST(PaintEngine, PigmentLightingKeepsFlatFilmAndShadesSlopes) {
+    PigmentLayer layer(64, 64, 0.5f);
+    // a ridge of relief along x = 32
+    for (int y = 0; y < 64; y++) for (int x = 0; x < 64; x++)
+        layer.pigment(x, y)[paint_pigment_h(3)] = fmaxf(0.0f, 4.0f - fabsf((float)x - 32.0f));
+    PaintPresentParams lit = LINEAR_OUT;
+    lit.has_lighting = true; lit.light[0] = -1.0f; lit.light[1] = 0.0f; lit.light[2] = 1.0f;   // from the left
+    lit.relief = 1.0f; lit.diffuse = 0.8f; lit.specular = 0.3f; lit.shininess = 16.0f;
+    uint8_t flat[4], plain[4], left[4], right[4];
+    present_pixel(&layer.tiles, 5, 10, &lit, flat);
+    present_pixel(&layer.tiles, 5, 10, &LINEAR_OUT, plain);
+    EXPECT_EQ(flat[0], plain[0]);                                 // a flat region is unchanged
+    present_pixel(&layer.tiles, 30, 10, &lit, left);              // the slope facing the light
+    present_pixel(&layer.tiles, 34, 10, &lit, right);             // the slope facing away
+    EXPECT_GT(left[0], plain[0]); EXPECT_LT(right[0], plain[0]);
+    PaintPresentParams bad = lit;
+    bad.light[2] = 0.0f;
+    uint8_t px[4];
+    PaintView view = {px, PAINT_ELEM_U8, 1, 1, 4, 4, 4};
+    PaintRect one = {0, 0, 1, 1};
+    EXPECT_EQ(paint_present(&layer.tiles, one, &view, &bad).status, PAINT_ERROR_ARGUMENT);
+    TestLayer rgba(64, 64, 64, PAINT_FORMAT_RGBA, PAINT_ELEM_F32);
+    EXPECT_EQ(paint_present(&rgba.tiles, one, &view, &lit).status, PAINT_ERROR_ARGUMENT);
+}
+
+TEST(PaintEngine, PigmentSmudgeCarriesTheFilm) {
+    float yellow[3] = {0.9f, 0.75f, 0.05f}, table[6];
+    km_pigment(yellow, table);
+    PaintDabParams params = pigment_params(table, 1);
+    float buckets[7] = {0};
+    params.smudge = buckets; params.smudge_buckets = 1;
+    PigmentLayer layer(64, 64);
+    float row[PAINT_DAB_COLUMNS];
+    pigment_row(row, 16.0f, 32.0f, 10.0f, 0, 1.0f);
+    ASSERT_EQ(paint_dabs(&layer.tiles, row, 1, PAINT_DAB_COLUMNS, &params).status, PAINT_OK);
+    float before[11];
+    memcpy(before, layer.pigment(16, 32), sizeof(before));
+    // a pure smudge dab (amount 0) on the patch picks it up and leaves a uniform film as it was,
+    // up to the 1% of its old contents that a bucket always keeps (smudge_length floor, as in rgba)
+    pigment_row(row, 16.0f, 32.0f, 3.0f, 0, 0.0f);
+    row[PAINT_DAB_SMUDGE] = 1.0f; row[PAINT_DAB_SMUDGE_LENGTH] = 0.0f; row[PAINT_DAB_SMUDGE_RADIUS] = 1.0f;
+    ASSERT_EQ(paint_dabs(&layer.tiles, row, 1, PAINT_DAB_COLUMNS, &params).status, PAINT_OK);
+    for (int k = 0; k < 7; k++) EXPECT_NEAR(layer.pigment(16, 32)[k], before[k], 0.011f * before[k] + 1e-6f) << k;
+    EXPECT_GT(buckets[0], 0.0f);
+    // dragged onto clean paper with smudge_length 1 (keep the bucket), it lays the carried film down
+    row[PAINT_DAB_X] = 48.0f; row[PAINT_DAB_SMUDGE_LENGTH] = 1.0f;
+    ASSERT_EQ(paint_dabs(&layer.tiles, row, 1, PAINT_DAB_COLUMNS, &params).status, PAINT_OK);
+    EXPECT_NEAR(layer.pigment(48, 32)[0], buckets[0], 1e-4f * buckets[0]);
+    EXPECT_GT(layer.pigment(48, 32)[paint_pigment_t(3)], 0.5f);
+}
+
+TEST(PaintEngine, PigmentRefusesRgbaModesAndMismatches) {
+    float table[6] = {1, 1, 1, 1, 1, 1};
+    PaintDabParams params = pigment_params(table, 1);
+    PigmentLayer layer(64, 64);
+    TestLayer rgba(64, 64, 64, PAINT_FORMAT_RGBA, PAINT_ELEM_F32);
+    float row[PAINT_DAB_COLUMNS];
+    pigment_row(row, 32.0f, 32.0f, 4.0f, 1, 1.0f);                // no such pigment
+    EXPECT_EQ(paint_dabs(&layer.tiles, row, 1, PAINT_DAB_COLUMNS, &params).status, PAINT_ERROR_ARGUMENT);
+    pigment_row(row, 32.0f, 32.0f, 4.0f, 0, 1.0f);
+    row[PAINT_DAB_LOCK_ALPHA] = 0.5f;
+    EXPECT_EQ(paint_dabs(&layer.tiles, row, 1, PAINT_DAB_COLUMNS, &params).status, PAINT_ERROR_ARGUMENT);
+    pigment_row(row, 32.0f, 32.0f, 4.0f, 0, 1.0f);
+    EXPECT_EQ(paint_dabs(&layer.tiles, row, 1, PAINT_DAB_COLUMNS, &PLAIN).status, PAINT_ERROR_ARGUMENT);   // no table
+    EXPECT_EQ(paint_dabs(&rgba.tiles, row, 1, PAINT_DAB_COLUMNS, &params).status, PAINT_ERROR_ARGUMENT);   // not a pigment layer
+    params.pigment_bands = 2;
+    EXPECT_EQ(paint_dabs(&layer.tiles, row, 1, PAINT_DAB_COLUMNS, &params).status, PAINT_ERROR_ARGUMENT);  // band mismatch
+    // nothing was written by the refused calls
+    for (int k = 0; k < 7; k++) EXPECT_FLOAT_EQ(layer.pigment(32, 32)[k], 0.0f);
+    uint8_t px[4];
+    PaintView view = {px, PAINT_ELEM_U8, 1, 1, 4, 4, 4};
+    PaintRect one = {0, 0, 1, 1};
+    PaintPresentParams over = LINEAR_OUT;
+    over.has_background = true; over.background[3] = 1.0f;
+    EXPECT_EQ(paint_present(&layer.tiles, one, &view, &over).status, PAINT_ERROR_ARGUMENT);
+}
+
+
+// ---- bristle trails (PE10) ----
+
+namespace {
+
+// n bristles in a row across the brush, each carrying `ink` (rgba colour or pigment film).
+void bristle_state(float* state, int32_t n, int32_t columns, const float* ink, int32_t ink_fields, float load) {
+    for (int32_t j = 0; j < n; j++) {
+        float* b = state + j * columns;
+        for (int32_t k = 0; k < columns; k++) b[k] = 0.0f;
+        b[PAINT_BRISTLE_OX] = 0.0f; b[PAINT_BRISTLE_OY] = n > 1 ? -0.8f + 1.6f * (float)j / (float)(n - 1) : 0.0f;
+        b[PAINT_BRISTLE_STIFFNESS] = 0.2f; b[PAINT_BRISTLE_WIDTH] = 2.0f; b[PAINT_BRISTLE_LOAD] = load;
+        for (int32_t k = 0; k < ink_fields; k++) b[PAINT_BRISTLE_INK + k] = ink[k];
+    }
+}
+
+// a straight horizontal path of `count` brush positions.
+void bristle_path(float* rows, int32_t count, float x0, float step, float y, float radius) {
+    for (int32_t i = 0; i < count; i++) dab_row(rows + i * PAINT_DAB_COLUMNS, x0 + step * (float)i, y, radius);
+}
+
+const PaintBristleParams BRISTLES_RGBA = {BUDGET, nullptr, 0.01f, 0.0f, 0};
+
+}  // namespace
+
+TEST(PaintEngine, BristleFirstRowOnlyPlacesTheTips) {
+    TestLayer layer(64, 64, 64, PAINT_FORMAT_RGBA, PAINT_ELEM_F32);
+    const int32_t columns = paint_bristle_columns(0);
+    float ink[3] = {1.0f, 0.0f, 0.0f}, state[4 * 11], row[PAINT_DAB_COLUMNS];
+    ASSERT_EQ(columns, 11);
+    bristle_state(state, 4, columns, ink, 3, 1.0f);
+    bristle_path(row, 1, 32.0f, 0.0f, 32.0f, 8.0f);
+    PaintResult r = paint_bristles(&layer.tiles, row, 1, PAINT_DAB_COLUMNS, state, 4, columns, &BRISTLES_RGBA);
+    ASSERT_EQ(r.status, PAINT_OK);
+    EXPECT_EQ(r.work, 0u);
+    for (int32_t j = 0; j < 4; j++) {
+        EXPECT_EQ(state[j * columns + PAINT_BRISTLE_PLACED], 1.0f);
+        EXPECT_FLOAT_EQ(state[j * columns + PAINT_BRISTLE_X], 32.0f);
+    }
+    EXPECT_FLOAT_EQ(state[PAINT_BRISTLE_Y], 32.0f - 0.8f * 8.0f);   // bristle 0 sits at the brush's top edge
+    for (int y = 0; y < 64; y++) for (int x = 0; x < 64; x++) EXPECT_FLOAT_EQ(layer.rgba(x, y)[3], 0.0f);
+}
+
+TEST(PaintEngine, BristleLoadDepletesAlongTheStroke) {
+    TestLayer layer(256, 64, 64, PAINT_FORMAT_RGBA, PAINT_ELEM_F32);
+    const int32_t columns = paint_bristle_columns(0);
+    float ink[3] = {0.0f, 0.0f, 1.0f}, state[3 * 11], rows[60 * PAINT_DAB_COLUMNS];
+    bristle_state(state, 3, columns, ink, 3, 0.6f);
+    bristle_path(rows, 60, 10.0f, 4.0f, 32.0f, 10.0f);
+    PaintBristleParams params = BRISTLES_RGBA;
+    params.depletion = 0.006f;                       // load(s) = 0.6 exp(-0.006 s): a quarter is left after 240 px
+    float previous[3] = {0.6f, 0.6f, 0.6f};
+    for (int32_t i = 0; i < 60; i++) {
+        ASSERT_EQ(paint_bristles(&layer.tiles, rows + i * PAINT_DAB_COLUMNS, 1, PAINT_DAB_COLUMNS, state, 3, columns, &params).status, PAINT_OK);
+        for (int32_t j = 0; j < 3; j++) {
+            float load = state[j * columns + PAINT_BRISTLE_LOAD];
+            EXPECT_LE(load, previous[j]) << i << " " << j;           // the load never grows
+            if (i > 1) EXPECT_LT(load, previous[j]) << i << " " << j; // and falls while the bristle draws
+            previous[j] = load;
+        }
+    }
+    // the trail of the middle bristle (y = 32) fades from the start of the stroke to its end
+    float early = layer.rgba(30, 32)[3], late = layer.rgba(230, 32)[3];
+    EXPECT_GT(early, 0.4f);
+    EXPECT_LT(late, 0.5f * early);
+}
+
+TEST(PaintEngine, BristleSplitPathEqualsWholePath) {
+    const int32_t columns = paint_bristle_columns(0);
+    float ink[3] = {0.2f, 0.6f, 0.1f}, whole_state[5 * 11], split_state[5 * 11], rows[30 * PAINT_DAB_COLUMNS];
+    bristle_state(whole_state, 5, columns, ink, 3, 1.0f);
+    memcpy(split_state, whole_state, sizeof(whole_state));
+    for (int32_t i = 0; i < 30; i++) {
+        dab_row(rows + i * PAINT_DAB_COLUMNS, 20.0f + 5.0f * i, 30.0f + 10.0f * sinf(0.3f * i), 9.0f);
+        rows[i * PAINT_DAB_COLUMNS + PAINT_DAB_ANGLE] = 0.1f * i;
+        rows[i * PAINT_DAB_COLUMNS + PAINT_DAB_AA] = 1.0f;
+    }
+    PaintBristleParams params = BRISTLES_RGBA;
+    params.pickup = 0.3f;
+    TestLayer whole(192, 64, 64, PAINT_FORMAT_RGBA, PAINT_ELEM_F32), split(192, 64, 64, PAINT_FORMAT_RGBA, PAINT_ELEM_F32);
+    ASSERT_EQ(paint_bristles(&whole.tiles, rows, 30, PAINT_DAB_COLUMNS, whole_state, 5, columns, &params).status, PAINT_OK);
+    ASSERT_EQ(paint_bristles(&split.tiles, rows, 13, PAINT_DAB_COLUMNS, split_state, 5, columns, &params).status, PAINT_OK);
+    ASSERT_EQ(paint_bristles(&split.tiles, rows + 13 * PAINT_DAB_COLUMNS, 17, PAINT_DAB_COLUMNS, split_state, 5, columns, &params).status, PAINT_OK);
+    for (int32_t k = 0; k < 5 * columns; k++) EXPECT_EQ(whole_state[k], split_state[k]) << k;
+    for (int y = 0; y < 64; y++) for (int x = 0; x < 192; x++)
+        for (int c = 0; c < 4; c++) ASSERT_EQ(whole.rgba(x, y)[c], split.rgba(x, y)[c]) << x << "," << y;
+}
+
+TEST(PaintEngine, BristlePickupMixesTheCanvasIntoItsInk) {
+    TestLayer layer(128, 64, 64, PAINT_FORMAT_RGBA, PAINT_ELEM_F32);
+    for (int y = 0; y < 64; y++) for (int x = 60; x < 128; x++) { float* p = layer.rgba(x, y); p[2] = 1.0f; p[3] = 1.0f; }   // blue right half
+    const int32_t columns = paint_bristle_columns(0);
+    float ink[3] = {1.0f, 0.0f, 0.0f}, state[11], rows[25 * PAINT_DAB_COLUMNS];
+    bristle_state(state, 1, columns, ink, 3, 100.0f);
+    bristle_path(rows, 25, 10.0f, 4.5f, 32.0f, 4.0f);
+    PaintBristleParams params = BRISTLES_RGBA;
+    params.pickup = 0.2f;
+    ASSERT_EQ(paint_bristles(&layer.tiles, rows, 25, PAINT_DAB_COLUMNS, state, 1, columns, &params).status, PAINT_OK);
+    EXPECT_LT(state[PAINT_BRISTLE_INK], 0.5f);       // the red ink has taken up blue
+    EXPECT_GT(state[PAINT_BRISTLE_INK + 2], 0.5f);
+    EXPECT_GT(layer.rgba(20, 32)[0], 0.9f);          // the trail before the blue is still red
+}
+
+TEST(PaintEngine, BristlesDepositFilmOnPigmentLayers) {
+    PigmentLayer layer(128, 64);
+    const int32_t columns = paint_bristle_columns(3);
+    ASSERT_EQ(columns, 15);
+    float film[7] = {2.0f, 0.5f, 0.1f, 1.0f, 1.0f, 1.0f, 0.5f}, state[2 * 15], rows[20 * PAINT_DAB_COLUMNS];
+    bristle_state(state, 2, columns, film, 7, 1.0f);
+    bristle_path(rows, 20, 10.0f, 5.0f, 32.0f, 6.0f);
+    PaintBristleParams params = {BUDGET, nullptr, 0.0f, 0.0f, 3};
+    ASSERT_EQ(paint_bristles(&layer.tiles, rows, 20, PAINT_DAB_COLUMNS, state, 2, columns, &params).status, PAINT_OK);
+    // a pixel the trail fully covers gains exactly the ink (paint per unit coverage)
+    const float* p = layer.pigment(50, (int32_t)floorf(32.0f - 0.8f * 6.0f));
+    EXPECT_NEAR(p[0], 2.0f, 1e-5f); EXPECT_NEAR(p[paint_pigment_t(3)], 0.5f, 1e-5f);
+    EXPECT_FLOAT_EQ(layer.pigment(50, 32)[0], 0.0f);   // between the two bristles nothing lands
+    // the wrong state layout or a coverage target is refused
+    EXPECT_EQ(paint_bristles(&layer.tiles, rows, 20, PAINT_DAB_COLUMNS, state, 2, 11, &params).status, PAINT_ERROR_ARGUMENT);
+    TestLayer cov(64, 64, 64, PAINT_FORMAT_COVERAGE, PAINT_ELEM_F32);
+    PaintBristleParams plain = BRISTLES_RGBA;
+    EXPECT_EQ(paint_bristles(&cov.tiles, rows, 20, PAINT_DAB_COLUMNS, state, 2, 11, &plain).status, PAINT_ERROR_ARGUMENT);
+    rows[PAINT_DAB_TIP] = 0.0f;                        // bitmap tips are for dabs
+    EXPECT_EQ(paint_bristles(&layer.tiles, rows, 20, PAINT_DAB_COLUMNS, state, 2, columns, &params).status, PAINT_ERROR_ARGUMENT);
+}
+
+// ---- release-build throughput (Lambda_Pkg_Paint §5); run with --gtest_also_run_disabled_tests ----
+
+namespace {
+
+double seconds_now() {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)t.tv_sec + 1e-9 * (double)t.tv_nsec;
+}
+
+// covered pixels per second for `dabs` 30-px dabs on a 2048 x 1536 layer of `format`
+double dab_throughput(PaintFormat format, int32_t bands, const PaintDabParams* params, int32_t dabs) {
+    TestLayer layer(2048, 1536, 64, format, PAINT_ELEM_F32, true, bands);
+    float* rows = (float*)calloc((size_t)dabs * PAINT_DAB_COLUMNS, sizeof(float));
+    for (int32_t i = 0; i < dabs; i++) {
+        float* row = rows + i * PAINT_DAB_COLUMNS;
+        dab_row(row, 40.0f + (float)((i * 37) % 1960), 40.0f + (float)((i * 53) % 1450), 30.0f);
+        row[PAINT_DAB_OPACITY] = 0.3f; row[PAINT_DAB_AA] = 1.0f; row[PAINT_DAB_PROFILE] = (float)PAINT_PROFILE_MYPAINT;
+        row[PAINT_DAB_HARDNESS] = 0.8f;
+        if (bands > 0) { row[PAINT_DAB_PIGMENT] = (float)(i % 2); row[PAINT_DAB_AMOUNT] = 0.5f; row[PAINT_DAB_THICKNESS] = 0.5f; }
+    }
+    double start = seconds_now();
+    PaintResult r = paint_dabs(&layer.tiles, rows, dabs, PAINT_DAB_COLUMNS, params);
+    double elapsed = seconds_now() - start;
+    free(rows);
+    EXPECT_EQ(r.status, PAINT_OK);
+    double covered = (double)dabs * M_PI * 30.0 * 30.0;
+    return covered / elapsed;
+}
+
+}  // namespace
+
+TEST(PaintEngine, DISABLED_ThroughputMeetsTheBudgets) {
+    PaintDabParams plain = PLAIN;
+    plain.work_budget = UINT64_MAX / 4;
+    double rgba = dab_throughput(PAINT_FORMAT_RGBA, 0, &plain, 20000);
+    float yellow[3] = {0.9f, 0.75f, 0.05f}, blue[3] = {0.05f, 0.4f, 0.8f}, table[12];
+    km_pigment(yellow, table); km_pigment(blue, table + 6);
+    PaintDabParams pigment = pigment_params(table, 2);
+    pigment.work_budget = UINT64_MAX / 4;
+    double film = dab_throughput(PAINT_FORMAT_PIGMENT, 3, &pigment, 20000);
+    RecordProperty("rgba_mpx_per_s", (int)(rgba / 1e6));
+    RecordProperty("pigment_mpx_per_s", (int)(film / 1e6));
+    GTEST_LOG_(INFO) << "dab throughput: rgba " << rgba / 1e6 << " M px/s, pigment (B = 3) " << film / 1e6 << " M px/s";
+    EXPECT_GE(rgba, 200e6);
+    EXPECT_GE(film, 50e6);
 }

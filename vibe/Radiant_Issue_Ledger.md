@@ -20,6 +20,114 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-054"></a>
+
+- [RI-054 — Owner-held font fixture lookup under Lambda integration](<Radiant_Issue_Ledger (fixed).md#ri-054>).
+
+<a id="ri-053"></a>
+
+- [RI-053 — Historical P7 comparison artifacts are unavailable in the current checkouts](<Radiant_Issue_Ledger (fixed).md#ri-053>).
+
+<a id="ri-052"></a>
+
+### RI-052 — Existing empty-cell table baseline assertion differs by 10px
+
+**Status:** open, qualification limitation, 2026-11-12. Native ownership:
+**D9.1.1v4 / D9.1.3v2**. Cause is **unconfirmed**.
+
+`SecondaryViewTest.TableBaselineUsesFirstNestedLineOrTheEmptyCellContentEdge`
+reports glyph baseline 33 versus empty-cell y 10 + expected 33 = 43, for both fixed
+and auto table layout. It reproduces identically with pagination source from
+`340ad59` and the current source, with all remaining linked objects and flags
+held constant. The full current Lambda paged inventory passes 504/505 after the
+new nested-width acceptance and owner font lookup correction.
+
+Evidence in Lambda-opus: `temp/paged-p7-integration/paged-final.xml`,
+`control/table.xml`, `control/receipt.json` and `updated-focused.xml`.
+This blocks an all-green legacy paged integration claim; it does not block the
+19 focused native fragmentation cases or the 947-pass owner baseline. Leave the
+assertion visible until its layout or coordinate-oracle cause is established.
+
+Continuation evidence: Lambda-opus `temp/paged-advanced-integration/paged.xml`
+still passes 504/505, with the same failure messages as `paged-final.xml`.
+The expanded Radiant core now passes 60 focused cases, 988 owner-native cases
+(one disabled) and 4,481 layout cases (six skips). RI-052 stays open.
+
+Reservation/nested-row continuation: Lambda-opus
+`temp/paged-reservations-integration-final/paged.xml` remains 504/505 with the
+same assertion messages. The final owner increment passes 82 focused cases,
+1,010 native cases (one disabled) and 4,481 layout cases (six skips).
+
+<a id="ri-051"></a>
+
+### RI-051 — Current full PDF/export qualification retains six unchanged failures
+
+**Status:** open, qualification limitation, 2026-11-12. Ownership of native
+qualification: **D9.1.1v4 / D9.1.3v2**; underlying causes are **unconfirmed**
+except the Lambda-owned archive sentinel recorded as LR12-50.
+
+The current 472-case PDF/export inventory completes with 466 passes and six
+failures: inside image marker raster parity, background shorthand SVG resource
+text, grid font-unit SVG geometry, RTL two-line clamp raster parity, four Ghent
+ReadMes import baseline rows, and the archive sentinel rejected by the independent
+reference reader. Each exact failure message reproduces with pagination source
+from `340ad59` and otherwise identical current objects, headers and flags. The
+four WebGL cases pass with normal macOS graphics access after their first sandbox
+run stalled creating its hidden context. All 472 case names are accounted for;
+the interrupted raw run is preserved rather than rewritten as passing XML.
+
+Reproduction and evidence in Lambda-opus: `temp/paged-p7-integration/pdf.log`,
+`pdf-gpu.xml`, `pdf-control.xml`, `pdf-summary.json`, `receipt.json` and
+`control/receipt.json`. Both original and isolated-copy PDF baseline hashes are
+unchanged. Current native core controls under Radiant's `temp/paged-p7-final/`
+pass separately. This blocks full P7 PDF/export closure, not the delivered native
+float/width increments. Do not reset references or change tolerances to close it.
+
+Continuation evidence: Lambda-opus `temp/paged-advanced-integration/pdf.xml`
+reruns 90 affected PDF/FO/native cases including these six failure controls:
+84 pass and the six exact failure-message profiles still match `pdf-control.xml`.
+Both baseline copies remain unchanged. Radiant
+`temp/paged-advanced-final/report.json` passes ten independent export controls.
+This subset does not replace the earlier 472-case inventory.
+
+Reservation/nested-row continuation: Lambda-opus
+`temp/paged-reservations-integration-final/pdf.xml` remains 84/90 with exactly the
+previous six failure messages and unchanged baseline copies. Radiant
+`temp/paged-reservations-final/report.json` passes sixteen independent exported
+controls. RI-051 remains open; no protected references were changed.
+
+<a id="ri-050"></a>
+
+### RI-050 — Reservation/nested-row pagination increment increases composition cost
+
+**Status:** open, performance qualification limitation, 2026-11-12. Native
+ownership: **D9.1.1v4 / D9.1.3v2**. The cause within `layout_paged.cpp` is
+**unconfirmed**; no timing workaround or workload change was made.
+
+On unchanged optimized 21/300-page ordinary-flow workloads, four alternating
+before/after pairs (28 samples per host/workload after two warmups per run) show
+about 6% more composition time. A control rebuild replaces only
+`layout_paged.cpp` with source from `ead8d2a`; every other current archive object,
+benchmark client and link input is held constant. The archive symbol index
+necessarily changes with its replaced object. Exact published geometry/glyph
+FNV digests agree in every sample.
+
+Median ms/page: 21 pages 0.901476 before / 0.955524 after (1.05995 ratio);
+300 pages 0.781150 / 0.827102 (1.05883). Parsing, export, hashing and edition
+retirement are excluded. A separate archived-host comparison also observed
+about 5%; the held-object control is the stronger attribution evidence.
+
+Reproduce from Radiant: run each of
+`temp/paged-reservations-causal-control/{before,after}` with
+`temp/paged-reservations-final/composition-{21,300}.html` and sample count `7`,
+alternating order. `temp/paged-reservations-causal-control/` holds the original
+source, compiler/link arguments, object/archive checks, executables, raw samples,
+`receipt.json` and `report.json`. Current correctness is separately qualified by
+82 focused cases, 1,010 native passes, 4,481 layout passes and sixteen exact
+export controls. This blocks a current performance no-regression claim, not the
+verified reservation/row behavior. The lost historical P7 archive waiver does
+not waive this new measured difference.
+
 <a id="ri-048"></a>
 
 - [RI-048 — Grid-item percentage sizes use the whole grid instead of their area](<Radiant_Issue_Ledger (fixed).md#ri-048>).

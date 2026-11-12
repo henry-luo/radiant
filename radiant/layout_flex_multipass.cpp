@@ -896,6 +896,7 @@ void layout_flex_container_with_nested_content(LayoutContext* lycon, ViewBlock* 
     layout_final_flex_content(lycon, flex_container);
 
     reposition_baseline_items(lycon, flex_container);
+    if (lycon->paged) paged_flex_rows(lycon, flex_container, flex_layout);
 
     flex_scope.close();
 

@@ -1106,6 +1106,7 @@ bool view_css_page_column(const ViewPageStyle* style, uint32_t index, RdtLogical
     else {
         if (!isfinite(style->column_gap) || style->column_gap < 0.0f) return false;
         *rect = style->content_rect;
+        if (style->balanced_height > 0.0f) rect->height = fminf(rect->height, style->balanced_height);
         rect->width = (rect->width - style->column_gap * (count - 1)) / count;
         rect->x += index * (rect->width + style->column_gap);
     }
@@ -1227,6 +1228,9 @@ ViewModelStatus view_css_page_style(ViewTree* tree, const char* name, uint32_t p
     style.column_count = 1;
     if (style.body_style) {
         if (style.body_style->binding_status != VIEW_MODEL_OK) return style.body_style->binding_status;
+        // native body regions keep sequential filling unless balancing is explicitly selected.
+        const CssValue* fill = view_css_property(tree, style.body_style, "column-fill");
+        style.balance_columns = fill && fill->type == CSS_VALUE_TYPE_KEYWORD && fill->data.keyword == CSS_VALUE_BALANCE;
         value = style.body_style->column_values[0];
         if (value) style.column_count = static_cast<uint32_t>(value->data.number.value);
         value = style.body_style->column_values[1];

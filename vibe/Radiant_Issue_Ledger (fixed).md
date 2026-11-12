@@ -14,6 +14,52 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-054"></a>
+
+### RI-054 — Owner-held font fixture lookup under Lambda integration
+
+**Status:** FIXED, 2026-11-12. Ownership: **D9.1.1v4 / D9.1.3v2**.
+`radiant_test_fixture_path` chose Lambda's `test/fixtures` merely because the
+directory existed, even when the requested `fonts/cmunrm.woff2` belonged to
+Radiant. This made `FontMetricTest.RasterPreservesNativeGrayscaleCoverage` fail
+with a null loaded font. The shared helper now tests the requested local file
+before resolving the owner-held fixture; isolated runs use `RADIANT_ROOT`.
+The same font test fails before and passes after correction. Native metric
+expectations and grayscale comparisons are unchanged. Evidence in Lambda-opus:
+`temp/paged-p7-integration/{paged.xml,updated-focused.xml,paged-final.xml}`.
+
+
+<a id="ri-053"></a>
+
+### RI-053 — Historical P7 comparison artifacts are unavailable in the current checkouts
+
+**Status:** CLOSED by explicit user waiver, 2026-11-12. Native ownership:
+D9.1.1v4 / D9.1.3v2. No layout ruling changes.
+
+The historical P7 record in Lambda's `vibe/impl/Radiant_Impl_Paged_Integration.md`
+requires the archived 113-input source inventory, release executables/receipts,
+PNG controls and source-size snapshot under `temp/paged_release/`. That directory
+and its qualification/source-size/raster scripts or archives are absent from the
+available Radiant, Lambda and Lambda-opus temp trees. The source commit
+`1a9921fe9` still exists in Lambda history, but the generated input hashes and
+exact captured artifact set are unavailable. A source reconstruction alone must
+not be reported as a replay of the original measured corpus.
+
+Reproduction: from Radiant, inspect `temp/paged_release/`,
+`../Lambda/temp/paged_release/` and `../Lambda-opus/temp/paged_release/`, then
+search the three temp inventories for `paged*qualification.json`,
+`paged*source_sizes.json`, `qualify.py`, `raster_controls.py` and paged archives.
+The required historical set is not present. Cause of its loss is **unconfirmed**.
+
+On 2026-11-12 the user confirmed that the archive location is unknown and
+instructed us to assume it is deleted/lost and ignore its replay. This closes
+the missing-artifact blocker by waiver; it does not make the old raster,
+performance or source-reduction comparisons pass. Fresh source/core-fidelity
+receipts under Radiant's `temp/paged-core-*` establish the current scope.
+`scripts/qualify_paged.py` records the waiver separately from its current gates.
+No reference results or historical measurements are reset.
+
+
 <a id="online-visual-review-20261112"></a>
 
 ### Online visual qualification — 2026-11-12
