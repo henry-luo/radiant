@@ -8,7 +8,17 @@
 enum PaintElem : uint8_t { PAINT_ELEM_U8 = 1, PAINT_ELEM_F32 = 2 };
 
 // rgba: premultiplied RGBA, 4 channels, f32 only. coverage: one channel, u8 or f32.
-enum PaintFormat : uint8_t { PAINT_FORMAT_RGBA = 1, PAINT_FORMAT_COVERAGE = 2 };
+// pigment: a wet Kubelka-Munk film over a substrate (PE8), f32 with 3B + 2 channels per pixel:
+// tK[B] and tS[B], the film's thickness-weighted absorption and scattering; t, its thickness;
+// R[B], the substrate's reflectance (paper, then dried paint); h, the dried relief height.
+enum PaintFormat : uint8_t { PAINT_FORMAT_RGBA = 1, PAINT_FORMAT_COVERAGE = 2, PAINT_FORMAT_PIGMENT = 3 };
+
+static const int32_t PAINT_MAX_BANDS = 8;
+static inline int32_t paint_pigment_channels(int32_t bands) { return 3 * bands + 2; }
+// channel offsets within a pigment pixel
+static inline int32_t paint_pigment_t(int32_t bands) { return 2 * bands; }
+static inline int32_t paint_pigment_r(int32_t bands) { return 2 * bands + 1; }
+static inline int32_t paint_pigment_h(int32_t bands) { return 3 * bands + 1; }
 
 enum PaintStatus : uint8_t { PAINT_OK = 0, PAINT_ERROR_ARGUMENT = 1, PAINT_ERROR_BUDGET = 2,
     PAINT_ERROR_UNSUPPORTED = 3 };
@@ -35,6 +45,10 @@ enum PaintDabColumn {
 };
 static const int PAINT_DAB_LAYOUT_VERSION = 1;
 static const int PAINT_SMUDGE_FIELDS = 4;   // premultiplied r, g, b and alpha per bucket
+// a pigment bucket holds the film it carries: tK[B], tS[B] and t.
+static inline int32_t paint_smudge_fields(int32_t pigment_bands) {
+    return pigment_bands > 0 ? 2 * pigment_bands + 1 : PAINT_SMUDGE_FIELDS;
+}
 
 // One 2-D or 3-D typed-array storage window; channels are contiguous.
 struct PaintView {
@@ -45,13 +59,16 @@ struct PaintView {
 };
 
 // A sparse tiled layer (PT4): tiles_x * tiles_y views in row-major order.
-// A view with data == nullptr is an empty tile (transparent rgba, zero coverage).
+// A view with data == nullptr is an empty tile: transparent rgba, zero coverage, or a clean
+// pigment tile (no film, `substrate` reflectance, no relief).
 struct PaintTiles {
     PaintView* tiles;
     int32_t width, height;       // canvas extent in pixels
     int32_t tiles_x, tiles_y, tile_size;
     PaintFormat format;
     PaintElem elem;
+    int32_t bands;               // pigment bands B; 0 for the other formats
+    float substrate[PAINT_MAX_BANDS];   // a clean pigment tile's reflectance per band
 };
 
 struct PaintRect { int32_t x0, y0, x1, y1; };   // half-open; empty when x1 <= x0 or y1 <= y0
@@ -69,9 +86,14 @@ struct PaintDabParams {
     const PaintView* tips;       // f32 (h, w) coverage tips, indexed by the `tip` column
     int32_t tip_count;
     const PaintView* paper;      // f32 (h, w) paper height in [0, 1], tiled in canvas space (`grain`)
-    float* smudge;               // in/out (buckets, 4) premultiplied bucket colours (`smudge_bucket`)
+    float* smudge;               // in/out (buckets, paint_smudge_fields) bucket state (`smudge_bucket`)
     int32_t smudge_buckets;
-    float* resolved;             // out (count, 4): each dab's colour and target alpha after smudge
+    float* resolved;             // out (count, 4): each dab's colour and target alpha after smudge (rgba)
+    // the target is a pigment layer of this many bands, or 0 (PE8). A pigment target's dabs name
+    // a row of `pigments`, (pigment_count, 2B) K[B] then S[B] per unit pigment amount.
+    int32_t pigment_bands;
+    const float* pigments;
+    int32_t pigment_count;
 };
 
 // Marks in `touched` (tiles_x * tiles_y bytes, caller-zeroed) every tile a dab can write,
@@ -106,15 +128,66 @@ PaintResult paint_wash_composite(PaintTiles* target, const PaintTiles* source,
 PaintResult paint_import(PaintTiles* target, const PaintView* source, int32_t origin_x,
     int32_t origin_y, bool decode_srgb);
 
-// Converts `rect` of an rgba layer to straight-alpha u8 RGBA in `out` (rect-sized),
-// optionally over an opaque or translucent straight-alpha background in the same space.
+// Converts `rect` of a layer to straight-alpha u8 RGBA in `out` (rect-sized). An rgba layer may
+// lie over an opaque or translucent straight-alpha background in the same space. A pigment layer
+// shows the KM reflectance of its film over its substrate (PE8), opaque, optionally lit by its
+// relief (PE7 step 5): height relief * (h + t), normals by central differences.
 struct PaintPresentParams {
     bool encode_srgb;            // the layer holds linear light
     bool has_background;
     float background[4];         // straight alpha, layer space
+    bool has_lighting;           // pigment layers only
+    float light[3];              // direction toward the light, z > 0 (canvas x right, y down)
+    float relief;                // height per unit of film thickness and dried relief
+    float diffuse;               // 0..1: how much slopes brighten or darken; a flat film is unchanged
+    float specular;              // 0..1: highlight strength on slopes that face the half vector
+    float shininess;             // highlight exponent, 1..512
+    const float* band_matrix;    // (B, 3) band reflectance to linear RGB; null is identity for B = 3
 };
 PaintResult paint_present(const PaintTiles* layer, PaintRect rect, PaintView* out,
     const PaintPresentParams* params);
+
+// Bristle state layout v1 (PE10): one f32 row per bristle. The caller places the bristles (keyed
+// randomness, PT8) and fills their ink; the engine moves, draws, depletes and refills them.
+enum PaintBristleColumn {
+    PAINT_BRISTLE_OX = 0, PAINT_BRISTLE_OY,   // offset in the brush frame, in dab radii (minor axis divided by aspect)
+    PAINT_BRISTLE_STIFFNESS,                  // [0, 0.99]: 0 follows its target at once, larger lags behind
+    PAINT_BRISTLE_WIDTH,                      // trail width in pixels
+    PAINT_BRISTLE_LOAD,                       // paint left; the trail's strength is min(1, load)
+    PAINT_BRISTLE_X, PAINT_BRISTLE_Y,         // tip position in canvas pixels
+    PAINT_BRISTLE_PLACED,                     // 0 until a path row places the tip, then 1
+    PAINT_BRISTLE_INK                         // ink: straight r, g, b on rgba; tK[B], tS[B], t per unit coverage on pigment
+};
+static inline int32_t paint_bristle_columns(int32_t pigment_bands) {
+    return PAINT_BRISTLE_INK + (pigment_bands > 0 ? 2 * pigment_bands + 1 : 3);
+}
+
+struct PaintBristleParams {
+    uint64_t work_budget;        // candidate pixels this call may charge
+    const PaintView* paper;      // f32 (h, w) paper height for the path rows' `grain`
+    float depletion;             // load spent per pixel of trail at full strength
+    float pickup;                // [0, 1]: how much of the canvas under a tip each pixel of trail mixes into its ink
+    int32_t pigment_bands;       // the target is a pigment layer of this many bands, or 0
+};
+
+// Bristle trails (PE10). `path` is a dab table whose rows are brush positions: x, y, radius,
+// aspect, angle, opacity, flow, eraser, aa and grain apply; tips and smudge must be off, and the
+// colour columns are not read, because each bristle carries its own ink. At each row a bristle's
+// target is the row centre plus its offset rotated by the row angle and scaled by the radius; the
+// tip moves (1 - stiffness) of the way there and draws an anti-aliased trail of its width from
+// where it was, at strength opacity * flow * min(1, load). The first row only places a tip.
+// paint_bristle_bounds marks the tiles the trails write and charges their work without moving
+// anything; paint_bristles draws in bristle order within each segment and updates `state`.
+PaintResult paint_bristle_bounds(const float* path, int64_t count, int32_t columns, const float* state,
+    int32_t bristles, int32_t state_columns, int32_t width, int32_t height, int32_t tile_size,
+    const PaintBristleParams* params, uint8_t* touched);
+PaintResult paint_bristles(PaintTiles* target, const float* path, int64_t count, int32_t columns, float* state,
+    int32_t bristles, int32_t state_columns, const PaintBristleParams* params);
+
+// Folds `rate` of the wet film into the substrate inside `rect` by KM layer composition (PE8):
+// the substrate becomes the reflectance of that film over it, the film keeps (1 - rate), and the
+// relief gains rate * t. Appearance and lighting height do not change. Clean tiles are skipped.
+PaintResult paint_pigment_dry(PaintTiles* layer, PaintRect rect, float rate);
 
 // Validates a tile set: geometry, per-tile views and element kinds (PE11).
 bool paint_tiles_valid(const PaintTiles* tiles, const char** reason);

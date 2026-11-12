@@ -1,79 +1,6 @@
 // dab rendering and the wash composite (PE4).
 #include "paint_internal.hpp"
 
-// what one dab deposits once its colour is resolved.
-struct PaintInk {
-    float color[3];
-    float target_alpha;          // libmypaint eraser_target_alpha: 1 paints, 0 erases
-    float lock, colorize, posterize, levels;
-    uint8_t blend;
-};
-
-static inline float paint_blend_channel(uint8_t mode, float b, float s) {
-    switch (mode) {
-    case PAINT_BLEND_MULTIPLY: return b * s;
-    case PAINT_BLEND_SCREEN: return b + s - b * s;
-    case PAINT_BLEND_OVERLAY: return b <= 0.5f ? 2.0f * b * s : 1.0f - 2.0f * (1.0f - b) * (1.0f - s);
-    case PAINT_BLEND_DARKEN: return fminf(b, s);
-    case PAINT_BLEND_LIGHTEN: return fmaxf(b, s);
-    case PAINT_BLEND_ADD: return fminf(1.0f, b + s);
-    default: return s;
-    }
-}
-
-static inline float paint_lum(const float* c) { return 0.3f * c[0] + 0.59f * c[1] + 0.11f * c[2]; }
-
-// W3C SetLum with ClipColor: the colour's hue and saturation at luminosity l.
-static inline void paint_set_lum(const float* c, float l, float* out) {
-    float d = l - paint_lum(c);
-    for (int i = 0; i < 3; i++) out[i] = c[i] + d;
-    float lum = paint_lum(out), mn = fminf(out[0], fminf(out[1], out[2])), mx = fmaxf(out[0], fmaxf(out[1], out[2]));
-    for (int i = 0; i < 3; i++) {
-        if (mn < 0.0f && lum - mn > 0.0f) out[i] = lum + (out[i] - lum) * lum / (lum - mn);
-        if (mx > 1.0f && mx - lum > 0.0f) out[i] = lum + (out[i] - lum) * (1.0f - lum) / (mx - lum);
-    }
-}
-
-// one premultiplied sample under a dab of strength a: the normal part (with its blend mode)
-// moves toward (target_alpha * colour, target_alpha); lock alpha, colorize and posterize recolour
-// what is there without adding coverage (libmypaint's dab modes, applied in that order).
-static inline void paint_apply(float* p, const PaintInk* ink, float a) {
-    float an = a * (1.0f - ink->lock) * (1.0f - ink->colorize) * (1.0f - ink->posterize);
-    if (an > 0.0f) {
-        float src[3] = {ink->color[0], ink->color[1], ink->color[2]};
-        if (ink->blend != PAINT_BLEND_NORMAL && p[3] > 0.0f)
-            for (int c = 0; c < 3; c++) {
-                float b = paint_clamp01(p[c] / p[3]);
-                src[c] = (1.0f - p[3]) * src[c] + p[3] * paint_blend_channel(ink->blend, b, src[c]);
-            }
-        float keep = 1.0f - an, gain = an * ink->target_alpha;
-        for (int c = 0; c < 3; c++) p[c] = gain * src[c] + keep * p[c];
-        p[3] = gain + keep * p[3];
-    }
-    float recolour[3];
-    if (ink->lock > 0.0f) {
-        float al = a * ink->lock;
-        for (int c = 0; c < 3; c++) p[c] = al * ink->color[c] * p[3] + (1.0f - al) * p[c];
-    }
-    if (ink->colorize > 0.0f && p[3] > 0.0f) {
-        float ac = a * ink->colorize, backdrop[3] = {p[0] / p[3], p[1] / p[3], p[2] / p[3]};
-        paint_set_lum(ink->color, paint_lum(backdrop), recolour);
-        for (int c = 0; c < 3; c++) p[c] = ac * recolour[c] * p[3] + (1.0f - ac) * p[c];
-    }
-    if (ink->posterize > 0.0f && p[3] > 0.0f) {
-        float ap = a * ink->posterize;
-        for (int c = 0; c < 3; c++) {
-            float level = roundf(paint_clamp01(p[c] / p[3]) * ink->levels) / ink->levels;
-            p[c] = ap * level * p[3] + (1.0f - ap) * p[c];
-        }
-    }
-}
-
-static inline float paint_paper(const PaintView* paper, int32_t x, int32_t y) {
-    int32_t px = x % paper->width, py = y % paper->height;
-    return paint_clamp01(((const float*)paper->data)[(int64_t)py * paper->row_stride + (int64_t)px * paper->pixel_stride]);
-}
-
 // renders one dab into the tiles intersecting its box; every such tile is present.
 static void paint_render_dab(PaintTiles* target, const PaintDab* dab, const PaintInk* ink, const PaintView* paper) {
     int32_t size = target->tile_size;
@@ -90,8 +17,7 @@ static void paint_render_dab(PaintTiles* target, const PaintDab* dab, const Pain
                 for (int32_t x = x0; x < x1; x++) {
                     float m = paint_dab_mask(dab, (float)x + 0.5f - dab->x, dy);
                     if (m <= 0.0f) continue;
-                    // paper grain: the dab reaches peaks fully and valleys by (1 - grain).
-                    if (dab->grain > 0.0f) m *= 1.0f - dab->grain + dab->grain * paint_paper(paper, x, y);
+                    m = paint_grained(dab, paper, m, x, y);
                     int64_t at = row + (int64_t)(x - tx * size) * view->pixel_stride;
                     if (target->format == PAINT_FORMAT_RGBA) {
                         float a = m * dab->opacity * dab->flow;
@@ -131,9 +57,13 @@ PaintResult paint_dabs(PaintTiles* target, const float* dabs, int64_t count, int
                 if (!paint_tile(target, tx, ty)->data) return paint_fail(PAINT_ERROR_ARGUMENT, "a tile the dabs write was not supplied");
     }
     bool rgba = target->format == PAINT_FORMAT_RGBA;
+    bool pigment = target->format == PAINT_FORMAT_PIGMENT;
+    if (pigment != (params->pigment_bands > 0) || (pigment && params->pigment_bands != target->bands))
+        return paint_fail(PAINT_ERROR_ARGUMENT, "pigment bands of the dab parameters must match the target layer");
     for (int64_t i = 0; i < count; i++) {
         PaintDab dab;
         paint_dab_decode(dabs + i * columns, target->width, target->height, params, &dab, &reason);
+        if (pigment) { paint_pigment_dab(target, &dab, params); continue; }
         PaintInk ink = {{dab.color[0], dab.color[1], dab.color[2]}, dab.eraser, dab.lock_alpha, dab.colorize,
                         dab.posterize, dab.posterize_levels, dab.blend};
         // smudge picks up what earlier dabs left, so colour resolves before this dab draws.
