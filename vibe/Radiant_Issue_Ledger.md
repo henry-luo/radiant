@@ -20,6 +20,31 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-020"></a>
+
+### RI-020 — Native input-value test target does not link its CSS resource call
+
+**Status:** OPEN, 2026-11-12. **Lambda task blocker:** no for the sync demo's
+selected native UI and Lambda baseline gates; blocks the aggregate `make
+build-test` target. Source ownership: **D9.1.1v4 / D9.1.3v2**.
+
+From Lambda `3ffe3477a` plus the uncommitted sync demo, run `make build-test`.
+The arm64 linker fails building `test_radiant_input_value_gtest.exe` with undefined
+`_process_css_resource`, referenced twice by
+`RadiantInputValueTest.DownloadedStylesheetsUseOwnerOrderAcrossCompletionOrder`
+(`radiant/test/test_radiant_input_value_gtest.cpp:102,105`). The function is
+declared in `radiant/resource_loaders.h:23` and implemented in
+`radiant/resource_loaders.cpp:99`. Lambda's selected
+`build_lambda_config.json` target at the `test_radiant_input_value_gtest.cpp`
+entry lists stylesheet/form/host helpers, but does not include that resource
+implementation. The intended independent-test dependency closure or replacement
+waist is **unconfirmed**; no sibling source or test workaround was applied.
+Expected: the owning test target links its legitimate native dependencies.
+
+Evidence in Lambda: `temp/sync-demo/build-test.log`, lines 380–388. The sync
+runtime host builds successfully. Focused `test_radiant_view_gtest` and Lambda
+baseline work can continue without this unrelated target.
+
 <a id="ri-019"></a>
 
 ### RI-019 — Reflow aborts when the focused target becomes non-focusable
