@@ -2323,6 +2323,19 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
         return nullptr;
     }
 
+    // every hosted loader, including layout and legacy batches, establishes
+    // its profile before HTTP and shares that jar with document APIs.
+    UiContext* host_ui = js_host_config && js_host_config->ui_context
+        ? (UiContext*)js_host_config->ui_context : s_layout_loader_host;
+    if (host_ui) {
+        if (!host_ui->ensure_browsing_session()) {
+            log_error("document-profile: failed to create browsing session");
+            return nullptr;
+        }
+        if (!top_level_cookie_jar)
+            top_level_cookie_jar = session_cookie_jar(host_ui->browsing_session);
+    }
+
     char* html_filepath = url_to_local_path(html_url);
     bool xhtml = xhtml_source || (!html_source && html_url->pathname && input_path_is_xhtml(html_url->pathname->chars));
 

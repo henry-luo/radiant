@@ -5,7 +5,7 @@ vertical principal-flow fragmentation are implemented on macOS, 2026-11-12.
 All 126 focused cases pass with AddressSanitizer, required cast lint passes, and
 all 33 independent preview/PDF/Poppler controls pass on debug and optimized hosts.
 Owner aggregate and frozen Lambda integration checks are complete for these
-finite cores. Broader P7 remains partial; RI-032 and the known integration
+finite cores. Broader P7 remains partial; RI-050 and the known integration
 failures remain open.
 **Authority:** D9.1.1v4 / D9.1.3v2 (native ownership), D5.5.1 / D5.1.4
 (published editions and retained resource lifetimes). Page layout follows
@@ -20,7 +20,7 @@ width changes inside split items, and vertical-root page progression. Native
 ownership remains D9.1.1v4 / D9.1.3v2; captured geometry and retained editions
 follow D5.5.1 / D5.1.4. Preserve the prior uncommitted paging work, concurrent
 native/Lambda paint work and the historical archive waiver. The user subsequently
-requested a commit of the pagination paths and RI-032 evidence. The initial
+requested a commit of the pagination paths and RI-050 evidence. The initial
 source/control host is in
 `temp/paged-continuations-start/`.
 
@@ -91,7 +91,7 @@ per invocation, give 28 samples per host/workload. The unchanged 21/300-page
 input hashes and geometry/glyph digests agree exactly. Median ms/page before /
 after: 0.975667 / 0.940286 (ratio 0.963737) and 0.846538 / 0.793257 (0.937059).
 This increment adds no measured ordinary-flow slowdown in that run; it does not
-repair or reclassify the older RI-032 regression. Raw samples and commands stay
+repair or reclassify the older RI-050 regression. Raw samples and commands stay
 beside `report.json`. No historical speedup or source-reduction claim is made.
 
 Final owner evidence: `temp/paged-continuations-owner-native-results/` has
@@ -113,7 +113,7 @@ Lambda-opus `temp/paged-continuations-integration/summary.json` combines all
 final receipts, source hashes, private build configuration and frozen binaries.
 The paging suite has 504/505 passes; the selected PDF/FO/native subset has 84/90.
 Every failure name and exact message equals the previous track checkpoint:
-RI-030, RI-031 and Lambda-owned LR12-50 remain open. The original and private
+RI-052, RI-051 and Lambda-owned LR12-50 remain open. The original and private
 PDF baseline SHA-256 remains
 `ced461ca27c7a5455b8b450f8a87b71f02e5d51555d3d2cb94ce5919f6880d64`.
 The selected 90-case subset is not a new full 472-case qualification.
@@ -126,7 +126,7 @@ prefixes, with its original source hash and exact reverse check retained in the
 Makefile receipt; flags, test inventory and libraries are unchanged. All final
 native source hashes match the focused, ASan and optimized receipts. No Lambda
 source, protected reference, concurrent paint source or test tolerance changed.
-The subsequent commit request covers pagination paths and RI-032 evidence only.
+The subsequent commit request covers pagination paths and RI-050 evidence only.
 
 The normal formatter and the existing common fitter remain authoritative, in
 accordance with the paged design's section 1.3. Standards context: Flexbox section
@@ -197,7 +197,7 @@ object (including the shared flow helper) is byte-identical. Four alternating
 pairs give 28 samples per host/workload. Before/after median ms/page is
 0.954405/0.947262 for 21 pages, and 0.819257/0.820018 for 300 pages. Published
 geometry/glyph digests are identical. This increment is within about 1%; the
-separate earlier RI-032 regression is not closed by this result. Historical
+separate earlier RI-050 regression is not closed by this result. Historical
 archive and platform limits remain unchanged. Source accounting: 9,613 raw lines
 across the four historical paths versus 9,403 at current HEAD (+210); the shared
 helper/header/hooks are inventoried separately. No reduction or old speedup
@@ -212,13 +212,13 @@ qualification; shared dependency outputs require sequential profile builds.
 
 Lambda-opus `temp/paged-tracks-integration/summary.json` combines the final
 frozen executables, native source/archive hashes, owner/ASan/export/performance
-receipts and integration XML. The 505-case paging run has the same RI-030 failure;
-the 90-case PDF/FO/native subset has the same six RI-031/LR12-50 failures. Exact
+receipts and integration XML. The 505-case paging run has the same RI-052 failure;
+the 90-case PDF/FO/native subset has the same six RI-051/LR12-50 failures. Exact
 messages match `temp/paged-reservations-integration-final/`, and the original
 and private PDF baseline SHA-256 stays
 `ced461ca27c7a5455b8b450f8a87b71f02e5d51555d3d2cb94ce5919f6880d64`.
 The subset is not a new full 472-case run. No Lambda source changes, staging or
-commit were performed for this continuation. Concurrent paint files and RI-033
+commit were performed for this continuation. Concurrent paint files and RI-055
 ledger edits remain untouched.
 
 At that checkpoint, changing auto-placement/wrap topology, inline width changes
@@ -259,14 +259,14 @@ https://www.w3.org/TR/css-grid-1/#fragmentation . No formal ruling changed.
   private PDF baseline hashes remain unchanged. These are final-source frozen
   builds; the PDF subset does not replace the full 472-case inventory.
 - Performance limitation: the held-object optimized comparison attributes about
-  6% higher ordinary-flow composition time to the pagination object (RI-032).
+  6% higher ordinary-flow composition time to the pagination object (RI-050).
   Correctness digests match; no performance no-regression claim is made.
 - All new core gates must preserve source intervals, page/pass budgets, exact
   preview/PDF pixels, physical sheet geometry and previously published editions.
   No protected references or tolerances are changed. No staging/commit requested
   for this continuation.
 - Historical archive waiver (user, 2026-11-12): assume the original P7 baseline
-  archive was deleted/lost and ignore that comparison. RI-028 is closed by waiver,
+  archive was deleted/lost and ignore that comparison. RI-053 is closed by waiver,
   not by passing old visual, performance or source-reduction measurements.
 
 ## Delivered reservation and nested-formatting cores
@@ -342,14 +342,14 @@ retained-resource decisions remain governed by the formal D# rulings above.
   `ead8d2a`, verifies every other archive object is identical, and alternates
   28 samples per host/workload. Median ms/page is 0.901476/0.955524 before/after
   for 21 pages and 0.781150/0.827102 for 300 pages, about 6% slower. Exact published
-  digests agree. RI-032 retains this open performance qualification issue.
+  digests agree. RI-050 retains this open performance qualification issue.
 - The four historical source paths total 9,403 raw lines versus 9,250 at
   `ead8d2a` (+153). Supporting sources remain independently inventoried; retired
   engine selectors/types are absent. This is source accounting, not a reduction.
 - Lambda-opus `temp/paged-reservations-integration-final/` retains pinned final
   executables, native source hash, private PDF baseline, XML/logs and combined
   `summary.json`. Its final results remain 504/505 paging and 84/90 selected PDF;
-  RI-030/RI-031/LR12-50 remain open. The earlier initial-source run is preserved
+  RI-052/RI-051/LR12-50 remain open. The earlier initial-source run is preserved
   separately in `temp/paged-reservations-integration/`.
 
 ## Earlier completed increments
@@ -376,7 +376,7 @@ creation; all four GPU cases passed separately with normal macOS access. Each
 exact failure was independently reproduced with pagination source `340ad59` and
 otherwise identical linked objects/flags. The original raw run was preserved.
 `temp/paged-advanced-integration/` retains the subsequent 504/505 paged run and
-84/90 selected export run. RI-030/RI-031 and Lambda-owned LR12-50 stay open.
+84/90 selected export run. RI-052/RI-051 and Lambda-owned LR12-50 stay open.
 
 ## Remaining profiles and resume point
 
@@ -392,7 +392,7 @@ otherwise identical linked objects/flags. The original raw run was preserved.
 3. Column-attached/multi-sequence deferred-float scheduling and named-page width
    transitions through percentage-containing or independent formatting contexts.
    Backward reservation convergence remains bounded by the caller's pass budget.
-4. Owner-side root-cause resolution of RI-030/RI-031, the measured RI-032
+4. Owner-side root-cause resolution of RI-052/RI-051, the measured RI-050
    composition slowdown, and Lambda-owned LR12-50, then wider P7 qualification.
    Keep their reference/assertion evidence intact until the owning cause is repaired.
 5. Platform qualification beyond this macOS host. Fresh release receipts do not
@@ -400,7 +400,7 @@ otherwise identical linked objects/flags. The original raw run was preserved.
 
 The current finite continuation milestone is qualified on macOS. Resume from the
 remaining profiles above; do not repeat completed gates unless the source changes.
-Keep the earlier RI-032 regression, known integration failures and wider platform
+Keep the earlier RI-050 regression, known integration failures and wider platform
 gates open until their own causes and evidence are resolved. Preserve known red
 integration profiles. Keep performance, historical and platform claims separate
 from focused native delivery.

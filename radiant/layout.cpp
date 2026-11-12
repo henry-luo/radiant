@@ -5444,6 +5444,8 @@ void layout_html_root(LayoutContext* lycon, DomNode* elmt) {
 
     if (html->font) {
         setup_font(lycon->ui_context, &lycon->font, html->font);
+        // cached root styles still publish their computed basis before child layout.
+        if (html->fontp()->font_size >= 0.0f) lycon->root_font_size = html->fontp()->font_size;
     }
     if (lycon->root_font_size < 0) {
         lycon->root_font_size = lycon->font.current_font_size < 0 ?

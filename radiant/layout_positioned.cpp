@@ -2915,7 +2915,11 @@ static void layout_abs_block_internal(LayoutContext* lycon, DomNode *elmt,
 
 void layout_abs_block(LayoutContext* lycon, DomNode *elmt, ViewBlock* block,
                       BlockContext *pa_block, Linebox *pa_line) {
+    // an intrinsic positioned box owns its query mode; following siblings keep
+    // the parent's available space rather than inheriting min/max-content.
+    AvailableSpace parent_space = lycon->available_space;
     layout_abs_block_internal(lycon, elmt, block, pa_block, pa_line, true);
+    lycon->available_space = parent_space;
 }
 
 static void finalize_static_positioned_abs_descendant(ViewBlock* block) {

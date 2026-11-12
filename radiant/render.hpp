@@ -2395,7 +2395,11 @@ void render_block_view_content(RasterRenderContext* rdcon, ViewBlock* block,
 // render embedded HTML through the ordinary child, scrolling and stacking phases.
 double render_block_paint_children(RasterRenderContext* rdcon, ViewBlock* block);
 void render_embed_doc(RasterRenderContext* rdcon, ViewBlock* block);
+int render_background_layer_count(const BackgroundProp* background);
+const BackgroundLayer* render_background_layer_at(const BackgroundProp* background, int index);
+BackgroundLayer* render_background_layer_at(BackgroundProp* background, int index);
 ViewBlock* render_document_canvas_background_view(View* root_view);
+ViewBlock* render_document_propagated_body_background(ViewBlock* view);
 Color render_document_canvas_background(View* root_view);
 Color render_document_output_background(View* root_view);
 void render_inline_view(RasterRenderContext* rdcon, ViewSpan* view_span);

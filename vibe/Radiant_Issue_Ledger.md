@@ -20,58 +20,51 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-055"></a>
 
-### RI-032 — Reservation/nested-row pagination increment increases composition cost
+- [RI-055 — Paint engine lacks the M3 wet-media kernels](<Radiant_Issue_Ledger (fixed).md#ri-055>).
 
-**Status:** open, performance qualification limitation, 2026-11-12. Native
-ownership: **D9.1.1v4 / D9.1.3v2**. The cause within `layout_paged.cpp` is
-**unconfirmed**; no timing workaround or workload change was made.
+<a id="ri-054"></a>
 
-On unchanged optimized 21/300-page ordinary-flow workloads, four alternating
-before/after pairs (28 samples per host/workload after two warmups per run) show
-about 6% more composition time. A control rebuild replaces only
-`layout_paged.cpp` with source from `ead8d2a`; every other current archive object,
-benchmark client and link input is held constant. The archive symbol index
-necessarily changes with its replaced object. Exact published geometry/glyph
-FNV digests agree in every sample.
+- [RI-054 — Owner-held font fixture lookup under Lambda integration](<Radiant_Issue_Ledger (fixed).md#ri-054>).
 
-Median ms/page: 21 pages 0.901476 before / 0.955524 after (1.05995 ratio);
-300 pages 0.781150 / 0.827102 (1.05883). Parsing, export, hashing and edition
-retirement are excluded. A separate archived-host comparison also observed
-about 5%; the held-object control is the stronger attribution evidence.
+<a id="ri-053"></a>
 
-Reproduce from Radiant: run each of
-`temp/paged-reservations-causal-control/{before,after}` with
-`temp/paged-reservations-final/composition-{21,300}.html` and sample count `7`,
-alternating order. `temp/paged-reservations-causal-control/` holds the original
-source, compiler/link arguments, object/archive checks, executables, raw samples,
-`receipt.json` and `report.json`. Current correctness is separately qualified by
-82 focused cases, 1,010 native passes, 4,481 layout passes and sixteen exact
-export controls. This blocks a current performance no-regression claim, not the
-verified reservation/row behavior. The lost historical P7 archive waiver does
-not waive this new measured difference.
+- [RI-053 — Historical P7 comparison artifacts are unavailable in the current checkouts](<Radiant_Issue_Ledger (fixed).md#ri-053>).
 
-The subsequent track/orthogonal/lane continuation preserves this open status.
-`temp/paged-tracks-causal-control/receipt.json` verifies that only
-`layout_paged.cpp.o` differs between its before/after release archives; the
-current shared flow helper and every other object are identical. Four alternating
-pairs (28 samples per host/workload) give 0.954405/0.947262 ms/page for 21 pages
-and 0.819257/0.820018 for 300 pages, with identical published digests. This
-increment is within about 1%; it does not repair or reclassify the earlier 6%
-regression. See `temp/paged-tracks-causal-control/report.json` for raw receipts.
+<a id="ri-052"></a>
 
+### RI-052 — Existing empty-cell table baseline assertion differs by 10px
 
-The topology/split-width/vertical-root continuation also preserves this open
-status. `temp/paged-continuations-causal-control/receipt.json` replaces only the
-start pagination and item-collector objects, holding every other release object
-identical. Four alternating pairs (28 samples per host/workload) give
-0.975667/0.940286 ms/page for 21 pages and 0.846538/0.793257 for 300 pages, with
-unchanged input hashes and published digests. This run adds no measured slowdown;
-it does not qualify the earlier reservation increment. Commands and samples are
-in `temp/paged-continuations-causal-control/report.json`.
+**Status:** open, qualification limitation, 2026-11-12. Native ownership:
+**D9.1.1v4 / D9.1.3v2**. Cause is **unconfirmed**.
 
+`SecondaryViewTest.TableBaselineUsesFirstNestedLineOrTheEmptyCellContentEdge`
+reports glyph baseline 33 versus empty-cell y 10 + expected 33 = 43, for both fixed
+and auto table layout. It reproduces identically with pagination source from
+`340ad59` and the current source, with all remaining linked objects and flags
+held constant. The full current Lambda paged inventory passes 504/505 after the
+new nested-width acceptance and owner font lookup correction.
 
-### RI-031 — Current full PDF/export qualification retains six unchanged failures
+Evidence in Lambda-opus: `temp/paged-p7-integration/paged-final.xml`,
+`control/table.xml`, `control/receipt.json` and `updated-focused.xml`.
+This blocks an all-green legacy paged integration claim; it does not block the
+19 focused native fragmentation cases or the 947-pass owner baseline. Leave the
+assertion visible until its layout or coordinate-oracle cause is established.
+
+Continuation evidence: Lambda-opus `temp/paged-advanced-integration/paged.xml`
+still passes 504/505, with the same failure messages as `paged-final.xml`.
+The expanded Radiant core now passes 60 focused cases, 988 owner-native cases
+(one disabled) and 4,481 layout cases (six skips). RI-052 stays open.
+
+Reservation/nested-row continuation: Lambda-opus
+`temp/paged-reservations-integration-final/paged.xml` remains 504/505 with the
+same assertion messages. The final owner increment passes 82 focused cases,
+1,010 native cases (one disabled) and 4,481 layout cases (six skips).
+
+<a id="ri-051"></a>
+
+### RI-051 — Current full PDF/export qualification retains six unchanged failures
 
 **Status:** open, qualification limitation, 2026-11-12. Ownership of native
 qualification: **D9.1.1v4 / D9.1.3v2**; underlying causes are **unconfirmed**
@@ -105,44 +98,209 @@ Reservation/nested-row continuation: Lambda-opus
 `temp/paged-reservations-integration-final/pdf.xml` remains 84/90 with exactly the
 previous six failure messages and unchanged baseline copies. Radiant
 `temp/paged-reservations-final/report.json` passes sixteen independent exported
-controls. RI-031 remains open; no protected references were changed.
+controls. RI-051 remains open; no protected references were changed.
 
-### RI-030 — Existing empty-cell table baseline assertion differs by 10px
+<a id="ri-050"></a>
 
-**Status:** open, qualification limitation, 2026-11-12. Native ownership:
-**D9.1.1v4 / D9.1.3v2**. Cause is **unconfirmed**.
+### RI-050 — Reservation/nested-row pagination increment increases composition cost
 
-`SecondaryViewTest.TableBaselineUsesFirstNestedLineOrTheEmptyCellContentEdge`
-reports glyph baseline 33 versus empty-cell y 10 + expected 33 = 43, for both fixed
-and auto table layout. It reproduces identically with pagination source from
-`340ad59` and the current source, with all remaining linked objects and flags
-held constant. The full current Lambda paged inventory passes 504/505 after the
-new nested-width acceptance and owner font lookup correction.
+**Status:** open, performance qualification limitation, 2026-11-12. Native
+ownership: **D9.1.1v4 / D9.1.3v2**. The cause within `layout_paged.cpp` is
+**unconfirmed**; no timing workaround or workload change was made.
 
-Evidence in Lambda-opus: `temp/paged-p7-integration/paged-final.xml`,
-`control/table.xml`, `control/receipt.json` and `updated-focused.xml`.
-This blocks an all-green legacy paged integration claim; it does not block the
-19 focused native fragmentation cases or the 947-pass owner baseline. Leave the
-assertion visible until its layout or coordinate-oracle cause is established.
+On unchanged optimized 21/300-page ordinary-flow workloads, four alternating
+before/after pairs (28 samples per host/workload after two warmups per run) show
+about 6% more composition time. A control rebuild replaces only
+`layout_paged.cpp` with source from `ead8d2a`; every other current archive object,
+benchmark client and link input is held constant. The archive symbol index
+necessarily changes with its replaced object. Exact published geometry/glyph
+FNV digests agree in every sample.
 
-Continuation evidence: Lambda-opus `temp/paged-advanced-integration/paged.xml`
-still passes 504/505, with the same failure messages as `paged-final.xml`.
-The expanded Radiant core now passes 60 focused cases, 988 owner-native cases
-(one disabled) and 4,481 layout cases (six skips). RI-030 stays open.
+Median ms/page: 21 pages 0.901476 before / 0.955524 after (1.05995 ratio);
+300 pages 0.781150 / 0.827102 (1.05883). Parsing, export, hashing and edition
+retirement are excluded. A separate archived-host comparison also observed
+about 5%; the held-object control is the stronger attribution evidence.
 
-Reservation/nested-row continuation: Lambda-opus
-`temp/paged-reservations-integration-final/paged.xml` remains 504/505 with the
-same assertion messages. The final owner increment passes 82 focused cases,
-1,010 native cases (one disabled) and 4,481 layout cases (six skips).
+Reproduce from Radiant: run each of
+`temp/paged-reservations-causal-control/{before,after}` with
+`temp/paged-reservations-final/composition-{21,300}.html` and sample count `7`,
+alternating order. `temp/paged-reservations-causal-control/` holds the original
+source, compiler/link arguments, object/archive checks, executables, raw samples,
+`receipt.json` and `report.json`. Current correctness is separately qualified by
+82 focused cases, 1,010 native passes, 4,481 layout passes and sixteen exact
+export controls. This blocks a current performance no-regression claim, not the
+verified reservation/row behavior. The lost historical P7 archive waiver does
+not waive this new measured difference.
+
+<a id="ri-048"></a>
+
+- [RI-048 — Grid-item percentage sizes use the whole grid instead of their area](<Radiant_Issue_Ledger (fixed).md#ri-048>).
+
+<a id="ri-049"></a>
+
+- [RI-049 — Root font-size evaluation leaves descendants on the initial rem basis](<Radiant_Issue_Ledger (fixed).md#ri-049>).
+
+<a id="ri-047"></a>
+
+- [RI-047 — Raw basic-shape parsing drops computed clip geometry](<Radiant_Issue_Ledger (fixed).md#ri-047>).
+
+<a id="ri-046"></a>
+
+- [RI-046 — Pending style text reparses discard later CSSOM edits](<Radiant_Issue_Ledger (fixed).md#ri-046>).
+
+<a id="ri-045"></a>
+
+- [RI-045 — Headless document hosts omit the browsing profile](<Radiant_Issue_Ledger (fixed).md#ri-045>).
+
+<a id="ri-043"></a>
+
+- [RI-043 — Unsubstituted variables incorrectly trigger cyclic intrinsic sizing](<Radiant_Issue_Ledger (fixed).md#ri-043>).
+
+<a id="ri-044"></a>
+
+- [RI-044 — Intrinsic images restore HTML width hints overridden by CSS](<Radiant_Issue_Ledger (fixed).md#ri-044>).
+
+<a id="ri-038"></a>
+
+- [RI-038 — Intrinsic ratio heights ignore inline min/max constraints](<Radiant_Issue_Ledger (fixed).md#ri-038>).
+
+<a id="ri-037"></a>
+
+- [RI-037 — Authored display bypasses scripting-enabled noscript suppression](<Radiant_Issue_Ledger (fixed).md#ri-037>).
+
+<a id="ri-036"></a>
+
+- [RI-036 — Nested column flex intrinsic heights omit main-axis gaps](<Radiant_Issue_Ledger (fixed).md#ri-036>).
+
+<a id="ri-039"></a>
+
+- [RI-039 — Intrinsic height recursion borrows an outer percentage-height basis](<Radiant_Issue_Ledger (fixed).md#ri-039>).
+
+<a id="ri-040"></a>
+
+- [RI-040 — Maximum constraints erase definite flex main sizes](<Radiant_Issue_Ledger (fixed).md#ri-040>).
+
+<a id="ri-042"></a>
+
+- [RI-042 — CSS math gaps are dropped before layout](<Radiant_Issue_Ledger (fixed).md#ri-042>).
+
+<a id="ri-041"></a>
+
+### RI-041 — URL-based CSS image masks have no paint consumer
+
+**Status:** OPEN feature gap, 2026-11-12. **Lambda blocker:** no; captures
+complete, but Craft's decorative paper shapes remain substantially different.
+Ownership **D9.1.1v4 / D9.1.3v2**, effects contract **D5.5.1 / CI-18**.
+The existing mask path is limited to radial gradients: MaskProp retains only
+a RadialGradient and resolve_css_mask_image calls resolve_radial_gradient_value;
+URL image masks are not retained or consumed. The support matrix already
+marks URL/linear/multilayer mask consumers open.
+
+Craft's authored CSS uses mask-image:url(/images/decorations/paperSheetMask.svg)
+and paperShredTriangleFrontMask/paperShredBlobMask variants. These masks cut
+the torn edges in Chromium; Radiant paints the unmasked solid paper geometry.
+The inline logo-outline URL mask has the same unsupported image consumer.
+RI-040 restores the heading and product placement, isolating this remaining
+large decoration difference from the repaired flex sizing.
+
+Implementing resource-backed mask images, sizing/positioning and SVG mask
+rasterization/composition is outside this round's existing-bug milestone.
+No shape is substituted or hidden. Evidence: Lambda
+temp/online-visual-round5/craft-static.html, round-six live capture
+temp/online-visual-round6/craft-live.png, and the unchanged browser reference
+test/online/snapshots/saas_landing_436-browser.png. This observation does not
+assign other pages' blank content to masking without their own evidence.
+
+<a id="ri-035"></a>
+
+### RI-035 — Unavailable-voice native provider test stays pending on this macOS session
+
+**Status:** OPEN, cause unconfirmed, 2026-11-12. **Lambda blocker:** no;
+this limits the native aggregate qualification, not the online page captures.
+Ownership **D9.1.1v4 / D9.1.3v2**. Running
+`./build/test/test_radiant_media_backend_gtest --gtest_filter=RadiantNativeMedia.SpeechProviderReportsAnUnavailableVoice`
+in the owner checkout returns a non-null speech job for
+`invalid.lambda.test.voice`, but `rdt_speech_job_state` remains pending (0),
+not failed (2), and the error is null. It fails in the native gate and three
+isolated repeats. No speech implementation or test was changed by the online
+rendering repairs. The cause and any dependency on the macOS provider/service
+state remain unisolated; no assertion or skip was added. Evidence: Lambda
+`temp/online-visual-round4/{native-gate-final.log,speech-1.log,speech-2.log,speech-3.log}`.
+
+<a id="ri-034"></a>
+
+- [RI-034 — Positioned intrinsic sizing leaks its query mode to following blocks](<Radiant_Issue_Ledger (fixed).md#ri-034>).
+
+<a id="ri-033"></a>
+
+- [RI-033 — Propagated body backgrounds cover negative stacking layers](<Radiant_Issue_Ledger (fixed).md#ri-033>).
+
+<a id="ri-032"></a>
+
+- [RI-032 — Flex SVG automatic cross sizes ignore the flexed main size](<Radiant_Issue_Ledger (fixed).md#ri-032>).
+
+<a id="ri-031"></a>
+
+### RI-031 — Current Dock document exceeds the online layout deadline
+
+**Status:** OPEN, root cause unconfirmed, 2026-11-12. **Lambda blocker:** yes
+for a new canonical Dock snapshot; other online cases continue. Native layout
+ownership **D9.1.1v4 / D9.1.3v2**. Two fresh repaired-host attempts at
+`https://www.dock.us/` were killed by the existing 150s parent deadline during
+deep nested grid/flex content layout. A control using the prior qualified
+renderer (`8f3326ea42be5041d44bc776888dad4b4c1f2a7a008eb42611aa2666a88044a2`)
+also times out at 150s. The failure therefore also exists without these changes; its cost change is unmeasured;
+current document complexity, layout repetition and origin-dependent input
+still need isolation. This is a capture correctness observation, not a release
+performance benchmark. No deadline was raised or prior PNG accepted as fresh.
+The round-thirteen root-font repair retry also times out at the unchanged
+150s deadline (2026-11-12T13:34:03.960Z); see Lambda
+`temp/online-visual-round13/dock-result.json`. The round-twelve result is
+retained in its corresponding evidence directory.
+The round-eleven DOM interface/initial-observer retry also times out at the
+unchanged 150s deadline (2026-11-12T12:11:34.567Z); see Lambda
+`temp/online-visual-round11/dock-result.json`. No partial PNG is promoted.
+The round-ten computed-clip repair retry also times out at the unchanged
+150s deadline; see Lambda temp/online-visual-round10/dock-result.json.
+The round-nine CSSOM synchronization repair retry also times out at the
+unchanged150s deadline; see Lambda temp/online-visual-round9/capture.log.
+The round-eight session/cookie repair retry also times out at the unchanged
+150s deadline; see Lambda temp/online-visual-round8/capture.log.
+The round-seven intrinsic-sizing repair retry also times out at150s; see
+Lambda temp/online-visual-round7/capture.log.
+The round-six three-fix retry also times out at the unchanged 150s deadline;
+see Lambda temp/online-visual-round6/capture-threefix.log.
+The round-five five-fix retry also times out at the same 150s deadline; see
+Lambda `temp/online-visual-round5/capture-fivefix.log`.
+The round-four repaired-host retry also times out at the same 150s deadline;
+see Lambda `temp/online-visual-round4/capture.log`.
+Evidence: Lambda `temp/online-visual-round3/{capture-all.log,capture-grid.log,
+dock-control/result.json,dock-control/dock-control-lambda.log}`, plus canonical
+`test/online/snapshots/saas_landing_310-lambda.log` and manifest failure status.
+
+<a id="ri-030"></a>
+
+- [RI-030 — Grid row growth leaves stale scroll clips that hide item contents](<Radiant_Issue_Ledger (fixed).md#ri-030>).
 
 <a id="ri-029"></a>
 
-- [RI-029 — Owner-held font fixture lookup under Lambda integration](<Radiant_Issue_Ledger (fixed).md#ri-029>).
+### RI-029 — Modal dialog top-layer and backdrop painting remain incomplete
 
+**Status:** OPEN feature gap, 2026-11-12. **Lambda blocker:** no; major new
+paint ordering is outside the current online bug-fix milestone. Ownership
+**D9.1.1v4 / D9.1.3v2**. Leaflet's reference page calls showModal: native DOM
+modal state and fixed centering exist, but the renderer has no top-layer
+painting pass and the parsed `::backdrop` has no layout/paint consumer.
+Ordinary page text can paint over the dialog and no dimming backdrop appears.
+These limits are already recorded in Lambda's HTML/CSS support matrix;
+this record ties them to `https://leafletjs.com/reference.html` and its online
+snapshot. The cause is not assigned to image loading or CSS opacity.
+Evidence: Lambda round2/browser/leaflet_docs.json, canonical paired PNGs,
+`render_block.cpp`, dialog DOM state and the support-matrix dialog/backdrop rows.
 
 <a id="ri-028"></a>
 
-- [RI-028 — Historical P7 archive lost; replay waived by user](<Radiant_Issue_Ledger (fixed).md#ri-028>).
+- [RI-028 — Auto-height flex columns shrink natural content to their minimum](<Radiant_Issue_Ledger (fixed).md#ri-028>).
 
 <a id="ri-027"></a>
 
@@ -1263,10 +1421,6 @@ Other state-store families and deferred callbacks remain open. See the
 - [RAD22-9](<Radiant_Issue_Ledger (fixed).md#rad22-9>).
 
 ## Fixed issues
-
-<a id="ri-033"></a>
-
-- [RI-033 — Paint engine lacks the M3 wet-media kernels](<Radiant_Issue_Ledger (fixed).md#ri-033>).
 
 <a id="ri-013"></a>
 

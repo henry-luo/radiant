@@ -859,7 +859,10 @@ void init_flex_container(LayoutContext* lycon, ViewBlock* container) {
         float maximum_content = layout_css_size_to_content_box(
             container->bound, layout_box_sizing(container), maximum,
             main_axis == LAYOUT_AXIS_X);
-        has_definite_main = fabs(main_content_size - maximum_content) < 1.0f;
+        // a maximum can supply a used size, but cannot erase an explicit
+        // definite size when the maximum does not clamp it.
+        has_definite_main = has_definite_main ||
+            fabs(main_content_size - maximum_content) < 1.0f;
     }
     if (is_absolute && container->position) {
         LayoutAxisRefs placement(container, main_axis);
@@ -1155,15 +1158,21 @@ void layout_flex_container(LayoutContext* lycon, ViewBlock* container) {
     // For auto-height column flex containers, flex-wrap does not create columns
     // sentinel above only for line-breaking, then restore the natural content
     // space-between do not distribute against the sentinel.
+    bool automatic_column_minimum = !flex_layout->main_axis_available_size_is_definite &&
+        layout_positive_min_axis(container, false) > 0.0f;
     if (!is_main_axis_horizontal(flex_layout) &&
-        flex_layout->main_axis_is_indefinite &&
-        flex_layout->wrap != WRAP_NOWRAP &&
-        !(layout_positive_max_axis_or(container, false, -1.0f) > 0.0f)) {
+        (automatic_column_minimum ||
+         (flex_layout->main_axis_is_indefinite && flex_layout->wrap != WRAP_NOWRAP &&
+          !(layout_positive_max_axis_or(container, false, -1.0f) > 0.0f)))) {
         float natural_main_size = 0.0f;
         for (int i = 0; i < line_count; i++) {
             if (flex_layout->lines[i].main_size > natural_main_size) {
                 natural_main_size = flex_layout->lines[i].main_size;
             }
+        }
+        if (automatic_column_minimum) {
+            // a minimum supplies spare space, but cannot shrink an auto column below its natural lines.
+            natural_main_size = max(natural_main_size, flex_layout->main_axis_size);
         }
         if (natural_main_size > 0.0f) {
             flex_layout->main_axis_size = natural_main_size;
@@ -3833,13 +3842,16 @@ static float flex_finalize_hypothetical_cross(ViewElement* item,
     }
 
     hypothetical_cross = max(min_cross, min(hypothetical_cross, max_cross));
-    if (item->fi->aspect_ratio > 0.0f && !has_explicit_cross) {
-        float ratio = item->fi->aspect_ratio;
+    // replaced items transfer their natural ratio from the flexed main size too;
+    // a ratio-only SVG's provisional intrinsic size can span the whole container.
+    float ratio = flex_item_auto_minimum_aspect_ratio(item);
+    if (ratio > 0.0f && !has_explicit_cross) {
         LayoutAxisRefs main(item, is_horizontal);
         LayoutAxisRefs cross(item, cross_is_horizontal);
         float main_size = main.get_size();
         if (main_size > 0.0f) {
-            hypothetical_cross = main.horizontal() ? main_size / ratio : main_size * ratio;
+            hypothetical_cross = flex_item_main_border_size_from_cross_border_size(
+                item, main_size, cross_is_horizontal, ratio);
             cross.set_size(hypothetical_cross);
         } else if (hypothetical_cross > 0.0f) {
             main.set_size(main.horizontal()

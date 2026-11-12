@@ -156,7 +156,12 @@ bool radiant_sync_inline_stylesheet(DomElement* elem) {
 void radiant_sync_mutated_inline_stylesheets(DomDocument* doc) {
     if (!doc) return;
     for (int i = 0; i < doc->js.inline_stylesheet_mutation_count; i++) {
-        radiant_sync_inline_stylesheet(doc->js.inline_stylesheet_mutations[i]);
+        DomElement* owner = doc->js.inline_stylesheet_mutations[i];
+        if (owner && radiant_sync_inline_stylesheet(owner)) {
+            // a later CSSOM edit must not be overwritten by the same text-tree update.
+            // retain the batch count so reconciliation still sees a stylesheet mutation.
+            doc->js.inline_stylesheet_mutations[i] = nullptr;
+        }
     }
     // CSS Cascade source order follows the current document tree, including
     // an inserted style that precedes a previously parsed link or style sheet.

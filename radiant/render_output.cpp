@@ -505,6 +505,11 @@ static bool render_export_session_begin_internal(
         render_export_session_finish(session);
         return false;
     }
+    if (!session->ui_context->ensure_browsing_session()) {
+        log_error("export-session: failed to create browsing profile");
+        render_export_session_finish(session);
+        return false;
+    }
     ui_context_set_device_scale(session->ui_context, session->device_scale, session->device_scale);
     session->ui_context->render_failed = false;
     // Only documents that actually request scene pixels acquire a graphics host.
