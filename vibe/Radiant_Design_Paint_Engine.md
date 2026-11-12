@@ -172,7 +172,7 @@ B = 3 initially, which is the RGB-band KM that Curtis and `procart.watercolor` u
 
 ### PE9 — Wet medium
 
-`paint_wet_step(sheet, paper, params, window, steps)` advances a dense planar sheet `f32[P, h, w]` over an active window. The planes follow `procart.watercolor`: paper height, water saturation, pressure, velocities u and v, suspended pigment g_k and deposited pigment d_k for each pigment k, and scratch planes. The caller supplies the scratch planes as part of the sheet, and `paint_wet_layout(pigments) → P` fixes the plane count, so the step itself allocates nothing.
+`paint_wet_step(sheet, paper, params, window, steps)` advances a dense planar sheet `f32[P, h, w]` or `float[P, h, w]` over an active window. The implementation supports both lanes through one kernel so the existing `procart.watercolor` float64 sheet does not need per-step conversions (D3.2.1, S9.2.1). The planes follow `procart.watercolor`: paper height, water saturation, pressure, velocities u and v, suspended pigment g_k and deposited pigment d_k for each pigment k, and scratch planes. The caller supplies the scratch planes as part of the sheet, and `paint_wet_layout(pigments) → P` fixes the plane count, so the step itself allocates nothing. For M in 1–4,096, P is `12 + 3M`: eight fixed planes, M suspended, M deposited, M pigment scratch and four shared blur planes. The three-pigment layout stays identical to `procart.watercolor`.
 
 Each step runs the Curtis 1997 sequence in the reference's order:
 
@@ -183,6 +183,8 @@ Each step runs the Curtis 1997 sequence in the reference's order:
 5. Evaporation.
 
 The call returns the bounds of remaining activity so that Lambda can grow or shrink the window. `paint_wet_deposit(sheet, window, pigment_tiles)` moves deposited pigment into the pigment layer when an area dries.
+
+*Presentation and direct dry (M3).* `paint_wet_present` combines suspended and deposited sheet pigment with the underlying three-band pigment film through the shared PE8 Kubelka–Munk renderer, without mutating either owner. It checks the sheet, pigment table, rectangle and count-scaled work before writing (**D5.5.2**, **D7.6.4**). `paint_wet_dry` runs the same evaporation/settling stage as a wet step with zero evaporation, without advecting the sheet; it supports both numeric lanes.
 
 The kernel is written fresh from the paper and the Lambda reference, carrying the Washes MIT notice for derived parts (PT14). Parity with `procart.watercolor` within tolerance is the acceptance test. Live painting steps the sheet in place through a `var` borrow (PT7). A pure watercolor render runs all of its steps inside one call, on a sheet that the call owns.
 
@@ -201,6 +203,8 @@ The kernel is written fresh from the paper and the Lambda reference, carrying th
 - **Depletion and pickup.** After a segment of length `L`, `load −= depletion·L·strength`. Before drawing, pickup mixes the canvas at the new tip into the ink: straight colour on rgba, and on pigment the film's composition at the bristle's own body thickness.
 - **Order.** Rows run in path order and bristles by index within a row, so a path split across calls draws exactly what one call draws. One geometry pass serves the bounds, the tile-presence check and drawing, so they agree on every box.
 - **Tests.** The first row only places; load falls monotonically and the trail fades along a long stroke; a split path equals the whole; pickup mixes; trails deposit film on pigment; refusals.
+
+*Wet-sheet extension (M3).* The same PE10 geometry and segment traversal writes to a PE9 wet sheet in f32 or float64. A wet bristle carries the selected pigment amount and water; pickup mixes those two components from the sheet at the tip, while other pigment channels remain on the sheet. Depletion and split-stroke ordering follow PE10. Bounds, sheet and state are validated before either value is written (**D5.5.2**, **D7.6.4**). Erasing and recolouring remain unsupported.
 
 ### PE11 — Numerics, determinism, bounds and errors
 

@@ -5,6 +5,7 @@
 #include <string.h>
 #include <time.h>
 #include "radiant/paint/paint.hpp"
+#include "radiant/paint/paint_wet.hpp"
 
 namespace {
 
@@ -798,4 +799,297 @@ TEST(PaintEngine, DISABLED_ThroughputMeetsTheBudgets) {
     GTEST_LOG_(INFO) << "dab throughput: rgba " << rgba / 1e6 << " M px/s, pigment (B = 3) " << film / 1e6 << " M px/s";
     EXPECT_GE(rgba, 200e6);
     EXPECT_GE(film, 50e6);
+}
+
+TEST(PaintEngine, WetStepMatchesSplitAndValidatesBeforeWriting) {
+    constexpr int w = 32, h = 24, n = w * h;
+    float whole[PAINT_WET_PLANES * n] = {}, split[PAINT_WET_PLANES * n] = {};
+    for (int i = 0; i < n; ++i) {
+        whole[i] = 0.3f + (i % 7) * 0.05f;
+        if (i % w >= 8 && i % w < 24 && i / w >= 6 && i / w < 18) whole[n + i] = 0.5f;
+    }
+    whole[3 * n + 12 * w + 16] = 0.25f;
+    whole[8 * n + 12 * w + 16] = 0.7f;
+    memcpy(split, whole, sizeof(whole));
+    double wide[PAINT_WET_PLANES * n];
+    for (int i = 0; i < PAINT_WET_PLANES * n; ++i) wide[i] = whole[i];
+    PaintWetSheet64 c{wide, w, h, {0, 0, w, h}, 0, 0};
+    PaintWetSheet a{whole, w, h, {0, 0, w, h}, 0, 0};
+    PaintWetSheet b{split, w, h, {0, 0, w, h}, 0, 0};
+    PaintWetParams p{0.064f, 0.0288f, 3, 16, 0.8f, 0.0f, 0.9988f, true, true,
+        {0.02f, 5.5f, 0.81f, 0.06f, 1.0f, 0.08f, 0.01f, 5.0f, 0.75f}};
+    ASSERT_EQ(paint_wet_step(&a, &p, 10).status, PAINT_OK);
+    ASSERT_EQ(paint_wet_step64(&c, &p, 10).status, PAINT_OK);
+    for (int i = 0; i < PAINT_WET_PLANES * n; ++i) EXPECT_NEAR(wide[i], whole[i], 1e-5);
+    ASSERT_EQ(paint_wet_step(&b, &p, 4).status, PAINT_OK);
+    ASSERT_EQ(paint_wet_step(&b, &p, 6).status, PAINT_OK);
+    EXPECT_EQ(memcmp(whole, split, sizeof(whole)), 0);
+    // Independent procart.watercolor reference, ten steps over the same 32 x 24 sheet.
+    const int centre = 12 * w + 16;
+    EXPECT_NEAR(whole[n + centre], 0.4940277745f, 1e-5f);
+    EXPECT_NEAR(whole[3 * n + centre], 0.1346537785f, 1e-5f);
+    EXPECT_NEAR(whole[4 * n + centre], -0.0136729565f, 1e-5f);
+    EXPECT_NEAR(whole[8 * n + centre], 0.1197021204f, 1e-5f);
+    EXPECT_NEAR(whole[11 * n + centre], 0.0426505290f, 1e-5f);
+    EXPECT_EQ(a.wet_cells, 248);
+    EXPECT_EQ(a.wet_cells, b.wet_cells);
+    p.adsorption[1] = 0;
+    EXPECT_EQ(paint_wet_step(&a, &p, 1).status, PAINT_ERROR_ARGUMENT);
+    EXPECT_EQ(memcmp(whole, split, sizeof(whole)), 0);
+}
+
+TEST(PaintEngine, WetDryingSettlesPigmentOutsideActiveWindow) {
+    constexpr int w = 8, h = 8, n = w * h;
+    float cells[PAINT_WET_PLANES * n] = {};
+    int i = 7;
+    cells[n + i] = 0.03f;
+    cells[8 * n + i] = 0.4f;
+    cells[11 * n + i] = 0.2f;
+    PaintWetSheet sheet{cells, w, h, {1, 1, 4, 4}, 0, 0};
+    PaintWetParams p{0.064f, 0.0288f, 3, 16, 0.8f, 0.0f, 0.0f, false, true,
+        {0.02f, 5.5f, 0.81f, 0.06f, 1.0f, 0.08f, 0.01f, 5.0f, 0.75f}};
+    PaintResult r = paint_wet_step(&sheet, &p, 1);
+    ASSERT_EQ(r.status, PAINT_OK);
+    EXPECT_FLOAT_EQ(cells[n + i], 0.0f);
+    EXPECT_FLOAT_EQ(cells[8 * n + i], 0.0f);
+    EXPECT_NEAR(cells[11 * n + i], 0.6f, 1e-6f);
+    EXPECT_EQ(r.dirty.x1, w);
+    EXPECT_EQ(r.dirty.y1, h);
+}
+
+TEST(PaintEngine, WetDepositTransfersOnceAndRejectsWetCells) {
+    constexpr int n = 8 * 8;
+    float cells[PAINT_WET_PLANES * n] = {};
+    PaintWetSheet sheet{cells, 8, 8, {0, 0, 8, 8}, 0, 0};
+    TestLayer layer(8, 8, 8, PAINT_FORMAT_PIGMENT, PAINT_ELEM_F32, true, 3);
+    float pigments[18] = {1,2,3,4,5,6, 2,3,4,5,6,7, 0,0,0,1,1,1};
+    int i = 3 * 8 + 2;
+    cells[11*n+i] = 0.2f;
+    cells[12*n+i] = 0.3f;
+    cells[n+i] = 0.5f;
+    PaintRect rect{0, 0, 8, 8};
+    EXPECT_EQ(paint_wet_deposit(&sheet, &layer.tiles, rect, pigments, 3).status, PAINT_ERROR_ARGUMENT);
+    EXPECT_FLOAT_EQ(cells[11*n+i], 0.2f);
+    EXPECT_FLOAT_EQ(layer.pigment(2, 3)[0], 0.0f);
+    cells[n+i] = 0;
+    ASSERT_EQ(paint_wet_deposit(&sheet, &layer.tiles, rect, pigments, 3).status, PAINT_OK);
+    EXPECT_NEAR(layer.pigment(2, 3)[0], 0.8f, 1e-6f);
+    EXPECT_NEAR(layer.pigment(2, 3)[3], 2.3f, 1e-6f);
+    EXPECT_FLOAT_EQ(layer.pigment(2, 3)[6], 0.5f);
+    EXPECT_FLOAT_EQ(cells[11*n+i], 0.0f);
+    EXPECT_FLOAT_EQ(cells[12*n+i], 0.0f);
+    ASSERT_EQ(paint_wet_deposit(&sheet, &layer.tiles, rect, pigments, 3).status, PAINT_OK);
+    EXPECT_FLOAT_EQ(layer.pigment(2, 3)[6], 0.5f);
+}
+
+namespace {
+// A dense, three-pigment active window; timing excludes setup and two warm-up steps.
+template<typename T> double wet_step_ms() {
+    const int w = 512, h = 512, n = w * h, steps = 30;
+    T* cells = (T*)calloc((size_t)PAINT_WET_PLANES * n, sizeof(T));
+    if (!cells) return -1.0;
+    for (int i = 0; i < n; ++i) {
+        cells[i] = (T)(0.3 + (i % 7) * 0.05); cells[n + i] = (T)0.6;
+        cells[3*n+i] = (T)((i % 13) * 0.01); cells[8*n+i] = (T)0.3;
+        cells[9*n+i] = (T)0.2; cells[10*n+i] = (T)0.1;
+    }
+    PaintWetSheetT<T> sheet{cells, w, h, {0, 0, w, h}, 0, 0};
+    PaintWetParams p{0.064f, 0.0288f, 3, 16, 0.8f, 0.0f, 0.9988f, true, true,
+        {0.02f, 5.5f, 0.81f, 0.06f, 1.0f, 0.08f, 0.01f, 5.0f, 0.75f}};
+    PaintResult result;
+    if constexpr (sizeof(T) == sizeof(float)) result = paint_wet_step((PaintWetSheet*)&sheet, &p, 2);
+    else result = paint_wet_step64((PaintWetSheet64*)&sheet, &p, 2);
+    EXPECT_EQ(result.status, PAINT_OK);
+    double start = seconds_now();
+    if constexpr (sizeof(T) == sizeof(float)) result = paint_wet_step((PaintWetSheet*)&sheet, &p, steps);
+    else result = paint_wet_step64((PaintWetSheet64*)&sheet, &p, steps);
+    double elapsed = seconds_now() - start;
+    EXPECT_EQ(result.status, PAINT_OK);
+    free(cells);
+    return elapsed * 1000.0 / steps;
+}
+}
+
+TEST(PaintEngine, DISABLED_WetStepMeetsTheBudget) {
+    double f32 = wet_step_ms<float>(), f64 = wet_step_ms<double>();
+    GTEST_LOG_(INFO) << "wet step, 512 x 512: f32 " << f32 << " ms, float64 " << f64 << " ms";
+    EXPECT_GT(f32, 0.0); EXPECT_GT(f64, 0.0);
+    EXPECT_LE(f32, 8.0); EXPECT_LE(f64, 8.0);
+}
+
+TEST(PaintEngine, WetLayoutsAdvanceAndDepositEveryPigment) {
+    constexpr int w=8,h=8,n=w*h,max_pigments=7;
+    EXPECT_EQ(paint_wet_layout(1),15);
+    EXPECT_EQ(paint_wet_layout(3),21);
+    EXPECT_EQ(paint_wet_layout(7),33);
+    EXPECT_EQ(paint_wet_layout(0),0);
+    EXPECT_EQ(paint_wet_layout(PAINT_WET_MAX_PIGMENTS+1),0);
+    float one = 0.0f;
+    PaintWetSheet oversized{&one, INT32_MAX, 8, {0,0,0,0}, 0, 0, 1};
+    PaintWetParams invalid{};
+    EXPECT_EQ(paint_wet_step(&oversized, &invalid, 1).status, PAINT_ERROR_ARGUMENT);
+    EXPECT_FLOAT_EQ(one, 0.0f);
+    for (int count : {1,4,7}) {
+        float cells[(12+3*max_pigments)*n] = {};
+        float ads[3*max_pigments], pigments[6*max_pigments];
+        for (int k=0;k<count;++k) {
+            ads[3*k]=0.1f; ads[3*k+1]=1; ads[3*k+2]=0;
+            for (int b=0;b<6;++b) pigments[6*k+b]=b<3?1.0f:2.0f;
+        }
+        const int i=4*w+4;
+        cells[n+i]=0.5f;
+        for(int k=0;k<count;++k) cells[(8+k)*n+i]=0.4f;
+        PaintWetSheet sheet{cells,w,h,{0,0,w,h},0,0,count};
+        PaintWetParams params{0.0f,0.0f,1,1,0.8f,0.0f,1.0f,false,false,{}};
+        params.adsorption_table=ads;
+        ASSERT_EQ(paint_wet_step(&sheet,&params,1).status,PAINT_OK);
+        for(int k=0;k<count;++k) {
+            EXPECT_NEAR(cells[(8+k)*n+i],0.36f,1e-6f) << k;
+            EXPECT_NEAR(cells[(paint_wet_deposited(count)+k)*n+i],0.04f,1e-6f) << k;
+        }
+        TestLayer layer(w,h,8,PAINT_FORMAT_PIGMENT,PAINT_ELEM_F32,true,3);
+        cells[n+i]=0;
+        PaintRect rect{0,0,w,h};
+        EXPECT_EQ(paint_wet_deposit(&sheet,&layer.tiles,rect,pigments,count+1).status,PAINT_ERROR_ARGUMENT);
+        ASSERT_EQ(paint_wet_deposit(&sheet,&layer.tiles,rect,pigments,count).status,PAINT_OK);
+        EXPECT_NEAR(layer.pigment(4,4)[0],0.04f*count,1e-6f);
+        EXPECT_NEAR(layer.pigment(4,4)[3],0.08f*count,1e-6f);
+        EXPECT_NEAR(layer.pigment(4,4)[6],0.04f*count,1e-6f);
+        for(int k=0;k<count;++k) EXPECT_FLOAT_EQ(cells[(paint_wet_deposited(count)+k)*n+i],0);
+    }
+}
+
+TEST(PaintEngine, WetActivityIncludesLastPigment) {
+    constexpr int w=8,h=8,n=w*h,count=4;
+    float cells[(12+3*count)*n] = {}, ads[3*count];
+    for(int k=0;k<count;++k) {ads[3*k]=0.1f;ads[3*k+1]=1;ads[3*k+2]=0;}
+    cells[(8+count-1)*n+4*w+4]=0.4f;
+    PaintWetSheet sheet{cells,w,h,{0,0,w,h},59,0,count};
+    PaintWetParams params{0.0f,0.0f,1,1,0.8f,0.0f,1.0f,false,false,{}};
+    params.adsorption_table=ads;
+    ASSERT_EQ(paint_wet_step(&sheet,&params,1).status,PAINT_OK);
+    EXPECT_GT(sheet.active.x1,sheet.active.x0);
+    EXPECT_EQ(sheet.since_shrink,0);
+}
+
+TEST(PaintEngine, WetDryingSettlesLastPigment) {
+    constexpr int w=8,h=8,n=w*h,count=4,i=4*w+4;
+    double cells[(12+3*count)*n] = {};
+    float ads[3*count];
+    for(int k=0;k<count;++k) {ads[3*k]=0.1f;ads[3*k+1]=1;ads[3*k+2]=0;}
+    cells[(8+count-1)*n+i]=0.4;
+    PaintWetSheet64 sheet{cells,w,h,{0,0,w,h},59,0,count};
+    PaintWetParams params{0.0f,0.0f,1,1,0.8f,0.0f,0.0f,false,true,{}};
+    params.adsorption_table=ads;
+    ASSERT_EQ(paint_wet_step64(&sheet,&params,1).status,PAINT_OK);
+    EXPECT_DOUBLE_EQ(cells[(8+count-1)*n+i],0.0);
+    EXPECT_DOUBLE_EQ(cells[(paint_wet_deposited(count)+count-1)*n+i],0.4);
+    EXPECT_EQ(sheet.active.x1,sheet.active.x0);
+}
+
+TEST(PaintEngine, WetDabsValidateBatchAndShareMasksAcrossLanes) {
+    constexpr int w = 16, h = 16, n = w*h, planes = 24;
+    float cells[planes*n] = {}; double wide[planes*n] = {};
+    PaintWetSheet a{cells, w, h, {0,0,0,0}, 0, 0}; a.pigments = 4;
+    PaintWetSheet64 b{wide, w, h, {0,0,0,0}, 0, 0}; b.pigments = 4;
+    float rows[2*PAINT_DAB_COLUMNS];
+    dab_row(rows, 8.5f, 8.5f, 3.0f); dab_row(rows + PAINT_DAB_COLUMNS, 10.5f, 8.5f, 2.0f);
+    for (int i = 0; i < 2; ++i) {
+        float* row = rows + i*PAINT_DAB_COLUMNS;
+        row[PAINT_DAB_PIGMENT] = 3; row[PAINT_DAB_AMOUNT] = 0.3f; row[PAINT_DAB_WATER] = 0.45f;
+    }
+    rows[PAINT_DAB_COLUMNS + PAINT_DAB_WATER] = -1;
+    EXPECT_EQ(paint_wet_dabs(&a, rows, 2, PAINT_DAB_COLUMNS, &PLAIN).status, PAINT_ERROR_ARGUMENT);
+    for (float v : cells) EXPECT_FLOAT_EQ(v, 0);
+    EXPECT_EQ(a.active.x1, 0);
+    rows[PAINT_DAB_COLUMNS + PAINT_DAB_WATER] = 0.45f;
+    EXPECT_EQ(paint_wet_dabs(&a, rows, 2, PAINT_DAB_COLUMNS, &TIGHT).status, PAINT_ERROR_BUDGET);
+    ASSERT_EQ(paint_wet_dabs(&a, rows, 2, PAINT_DAB_COLUMNS, &PLAIN).status, PAINT_OK);
+    ASSERT_EQ(paint_wet_dabs64(&b, rows, 2, PAINT_DAB_COLUMNS, &PLAIN).status, PAINT_OK);
+    int center = 8*w+8;
+    EXPECT_NEAR(cells[11*n+center], 0.6f, 1e-6);
+    EXPECT_NEAR(cells[n+center], 0.9f, 1e-6);
+    EXPECT_NEAR(cells[3*n+center], 0.36f, 1e-6);
+    EXPECT_FLOAT_EQ(cells[8*n+center], 0);
+    EXPECT_EQ(a.active.x1, w); EXPECT_EQ(a.active.y1, h);
+    for (int i = 0; i < planes*n; ++i) EXPECT_NEAR(cells[i], wide[i], 1e-6);
+}
+
+TEST(PaintEngine, WetBristlesSplitPickupAndFailAtomically) {
+    constexpr int w=32, h=24, n=w*h, planes=24;
+    float whole[planes*n]={}, split[planes*n]={}; double wide[planes*n]={};
+    for (int i=0; i<n; ++i) { whole[n+i]=0.4f; whole[11*n+i]=0.3f; }
+    memcpy(split, whole, sizeof(whole));
+    for (int i=0; i<planes*n; ++i) wide[i]=whole[i];
+    PaintWetSheet a{whole,w,h,{0,0,0,0},0,0}; a.pigments=4;
+    PaintWetSheet b{split,w,h,{0,0,0,0},0,0}; b.pigments=4;
+    PaintWetSheet64 c{wide,w,h,{0,0,0,0},0,0}; c.pigments=4;
+    float path[3*PAINT_DAB_COLUMNS];
+    for (int i=0; i<3; ++i) dab_row(path+i*PAINT_DAB_COLUMNS, 5.5f+i*6, 10.5f, 3);
+    float initial[11]={0,0,0.3f,2,1,0,0,0,0.8f,0.5f,0};
+    float sa[11], sb[11], sc[11]; memcpy(sa,initial,sizeof(sa)); memcpy(sb,initial,sizeof(sb)); memcpy(sc,initial,sizeof(sc));
+    PaintBristleParams p={BUDGET,nullptr,0.01f,0.4f,0};
+    path[2*PAINT_DAB_COLUMNS+PAINT_DAB_ERASER]=0;
+    EXPECT_EQ(paint_wet_bristles(&a,path,3,PAINT_DAB_COLUMNS,sa,1,11,3,&p).status,PAINT_ERROR_ARGUMENT);
+    EXPECT_EQ(memcmp(whole,split,sizeof(whole)),0); EXPECT_EQ(memcmp(sa,initial,sizeof(sa)),0);
+    path[2*PAINT_DAB_COLUMNS+PAINT_DAB_ERASER]=1;
+    PaintBristleParams limited=p; limited.work_budget=1;
+    EXPECT_EQ(paint_wet_bristles(&a,path,3,PAINT_DAB_COLUMNS,sa,1,11,3,&limited).status,PAINT_ERROR_BUDGET);
+    EXPECT_EQ(memcmp(whole,split,sizeof(whole)),0); EXPECT_EQ(memcmp(sa,initial,sizeof(sa)),0);
+    ASSERT_EQ(paint_wet_bristles(&a,path,3,PAINT_DAB_COLUMNS,sa,1,11,3,&p).status,PAINT_OK);
+    ASSERT_EQ(paint_wet_bristles(&b,path,2,PAINT_DAB_COLUMNS,sb,1,11,3,&p).status,PAINT_OK);
+    ASSERT_EQ(paint_wet_bristles(&b,path+2*PAINT_DAB_COLUMNS,1,PAINT_DAB_COLUMNS,sb,1,11,3,&p).status,PAINT_OK);
+    ASSERT_EQ(paint_wet_bristles64(&c,path,3,PAINT_DAB_COLUMNS,sc,1,11,3,&p).status,PAINT_OK);
+    EXPECT_EQ(memcmp(whole,split,sizeof(whole)),0); EXPECT_EQ(memcmp(sa,sb,sizeof(sa)),0);
+    EXPECT_LT(sa[PAINT_BRISTLE_LOAD],1); EXPECT_LT(sa[PAINT_BRISTLE_INK],0.8f);
+    EXPECT_GT(whole[11*n+10*w+8],0.3f); EXPECT_GT(whole[n+10*w+8],0.4f);
+    EXPECT_EQ(a.active.x1,w); EXPECT_EQ(a.active.y1,h);
+    for (int i=0; i<planes*n; ++i) EXPECT_NEAR(whole[i],wide[i],1e-6);
+}
+
+TEST(PaintEngine, WetPresentationMixesAndPreservesBothOwners) {
+    constexpr int w=16,h=16,n=w*h,planes=24;
+    float cells[planes*n]={}; double wide[planes*n]={};
+    PaintWetSheet sheet{cells,w,h,{0,0,0,0},0,0}; sheet.pigments=4;
+    PaintWetSheet64 sheet64{wide,w,h,{0,0,0,0},0,0}; sheet64.pigments=4;
+    TestLayer layer(w,h,16,PAINT_FORMAT_PIGMENT,PAINT_ELEM_F32,true,3);
+    for (int b=0; b<3; ++b) { layer.tiles.substrate[b]=1.0f; for (int i=0;i<n;i++) layer.pigment(i%w,i/w)[paint_pigment_r(3)+b]=1.0f; }
+    float pigments[24]={};
+    for (int j=0;j<4;++j) for(int b=0;b<3;++b) { pigments[j*6+b]=0.2f+j*0.1f+b*0.2f; pigments[j*6+3+b]=0.5f; }
+    uint8_t before[n*4]={}, result[n*4]={}, narrow[n*4]={};
+    PaintView a{before,PAINT_ELEM_U8,w,h,4,w*4,4}, b{result,PAINT_ELEM_U8,w,h,4,w*4,4}, c{narrow,PAINT_ELEM_U8,w,h,4,w*4,4};
+    PaintPresentParams plain={true,false,{0,0,0,0},false,{0,0,1},0,0,0,1,nullptr};
+    PaintRect rect={0,0,w,h};
+    ASSERT_EQ(paint_present(&layer.tiles,rect,&a,&plain).status,PAINT_OK);
+    ASSERT_EQ(paint_wet_present(&sheet,&layer.tiles,rect,&b,pigments,4,true,BUDGET).status,PAINT_OK);
+    EXPECT_EQ(memcmp(before,result,sizeof(result)),0);
+    cells[11*n+8*w+8]=0.4f; cells[15*n+8*w+8]=0.3f;
+    for (int i=0;i<planes*n;++i) wide[i]=cells[i];
+    ASSERT_EQ(paint_wet_present(&sheet,&layer.tiles,rect,&b,pigments,4,true,BUDGET).status,PAINT_OK);
+    ASSERT_EQ(paint_wet_present64(&sheet64,&layer.tiles,rect,&c,pigments,4,true,BUDGET).status,PAINT_OK);
+    EXPECT_EQ(memcmp(result,narrow,sizeof(result)),0);
+    EXPECT_NE(memcmp(before+4*(8*w+8),result+4*(8*w+8),4),0);
+    EXPECT_FLOAT_EQ(cells[11*n+8*w+8],0.4f); EXPECT_FLOAT_EQ(cells[15*n+8*w+8],0.3f);
+    EXPECT_EQ(paint_wet_present(&sheet,&layer.tiles,rect,&b,pigments,4,true,1).status,PAINT_ERROR_BUDGET);
+    cells[11*n+8*w+8]=-1;
+    EXPECT_EQ(paint_wet_present(&sheet,&layer.tiles,rect,&b,pigments,4,true,BUDGET).status,PAINT_ERROR_ARGUMENT);
+    EXPECT_EQ(memcmp(result,narrow,sizeof(result)),0);
+}
+
+TEST(PaintEngine, WetDrySettlesWithoutAdvancingFlow) {
+    constexpr int w=16,h=16,n=w*h,planes=24;
+    float cells[planes*n]={}; double wide[planes*n]={};
+    int at=8*w+8;
+    cells[n+at]=0.6f; cells[3*n+at]=0.4f; cells[4*n+at]=0.2f; cells[5*n+at]=-0.1f;
+    cells[11*n+at]=0.25f; cells[15*n+at]=0.15f;
+    for (int i=0;i<planes*n;++i) wide[i]=cells[i];
+    PaintWetSheet s{cells,w,h,{0,0,w,h},7,1}; s.pigments=4;
+    PaintWetSheet64 t{wide,w,h,{0,0,w,h},7,1}; t.pigments=4;
+    ASSERT_EQ(paint_wet_dry(&s).status,PAINT_OK);
+    ASSERT_EQ(paint_wet_dry64(&t).status,PAINT_OK);
+    EXPECT_EQ(s.wet_cells,0); EXPECT_EQ(s.since_shrink,7);
+    EXPECT_FLOAT_EQ(cells[n+at],0); EXPECT_FLOAT_EQ(cells[4*n+at],0); EXPECT_FLOAT_EQ(cells[5*n+at],0);
+    EXPECT_FLOAT_EQ(cells[11*n+at],0); EXPECT_NEAR(cells[15*n+at],0.4f,1e-6);
+    EXPECT_FLOAT_EQ(cells[3*n+at],0.4f); EXPECT_FLOAT_EQ(cells[15*n+at+1],0);
+    for (int i=0;i<planes*n;++i) EXPECT_NEAR(cells[i],wide[i],1e-6);
 }

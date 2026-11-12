@@ -2,7 +2,7 @@
 // thickness-weighted quantities tK, tS and t, so dabs of different pigments mix by concentration
 // and commute; nothing divides until display. Display composes the film over the substrate with
 // Kubelka's layer formula, and drying folds the film into the substrate the same way.
-#include "paint_internal.hpp"
+#include "paint_wet_internal.hpp"
 
 // the mask-weighted mean film under a dab's pickup footprint, with libmypaint get_color's round
 // hardness-0.5 footprint (PE5); clean tiles count as no film.
@@ -96,7 +96,9 @@ static inline float paint_pigment_height(const PaintTiles* layer, int32_t x, int
     return p ? p[paint_pigment_h(layer->bands)] + p[paint_pigment_t(layer->bands)] : 0.0f;
 }
 
-PaintResult paint_present_pigment(const PaintTiles* layer, PaintRect rect, PaintView* out, const PaintPresentParams* params) {
+// The optional wet sheet contributes to the same thickness-weighted film as PE8 deposits.
+static PaintResult paint_pigment_render(const PaintTiles* layer, PaintRect rect, PaintView* out, const PaintPresentParams* params,
+        const void* cells, bool wide, int32_t pigments, const float* table) {
     int32_t bands = layer->bands;
     float light[3] = {0.0f, 0.0f, 1.0f}, half[3] = {0.0f, 0.0f, 1.0f};
     if (params->has_lighting) {
@@ -110,8 +112,19 @@ PaintResult paint_present_pigment(const PaintTiles* layer, PaintRect rect, Paint
     for (int32_t y = rect.y0; y < rect.y1; y++) for (int32_t x = rect.x0; x < rect.x1; x++) {
         const float* p = paint_pigment_at(layer, x, y);
         double reflect[PAINT_MAX_BANDS];
-        for (int32_t b = 0; b < bands; b++)
-            reflect[b] = p ? paint_km(p[b], p[bands + b], p[paint_pigment_r(bands) + b]) : layer->substrate[b];
+        for (int32_t b = 0; b < bands; b++) {
+            double k = p ? p[b] : 0.0, s = p ? p[bands+b] : 0.0;
+            if (cells) {
+                int64_t n = (int64_t)layer->width * layer->height, at = (int64_t)y * layer->width + x;
+                for (int32_t j = 0; j < pigments; ++j) {
+                    int64_t g = (int64_t)(8+j)*n+at, d = (int64_t)(8+pigments+j)*n+at;
+                    double amount = wide ? ((const double*)cells)[g] + ((const double*)cells)[d]
+                                         : (double)((const float*)cells)[g] + ((const float*)cells)[d];
+                    k += amount * table[j*2*bands+b]; s += amount * table[j*2*bands+bands+b];
+                }
+            }
+            reflect[b] = paint_km(k, s, p ? p[paint_pigment_r(bands)+b] : layer->substrate[b]);
+        }
         float rgb[3];
         for (int c = 0; c < 3; c++) {
             double v = 0;
@@ -137,6 +150,53 @@ PaintResult paint_present_pigment(const PaintTiles* layer, PaintRect rect, Paint
         d[3] = 255;
     }
     return paint_ok(rect, (uint64_t)(rect.x1 - rect.x0) * (uint64_t)(rect.y1 - rect.y0));
+}
+
+PaintResult paint_present_pigment(const PaintTiles* layer, PaintRect rect, PaintView* out, const PaintPresentParams* params) {
+    return paint_pigment_render(layer, rect, out, params, nullptr, false, 0, nullptr);
+}
+
+template<typename T> static PaintResult paint_wet_present_impl(const PaintWetSheetT<T>* sheet, const PaintTiles* layer,
+        PaintRect rect, PaintView* out, const float* table, int32_t count, bool encode, uint64_t budget) {
+    const char* reason = nullptr;
+    if (!paint_wet_sheet_valid(sheet) || !paint_tiles_valid(layer, &reason))
+        return paint_fail(PAINT_ERROR_ARGUMENT, reason ? reason : "invalid wet sheet");
+    if (layer->format != PAINT_FORMAT_PIGMENT || layer->bands != 3 || layer->width != sheet->width ||
+        layer->height != sheet->height || count != sheet->pigments || !table || paint_rect_empty(rect) ||
+        rect.x0 < 0 || rect.y0 < 0 || rect.x1 > sheet->width || rect.y1 > sheet->height)
+        return paint_fail(PAINT_ERROR_ARGUMENT, "wet present needs a matching three-band layer, table and rectangle");
+    if (!out || !out->data || out->elem != PAINT_ELEM_U8 || out->channels != 4 ||
+        out->width != rect.x1-rect.x0 || out->height != rect.y1-rect.y0 || out->pixel_stride < 4 ||
+        out->row_stride < (int64_t)out->width*out->pixel_stride)
+        return paint_fail(PAINT_ERROR_ARGUMENT, "wet present output must be rect-sized u8 RGBA");
+    uint64_t area = (uint64_t)(rect.x1-rect.x0)*(rect.y1-rect.y0);
+    if (area > budget / (uint64_t)count) return paint_fail(PAINT_ERROR_BUDGET, "wet present exceeds the bounded work budget");
+    for (int32_t i=0; i<count*6; ++i)
+        if (!isfinite(table[i]) || table[i] < 0 || table[i] > 10000)
+            return paint_fail(PAINT_ERROR_ARGUMENT, "invalid wet pigment table");
+    int64_t n = (int64_t)sheet->width*sheet->height;
+    // Reject an invalid sheet before writing any output (D7.6.4).
+    for (int32_t y=rect.y0; y<rect.y1; ++y) for (int32_t x=rect.x0; x<rect.x1; ++x) {
+        int64_t at = (int64_t)y*sheet->width+x;
+        for (int32_t j=0; j<count; ++j) {
+            T g=sheet->cells[(int64_t)(8+j)*n+at], d=sheet->cells[(int64_t)(8+count+j)*n+at];
+            if (!isfinite(g) || !isfinite(d) || g < 0 || d < 0 || g > 1 || d > 1)
+                return paint_fail(PAINT_ERROR_ARGUMENT, "invalid wet pigment concentration");
+        }
+    }
+    PaintPresentParams params = {encode, false, {0,0,0,0}, false, {0,0,1}, 0,0,0,1,nullptr};
+    PaintResult result = paint_pigment_render(layer, rect, out, &params, sheet->cells, sizeof(T)==sizeof(double), count, table);
+    result.work = area * (uint64_t)count;
+    return result;
+}
+
+PaintResult paint_wet_present(const PaintWetSheet* s, const PaintTiles* l, PaintRect r, PaintView* o,
+        const float* table, int32_t count, bool encode, uint64_t budget) {
+    return paint_wet_present_impl(s,l,r,o,table,count,encode,budget);
+}
+PaintResult paint_wet_present64(const PaintWetSheet64* s, const PaintTiles* l, PaintRect r, PaintView* o,
+        const float* table, int32_t count, bool encode, uint64_t budget) {
+    return paint_wet_present_impl(s,l,r,o,table,count,encode,budget);
 }
 
 PaintResult paint_pigment_dry(PaintTiles* layer, PaintRect rect, float rate) {

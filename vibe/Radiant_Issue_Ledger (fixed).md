@@ -14,6 +14,53 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-033"></a>
+
+### RI-033 — Paint engine lacks the M3 wet-media kernels
+
+**Status:** FIXED, 2026-11-12. Native ownership: **D9.1.1v4 / D9.1.3v2**; engine contract: PE9.
+
+Initially the paint engine had no `paint_wet_layout`, `paint_wet_step`, or
+`paint_wet_deposit` implementation. PE9 calls for a caller-owned planar sheet,
+in-place Curtis steps, activity bounds, and transfer into pigment tiles. At the initial report Lambda could not connect the native watercolor path or
+establish parity and the 512-by-512 step budget without those kernels and their API.
+This is an unimplemented milestone, not a diagnosed defect in existing kernels.
+
+Reproduce from Lambda-opus: inspect `../radiant/radiant/paint/` and run
+`rg -n 'wet_step|wet_deposit|PaintWet|wet_layout' ../radiant/radiant/paint`;
+at the initial report there were no matches. `lmd/package/procart/watercolor.ls` supplies the 21-plane
+reference and `vibe/Lambda_Pkg_Paint.md` section 6 gives M3 acceptance: parity,
+the wet-step budget, and the unchanged procart watercolor demo on the native
+step. Implement and test the kernels in Radiant, then expose the owner-defined
+interface through Lambda's adapter and validate those acceptance cases.
+
+Continuation: the user authorized Radiant changes. `paint_wet_step` now has a
+three-pigment, caller-owned 21-plane implementation with validation and focused
+native tests. A ten-step, 40-by-32 two-pigment comparison against the Lambda
+reference differed by at most 1.2e-7 across the planes; this is a focused
+check, not full M3 qualification. The continuation now adds dry-to-pigment
+transfer and Lambda adapters for both f32 and float64 sheets. An 80-step
+reference comparison passes on the three Lambda tiers with forced GC, and five
+30-step runs against a pinned release archive give medians of 6.04 ms (f32)
+and 6.98 ms (float64) for a fully active 512 x 512 sheet. The watercolor replay
+passes 64/65; its one mobile layout assertion fails identically with the original
+Lambda step. At that checkpoint the wet layout was still fixed to three pigments; the
+continuation below resolves that engine limitation. Evidence: Lambda-opus `temp/paint_m3/`.
+
+Resolution: `paint_wet_layout` now describes 1–4,096 pigments with `12 + 3M`
+planes, and the shared f32/float64 kernels step, track activity, dry and transfer
+every pigment. The bridge checks table/shape agreement and charges work by count.
+Native tests cover one, four and seven pigments, the last pigment's activity and
+drying, span rejection and transfer; a 4,096-pigment Lambda probe passes. The
+three-pigment outputs remain byte-identical to the prior implementation in six
+checked cases. A source-matched isolated release archive passes 36 native paint
+tests and the 512 x 512 wet budget (6.79 ms f32, 7.47 ms float64 locally).
+Lambda's isolated baseline passes 7,457/7,457 and Test262 passes 40,261/40,261;
+five wet fixtures pass on three tiers under forced GC. Both the native-step and
+reference-step watercolor replays still fail the same one mobile layout assertion
+(64/65 each); its ownership is unconfirmed and it is not claimed as fixed here.
+Evidence: Lambda-opus `temp/paint_m3_general/`.
+
 <a id="ri-029"></a>
 
 ### RI-029 — Owner-held font fixture lookup under Lambda integration

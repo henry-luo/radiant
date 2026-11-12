@@ -20,6 +20,7 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+
 ### RI-032 — Reservation/nested-row pagination increment increases composition cost
 
 **Status:** open, performance qualification limitation, 2026-11-12. Native
@@ -1262,6 +1263,10 @@ Other state-store families and deferred callbacks remain open. See the
 - [RAD22-9](<Radiant_Issue_Ledger (fixed).md#rad22-9>).
 
 ## Fixed issues
+
+<a id="ri-033"></a>
+
+- [RI-033 — Paint engine lacks the M3 wet-media kernels](<Radiant_Issue_Ledger (fixed).md#ri-033>).
 
 <a id="ri-013"></a>
 

@@ -2,7 +2,7 @@
 // its own lag, draws a thin anti-aliased trail of the ink it carries, spends its load on what it
 // deposits and mixes in the canvas under its tip. Rows run in path order and bristles in index
 // order within a row, so a path split across calls draws exactly what one call draws.
-#include "paint_internal.hpp"
+#include "paint_wet_internal.hpp"
 #include "lib/mem.h"
 
 static const int32_t PAINT_MAX_BRISTLES = 4096;
@@ -10,7 +10,7 @@ static const float PAINT_COORD_LIMIT = 1.0e9f;
 
 static bool paint_unit(float v) { return v >= 0.0f && v <= 1.0f; }
 
-static bool paint_bristle_state_valid(const float* state, int32_t bristles, int32_t columns, int32_t bands, const char** reason) {
+static bool paint_bristle_state_valid(const float* state, int32_t bristles, int32_t columns, int32_t bands, const char** reason, bool wet = false) {
     if (!state || bristles < 1 || bristles > PAINT_MAX_BRISTLES) { *reason = "bristle state needs 1 to 4096 bristles"; return false; }
     if (columns != paint_bristle_columns(bands)) { *reason = "bristle state has the wrong column count for its layer"; return false; }
     for (int32_t j = 0; j < bristles; j++) {
@@ -26,9 +26,10 @@ static bool paint_bristle_state_valid(const float* state, int32_t bristles, int3
         }
         if (b[PAINT_BRISTLE_PLACED] != 0.0f && b[PAINT_BRISTLE_PLACED] != 1.0f) { *reason = "bristle placed flag must be 0 or 1"; return false; }
         for (int32_t k = PAINT_BRISTLE_INK; k < columns; k++)
-            if (!(bands > 0 ? b[k] >= 0.0f && b[k] <= 1.0e6f : paint_unit(b[k]))) {
+            if (!(wet ? b[k] >= 0.0f && b[k] <= 64.0f : bands > 0 ? b[k] >= 0.0f && b[k] <= 1.0e6f : paint_unit(b[k]))) {
                 *reason = "bristle ink must be a colour in [0, 1] (rgba) or film in [0, 1000000] (pigment)"; return false;
             }
+        if (wet && b[PAINT_BRISTLE_INK + 2] != 0.0f) { *reason = "wet bristle reserved ink field must be zero"; return false; }
     }
     return true;
 }
@@ -59,7 +60,21 @@ struct PaintBristleCall {
     float* state; int32_t bristles, columns;
     const PaintBristleParams* params;
     PaintTiles* target;          // DRAW and CHECK only
+    PaintWetSheet* wet = nullptr;
+    PaintWetSheet64* wet64 = nullptr;
+    int32_t channel = 0;
 };
+
+template<typename T> static void paint_wet_bristle_pickup(PaintWetSheetT<T>* sheet, int32_t channel,
+        float* b, float x, float y, float rate) {
+    int32_t px = (int32_t)floorf(x), py = (int32_t)floorf(y);  // INT_CAST_OK: canvas pixel of the tip
+    if (rate <= 0 || px < 0 || py < 0 || px >= sheet->width || py >= sheet->height) return;
+    int64_t n = (int64_t)sheet->width * sheet->height, at = (int64_t)py * sheet->width + px;
+    float* ink = b + PAINT_BRISTLE_INK;
+    // A wet bristle carries the selected pigment and water; other pigments stay on the sheet.
+    ink[0] += rate * (paint_clamp01((float)sheet->cells[(8 + channel)*n + at]) - ink[0]);
+    ink[1] += rate * (paint_clamp01((float)sheet->cells[n + at]) - ink[1]);
+}
 
 // mixes the canvas under a tip into a bristle's ink, before the bristle draws there.
 static void paint_bristle_pickup(PaintTiles* target, float* b, float x, float y, float rate) {
@@ -85,11 +100,12 @@ static void paint_bristle_pickup(PaintTiles* target, float* b, float x, float y,
 }
 
 // one trail segment, without its end cap so consecutive segments do not double their joints.
-static void paint_bristle_segment(PaintTiles* target, const PaintDab* row, const float* b, float x0, float y0,
+static void paint_bristle_segment(const PaintBristleCall* call, const PaintDab* row, const float* b, float x0, float y0,
         float x1, float y1, float strength, PaintRect box, const PaintView* paper) {
     float dx = x1 - x0, dy = y1 - y0, length = sqrtf(dx * dx + dy * dy);
     float ux = dx / length, uy = dy / length, half = 0.5f * b[PAINT_BRISTLE_WIDTH];
-    int32_t size = target->tile_size, bands = target->bands, fields = paint_film_fields(bands);
+    PaintTiles* target = call->target;
+    int32_t size = target ? target->tile_size : 0, bands = target ? target->bands : 0, fields = paint_film_fields(bands);
     PaintInk ink = {{b[PAINT_BRISTLE_INK], b[PAINT_BRISTLE_INK + 1], b[PAINT_BRISTLE_INK + 2]}, row->eraser,
                     0.0f, 0.0f, 0.0f, 1.0f, PAINT_BLEND_NORMAL};
     for (int32_t y = box.y0; y < box.y1; y++) for (int32_t x = box.x0; x < box.x1; x++) {
@@ -102,6 +118,13 @@ static void paint_bristle_segment(PaintTiles* target, const PaintDab* row, const
         float a = paint_grained(row, paper, c, x, y) * strength;
         if (a <= 0.0f) continue;
         if (a > 1.0f) a = 1.0f;
+        if (call->wet || call->wet64) {
+            float mask = paint_grained(row, paper, c, x, y);
+            int64_t at = (int64_t)y * call->width + x;
+            if (call->wet) paint_wet_pixel(call->wet, call->channel, at, mask, a, b[PAINT_BRISTLE_INK], b[PAINT_BRISTLE_INK+1]);
+            else paint_wet_pixel(call->wet64, call->channel, at, mask, a, b[PAINT_BRISTLE_INK], b[PAINT_BRISTLE_INK+1]);
+            continue;
+        }
         PaintView* view = paint_tile(target, x / size, y / size);
         float* p = (float*)view->data + (int64_t)(y % size) * view->row_stride + (int64_t)(x % size) * view->pixel_stride;
         if (target->format == PAINT_FORMAT_RGBA) paint_apply(p, &ink, a);
@@ -132,6 +155,9 @@ static PaintResult paint_bristle_pass(const PaintBristleCall* call, PaintBristle
         PaintDab row;
         if (!paint_path_row(call->path + i * PAINT_DAB_COLUMNS, call->width, call->height, call->params, &row, &reason)) {
             result = paint_fail(PAINT_ERROR_ARGUMENT, reason); break;
+        }
+        if ((call->wet || call->wet64) && row.eraser != 1.0f) {
+            result = paint_fail(PAINT_ERROR_ARGUMENT, "wet bristles cannot erase"); break;
         }
         for (int32_t j = 0; j < call->bristles; j++) {
             float* b = call->state + (int64_t)j * call->columns;
@@ -168,8 +194,11 @@ static PaintResult paint_bristle_pass(const PaintBristleCall* call, PaintBristle
                     } else {
                         float strength = row.opacity * row.flow * fminf(1.0f, b[PAINT_BRISTLE_LOAD]);
                         if (strength > 0.0f) {
-                            paint_bristle_pickup(call->target, b, nx, ny, call->params->pickup * fminf(1.0f, length));
-                            paint_bristle_segment(call->target, &row, b, x, y, nx, ny, strength, box, call->params->paper);
+                            float rate = call->params->pickup * fminf(1.0f, length);
+                            if (call->wet) paint_wet_bristle_pickup(call->wet, call->channel, b, nx, ny, rate);
+                            else if (call->wet64) paint_wet_bristle_pickup(call->wet64, call->channel, b, nx, ny, rate);
+                            else paint_bristle_pickup(call->target, b, nx, ny, rate);
+                            paint_bristle_segment(call, &row, b, x, y, nx, ny, strength, box, call->params->paper);
                             b[PAINT_BRISTLE_LOAD] = fmaxf(0.0f, b[PAINT_BRISTLE_LOAD] - call->params->depletion * length * strength);
                         }
                     }
@@ -227,4 +256,43 @@ PaintResult paint_bristles(PaintTiles* target, const float* path, int64_t count,
     PaintResult drawn = paint_bristle_pass(&call, PAINT_BRISTLE_DRAW, nullptr);
     if (drawn.status != PAINT_OK) return drawn;
     return bounds;
+}
+
+template<typename T> static PaintResult paint_wet_bristle_call(PaintWetSheetT<T>* sheet, const float* path, int64_t count,
+        int32_t columns, float* state, int32_t bristles, int32_t state_columns, int32_t channel,
+        const PaintBristleParams* params, bool apply) {
+    const char* reason = nullptr;
+    if (!paint_wet_sheet_valid(sheet) || channel < 0 || channel >= sheet->pigments || columns != PAINT_DAB_COLUMNS ||
+        count < 0 || (count && !path)) return paint_fail(PAINT_ERROR_ARGUMENT, "invalid wet sheet, pigment or bristle path");
+    if (!paint_bristle_params_valid(params, &reason) || params->pigment_bands != 0 ||
+        !paint_bristle_state_valid(state, bristles, state_columns, 0, &reason, true))
+        return paint_fail(PAINT_ERROR_ARGUMENT, reason ? reason : "invalid wet bristle parameters");
+    PaintBristleCall call = {path, count, sheet->width, sheet->height, 64, state, bristles, state_columns, params, nullptr};
+    // The lane is known at the API boundary; geometry and segment order are shared with PE10.
+    if constexpr (sizeof(T) == sizeof(float)) call.wet = (PaintWetSheet*)sheet;
+    else call.wet64 = (PaintWetSheet64*)sheet;
+    call.channel = channel;
+    PaintResult bounds = paint_bristle_pass(&call, PAINT_BRISTLE_BOUNDS, nullptr);
+    if (bounds.status != PAINT_OK || !apply) return bounds;
+    PaintResult drawn = paint_bristle_pass(&call, PAINT_BRISTLE_DRAW, nullptr);
+    if (drawn.status != PAINT_OK) return drawn;
+    paint_wet_expand(sheet, bounds.dirty);
+    return bounds;
+}
+
+PaintResult paint_wet_bristles_bounds(PaintWetSheet* s, const float* path, int64_t n, int32_t cols,
+        float* state, int32_t bristles, int32_t state_cols, int32_t channel, const PaintBristleParams* p) {
+    return paint_wet_bristle_call(s, path, n, cols, state, bristles, state_cols, channel, p, false);
+}
+PaintResult paint_wet_bristles(PaintWetSheet* s, const float* path, int64_t n, int32_t cols,
+        float* state, int32_t bristles, int32_t state_cols, int32_t channel, const PaintBristleParams* p) {
+    return paint_wet_bristle_call(s, path, n, cols, state, bristles, state_cols, channel, p, true);
+}
+PaintResult paint_wet_bristles_bounds64(PaintWetSheet64* s, const float* path, int64_t n, int32_t cols,
+        float* state, int32_t bristles, int32_t state_cols, int32_t channel, const PaintBristleParams* p) {
+    return paint_wet_bristle_call(s, path, n, cols, state, bristles, state_cols, channel, p, false);
+}
+PaintResult paint_wet_bristles64(PaintWetSheet64* s, const float* path, int64_t n, int32_t cols,
+        float* state, int32_t bristles, int32_t state_cols, int32_t channel, const PaintBristleParams* p) {
+    return paint_wet_bristle_call(s, path, n, cols, state, bristles, state_cols, channel, p, true);
 }
