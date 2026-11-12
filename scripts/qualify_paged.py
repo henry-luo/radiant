@@ -16,15 +16,16 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = ('layout_paged.cpp', 'view_tree_css.cpp', 'typeset.cpp', 'typeset_regions.cpp')
+SUPPORTING = ('layout.hpp', 'view_tree_css.hpp', 'layout_flex_multipass.cpp', 'layout_grid_multipass.cpp')
 
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def source_inventory(revision=None):
+def source_inventory(revision=None, names=SOURCES):
     result = {}
-    for name in SOURCES:
+    for name in names:
         path = ROOT / 'radiant' / name
         exists = path.exists()
         if revision:
@@ -157,7 +158,8 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(__file__, output / 'collector.py')
     sources = source_inventory()
-    report = {'scope': 'source inventory', 'sources': sources, 'cases': [],
+    supporting = source_inventory(names=SUPPORTING)
+    report = {'scope': 'source inventory', 'sources': sources, 'supporting_sources': supporting, 'cases': [],
               'source_relationship': 'observed checkout; executable provenance must be supplied by its build receipt',
               'collector_sha256': sha(Path(__file__).read_bytes()), 'platform': platform.platform(), 'python': sys.version,
               'historical_comparison': {'status': 'waived', 'date': '2026-11-12',
@@ -172,7 +174,9 @@ def main():
         retired = ('PagedFlowNode', 'PagedFrame', 'PagedComposer', 'PagedCheckpoint', 'RADIANT_PAGED_ENGINE')
         report['retired_symbols_present'] = {symbol: any(symbol in (ROOT / path).read_text()
             for path, item in sources.items() if item['exists']) for symbol in retired}
-        report['working_diff_sha256'] = sha(subprocess.check_output(['git', 'diff', '--binary'], cwd=ROOT))
+        patch = subprocess.check_output(['git', 'diff', '--binary'], cwd=ROOT)
+        (output / 'working.patch').write_bytes(patch)
+        report['working_diff_sha256'] = sha(patch)
         if args.composition_exe:
             original = args.composition_exe.resolve()
             bench = output / 'composition-host'
@@ -255,7 +259,7 @@ def main():
                 entry['literal_witnesses_pass'] = all(sample['passed'] for item in entry['outputs']
                     for image in ('preview', 'pdf') for sample in item[image]['samples'])
                 entry['passed'] = all(entry[k] for k in ('preview_equal', 'pdf_geometry_equal', 'pdf_pixels_equal', 'pages_expected', 'literal_witnesses_pass'))
-            if sha(exe.read_bytes()) != host_hash or source_inventory() != sources:
+            if sha(exe.read_bytes()) != host_hash or source_inventory() != sources or source_inventory(names=SUPPORTING) != supporting:
                 raise RuntimeError('host or audited native sources changed during qualification')
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
         failure = str(error)

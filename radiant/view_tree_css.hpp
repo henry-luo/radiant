@@ -107,6 +107,8 @@ struct ViewPageStyle {
     RdtLogicalRect content_rect;
     uint32_t column_count;
     float column_gap;
+    bool balance_columns;
+    float balanced_height; // selected final-page capacity; the body remains the percentage reference
     lam::Up<const RdtLogicalRect> column_rects; // selected explicit geometry, owned by the CSS generation
     lam::Up<const RadiantPageRegion> body_region;
     lam::Up<ViewCssStyle> body_style;

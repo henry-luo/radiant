@@ -409,6 +409,7 @@ void layout_grid_content(LayoutContext* lycon, ViewBlock* grid_container) {
     // CACHE STORE: Save computed result for future lookups
     radiant::SizeF result = radiant::size_f(grid_container->width, grid_container->height);
     radiant::layout_pass_cache_store(lycon, dom_elem, known_dims, result, "GRID");
+    if (lycon->paged) paged_grid_rows(lycon, grid_container, lycon->grid_container);
     // Cleanup and restore parent context
     grid_scope.close();
 

@@ -20,6 +20,64 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+### RI-031 — Current full PDF/export qualification retains six unchanged failures
+
+**Status:** open, qualification limitation, 2026-11-12. Ownership of native
+qualification: **D9.1.1v4 / D9.1.3v2**; underlying causes are **unconfirmed**
+except the Lambda-owned archive sentinel recorded as LR12-50.
+
+The current 472-case PDF/export inventory completes with 466 passes and six
+failures: inside image marker raster parity, background shorthand SVG resource
+text, grid font-unit SVG geometry, RTL two-line clamp raster parity, four Ghent
+ReadMes import baseline rows, and the archive sentinel rejected by the independent
+reference reader. Each exact failure message reproduces with pagination source
+from `340ad59` and otherwise identical current objects, headers and flags. The
+four WebGL cases pass with normal macOS graphics access after their first sandbox
+run stalled creating its hidden context. All 472 case names are accounted for;
+the interrupted raw run is preserved rather than rewritten as passing XML.
+
+Reproduction and evidence in Lambda-opus: `temp/paged-p7-integration/pdf.log`,
+`pdf-gpu.xml`, `pdf-control.xml`, `pdf-summary.json`, `receipt.json` and
+`control/receipt.json`. Both original and isolated-copy PDF baseline hashes are
+unchanged. Current native core controls under Radiant's `temp/paged-p7-final/`
+pass separately. This blocks full P7 PDF/export closure, not the delivered native
+float/width increments. Do not reset references or change tolerances to close it.
+
+Continuation evidence: Lambda-opus `temp/paged-advanced-integration/pdf.xml`
+reruns 90 affected PDF/FO/native cases including these six failure controls:
+84 pass and the six exact failure-message profiles still match `pdf-control.xml`.
+Both baseline copies remain unchanged. Radiant
+`temp/paged-advanced-final/report.json` passes ten independent export controls.
+This subset does not replace the earlier 472-case inventory.
+
+### RI-030 — Existing empty-cell table baseline assertion differs by 10px
+
+**Status:** open, qualification limitation, 2026-11-12. Native ownership:
+**D9.1.1v4 / D9.1.3v2**. Cause is **unconfirmed**.
+
+`SecondaryViewTest.TableBaselineUsesFirstNestedLineOrTheEmptyCellContentEdge`
+reports glyph baseline 33 versus empty-cell y 10 + expected 33 = 43, for both fixed
+and auto table layout. It reproduces identically with pagination source from
+`340ad59` and the current source, with all remaining linked objects and flags
+held constant. The full current Lambda paged inventory passes 504/505 after the
+new nested-width acceptance and owner font lookup correction.
+
+Evidence in Lambda-opus: `temp/paged-p7-integration/paged-final.xml`,
+`control/table.xml`, `control/receipt.json` and `updated-focused.xml`.
+This blocks an all-green legacy paged integration claim; it does not block the
+19 focused native fragmentation cases or the 947-pass owner baseline. Leave the
+assertion visible until its layout or coordinate-oracle cause is established.
+
+Continuation evidence: Lambda-opus `temp/paged-advanced-integration/paged.xml`
+still passes 504/505, with the same failure messages as `paged-final.xml`.
+The expanded Radiant core now passes 60 focused cases, 988 owner-native cases
+(one disabled) and 4,481 layout cases (six skips). RI-030 stays open.
+
+<a id="ri-029"></a>
+
+- [RI-029 — Owner-held font fixture lookup under Lambda integration](<Radiant_Issue_Ledger (fixed).md#ri-029>).
+
+
 <a id="ri-028"></a>
 
 - [RI-028 — Historical P7 archive lost; replay waived by user](<Radiant_Issue_Ledger (fixed).md#ri-028>).

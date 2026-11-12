@@ -34,11 +34,14 @@ On macOS, `make test-native-closure` force-loads the complete Radiant and input 
 ## Paged fragmentation qualification
 
 `make build/test/test_paged_fragmentation_gtest` builds owner-local paging
-regressions; run `./build/test/test_paged_fragmentation_gtest`. Current forward
-page-float deferral uses the shared layout, anchor reservations and bounded
-reference replay. Its core profile is positive `float-defer` for page references
-in one-column, one-sequence flows; negative/last, column and multi-sequence
-scheduling remain outside this increment. Page indexes and resource ownership
+regressions; run `./build/test/test_paged_fragmentation_gtest`. Paged
+fragmentation uses the shared layout, anchor reservations and bounded
+reference replay. It supports forward and end-relative `float-defer`
+(`last` and negative offsets) for page references in one-column, one-sequence
+flows. End-relative destinations before the committed anchor remain diagnosed.
+Explicit `column-fill:balance` balances the final equal-column native body page.
+Horizontal flex/grid formatting rows use common line fits, row spans, explicit
+breaks, row avoidance and oversized slicing. Page indexes and resource ownership
 follow D9.1.1v4 / D9.1.3v2 and D5.5.1 / D5.1.4. See
 [vibe/impl/Radiant_Impl_P7_Fragmentation.md](vibe/impl/Radiant_Impl_P7_Fragmentation.md).
 
@@ -59,6 +62,9 @@ samples. Debug clients refuse timing. The report records current source counts,
 release build flags and the explicit user waiver of the lost historical archive;
 old speedup and source-reduction values are not reclassified as passing.
 Without `--exe` or `--composition-exe`, the collector only inventories sources.
-Nested named-page width changes support open auto-width ordinary-flow ancestors;
-fixed-width/nonflow ancestor chains remain outside that profile. Column balancing,
-row-level flex/grid breaks and platform qualification remain separate milestones.
+Named-page width changes support open ordinary-flow chains with auto or fixed
+absolute widths; fixed ancestors retain their measure while auto ancestors resume
+the new page width. Percentage-containing and independent formatting contexts
+remain outside that continuation profile. Balanced columns with auxiliary areas,
+explicit unequal columns, backward float reservations, multi-sequence scheduling
+and platform qualification remain separate extensions.

@@ -14,6 +14,21 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-029"></a>
+
+### RI-029 — Owner-held font fixture lookup under Lambda integration
+
+**Status:** FIXED, 2026-11-12. Ownership: **D9.1.1v4 / D9.1.3v2**.
+`radiant_test_fixture_path` chose Lambda's `test/fixtures` merely because the
+directory existed, even when the requested `fonts/cmunrm.woff2` belonged to
+Radiant. This made `FontMetricTest.RasterPreservesNativeGrayscaleCoverage` fail
+with a null loaded font. The shared helper now tests the requested local file
+before resolving the owner-held fixture; isolated runs use `RADIANT_ROOT`.
+The same font test fails before and passes after correction. Native metric
+expectations and grayscale comparisons are unchanged. Evidence in Lambda-opus:
+`temp/paged-p7-integration/{paged.xml,updated-focused.xml,paged-final.xml}`.
+
+
 <a id="ri-028"></a>
 
 ### RI-028 — Historical P7 comparison artifacts are unavailable in the current checkouts
