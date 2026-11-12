@@ -1,153 +1,178 @@
 # P7 qualification and advanced page fragmentation
 
-**Status:** the requested column-balance, flex/grid row-break and wider-profile
-core milestones are implemented and qualified on macOS, 2026-11-12. Broader P7
-qualification and the remaining advanced profiles are partial.
+**Status:** auxiliary-column reservations, backward page floats and nested
+flex/grid content fitting are implemented and qualified on macOS, 2026-11-12.
+Broader P7 and advanced fragmentation remain partial; a measured composition
+slowdown is open as RI-032.
 **Authority:** D9.1.1v4 / D9.1.3v2 (native ownership), D5.5.1 / D5.1.4
 (published editions and retained resource lifetimes). Page layout follows
 `../../Lambda-opus/vibe/radiant/Radiant_Layout_Paged_Media.md` §1.3 and §3.2;
 `../../Lambda-opus/vibe/impl/Radiant_Impl_Paged_Integration.md` §7 retains the
-historical P7 measurements. No language or formal design ruling changed.
+historical P7 measurements. No formal language/design ruling changed.
 
 ## Current checkpoint
 
-- Native workspace: `/Users/henryluo/Projects/radiant`; this continuation started
-  from `ad33423`. Native sources, tests, controls and collector changes stay here.
-  Lambda-owned integration acceptance is in `test/test_paged_media_gtest.cpp` in
-  Lambda-opus. Preserve unrelated Lambda sheet work and existing ledger changes.
-- All three requested core milestones below are delivered. Native page fitting,
-  strut replay and formatter results remain shared; there is no second layout
-  engine. Page/pass budgets, source coverage, physical PDF geometry and retained
-  published editions remain acceptance constraints.
-- Final gates: 60 focused passes; 988 owner-native passes and one disabled case;
-  4,481 layout passes and six skips; ten independent exported controls pass.
-  Integer-cast lint checks 89 casts, zero unmarked. Whitespace checks pass.
-- Lambda integration: 504/505 pass, with the unchanged RI-030 table assertion.
-  The affected PDF/FO/native subset plus six known-failure controls is 84/90;
-  all six failure profiles match the earlier pristine control (RI-031/LR12-50).
-  This is a subset rerun, not a new full 472-case PDF qualification.
-- Original and isolated PDF baseline hashes remain unchanged. No protected
-  references or tolerances were rewritten. Qualification artifacts stay under
-  `temp/`. An external Lambda commit captured integration acceptance during this
-  run; the native feature changes are committed separately in their owner repo.
+- Native workspace: `/Users/henryluo/Projects/radiant`, starting from `ead8d2a`
+  with a clean worktree. The user authorized the three continuation cores below.
+  Native sources, tests, fixtures and documentation stay in this owner checkout.
+  No Lambda or input source changes are required; preserve unrelated sheet work.
+- Implementation: reservation-aware final-column balancing, bounded backward-float
+  reservation replay, oversized/nested row-content fitting, single-column flex
+  in either direction, and trimming gaps at exact fragment boundaries.
+- Final focused gate: 82 cases pass, including batched discovery of 20 backward
+  figures within the default pass budget. Layout integer-cast lint checks 89
+  casts with zero unmarked; whitespace checks pass. Original failures are retained.
+- Final aggregate: 1,010 native passes and one disabled case; 4,481 layout passes
+  and six skips. The explicit profile gate leaves parallel wrapped column-flex
+  lines on their previous whole-context path.
+- All 16 independent preview/PDF/Poppler controls pass exact pixels, literal
+  color witnesses and every physical page's geometry. Preserve the first failed
+  control run under `temp/paged-reservations-exports/`; its one-pixel text artifact
+  was removed from the new authored input by making the real blue anchor line
+  match its blue body box. No engine tolerance or existing reference changed.
+- Final Lambda integration: 504/505 pass; selected PDF/FO/native export inventory
+  is 84/90. Exact failure messages match earlier controls, and both original and
+  private PDF baseline hashes remain unchanged. These are final-source frozen
+  builds; the PDF subset does not replace the full 472-case inventory.
+- Performance limitation: the held-object optimized comparison attributes about
+  6% higher ordinary-flow composition time to the pagination object (RI-032).
+  Correctness digests match; no performance no-regression claim is made.
+- All new core gates must preserve source intervals, page/pass budgets, exact
+  preview/PDF pixels, physical sheet geometry and previously published editions.
+  No protected references or tolerances are changed. No staging/commit requested
+  for this continuation.
 - Historical archive waiver (user, 2026-11-12): assume the original P7 baseline
   archive was deleted/lost and ignore that comparison. RI-028 is closed by waiver,
-  not by passing the old visual, performance or source-reduction measurements.
+  not by passing old visual, performance or source-reduction measurements.
 
-## Delivered behavior
+## Delivered reservation and nested-formatting cores
 
-1. Explicit `column-fill:balance` balances the final equal-column native body
-   page. Earlier physical pages stay full. Bounded whole-flow replay finds a
-   legal capacity through existing fits, indivisible-unit floors and text keeps;
-   failed speculative trials cannot append an auxiliary tail or relax the page
-   budget. The original body height remains the sizing reference. Tests cover
-   auto versus balance, ordinary blocks, text/spans, preceding pages, indivisible
-   units, page/pass limits, retained editions and combined row fragmentation.
-   Equal native body columns are the finite core, rather than a claim of complete
-   CSS multicol support. See CSS Multicol §7.1:
-   https://www.w3.org/TR/css-multicol-1/#cf .
-2. Horizontal flex lines and grid rows enter the common page-fit/strut machinery
-   as row units. Visual order, connected grid row spans, explicit before/after
-   breaks, fitting keep prefixes and oversized slicing are preserved. Anonymous
-   formatter wrappers contribute real DOM text before their scratch storage
-   retires. Tests check gaps, source coverage, following flow, explicit avoidance,
-   retained page pixels and failed admission. Independent formatting inside each
-   item still uses the existing formatter.
-3. Named-page width transitions support open ordinary-flow chains with fixed
-   absolute widths as well as the earlier auto-width profile. Fixed ancestors
-   retain their measure; auto ancestors resume the page measure when the fixed
-   child closes. Tests include portrait/wide/portrait, percentage descendants of
-   a fixed ancestor, enclosing padding and later auto-ancestor continuation.
-   Percentage-containing chains and independent formatting contexts remain
-   diagnosed outside this profile.
-4. Page-reference `float-defer` accepts negative offsets and `last` in the existing
-   one-column, one-sequence profile. A bounded warmup observes the body end before
-   auxiliary placement, consuming the reference budget without inventing tail
-   pages. Negative offsets outside the flow fall back to the committed anchor.
-   A destination before that anchor is diagnosed; a line-less terminal insertion
-   keeps existing next-box binding. Positive out-of-range clamping retains its
-   prior partial behavior. Tests cover computed values, tight page/pass budgets,
-   source coverage and retained editions. See CSS Page Floats §5.1:
-   https://www.w3.org/TR/css-page-floats-3/#float-defer-property .
+1. Final equal body columns can balance with column top/bottom floats and notes.
+   The search includes actual reserved extents and per-column indivisible floors;
+   monolithic-box retry thresholds include their auxiliary capacity demand.
+   Line-less insertion still binds to its next committed box, so concurrent
+   reservation acceptance uses an actual line rather than assuming an empty
+   box commits the figure's anchor. Text coverage and retained pixels are checked.
+2. End-relative page figures can precede their committed body anchor in the
+   existing one-column, one-sequence profile. Stable source/sequence identities
+   retain reservation plans across bounded reference replay. Fragmentainers
+   install those slots before earlier body fitting; later actual anchors bind
+   once without double-counting or following moved body boxes. Destination
+   sizing, top/bottom placement, source ordering, body text refit and failed
+   page/pass admission have native acceptance cases.
+3. Oversized flex/grid row items fit their finished ordinary block and inline
+   content through the existing line/keep fitter. Nested resolved formatting
+   rows use the same machinery. Each concurrent item fits independently; the
+   row grows by the largest continuation and advances later rows/following flow.
+   Real text remains DOM-backed after formatter scratch retirement. Tests cover
+   legal block edges, widows, exact authored intervals, concurrent peers and
+   byte-identical retained page pixels after failed admission.
+4. Single-column flex items use their resolved physical block order, including
+   `column-reverse`. Horizontal flex/grid gaps crossing a fragment boundary are
+   discarded before testing the next row, including exact full-row boundaries;
+   gap trimming participates in the existing strut undo journal.
 
-## Qualification receipts
+These are finite native profiles. They do not assert complete CSS fragmentation
+conformance. Supporting standards: CSS Multicol §7.1
+https://www.w3.org/TR/css-multicol-1/#cf ; CSS Page Floats §5.1 (a working draft)
+https://www.w3.org/TR/css-page-floats-3/#float-defer-property ; CSS Flexbox §10
+https://www.w3.org/TR/css-flexbox-1/#pagination ; CSS Grid §12
+https://www.w3.org/TR/css-grid-1/#fragmentation . Internal native ownership and
+retained-resource decisions remain governed by the formal D# rulings above.
 
-- `temp/paged-advanced-final.xml`: 60 focused cases, zero failures.
-  `temp/paged-advanced-final-lint.log`: integer-cast lint.
-- `temp/paged-advanced-native-results/`: 52 XML files, 989 registered cases,
-  988 executed passes and one disabled case. `temp/paged-advanced-owner-baseline.log`
-  records this owner baseline and 3,851 ordinary plus 630 JS layout passes, six
-  skips and no failures. Intermediate column/row milestone logs remain retained.
-- `temp/paged-advanced-final/report.json`: ten exact preview/PDF/Poppler controls.
-  It freezes hosts, inputs, manifest, collector and the actual working patch;
-  records decoded RGBA pixels, literal color witnesses and every PDF page's
-  physical geometry; and verifies audited/supporting source hashes stay fixed.
-  Controls use explicit authored column rectangles, absolute row boxes on forced
-  sheets and existing top-level named-page paths, with no new policy under test.
-- `temp/paged-advanced-negative-control-verified/report.json`: the frozen prior
-  host passes the four existing controls, rejects negative/last deferral and real
-  native column balancing, then stops at the flex-row witness outside its shorter
-  output. This partial negative inventory must not be reported as ten cases.
-  Separate `temp/paged-advanced-negative-extra/grid-rows/` and `fixed-width/`
-  runs also reject: the grid output lacks the third sheet witness, and the old
-  host explicitly rejects the fixed-width named-page transition. Together these
-  receipts demonstrate rejection of each newly introduced feature control.
-- Release composition uses an optimized, debug-refusing client with unchanged
-  benchmark source. `temp/paged-advanced-final/report.json` has seven samples
-  after two warmups on fixed 21/300-page ordinary-flow workloads: medians about
-  0.868/0.771 ms/page. Parsing, export, digest calculation and retirement are
-  outside the measured interval.
-- `temp/paged-advanced-paired/report.json`: four alternating before/after pairs,
-  28 samples per host/workload, frozen executables, matched input/client hashes
-  and exactly equal published geometry/glyph digests. Median ms/page:
-  21 pages, 0.88338 before / 0.88117 after; 300 pages, 0.783795 / 0.791503.
-  The observed changes are within about 1% on these ordinary-flow workloads;
-  they do not establish statistical equivalence or historical speedup targets.
-- The four historically audited source paths total 9,250 raw lines versus 8,895
-  at `ad33423` (+355). Supporting headers and flex/grid hooks are inventoried
-  separately. Retired engine selectors/types remain absent. No source-reduction
-  claim is made.
-- Lambda-opus `temp/paged-advanced-integration/` holds frozen integration hosts,
-  native source hashes, paged/PDF XML and logs, a private PDF baseline copy and
-  the combined `summary.json`. Its paged run is 504/505; the selected PDF run is
-  84/90. The known failure messages agree with the earlier final paged result
-  and pristine PDF control. Both PDF baseline hashes remain unchanged.
+## Current qualification receipts
 
-## Earlier P7 checkpoint
+- `temp/paged-reservations-before.xml` preserves the four original auxiliary
+  rejection cases; `temp/paged-backward-before.xml` preserves late-anchor
+  rejection; `temp/paged-nested-before.xml` preserves five complex-row failures.
+  `temp/paged-nested-neighbors.xml` caught the exact-boundary gap regression.
+  `temp/paged-backward-batch-before.xml` reproduces per-figure pass exhaustion.
+- `temp/paged-reservations-final.xml`: 82 focused passes.
+  `temp/paged-reservations-lint.log`: required integer-cast check.
+- `temp/paged-reservations-native-results/` and
+  `temp/paged-reservations-owner-baseline.log`: first owner aggregate run.
+  Final post-batching aggregate outputs are
+  `temp/paged-reservations-batch-native-results/` (52 XML files, 1,011 registered,
+  1,010 executed passes, one disabled) and
+  `temp/paged-reservations-batch-owner-baseline.log`.
+- `test/fixtures/paged/cases.json` adds six independent controls, total sixteen:
+  auxiliary column balance, backward top/bottom figures, nested flex/grid and
+  column flex. Controls are separately authored absolute rectangles on forced
+  physical sheets; they contain no reservation, balance or row policy under test.
+  Existing controls and protected external references remain unchanged.
+- `temp/paged-reservations-negative/<case>/report.json`: all six new controls
+  reject the previously qualified frozen host from `temp/paged-advanced-final/`.
+  Earlier hosts reject auxiliary/backward policy explicitly, differ on nested
+  preview/PDF pixels, and omit the third column-flex sheet witness. These are
+  negative controls, not six completed successful old-engine exports.
+- `temp/paged-reservations-final/report.json`: final frozen host, all sixteen
+  complete exported controls, audited/supporting source hashes and working patch.
+  Its optimized composition client records seven samples after two warmups per
+  unchanged 21/300-page ordinary-flow workload, medians 0.968/0.829 ms/page.
+  Published geometry/glyph digests match the previous qualified host. Debug
+  clients refuse timing; parsing, export, digest and retirement stay outside the
+  timer. `temp/paged-reservations-final-release-build.log` records the build.
+  Interleaved archived-host comparison is under `temp/paged-reservations-paired/`;
+  no historical P7 speedup or source-reduction target is claimed. The stronger
+  `temp/paged-reservations-causal-control/` replaces only pagination source from
+  `ead8d2a`, verifies every other archive object is identical, and alternates
+  28 samples per host/workload. Median ms/page is 0.901476/0.955524 before/after
+  for 21 pages and 0.781150/0.827102 for 300 pages, about 6% slower. Exact published
+  digests agree. RI-032 retains this open performance qualification issue.
+- The four historical source paths total 9,403 raw lines versus 9,250 at
+  `ead8d2a` (+153). Supporting sources remain independently inventoried; retired
+  engine selectors/types are absent. This is source accounting, not a reduction.
+- Lambda-opus `temp/paged-reservations-integration-final/` retains pinned final
+  executables, native source hash, private PDF baseline, XML/logs and combined
+  `summary.json`. Its final results remain 504/505 paging and 84/90 selected PDF;
+  RI-030/RI-031/LR12-50 remain open. The earlier initial-source run is preserved
+  separately in `temp/paged-reservations-integration/`.
 
-The preceding native increments implemented positive page-float deferral and
-nested auto-width named-page transitions. Their final scope was 19 focused cases,
-four authored export controls, 947 native passes plus one disabled case, and
-4,481 layout passes plus six skips. `temp/paged-p7-final/` and
-`temp/paged-p7-native-results/` preserve those receipts. An external commit
-`ad33423` captured that native implementation without source drift.
+## Earlier completed increments
 
-Lambda-opus `temp/paged-p7-integration/` retains the full 472-case PDF/export
-inventory: 466 pass, six fail. The initial run stopped after 468 cases at hidden
-WebGL context creation; all four GPU cases passed separately with normal macOS
-access. Exact failures were reproduced with initial pagination source `340ad59`
-and otherwise identical linked objects/flags. RI-030's table assertion has the
-same independent control. The interrupted raw run was preserved. These known
-red gates remain open; the current focused controls do not close them.
+The original increments implemented positive page-float offsets and nested
+auto-width named-page changes (`ad33423`), followed by equal-column balancing,
+horizontal flex/grid row units, fixed-width named-page continuation and negative/
+`last` float deferral (`ead8d2a`). Auto/fixed ancestors retain their existing
+width behavior and definite sizing references. Positive out-of-range clamping
+retains its earlier partial behavior; negative out-of-range offsets fall back to
+the committed anchor. First-page/last-page sizing and budgets are not waived.
+
+`temp/paged-advanced-final/` retains 60 focused and ten exact exported controls;
+`temp/paged-advanced-native-results/` retains 988 native passes plus one disabled
+case; the layout gate had 4,481 passes plus six skips. Its optimized paired
+21/300-page ordinary-flow workloads had exact geometry/glyph digests and observed
+changes within about 1%; these are earlier receipts, not current measurements.
+The four historical source paths totaled 9,250 raw lines at that point, with
+supporting headers/hooks inventoried separately. No size-reduction claim was made.
+
+Lambda-opus `temp/paged-p7-integration/` retains the full 472-case PDF inventory:
+466 pass, six fail. The raw run stopped after 468 cases at hidden WebGL context
+creation; all four GPU cases passed separately with normal macOS access. Each
+exact failure was independently reproduced with pagination source `340ad59` and
+otherwise identical linked objects/flags. The original raw run was preserved.
+`temp/paged-advanced-integration/` retains the subsequent 504/505 paged run and
+84/90 selected export run. RI-030/RI-031 and Lambda-owned LR12-50 stay open.
 
 ## Remaining profiles and resume point
 
-1. Column balancing with auxiliary reservations, unequal explicit column
-   rectangles and additional sequence/master transitions. Preserve the bounded
-   replay and original sizing reference when widening the delivered core.
-2. Flex/grid fragmentation beyond resolved horizontal row groups: vertical,
-   nested and variable-inline-measure reflow, and detailed gap-edge conformance.
-   Do not claim exhaustive flex/grid fragmentation from the current row cases.
-3. Earlier-page reservation replay for floats before their committed anchor,
-   column-attached/multi-sequence auxiliary scheduling, and named-page width
+1. Unequal explicit column rectangles, page-wide reservations across multiple
+   body columns and more sequence/terminal-master combinations. Current balance
+   support uses equal native columns and their own auxiliary slots.
+2. Flex/grid reflow that renegotiates inline tracks on differently sized pages,
+   orthogonal writing modes, parallel wrapped column-flex flows, more complex
+   spanning/alignment combinations and complete nested forced-break propagation.
+   The new core fits finished content at its existing inline measure.
+3. Column-attached/multi-sequence deferred-float scheduling and named-page width
    transitions through percentage-containing or independent formatting contexts.
-4. Owner-side root-cause resolution of RI-030/RI-031 and Lambda-owned LR12-50,
-   followed by broader P7 integration qualification. Keep references and failure
-   assertions intact until evidence supports the repair.
-5. Platform qualification beyond this macOS host. The fresh release receipts do
-   not replace the user-waived historical archive or prove its old targets.
+   Backward reservation convergence remains bounded by the caller's pass budget.
+4. Owner-side root-cause resolution of RI-030/RI-031, the measured RI-032
+   composition slowdown, and Lambda-owned LR12-50, then wider P7 qualification. Keep their reference/assertion
+   evidence intact until the owning cause is repaired.
+5. Platform qualification beyond this macOS host. Fresh release receipts do not
+   replace the lost historical archive or establish its old targets.
 
-No implementation milestone is currently active. Resume with one finite profile
-and explicit acceptance cases, then focused native checks, integer-cast lint and
-owner baseline at its feature boundary. Use optimized pinned executables and
-matched workloads for performance; correctness and timing receipts stay distinct.
+No implementation milestone is active. Resume with one finite remaining profile
+and explicit acceptance cases, then focused/lint checks and owner gates at that
+feature boundary. Preserve known red integration profiles. Keep performance,
+historical and platform claims separate from focused native delivery.

@@ -38,10 +38,14 @@ regressions; run `./build/test/test_paged_fragmentation_gtest`. Paged
 fragmentation uses the shared layout, anchor reservations and bounded
 reference replay. It supports forward and end-relative `float-defer`
 (`last` and negative offsets) for page references in one-column, one-sequence
-flows. End-relative destinations before the committed anchor remain diagnosed.
-Explicit `column-fill:balance` balances the final equal-column native body page.
+flows. End-relative destinations before the committed anchor install earlier-page
+reservations through bounded reference replay.
+Explicit `column-fill:balance` balances the final equal-column native body page,
+including its column floats and notes.
 Horizontal flex/grid formatting rows use common line fits, row spans, explicit
-breaks, row avoidance and oversized slicing. Page indexes and resource ownership
+breaks and row avoidance. Oversized/nested items fit their ordinary content at
+legal line/block boundaries; concurrent peers stay independent. Single-column
+flex works in either resolved direction. Page indexes and resource ownership
 follow D9.1.1v4 / D9.1.3v2 and D5.5.1 / D5.1.4. See
 [vibe/impl/Radiant_Impl_P7_Fragmentation.md](vibe/impl/Radiant_Impl_P7_Fragmentation.md).
 
@@ -65,6 +69,7 @@ Without `--exe` or `--composition-exe`, the collector only inventories sources.
 Named-page width changes support open ordinary-flow chains with auto or fixed
 absolute widths; fixed ancestors retain their measure while auto ancestors resume
 the new page width. Percentage-containing and independent formatting contexts
-remain outside that continuation profile. Balanced columns with auxiliary areas,
-explicit unequal columns, backward float reservations, multi-sequence scheduling
-and platform qualification remain separate extensions.
+remain outside that continuation profile. Unequal columns, inline-track changes
+across pages, orthogonal and wrapped column-flex flows, richer nested break
+propagation, multi-sequence scheduling and platform qualification remain separate
+extensions.

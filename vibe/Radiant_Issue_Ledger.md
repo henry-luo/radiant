@@ -20,6 +20,36 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+### RI-032 — Reservation/nested-row pagination increment increases composition cost
+
+**Status:** open, performance qualification limitation, 2026-11-12. Native
+ownership: **D9.1.1v4 / D9.1.3v2**. The cause within `layout_paged.cpp` is
+**unconfirmed**; no timing workaround or workload change was made.
+
+On unchanged optimized 21/300-page ordinary-flow workloads, four alternating
+before/after pairs (28 samples per host/workload after two warmups per run) show
+about 6% more composition time. A control rebuild replaces only
+`layout_paged.cpp` with source from `ead8d2a`; every other current archive object,
+benchmark client and link input is held constant. The archive symbol index
+necessarily changes with its replaced object. Exact published geometry/glyph
+FNV digests agree in every sample.
+
+Median ms/page: 21 pages 0.901476 before / 0.955524 after (1.05995 ratio);
+300 pages 0.781150 / 0.827102 (1.05883). Parsing, export, hashing and edition
+retirement are excluded. A separate archived-host comparison also observed
+about 5%; the held-object control is the stronger attribution evidence.
+
+Reproduce from Radiant: run each of
+`temp/paged-reservations-causal-control/{before,after}` with
+`temp/paged-reservations-final/composition-{21,300}.html` and sample count `7`,
+alternating order. `temp/paged-reservations-causal-control/` holds the original
+source, compiler/link arguments, object/archive checks, executables, raw samples,
+`receipt.json` and `report.json`. Current correctness is separately qualified by
+82 focused cases, 1,010 native passes, 4,481 layout passes and sixteen exact
+export controls. This blocks a current performance no-regression claim, not the
+verified reservation/row behavior. The lost historical P7 archive waiver does
+not waive this new measured difference.
+
 ### RI-031 — Current full PDF/export qualification retains six unchanged failures
 
 **Status:** open, qualification limitation, 2026-11-12. Ownership of native
@@ -50,6 +80,12 @@ Both baseline copies remain unchanged. Radiant
 `temp/paged-advanced-final/report.json` passes ten independent export controls.
 This subset does not replace the earlier 472-case inventory.
 
+Reservation/nested-row continuation: Lambda-opus
+`temp/paged-reservations-integration-final/pdf.xml` remains 84/90 with exactly the
+previous six failure messages and unchanged baseline copies. Radiant
+`temp/paged-reservations-final/report.json` passes sixteen independent exported
+controls. RI-031 remains open; no protected references were changed.
+
 ### RI-030 — Existing empty-cell table baseline assertion differs by 10px
 
 **Status:** open, qualification limitation, 2026-11-12. Native ownership:
@@ -72,6 +108,11 @@ Continuation evidence: Lambda-opus `temp/paged-advanced-integration/paged.xml`
 still passes 504/505, with the same failure messages as `paged-final.xml`.
 The expanded Radiant core now passes 60 focused cases, 988 owner-native cases
 (one disabled) and 4,481 layout cases (six skips). RI-030 stays open.
+
+Reservation/nested-row continuation: Lambda-opus
+`temp/paged-reservations-integration-final/paged.xml` remains 504/505 with the
+same assertion messages. The final owner increment passes 82 focused cases,
+1,010 native cases (one disabled) and 4,481 layout cases (six skips).
 
 <a id="ri-029"></a>
 
