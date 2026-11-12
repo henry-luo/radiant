@@ -16,7 +16,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = ('layout_paged.cpp', 'view_tree_css.cpp', 'typeset.cpp', 'typeset_regions.cpp')
-SUPPORTING = ('layout.hpp', 'view_tree_css.hpp', 'layout_flex_multipass.cpp', 'layout_grid_multipass.cpp')
+SUPPORTING = ('layout_containing_block.cpp', 'layout_pass.cpp', 'layout.hpp', 'view_tree_css.hpp', 'layout_flex_multipass.cpp', 'layout_grid_multipass.cpp')
 
 
 def sha(data):

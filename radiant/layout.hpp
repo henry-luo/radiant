@@ -883,7 +883,8 @@ struct IntrinsicWidthHistory;
 struct FlexMeasuredFlow;
 struct LayoutFlowResult;
 LayoutFlowResult* layout_flow_result_capture(LayoutContext* context, DomNode* root);
-bool layout_flow_result_apply(LayoutContext* context, const LayoutFlowResult* result);
+bool layout_flow_result_apply(LayoutContext* context, const LayoutFlowResult* result, bool preserve_allocation = true);
+bool layout_flow_result_geometry(const LayoutFlowResult* result, const DomNode* node, Rect* rect, float* content_width);
 void layout_flow_result_release(Pool* pool, LayoutFlowResult* result);
 // tier-2: selected-view pool, with independently invalidated sizing and CSS state.
 struct LayoutCache {
@@ -4988,6 +4989,7 @@ void paged_block_before(LayoutContext* lycon, ViewBlock* block, BlockContext* pa
 // monolithic and break-inside: avoid boxes, keep chains, widows
 void paged_block_after(LayoutContext* lycon, ViewBlock* block);
 // capture resolved formatting rows before their scratch layouts retire; shared flow owns their page breaks.
+bool paged_format_item_active(LayoutContext* lycon, DomElement* container, DomNode* item);
 void paged_flex_rows(LayoutContext* lycon, ViewBlock* block, FlexContainerLayout* flex);
 void paged_grid_rows(LayoutContext* lycon, ViewBlock* block, GridContainerLayout* grid);
 // after a line's used height is final and before the block cursor advances:

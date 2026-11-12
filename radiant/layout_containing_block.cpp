@@ -48,6 +48,7 @@ static int layout_collect_flattened_item_children(
 
     int count = 0;
     for (DomNode* child = first_child; child; child = child->next_sibling) {
+        if (lycon->paged && !paged_format_item_active(lycon, container, child)) continue;
         if (child->is_text()) {
             if (policy && policy->include_text &&
                 policy->include_text(child, container) &&

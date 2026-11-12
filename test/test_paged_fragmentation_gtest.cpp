@@ -424,6 +424,13 @@ protected:
         snprintf(css, sizeof(css), "#rows{display:%s;flex-wrap:wrap;grid-template-columns:100px 100px;grid-auto-rows:60px}#rows>div{width:100px;height:60px;flex:none}%s", GetParam(), extra);
         return compose("0", "top", css, body);
     }
+    bool compose_variable_rows(const char* extra = "", const char* body =
+        "<div id='rows'><div id='a'>A</div><div id='b'>B</div><div id='c'>C</div><div id='d'>D</div><div id='e'>E</div><div id='f'>F</div></div><div id='tail' style='height:20px'>Tail</div>") {
+        char css[1200];
+        snprintf(css, sizeof(css), "@page:left{size:300px 100px;margin:0}#rows{display:%s;flex-wrap:wrap;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-auto-rows:60px;align-items:start}#rows>div{height:60px;min-width:0;flex:0 0 50%%;box-sizing:border-box}%s", GetParam(), extra);
+        return compose("0", "top", css, body);
+    }
+
 };
 
 TEST_P(PagedRowTest, WholeRowsMoveTogetherAndAdvanceTheFollowingFlow) {
@@ -840,4 +847,365 @@ TEST_F(PagedFragmentationTest, BackwardFiguresShareOneReservationDiscoveryPass) 
         EXPECT_EQ(occurrences, 1u); count++;
     }
     EXPECT_EQ(count, 20u);
+}
+
+
+TEST_P(PagedRowTest, FlexibleTracksUseEachDestinationPageWidth) {
+    ASSERT_TRUE(compose_variable_rows());
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("c", VIEW_FRAGMENT_BODY, &count, &rect), 2u);
+    EXPECT_EQ(count, 1u); EXPECT_FLOAT_EQ(rect.width, 150.0f);
+    EXPECT_EQ(occurrence_page("d", VIEW_FRAGMENT_BODY, &count, &rect), 2u);
+    EXPECT_FLOAT_EQ(rect.x, 150.0f);
+    EXPECT_EQ(occurrence_page("e", VIEW_FRAGMENT_BODY, &count, &rect), 3u);
+    EXPECT_FLOAT_EQ(rect.width, 100.0f);
+    for (const char* id : {"a", "b", "c", "d", "e", "f", "tail"}) expect_text_coverage(id);
+}
+
+TEST_F(PagedFragmentationTest, WrappedColumnFlexLanesContinueIndependently) {
+    ASSERT_TRUE(compose("0", "top", "#rows{display:flex;flex-flow:column wrap;height:180px;align-content:start}#rows>div{height:60px;width:100px;flex:none}",
+        "<div id='rows'><div id='a'>A</div><div id='b'>B</div><div id='c'>C</div><div id='d'>D</div><div id='e'>E</div><div id='f'>F</div></div><div id='tail' style='height:20px'>Tail</div>"));
+    EXPECT_EQ(session.paged_view->model->page_count, 3u);
+    size_t count; RdtLogicalRect rect = {};
+    for (const char* id : {"b", "e"}) {
+        EXPECT_EQ(occurrence_page(id, VIEW_FRAGMENT_BODY, &count, &rect), 2u);
+        EXPECT_EQ(count, 1u); EXPECT_FLOAT_EQ(rect.y, 0.0f);
+    }
+    EXPECT_EQ(occurrence_page("f", VIEW_FRAGMENT_BODY, &count, &rect), 3u);
+    EXPECT_EQ(count, 1u); EXPECT_FLOAT_EQ(rect.x, 100.0f); EXPECT_FLOAT_EQ(rect.y, 0.0f);
+    occurrence_page("tail", VIEW_FRAGMENT_BODY, &count, &rect); EXPECT_FLOAT_EQ(rect.y, 60.0f);
+    for (const char* id : {"a", "b", "c", "d", "e", "f"}) expect_text_coverage(id);
+}
+
+TEST_F(PagedFragmentationTest, VerticalFlexUsesItsPhysicalPaginationAxis) {
+    ASSERT_TRUE(compose("0", "top", "#rows{display:flex;writing-mode:vertical-lr;flex-direction:row;align-items:start}#rows>div{height:60px;width:30px;flex:none}",
+        "<div id='rows'><div id='a'>A</div><div id='b'>B</div><div id='c'>C</div></div>"));
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("b", VIEW_FRAGMENT_BODY, &count, &rect), 2u);
+    EXPECT_EQ(count, 1u); EXPECT_FLOAT_EQ(rect.y, 0.0f);
+    EXPECT_EQ(occurrence_page("c", VIEW_FRAGMENT_BODY, &count, &rect), 3u);
+    EXPECT_EQ(count, 1u); EXPECT_FLOAT_EQ(rect.y, 0.0f);
+    for (const char* id : {"a", "b", "c"}) expect_text_coverage(id);
+}
+
+TEST_F(PagedFragmentationTest, VerticalGridBreaksBetweenPhysicalColumns) {
+    ASSERT_TRUE(compose("0", "top", "#rows{display:grid;writing-mode:vertical-lr;grid-template-columns:60px 60px 60px;grid-template-rows:30px 30px}",
+        "<div id='rows'><div id='a'>A</div><div id='b'>B</div><div id='c'>C</div><div id='d'>D</div><div id='e'>E</div><div id='f'>F</div></div>"));
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("b", VIEW_FRAGMENT_BODY, &count, &rect), 2u);
+    EXPECT_EQ(count, 1u); EXPECT_FLOAT_EQ(rect.y, 0.0f);
+    EXPECT_EQ(occurrence_page("e", VIEW_FRAGMENT_BODY, &count, &rect), 2u);
+    EXPECT_EQ(count, 1u); EXPECT_FLOAT_EQ(rect.y, 0.0f);
+    for (const char* id : {"a", "b", "c", "d", "e", "f"}) expect_text_coverage(id);
+}
+
+TEST_F(PagedFragmentationTest, OrthogonalLineBoxesMoveWithTheirFlowRoot) {
+    ASSERT_TRUE(compose("0", "top", "#vertical{writing-mode:vertical-rl;height:80px;width:60px;font:10px/20px monospace}",
+        "<div style='height:40px'></div><div id='vertical'>Orthogonal words</div><div id='tail' style='height:10px'>Tail</div>"));
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("vertical", VIEW_FRAGMENT_BODY, &count, &rect), 2u);
+    EXPECT_EQ(count, 1u); EXPECT_FLOAT_EQ(rect.y, 0.0f); EXPECT_FLOAT_EQ(rect.height, 80.0f);
+    expect_text_coverage("vertical"); expect_text_coverage("tail");
+}
+
+
+TEST_P(PagedRowTest, DestinationTracksRewrapTextAndAdvanceFollowingRows) {
+    ASSERT_TRUE(compose_variable_rows("@page:left{size:100px 100px;margin:0}#rows{grid-auto-rows:auto}#rows>div{height:auto;font:10px/20px monospace}#rows>.first{height:80px}",
+        "<div id='rows'><div class='first'>A</div><div class='first'>B</div><div id='c'>aaaa aaaa aaaa aaaa aaaa</div><div id='d'>bbbb bbbb bbbb bbbb bbbb</div><div id='e'>End</div><div>End</div></div><div id='tail' style='height:20px'>Tail</div>"));
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("c", VIEW_FRAGMENT_BODY, &count, &rect), 2u);
+    EXPECT_EQ(count, 1u); EXPECT_FLOAT_EQ(rect.width, 50.0f); EXPECT_FLOAT_EQ(rect.y, 0.0f);
+    EXPECT_EQ(occurrence_page("e", VIEW_FRAGMENT_BODY, &count, &rect), 3u);
+    EXPECT_FLOAT_EQ(rect.y, 0.0f);
+    for (const char* id : {"c", "d", "e", "tail"}) expect_text_coverage(id);
+    DomElement* text = dom_find_element_by_id(session.document->root, "c");
+    size_t lines = 0;
+    visit_occurrences(text->first_child, [&](const LayoutViewNode* node) {
+        if (!node->text_length) return;
+        EXPECT_LE(node->rect.x + node->rect.width, 50.01f); EXPECT_EQ(page_of(node), 2u); lines++;
+    });
+    EXPECT_EQ(lines, 5u);
+}
+
+TEST_P(PagedRowTest, AbsoluteWidthTracksKeepTheirMeasureOnWiderPages) {
+    ASSERT_TRUE(compose_variable_rows("#rows{width:160px}"));
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("c", VIEW_FRAGMENT_BODY, &count, &rect), 2u);
+    EXPECT_FLOAT_EQ(rect.width, 80.0f);
+    occurrence_page("d", VIEW_FRAGMENT_BODY, &count, &rect); EXPECT_FLOAT_EQ(rect.x, 80.0f);
+}
+
+TEST_P(PagedRowTest, TrackReplayBudgetFailureKeepsPublishedPixels) {
+    ASSERT_TRUE(compose_variable_rows("#rows>div{background:lime}"));
+    PagedLayoutOptions options = paged_layout_options_default(); options.max_pages = 2;
+    expect_failed_admission_keeps_pixels(options, 2);
+    options = paged_layout_options_default(); options.max_reference_passes = 1;
+    expect_failed_admission_keeps_pixels(options, 2);
+}
+
+TEST_F(PagedFragmentationTest, ChangingFlexRowMembershipContinuesBeforePublication) {
+    EXPECT_TRUE(compose("0", "top", "@page:left{size:300px 100px;margin:0}#rows{display:flex;flex-wrap:wrap}#rows>div{width:100px;height:60px;flex:none}",
+        "<div id='rows'><div>A</div><div>B</div><div>C</div><div>D</div><div>E</div><div>F</div></div>"));
+}
+
+TEST_F(PagedFragmentationTest, AForcedColumnLaneBreakDoesNotMoveItsParallelPeer) {
+    ASSERT_TRUE(compose("0", "top", "#rows{display:flex;flex-flow:column wrap;height:160px;align-content:start}#rows>div{height:50px;width:100px;flex:none}#b{break-before:page}",
+        "<div id='rows'><div id='a'>A</div><div id='b'>B</div><div id='c'>C</div><div id='d'>D</div><div id='e'>E</div><div id='f'>F</div></div><div id='tail' style='height:10px'>Tail</div>"));
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("b", VIEW_FRAGMENT_BODY, &count, &rect), 2u);
+    EXPECT_FLOAT_EQ(rect.y, 0.0f);
+    EXPECT_EQ(occurrence_page("e", VIEW_FRAGMENT_BODY, &count, &rect), 1u);
+    EXPECT_EQ(count, 1u); EXPECT_FLOAT_EQ(rect.y, 50.0f);
+    EXPECT_EQ(occurrence_page("f", VIEW_FRAGMENT_BODY, &count, &rect), 2u);
+    EXPECT_FLOAT_EQ(rect.y, 0.0f);
+    for (const char* id : {"a", "b", "c", "d", "e", "f", "tail"}) expect_text_coverage(id);
+}
+
+TEST_F(PagedFragmentationTest, WrappedReversedColumnLanesKeepTheirPhysicalOrder) {
+    ASSERT_TRUE(compose("0", "top", "#rows{display:flex;flex-flow:column-reverse wrap-reverse;height:180px;align-content:start}#rows>div{height:60px;width:100px;flex:none}",
+        "<div id='rows'><div id='a'>A</div><div id='b'>B</div><div id='c'>C</div><div id='d'>D</div><div id='e'>E</div><div id='f'>F</div></div>"));
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("c", VIEW_FRAGMENT_BODY, &count, &rect), 1u); EXPECT_EQ(count, 1u);
+    EXPECT_EQ(occurrence_page("b", VIEW_FRAGMENT_BODY, &count, &rect), 2u); EXPECT_EQ(count, 1u);
+    EXPECT_FLOAT_EQ(rect.y, 0.0f);
+    EXPECT_EQ(occurrence_page("a", VIEW_FRAGMENT_BODY, &count, &rect), 3u); EXPECT_EQ(count, 1u);
+    EXPECT_FLOAT_EQ(rect.y, 0.0f);
+    for (const char* id : {"a", "b", "c", "d", "e", "f"}) expect_text_coverage(id);
+}
+
+TEST_F(PagedFragmentationTest, WrappedColumnBudgetFailureKeepsPublishedPixels) {
+    ASSERT_TRUE(compose("0", "top", "#rows{display:flex;flex-flow:column wrap;height:180px;align-content:start}#rows>div{height:60px;width:100px;flex:none;background:lime}",
+        "<div id='rows'><div>A</div><div>B</div><div>C</div><div>D</div><div>E</div><div>F</div></div>"));
+    PagedLayoutOptions options = paged_layout_options_default(); options.max_pages = 2;
+    expect_failed_admission_keeps_pixels(options, 2);
+}
+
+
+TEST_P(PagedRowTest, TrackGeometryReplayRetainsSourceOrderedGeneratedCounters) {
+    ASSERT_TRUE(compose_variable_rows("#rows{counter-reset:part}#rows>div{counter-increment:part}#rows>div::before{content:counter(part)}"));
+    const char* ids[] = {"a", "b", "c", "d", "e", "f"};
+    for (size_t i = 0; i < 6; i++) {
+        DomElement* element = dom_find_element_by_id(session.document->root, ids[i]);
+        ASSERT_TRUE(element && element->pseudo && element->pseudo->before);
+        DomNode* text = element->pseudo->before->first_child;
+        ASSERT_TRUE(text && text->is_text());
+        char expected[2] = {(char)('1' + i), 0};
+        EXPECT_STREQ(text->as_text()->text, expected);
+        // generated glyphs publish against the originating element, not the synthetic text node.
+        size_t published = 0;
+        visit_occurrences(element, [&](const LayoutViewNode* node) {
+            if (!node->generated || !node->glyph_run) return;
+            EXPECT_EQ(node->glyph_run->text_len, 1);
+            EXPECT_EQ(node->glyph_run->text[0], expected[0]);
+            EXPECT_EQ(page_of(node), i / 2 + 1); published++;
+        });
+        EXPECT_EQ(published, 1u);
+    }
+}
+
+TEST_P(PagedRowTest, ManyRowsContinueAcrossAlternatingWidthPages) {
+    char html[24000];
+    snprintf(html, sizeof(html), "<!doctype html><style>@page{size:200px 100px;margin:0}@page:left{size:300px 100px;margin:0}html,body{margin:0}#rows{display:%s;flex-wrap:wrap;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-auto-rows:60px}#rows>div{height:60px;min-width:0;flex:0 0 50%%}</style><div id='rows'>", GetParam());
+    for (size_t i = 0; i < 240; i++) {
+        char cell[96]; snprintf(cell, sizeof(cell), "<div id='cell-%zu'>Item%zu</div>", i, i); strcat(html, cell);
+    }
+    strcat(html, "</div><div id='tail' style='height:20px'>Tail</div>");
+    ASSERT_TRUE(compose_source(html, "html"));
+    EXPECT_EQ(session.paged_view->model->page_count, 120u);
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("cell-120", VIEW_FRAGMENT_BODY, &count, &rect), 61u);
+    EXPECT_EQ(count, 1u); EXPECT_FLOAT_EQ(rect.width, 100.0f);
+    EXPECT_EQ(occurrence_page("cell-122", VIEW_FRAGMENT_BODY, &count, &rect), 62u);
+    EXPECT_EQ(count, 1u); EXPECT_FLOAT_EQ(rect.width, 150.0f);
+    EXPECT_EQ(occurrence_page("tail", VIEW_FRAGMENT_BODY, &count, &rect), 120u);
+    EXPECT_FLOAT_EQ(rect.y, 60.0f);
+    for (size_t i = 0; i < 240; i++) {
+        char id[32]; snprintf(id, sizeof(id), "cell-%zu", i); expect_text_coverage(id);
+    }
+}
+
+
+TEST_F(PagedFragmentationTest, WrappedColumnFirstItemBreakPropagatesToTheContainer) {
+    ASSERT_TRUE(compose("0", "top", "#rows{display:flex;flex-flow:column wrap;height:180px;align-content:start}#rows>div{height:60px;width:100px;flex:none}#a{break-before:page}",
+        "<div style='height:20px'></div><div id='rows'><div id='a'>A</div><div>B</div><div>C</div><div id='d'>D</div><div>E</div><div>F</div></div>"));
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("a", VIEW_FRAGMENT_BODY, &count, &rect), 2u); EXPECT_FLOAT_EQ(rect.y, 0.0f);
+    EXPECT_EQ(occurrence_page("d", VIEW_FRAGMENT_BODY, &count, &rect), 2u); EXPECT_FLOAT_EQ(rect.y, 0.0f);
+}
+
+TEST_F(PagedFragmentationTest, WrappedColumnLastItemBreakPropagatesToFollowingFlow) {
+    ASSERT_TRUE(compose("0", "top", "#rows{display:flex;flex-flow:column wrap;height:180px;align-content:start}#rows>div{height:60px;width:100px;flex:none}#f{break-after:page}",
+        "<div id='rows'><div>A</div><div>B</div><div>C</div><div>D</div><div>E</div><div id='f'>F</div></div><div id='tail' style='height:10px'>Tail</div>"));
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("tail", VIEW_FRAGMENT_BODY, &count, &rect), 4u); EXPECT_FLOAT_EQ(rect.y, 0.0f);
+}
+
+
+TEST_P(PagedRowTest, RemainingItemsRepackWhenDestinationTrackTopologyChanges) {
+    char css[640];
+    snprintf(css, sizeof(css), "@page:left{size:300px 100px;margin:0}#rows{display:%s;flex-wrap:wrap;grid-template-columns:repeat(auto-fill,100px);grid-auto-rows:60px;align-items:start}#rows>div{width:100px;height:60px;flex:none}", GetParam());
+    ASSERT_TRUE(compose("0", "top", css,
+        "<div id='rows'><div id='a'>A</div><div id='b'>B</div><div id='c'>C</div><div id='d'>D</div><div id='e'>E</div><div id='f'>F</div><div id='g'>G</div><div id='h'>H</div></div><div id='tail' style='height:20px'>Tail</div>"));
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(session.paged_view->model->page_count, 4u);
+    EXPECT_EQ(occurrence_page("c", VIEW_FRAGMENT_BODY, &count, &rect), 2u); EXPECT_FLOAT_EQ(rect.x, 0.0f);
+    EXPECT_EQ(occurrence_page("e", VIEW_FRAGMENT_BODY, &count, &rect), 2u); EXPECT_FLOAT_EQ(rect.x, 200.0f);
+    EXPECT_EQ(occurrence_page("f", VIEW_FRAGMENT_BODY, &count, &rect), 3u); EXPECT_FLOAT_EQ(rect.x, 0.0f);
+    EXPECT_EQ(occurrence_page("h", VIEW_FRAGMENT_BODY, &count, &rect), 4u); EXPECT_FLOAT_EQ(rect.x, 0.0f);
+    EXPECT_EQ(occurrence_page("tail", VIEW_FRAGMENT_BODY, &count, &rect), 4u); EXPECT_FLOAT_EQ(rect.y, 60.0f);
+    for (const char* id : {"a","b","c","d","e","f","g","h","tail"}) expect_text_coverage(id);
+}
+
+
+TEST_P(PagedRowTest, SplitItemTextUsesTheWidthOfEveryContinuationTrack) {
+    ASSERT_TRUE(compose_variable_rows("@page:left{size:100px 100px;margin:0}#rows{grid-auto-rows:auto}#rows>div{height:auto}#rows p{margin:0;font:10px/20px monospace;orphans:2;widows:2}",
+        "<div id='rows'><div id='a'><p id='words'>aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa</p></div><div id='b' style='height:20px'>Peer</div></div><div id='tail' style='height:20px'>Tail</div>"));
+    EXPECT_EQ(session.paged_view->model->page_count, 3u);
+    expect_text_coverage("words"); expect_text_coverage("b"); expect_text_coverage("tail");
+    DomElement* words = dom_find_element_by_id(session.document->root, "words");
+    size_t narrow = 0;
+    visit_occurrences(words->first_child, [&](const LayoutViewNode* node) {
+        if (page_of(node) != 2 || !node->text_length) return;
+        EXPECT_LE(node->rect.x + node->rect.width, 50.01f); narrow++;
+    });
+    EXPECT_EQ(narrow, 5u);
+    visit_occurrences(words, [&](const LayoutViewNode* node) {
+        if (!node->paint_box || node->role != VIEW_FRAGMENT_BODY) return;
+        EXPECT_FLOAT_EQ(node->rect.width, page_of(node) == 2 ? 50.0f : 100.0f);
+    });
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("tail", VIEW_FRAGMENT_BODY, &count, &rect), 3u); EXPECT_FLOAT_EQ(rect.y, 40.0f);
+}
+
+
+class PagedVerticalRootTest : public PagedFragmentationTest, public ::testing::WithParamInterface<const char*> {
+protected:
+    bool compose_vertical(const char* css, const char* body) {
+        char html[4096];
+        snprintf(html, sizeof(html), "<!doctype html><html><head><style>@page{size:200px 100px;margin:0}html,body{margin:0}body{writing-mode:%s;height:100px}%s</style></head><body>%s</body></html>", GetParam(), css, body);
+        return compose_source(html, "html");
+    }
+};
+
+TEST_P(PagedVerticalRootTest, PrincipalBlockAxisAdvancesOntoPhysicalSheets) {
+    ASSERT_TRUE(compose_vertical("body>div{width:80px;height:100px;break-inside:avoid}#tail{width:20px}",
+        "<div id='a' style='background:blue'></div><div id='b' style='background:red'></div><div id='c' style='background:lime'></div><div id='tail'></div>"));
+    EXPECT_EQ(session.paged_view->model->page_count, 2u);
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("c", VIEW_FRAGMENT_BODY, &count, &rect), 2u);
+    EXPECT_EQ(count, 1u); EXPECT_FLOAT_EQ(rect.x, GetParam()[9] == 'r' ? 120.0f : 0.0f);
+    EXPECT_FLOAT_EQ(rect.y, 0.0f); EXPECT_FLOAT_EQ(rect.width, 80.0f); EXPECT_FLOAT_EQ(rect.height, 100.0f);
+    EXPECT_EQ(occurrence_page("tail", VIEW_FRAGMENT_BODY, &count, &rect), 2u);
+    EXPECT_FLOAT_EQ(rect.x, GetParam()[9] == 'r' ? 100.0f : 80.0f);
+}
+
+TEST_P(PagedVerticalRootTest, VerticalLineBreaksKeepWidowsAndEveryAuthoredByte) {
+    ASSERT_TRUE(compose_vertical("p{margin:0;font:10px/30px monospace;orphans:2;widows:2}",
+        "<p id='words'><span id='n1'>A</span><br/><span id='n2'>B</span><br/><span id='n3'>C</span><br/><span id='n4'>D</span><br/><span id='n5'>E</span><br/><span id='n6'>F</span><br/><span id='n7'>G</span></p>"));
+    EXPECT_EQ(session.paged_view->model->page_count, 2u);
+    expect_text_page("n5", 1); expect_text_page("n6", 2); expect_text_page("n7", 2);
+    for (const char* id : {"n1","n2","n3","n4","n5","n6","n7"}) expect_text_coverage(id);
+}
+
+INSTANTIATE_TEST_SUITE_P(PrincipalModes, PagedVerticalRootTest, ::testing::Values("vertical-lr", "vertical-rl"));
+
+
+TEST_P(PagedRowTest, ShrinkingTopologyRetainsSourceOrderAndGeneratedCounters) {
+    char css[768];
+    snprintf(css, sizeof(css), "@page{size:300px 100px;margin:0}@page:left{size:200px 100px;margin:0}#rows{display:%s;flex-wrap:wrap;grid-template-columns:repeat(auto-fill,100px);grid-auto-rows:60px;counter-reset:part}#rows>div{width:100px;height:60px;flex:none;counter-increment:part}#rows>div::before{content:counter(part)}", GetParam());
+    ASSERT_TRUE(compose("0", "top", css,
+        "<div id='rows'><div id='a'>A</div><div id='b'>B</div><div id='c'>C</div><div id='d'>D</div><div id='e'>E</div><div id='f'>F</div><div id='g'>G</div><div id='h'>H</div></div>"));
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("d", VIEW_FRAGMENT_BODY, &count, &rect), 2u); EXPECT_FLOAT_EQ(rect.x, 0.0f);
+    EXPECT_EQ(occurrence_page("f", VIEW_FRAGMENT_BODY, &count, &rect), 3u); EXPECT_FLOAT_EQ(rect.x, 0.0f);
+    const char* ids[] = {"a","b","c","d","e","f","g","h"};
+    for (size_t i = 0; i < 8; i++) {
+        DomElement* item = dom_find_element_by_id(session.document->root, ids[i]); ASSERT_NE(item, nullptr);
+        size_t generated = 0;
+        visit_occurrences(item, [&](const LayoutViewNode* node) {
+            if (!node->generated || !node->glyph_run) return;
+            EXPECT_EQ(node->glyph_run->text_len, 1); EXPECT_EQ(node->glyph_run->text[0], '1' + i); generated++;
+        });
+        EXPECT_EQ(generated, 1u);
+        DomNode* text = item->first_child;
+        while (text && !text->is_text()) text = text->next_sibling;
+        expect_text_source_coverage(text);
+    }
+}
+
+TEST_P(PagedRowTest, ParallelSplitItemsReflowIndependentlyAtTheirPhysicalTracks) {
+    const char* words = "aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa aaaa";
+    char body[1024];
+    snprintf(body, sizeof(body), "<div id='rows'><div><p id='left'>%s</p></div><div><p id='right'>%s</p></div></div><div id='tail' style='height:20px'>Tail</div>", words, words);
+    ASSERT_TRUE(compose_variable_rows("@page:left{size:100px 100px;margin:0}#rows{grid-auto-rows:auto}#rows>div{height:auto}#rows p{margin:0;font:10px/20px monospace;orphans:2;widows:2}",body));
+    EXPECT_EQ(session.paged_view->model->page_count, 3u);
+    DomElement* right = dom_find_element_by_id(session.document->root, "right"); ASSERT_NE(right, nullptr);
+    size_t lines = 0;
+    visit_occurrences(right->first_child, [&](const LayoutViewNode* node) {
+        if (page_of(node) != 2 || !node->text_length) return;
+        EXPECT_GE(node->rect.x, 50.0f); EXPECT_LE(node->rect.x + node->rect.width, 100.01f); lines++;
+    });
+    EXPECT_EQ(lines, 5u); expect_text_coverage("left"); expect_text_coverage("right");
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("tail", VIEW_FRAGMENT_BODY, &count, &rect), 3u); EXPECT_FLOAT_EQ(rect.y, 40.0f);
+    PagedLayoutOptions options = paged_layout_options_default(); options.max_pages = 2;
+    expect_failed_admission_keeps_pixels(options, 2);
+    options = paged_layout_options_default(); options.max_reference_passes = 1;
+    expect_failed_admission_keeps_pixels(options, 2);
+}
+
+TEST_P(PagedRowTest, TopologyBudgetFailureKeepsThePreviousEdition) {
+    char css[512];
+    snprintf(css, sizeof(css), "@page:left{size:300px 100px;margin:0}#rows{display:%s;flex-wrap:wrap;grid-template-columns:repeat(auto-fill,100px);grid-auto-rows:60px}#rows>div{width:100px;height:60px;flex:none;background:lime}", GetParam());
+    ASSERT_TRUE(compose("0","top",css,"<div id='rows'><div>A</div><div>B</div><div>C</div><div>D</div><div>E</div><div>F</div><div>G</div><div>H</div></div>"));
+    PagedLayoutOptions options = paged_layout_options_default(); options.max_pages = 2;
+    expect_failed_admission_keeps_pixels(options, 1);
+}
+
+TEST_P(PagedVerticalRootTest, ForcedVerticalBreaksApplyAtTheBlockBoundary) {
+    ASSERT_TRUE(compose_vertical("body>div{width:80px;height:100px}#b{break-before:page}#c{break-after:page}#tail{width:20px}",
+        "<div id='a'></div><div id='b'></div><div id='c'></div><div id='tail'></div>"));
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("b", VIEW_FRAGMENT_BODY, &count, &rect), 2u);
+    EXPECT_FLOAT_EQ(rect.x, GetParam()[9] == 'r' ? 120.0f : 0.0f);
+    EXPECT_EQ(occurrence_page("tail", VIEW_FRAGMENT_BODY, &count, &rect), 3u);
+    EXPECT_FLOAT_EQ(rect.x, GetParam()[9] == 'r' ? 180.0f : 0.0f);
+}
+
+TEST_P(PagedVerticalRootTest, VariableSheetWidthsSetThePrincipalBlockCapacity) {
+    ASSERT_TRUE(compose_vertical("@page:left{size:300px 100px;margin:0}body>div{width:100px;height:100px}",
+        "<div>A</div><div>B</div><div id='c'>C</div><div>D</div><div id='last'>E</div>"));
+    EXPECT_EQ(session.paged_view->model->page_count, 2u);
+    size_t count; RdtLogicalRect rect = {};
+    EXPECT_EQ(occurrence_page("c", VIEW_FRAGMENT_BODY, &count, &rect), 2u);
+    EXPECT_FLOAT_EQ(rect.x, GetParam()[9] == 'r' ? 200.0f : 0.0f);
+    EXPECT_EQ(occurrence_page("last", VIEW_FRAGMENT_BODY, &count, &rect), 2u);
+    EXPECT_FLOAT_EQ(rect.x, GetParam()[9] == 'r' ? 0.0f : 200.0f);
+    expect_text_coverage("c"); expect_text_coverage("last");
+}
+
+TEST_P(PagedVerticalRootTest, FailedVerticalAdmissionPreservesTheRetainedPixels) {
+    ASSERT_TRUE(compose_vertical("body>div{width:80px;height:100px;break-inside:avoid;background:lime}",
+        "<div></div><div></div><div></div>"));
+    PagedLayoutOptions options = paged_layout_options_default(); options.max_pages = 1;
+    expect_failed_admission_keeps_pixels(options, 1);
+}
+
+
+TEST_P(PagedVerticalRootTest, ContinuousVerticalFlowKeepsItsUnboundedPhysicalFrame) {
+    ASSERT_TRUE(compose_vertical("p{margin:0;font:10px/30px monospace}", "<p>ABC</p>"));
+    ViewEnvironment environment = session.paged_view->model->environment;
+    environment.presentation = VIEW_PRESENTATION_CONTINUOUS;
+    ViewTree* continuous = view_tree_secondary_create(session.document, &environment);
+    ASSERT_NE(continuous, nullptr);
+    PagedLayoutOptions options = paged_layout_options_default(); PagedLayoutDiagnostic diagnostic = {};
+    ASSERT_EQ(layout_secondary_view(continuous, &options, &diagnostic), TYPESET_OK) << diagnostic.reason;
+    EXPECT_TRUE(continuous->model->committed); EXPECT_EQ(continuous->model->page_count, 0u);
+    size_t bytes = 0;
+    for (size_t i = 0; i < continuous->model->node_id_count; i++) {
+        const LayoutViewNode* node = continuous->model->nodes[i];
+        if (node && node->glyph_run) bytes += (size_t)node->glyph_run->text_len;
+    }
+    EXPECT_EQ(bytes, 3u);
+    view_tree_secondary_release(session.document, continuous);
 }

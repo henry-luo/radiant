@@ -50,6 +50,26 @@ export controls. This blocks a current performance no-regression claim, not the
 verified reservation/row behavior. The lost historical P7 archive waiver does
 not waive this new measured difference.
 
+The subsequent track/orthogonal/lane continuation preserves this open status.
+`temp/paged-tracks-causal-control/receipt.json` verifies that only
+`layout_paged.cpp.o` differs between its before/after release archives; the
+current shared flow helper and every other object are identical. Four alternating
+pairs (28 samples per host/workload) give 0.954405/0.947262 ms/page for 21 pages
+and 0.819257/0.820018 for 300 pages, with identical published digests. This
+increment is within about 1%; it does not repair or reclassify the earlier 6%
+regression. See `temp/paged-tracks-causal-control/report.json` for raw receipts.
+
+
+The topology/split-width/vertical-root continuation also preserves this open
+status. `temp/paged-continuations-causal-control/receipt.json` replaces only the
+start pagination and item-collector objects, holding every other release object
+identical. Four alternating pairs (28 samples per host/workload) give
+0.975667/0.940286 ms/page for 21 pages and 0.846538/0.793257 for 300 pages, with
+unchanged input hashes and published digests. This run adds no measured slowdown;
+it does not qualify the earlier reservation increment. Commands and samples are
+in `temp/paged-continuations-causal-control/report.json`.
+
+
 ### RI-031 — Current full PDF/export qualification retains six unchanged failures
 
 **Status:** open, qualification limitation, 2026-11-12. Ownership of native

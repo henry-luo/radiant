@@ -417,7 +417,17 @@ LayoutFlowResult* layout_flow_result_capture(LayoutContext* context, DomNode* ro
     return result;
 }
 
-bool layout_flow_result_apply(LayoutContext* context, const LayoutFlowResult* result) {
+bool layout_flow_result_geometry(const LayoutFlowResult* result, const DomNode* node, Rect* rect, float* content_width) {
+    for (const LayoutFlowNode* entry = result ? result->first.get() : nullptr; entry; entry = entry->next) {
+        if (entry->box.node != node) continue;
+        if (rect) *rect = {entry->box.x, entry->box.y, entry->box.width, entry->box.height};
+        if (content_width) *content_width = entry->box.content_width;
+        return true;
+    }
+    return false;
+}
+
+bool layout_flow_result_apply(LayoutContext* context, const LayoutFlowResult* result, bool preserve_allocation) {
     if (!context || !result || result->generation != context->doc->view_tree->measurement_cache_generation ||
         result->style_epoch != context->doc->style_query_epoch ||
         result->mutation_epoch != context->doc->mutation_epoch ||
@@ -477,7 +487,7 @@ bool layout_flow_result_apply(LayoutContext* context, const LayoutFlowResult* re
                 element->boundary_mut()->clearance_in_margin_chain = output->clearance_in_margin_chain;
             }
             element->inline_line_number = output->inline_line_number;
-            if (output->flex_item && node != root && element->flex_item()) {
+            if (output->flex_item && (!preserve_allocation || node != root) && element->flex_item()) {
                 *element->fi = *output->flex_item;
             }
             if (output->position && element->position) *element->position = *output->position;
@@ -540,8 +550,8 @@ bool layout_flow_result_apply(LayoutContext* context, const LayoutFlowResult* re
                 layout_border_size_from_content_box(block, block->content_height, false));
         }
     }
-    // flex owns the result root's final allocation and external position.
-    layout_set_view_geometry(static_cast<View*>(root), x, y, width, height);
+    // flex replay keeps its caller's allocation; page remeasurement restores the captured allocation too.
+    if (preserve_allocation) layout_set_view_geometry(static_cast<View*>(root), x, y, width, height);
     return true;
 }
 

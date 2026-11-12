@@ -45,7 +45,15 @@ including its column floats and notes.
 Horizontal flex/grid formatting rows use common line fits, row spans, explicit
 breaks and row avoidance. Oversized/nested items fit their ordinary content at
 legal line/block boundaries; concurrent peers stay independent. Single-column
-flex works in either resolved direction. Page indexes and resource ownership
+flex works in either resolved direction. Wrapped physical-Y flex lines continue
+independently, and vertical flex/grid capture the track family on the physical
+pagination axis. Horizontal rows remeasure destination tracks through the normal
+formatter; uncommitted flex/grid items can repack when wrapping or auto-placement
+changes. Split ordinary item content replays line widths and publishes boxes at
+their actual continuation tracks. Vertical principal flows fit ordinary blocks
+and committed line allocations along X in either direction, preserving glyph
+orientation, widows, forced breaks and continuous editions. Page indexes and
+resource ownership
 follow D9.1.1v4 / D9.1.3v2 and D5.5.1 / D5.1.4. See
 [vibe/impl/Radiant_Impl_P7_Fragmentation.md](vibe/impl/Radiant_Impl_P7_Fragmentation.md).
 
@@ -69,7 +77,9 @@ Without `--exe` or `--composition-exe`, the collector only inventories sources.
 Named-page width changes support open ordinary-flow chains with auto or fixed
 absolute widths; fixed ancestors retain their measure while auto ancestors resume
 the new page width. Percentage-containing and independent formatting contexts
-remain outside that continuation profile. Unequal columns, inline-track changes
-across pages, orthogonal and wrapped column-flex flows, richer nested break
-propagation, multi-sequence scheduling and platform qualification remain separate
-extensions.
+remain outside that ordinary-flow continuation profile. Unequal columns, nested
+formatters or anonymous topology inside width remeasurement, topology changes
+inside active split items, richer definite-size/alignment combinations, vertical
+auxiliary/multicolumn producers, changing vertical inline capacity, multi-sequence
+scheduling and platform qualification remain separate extensions. RI-032 retains
+the earlier measured composition slowdown.
