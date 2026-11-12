@@ -514,7 +514,7 @@ static void clear_item_prop(DomElement* elem, ViewTree*) {
     elem->set_role_kind(DomElement::ROLE_NONE);
 }
 
-static void free_item_prop_storage(DomElement* elem, ViewTree* tree, bool preserve_form) {
+static void free_parent_item_prop_storage(DomElement* elem, ViewTree* tree) {
     if (!elem) return;
     switch (elem->parent_item_kind()) {
         case DomElement::PARENT_ITEM_FLEX:
@@ -526,6 +526,26 @@ static void free_item_prop_storage(DomElement* elem, ViewTree* tree, bool preser
         default:
             break;
     }
+    elem->fi = nullptr;
+    elem->gi = nullptr;
+    elem->set_parent_item_kind(DomElement::PARENT_ITEM_NONE);
+}
+
+void layout_set_parent_item_kind(LayoutContext* lycon, DomElement* elem,
+                                  DomElement::ParentItemKind kind) {
+    if (!lycon || !elem || elem->parent_item_kind() == kind) return;
+    // declarations can provisionally allocate the other union arm before the
+    // parent lays out. Its formatting context owns the actual item role.
+    ViewTree* tree = lycon->doc->view_tree;
+    free_parent_item_prop_storage(elem, tree);
+    if (kind == DomElement::PARENT_ITEM_FLEX) elem->ensure_flex_item(tree);
+    else if (kind == DomElement::PARENT_ITEM_GRID) elem->ensure_grid_item(tree);
+    elem->set_styles_resolved(false);
+}
+
+static void free_item_prop_storage(DomElement* elem, ViewTree* tree, bool preserve_form) {
+    if (!elem) return;
+    free_parent_item_prop_storage(elem, tree);
     view_pool_free(tree, elem->tb);
     view_pool_free(tree, elem->td);
     // script-created form state survives restyling; full teardown releases

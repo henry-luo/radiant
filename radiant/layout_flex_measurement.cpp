@@ -808,6 +808,7 @@ void init_flex_item_view(LayoutContext* lycon, DomNode* node) {
     }
 
     block->display = display;
+    layout_set_parent_item_kind(lycon, block, DomElement::PARENT_ITEM_FLEX);
     // reset flex-item CSS defaults before re-resolving styles on a reused view.
     if (!node->as_element()->styles_resolved()) {
         reset_flex_item_prop_for_style(lycon, block);

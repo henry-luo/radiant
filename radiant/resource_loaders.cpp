@@ -146,6 +146,16 @@ void process_css_resource(NetworkResource* res, struct DomDocument* doc) {
 
     // completion order must not override the link's position in the cascade.
     sheet->owner_element = res->owner_element;
+    DomElement* owner = res->owner_element;
+    if (owner && owner->tag_name && str_icmp_cstr(owner->tag_name, "link") == 0) {
+        // asynchronously inserted theme links keep their activation conditions;
+        // a completed download alone does not make its rules applicable.
+        const char* media = owner->get_attribute("media");
+        sheet->media = media ? pool_strdup(doc->document_pool, media) : nullptr;
+        const char* title = owner->get_attribute("title");
+        sheet->disabled = owner->has_attribute("disabled") ||
+            (title && *title && radiant_html_has_token(owner->get_attribute("rel"), "alternate"));
+    }
     if (!radiant_append_document_stylesheet(doc, sheet)) {
         log_error("network: failed to add stylesheet to document");
         return;

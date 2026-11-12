@@ -223,6 +223,11 @@ ReplacedIntrinsicFacts layout_replaced_intrinsic_facts(LayoutContext* lycon,
             replaced_facts_set_pair(&facts, natural_width, natural_height, true);
         }
     }
+    if (block->tag() == MARKUP_NAME_VIDEO && block->embed && block->embedp()->poster &&
+        !facts.has_natural_width && !facts.has_natural_height) {
+        // a ready poster supplies natural dimensions until video metadata is available.
+        layout_replaced_image_facts(&facts, block->embedp()->poster, true, 1.0f);
+    }
 
     if (layout_is_svg_viewport(block->tag()) && block->is_element()) {
         SvgAnimationSourceScope animation_sources(block->as_element()->doc);

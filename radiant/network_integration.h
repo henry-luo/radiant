@@ -13,6 +13,9 @@ struct NetworkThreadPool;
 struct EnhancedFileCache;
 struct UiContext;
 
+// HTML keyword lists use ASCII whitespace and ASCII case-insensitive matching.
+bool radiant_html_has_token(const char* tokens, const char* token);
+
 /**
  * Initialize network support for a document.
  * Must be called before any network resources are loaded.
@@ -41,6 +44,10 @@ void radiant_network_wake_platform(void* user_data);
  * @param doc Document to discover resources for
  */
 void radiant_discover_document_resources(DomDocument* doc);
+
+// Queue finite image dependencies and deliver ready resources before headless layout.
+// This shares the layout CLI's bounded network wait without running script timers.
+void radiant_prepare_snapshot_resources(struct UiContext* ui, DomDocument* doc);
 
 /**
  * Discover and queue only remote @font-face resources in a document.
