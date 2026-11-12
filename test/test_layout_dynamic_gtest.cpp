@@ -6,11 +6,15 @@
 #include "radiant/render.hpp"
 #include "radiant/event_hit_test.hpp"
 #include "radiant/event.hpp"
+#include "radiant/network_integration.h"
 #include "lambda/input/input.hpp"
+#include "lambda/network/enhanced_file_cache.h"
+#include "lambda/input/css/css_engine.hpp"
 #include "lambda/io/image_io.h"
 #include "lib/file.h"
 #include "lib/mem.h"
 #include "lib/strbuf.h"
+#include "lib/host_paths.h"
 #include "lib/url.h"
 
 TEST(LayoutCacheTest, ZeroDimensionsRemainDistinctFromAutoCacheKeys) {
@@ -152,6 +156,235 @@ protected:
         EXPECT_FLOAT_EQ(status->height, 28.0f);
     }
 };
+
+TEST_F(DynamicLayoutTest, StylesheetRelKeywordsAreCaseInsensitiveHtmlTokens) {
+    EXPECT_TRUE(radiant_html_has_token(" preload\tSTYLESHEET\r\n", "stylesheet"));
+    EXPECT_TRUE(radiant_html_has_token("stylesheet\fpreload", "stylesheet"));
+    EXPECT_FALSE(radiant_html_has_token("notstylesheet", "stylesheet"));
+    EXPECT_FALSE(radiant_html_has_token("stylesheet\vpreload", "stylesheet"));
+    EXPECT_FALSE(radiant_html_has_token(nullptr, "stylesheet"));
+    ASSERT_EQ(write_text_file_atomic("temp/token_stylesheet.css",
+        "#sample{width:600px}"), 0);
+    ASSERT_EQ(write_text_file_atomic("temp/token_not_stylesheet.css",
+        "#sample{width:8px}"), 0);
+    load("<!doctype html><style>#sample{width:40px}</style>"
+         "<link rel='preload\tSTYLESHEET\n' href='token_stylesheet.css'>"
+         "<link rel='notstylesheet' href='token_not_stylesheet.css'>"
+         "<div id='sample'>Visible content</div>");
+    ASSERT_NE(element("sample"), nullptr);
+    EXPECT_FLOAT_EQ(element("sample")->width, 600.0f);
+}
+
+TEST_F(DynamicLayoutTest, ExportQueuesOrdinaryNetworkImagesBeforeInitialLayout) {
+    const char* image_url = "https://example.test/radiant-export-ready.svg";
+    const char* svg = "<svg xmlns='http://www.w3.org/2000/svg' width='73' height='41'>"
+        "<rect width='73' height='41' fill='red'/></svg>";
+    EnhancedFileCache* cache = enhanced_cache_create(host_path_dir(HOST_PATH_CACHE, "cache"),
+        1024 * 1024, 10);
+    ASSERT_NE(cache, nullptr);
+    lam::Temp<char> cached_path(enhanced_cache_store(cache, image_url, svg, strlen(svg), nullptr));
+    enhanced_cache_destroy(cache);
+    ASSERT_NE(cached_path.get(), nullptr);
+    struct Case { const char* markup; float width; float height; };
+    const Case cases[] = {
+        {"<img id='image' src='radiant-export-ready.svg'>", 73.0f, 41.0f},
+        {"<video id='image' width='146' height='82' poster='radiant-export-ready.svg'></video>", 146.0f, 82.0f},
+        {"<video id='image' poster='radiant-export-ready.svg'></video>", 73.0f, 41.0f},
+        {"<video id='image' style='max-height:20.5px' poster='radiant-export-ready.svg'></video>", 36.5f, 20.5f},
+        {"<video id='image' style='contain:size;contain-intrinsic-size:32px 48px' poster='radiant-export-ready.svg'></video>", 32.0f, 48.0f}
+    };
+    for (const Case& entry : cases) {
+        SCOPED_TRACE(entry.markup);
+        StrBuf* html = strbuf_create("<!doctype html><base href='https://example.test/'>"
+            "<style>body{margin:0}</style>");
+        strbuf_append_str(html, entry.markup);
+        ASSERT_EQ(write_text_file_atomic("temp/export_network_image.html", html->str), 0);
+        strbuf_free(html);
+        struct SessionGuard {
+            RenderExportSession value = {};
+            ~SessionGuard() { render_export_session_finish(&value); }
+        } session;
+        ASSERT_TRUE(render_export_session_begin(&session.value, "temp/export_network_image.html",
+            1200, 800, 1200, 800, 1.0f, false, false, 1.0f, false));
+        DomDocument* exported = session.value.document.get();
+        ASSERT_NE(exported, nullptr);
+        DomElement* image = dom_find_element_by_id(exported->root, "image");
+        ASSERT_NE(image, nullptr);
+        EXPECT_FLOAT_EQ(image->width, entry.width);
+        EXPECT_FLOAT_EQ(image->height, entry.height);
+        ASSERT_NE(image->embed, nullptr);
+        EXPECT_NE(image->tag_id == MARKUP_NAME_VIDEO
+            ? image->embed->poster.get() : image->embed->img.get(), nullptr);
+        EXPECT_DOUBLE_EQ(exported->js.virtual_clock_ms, 0.0);
+        EXPECT_TRUE(render_export_session_finish(&session.value));
+    }
+    file_delete(cached_path.get());
+}
+
+TEST_F(DynamicLayoutTest, AlternateLinkedStylesheetRemainsAvailableButInactive) {
+    ASSERT_EQ(write_text_file_atomic("temp/alternate_stylesheet.css",
+        "#sample{width:8px}"), 0);
+    load("<!doctype html><style>#sample{width:600px}</style>"
+         "<link id='theme' rel='alternate stylesheet' title='Dark' href='alternate_stylesheet.css'>"
+         "<div id='sample'>Visible content</div>");
+    ASSERT_NE(element("sample"), nullptr);
+    EXPECT_FLOAT_EQ(element("sample")->width, 600.0f);
+    CssStylesheet* alternate = nullptr;
+    for (int i = 0; i < document->stylesheet_count; i++) {
+        if (document->stylesheets[i]->owner_element == element("theme")) {
+            alternate = document->stylesheets[i];
+        }
+    }
+    ASSERT_NE(alternate, nullptr);
+    EXPECT_TRUE(alternate->disabled);
+    alternate->disabled = false;
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, false);
+    EXPECT_FLOAT_EQ(element("sample")->width, 8.0f);
+}
+
+TEST_F(DynamicLayoutTest, BackgroundColorWideKeywordsUseTransparentInitialValue) {
+    load("<!doctype html><style>body{margin:0;background:#123456}"
+         ".sample{width:100px;height:40px;background:red}"
+         "#initial{background-color:initial}#unset{background-color:unset}"
+         "#shorthand{background:initial}#inherited{background-color:inherit}"
+         "#image{background-image:url(data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E);"
+         "background-color:initial}"
+         "</style><div id='initial' class='sample'></div>"
+         "<div id='unset' class='sample'></div><div id='shorthand' class='sample'></div>"
+         "<div id='inherited' class='sample'></div><div id='image' class='sample'></div>");
+    for (const char* id : {"initial", "unset", "shorthand", "image"}) {
+        SCOPED_TRACE(id);
+        DomElement* sample = element(id);
+        ASSERT_NE(sample, nullptr);
+        ASSERT_NE(sample->boundary()->background, nullptr);
+        EXPECT_EQ(sample->boundary()->background->color.a, 0);
+    }
+    ASSERT_NE(element("image")->boundary()->background->image, nullptr);
+    Color inherited = element("inherited")->boundary()->background->color;
+    EXPECT_EQ(inherited.r, 0x12);
+    EXPECT_EQ(inherited.g, 0x34);
+    EXPECT_EQ(inherited.b, 0x56);
+    EXPECT_EQ(inherited.a, 255);
+}
+
+TEST_F(DynamicLayoutTest, DesktopViewportRetainsHostGeometryWithNumericMeta) {
+    load("<!doctype html><meta name='viewport' content='width=480,height=320'>"
+         "<style>@property --registered-size{syntax:'<length>';inherits:true;initial-value:1px}"
+         ":root{--registered-size:50vw}body{margin:0}#sample{width:100vw;height:50vh}"
+         "#registered{width:var(--registered-size)}"
+         "#query{height:20px}@media(min-width:1000px){#query{height:40px}}"
+         "</style><div id='sample'></div><div id='query'></div><div id='registered'></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_EQ(document->viewport.width, 480);
+    EXPECT_EQ(document->viewport.height, 320);
+    ASSERT_NE(element("sample"), nullptr);
+    for (float width : {1200.0f, 800.0f}) {
+        ui.viewport_width = width;
+        ui.viewport_height = 600.0f;
+        layout_html_doc(&ui, document, false);
+        EXPECT_FLOAT_EQ(document->root->width, width);
+        EXPECT_FLOAT_EQ(element("sample")->width, width);
+        EXPECT_FLOAT_EQ(element("sample")->height, 300.0f);
+        EXPECT_FLOAT_EQ(element("registered")->width, width * 0.5f);
+        EXPECT_FLOAT_EQ(element("query")->height, width >= 1000.0f ? 40.0f : 20.0f);
+    }
+    document->viewport.width = 2000;
+    document->viewport.height = 2000;
+    layout_html_doc(&ui, document, false);
+    EXPECT_FLOAT_EQ(element("sample")->width, 800.0f);
+    EXPECT_FLOAT_EQ(element("sample")->height, 300.0f);
+}
+
+TEST_F(DynamicLayoutTest, DisabledLinkedThemeKeepsItsImportedRulesInactiveUntilEnabled) {
+    ASSERT_EQ(write_text_file_atomic("temp/disabled_theme_import.css",
+        "#sample{width:8px}"), 0);
+    ASSERT_EQ(write_text_file_atomic("temp/disabled_theme.css",
+        "@import 'disabled_theme_import.css';body{background:#202124}"), 0);
+    load("<!doctype html><html><head><style>body{margin:0;background:white}"
+         "#sample{width:600px;height:40px}</style>"
+         "<link id='theme' rel='stylesheet' disabled href='disabled_theme.css'>"
+         "</head><body id='body'><div id='sample'>Visible content</div></body></html>");
+    ASSERT_NE(document, nullptr);
+    DomElement* sample = element("sample");
+    DomElement* body = element("body");
+    DomElement* link = element("theme");
+    ASSERT_TRUE(sample && body && link);
+    EXPECT_FLOAT_EQ(sample->width, 600.0f);
+    ASSERT_NE(body->boundary()->background, nullptr);
+    EXPECT_EQ(body->boundary()->background->color.r, 255);
+    CssStylesheet* theme = nullptr;
+    for (int i = 0; i < document->stylesheet_count; i++) {
+        CssStylesheet* sheet = document->stylesheets[i];
+        if (sheet->owner_element == link && !sheet->is_import_child) theme = sheet;
+    }
+    ASSERT_NE(theme, nullptr);
+    EXPECT_TRUE(theme->disabled);
+
+    theme->disabled = false;
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, false);
+    EXPECT_FLOAT_EQ(sample->width, 8.0f);
+    EXPECT_EQ(body->boundary()->background->color.r, 32);
+
+    theme->disabled = true;
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, false);
+    EXPECT_FLOAT_EQ(sample->width, 600.0f);
+    EXPECT_EQ(body->boundary()->background->color.r, 255);
+}
+
+TEST_F(DynamicLayoutTest, DisabledLinkAttributeUsesBooleanPresence) {
+    ASSERT_EQ(write_text_file_atomic("temp/disabled_theme_boolean.css",
+        "#sample{width:8px}"), 0);
+    load("<!doctype html><style>#sample{width:600px}</style>"
+         "<link rel='stylesheet' disabled='false' href='disabled_theme_boolean.css'>"
+         "<div id='sample'>Visible content</div>");
+    ASSERT_NE(element("sample"), nullptr);
+    EXPECT_FLOAT_EQ(element("sample")->width, 600.0f);
+}
+
+TEST_F(DynamicLayoutTest, GridPlacementDoesNotSuppressColumnFlexContent) {
+    load("<!doctype html><style>body{margin:0;font:16px/24px Arial}"
+         "#parent{width:600px;display:flex;flex-direction:column}"
+         "#subject{grid-area:content}h3{margin:0;font:40px/48px Arial}"
+         "</style><div id='parent'><h3>Documentation</h3><div id='subject'>"
+         "Find tutorials, user guides, code samples and API references."
+         "</div></div>");
+    DomElement* subject = element("subject");
+    ASSERT_NE(subject, nullptr);
+    EXPECT_EQ(subject->parent_item_kind(), DomElement::PARENT_ITEM_FLEX);
+    EXPECT_FLOAT_EQ(subject->width, 600.0f);
+    EXPECT_GT(subject->height, 0.0f);
+    ASSERT_NE(subject->first_child, nullptr);
+    EXPECT_GT(subject->first_child->width, 100.0f);
+}
+
+TEST_F(DynamicLayoutTest, ParentFormattingContextOwnsItemRoleAcrossRelayout) {
+    load("<!doctype html><style>body{margin:0}"
+         "#parent{display:flex;width:600px;height:80px;grid-template-columns:200px 400px}"
+         "#first{grid-area:1/1;flex:1 1 0%;min-width:0}"
+         "#second{grid-area:1/2;flex:2 1 0%;min-width:0}"
+         "</style><div id='parent'><div id='first'>First</div>"
+         "<div id='second'>Second</div></div>");
+    DomElement* parent = element("parent");
+    DomElement* first = element("first");
+    DomElement* second = element("second");
+    ASSERT_TRUE(parent && first && second);
+    for (int pass = 0; pass < 4; pass++) {
+        bool grid = pass % 2 != 0;
+        parent->set_attribute("style", grid ? "display:grid" : "display:flex");
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        SCOPED_TRACE(pass);
+        EXPECT_EQ(first->parent_item_kind(), grid ? DomElement::PARENT_ITEM_GRID
+            : DomElement::PARENT_ITEM_FLEX);
+        EXPECT_FLOAT_EQ(first->width, 200.0f);
+        EXPECT_FLOAT_EQ(second->width, 400.0f);
+        EXPECT_FLOAT_EQ(first->height, 80.0f);
+        EXPECT_FLOAT_EQ(second->height, 80.0f);
+    }
+}
 
 TEST_F(DynamicLayoutTest, LegacyClipBoundsOwnPaintDescendantsAndNativeHits) {
     load("<!doctype html><style>html,body{margin:0;background:white}"

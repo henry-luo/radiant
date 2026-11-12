@@ -20,6 +20,73 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-027"></a>
+
+- [RI-027 — Mobile viewport metadata shrinks desktop layout independently of its host](<Radiant_Issue_Ledger (fixed).md#ri-027>).
+
+<a id="ri-026"></a>
+
+- [RI-026 — Background color resets paint opaque black](<Radiant_Issue_Ledger (fixed).md#ri-026>).
+
+<a id="ri-025"></a>
+
+- [RI-025 — Headless exports never queue ordinary network image dependencies](<Radiant_Issue_Ledger (fixed).md#ri-025>).
+
+<a id="ri-024"></a>
+
+- [RI-024 — Multi-keyword link relations omit entire stylesheets](<Radiant_Issue_Ledger (fixed).md#ri-024>).
+
+<a id="ri-023"></a>
+
+### RI-023 — Online snapshots omit major image/video regions
+
+**Status:** OPEN, 2026-11-12. **Lambda task blocker:** no; further asset and
+snapshot-lifecycle diagnosis is needed. Native ownership:
+**D9.1.1v4 / D9.1.3v2**; finite frame selection follows **D10.1.7**.
+The original observations did not establish one shared defect. RI-025 now
+repairs ordinary image/poster request discovery and poster intrinsic sizing;
+RI-026 repairs the black reset-color region. Final Curl, NOAA and OCaml captures
+restore their missing media. Python's active carousel has authored opacity0 at
+the selected frame; its timing follows D10.1.7. Other remaining lazy-media,
+video-frame, CSS and application-state differences still require individual
+evidence and are not all assigned to one loader bug.
+
+The major online visual review finds missing hero regions on Chrome docs
+(`chrome_developers`), CMake (`cmake`), Python (`python`), NOAA (`noaa`) and
+multiple marketing pages. After RI-020/RI-021 the Chrome text/theme is repaired,
+but its authored `img` for `images/docs/docs-hero.webp` is still absent. Other
+cases may use CSS backgrounds, lazy content, animations or video. Do not force
+asset sizes, replace images or remove differences from scoring. Reproduce with
+the catalog URLs and 1200×800 render options.
+
+Evidence in Lambda: `temp/online-visual/review-{0..28}.png` covers all 226
+pre-fix review candidates; the final comparison report retains every catalog
+row. `probes/chrome_developers.png` and `pristine-probes/` distinguish the fixed
+layout/theme issues from remaining media. Per-page capture logs are under
+`test/online/snapshots/`. Other remaining classes include hidden application
+content (Lambda JS13-L1), differing consent state and origin/application errors.
+Each needs a reduced reproducer before a source repair.
+
+Second-review residual: CMake's video geometry now matches the browser at
+1232×528 after RI-025, but its selected snapshot still has a blank media region.
+The poster URL returns HTTP200 (144,119 bytes) in a separate direct request;
+that alone does not establish that the native manager delivered it before the
+selected frame. Native readiness logs retain one pending resource. The remaining
+resource/paint/playback cause is unconfirmed; the page is retained for visual
+review even though its coarse error falls below the automated threshold.
+
+<a id="ri-022"></a>
+
+- [RI-022 — Downloaded dynamic stylesheets lose their link media condition](<Radiant_Issue_Ledger (fixed).md#ri-022>).
+
+<a id="ri-021"></a>
+
+- [RI-021 — Grid placement declarations suppress actual flex items](<Radiant_Issue_Ledger (fixed).md#ri-021>).
+
+<a id="ri-020"></a>
+
+- [RI-020 — An initially disabled linked theme participates in the cascade](<Radiant_Issue_Ledger (fixed).md#ri-020>).
+
 <a id="ri-019"></a>
 
 ### RI-019 — Reflow aborts when the focused target becomes non-focusable

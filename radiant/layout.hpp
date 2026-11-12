@@ -4705,6 +4705,8 @@ FontProp* alloc_font_prop(LayoutContext* lycon);
 void alloc_flex_prop(LayoutContext* lycon, ViewBlock* block);
 void alloc_flex_item_prop(LayoutContext* lycon, ViewSpan* block);
 void reset_flex_item_prop_for_style(LayoutContext* lycon, ViewSpan* block);
+void layout_set_parent_item_kind(LayoutContext* lycon, DomElement* elem,
+                                  DomElement::ParentItemKind kind);
 void alloc_grid_prop(LayoutContext* lycon, ViewBlock* block);
 GridItemProp* alloc_grid_item_prop(LayoutContext* lycon, ViewSpan* span);
 PseudoContentProp* alloc_pseudo_content_prop(LayoutContext* lycon, ViewBlock* block);

@@ -14,6 +14,268 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="online-visual-review-20261112"></a>
+
+### Online visual qualification — 2026-11-12
+
+RI-022 and RI-024–RI-027: 68 native dynamic layout tests, the document activation
+regression, 38 StyleEpoch tests and 11 owner input-value tests pass (118 focused
+cases). Online tools pass 14 checks. The aggregate Radiant gate retains the
+existing JS03-L2 forced-GC iframe failure: 8,163 pass, 299 partial, 20 skip,
+one fail. The final CSS images suite passes all 56 cases, including size
+containment of video posters. No references, URLs, deadlines or comparison
+thresholds changed. Evidence and the full comparison are under Lambda
+`temp/online-visual-round2/` (`radiant-baseline-qualified.log`).
+
+<a id="ri-027"></a>
+
+### RI-027 — Mobile viewport metadata shrinks desktop layout independently of its host
+
+**Status:** FIXED, 2026-11-12.
+**Lambda task blocker:** no. Ownership: **D9.1.1v4 / D9.1.3v2**; scale axes
+remain distinct under the scale design's **RSC6/RSC7**.
+
+Cap'n Proto declares `width=480`. A 1200×800 desktop capture keeps a1200-pixel
+surface and JS window but uses 480 pixels for the native root and CSS media
+queries, leaving a large dark region. Chromium's desktop root is 1200 pixels.
+The cause is the direct use of raw mobile meta dimensions in `layout_init`,
+layout publication inputs and CSS media setup.
+
+A shared host-viewport resolver now supplies all three stages. Parsed metadata
+remains available, while desktop layout follows the host's CSS viewport.
+Registered viewport-unit lengths also use that active CSS environment instead
+of raw meta hints. Native regression covers width480/height320 metadata,
+1200→800 host resize, CSS media queries, vw/vh, registered vw lengths and
+oversized2000×2000 metadata. It fails before and passes after repair. Mobile
+viewport adaptation/zoom remains outside this correction. Evidence: Lambda
+`temp/online-visual-round2/capnproto-tree.json`, `test-viewport-{before,after}.log`.
+
+Verification: see the [online visual qualification](#online-visual-review-20261112).
+
+
+<a id="ri-026"></a>
+
+### RI-026 — Background color resets paint opaque black
+
+**Status:** FIXED, 2026-11-12.
+**Lambda task blocker:** no. Ownership: **D9.1.1v4 / D9.1.3v2**.
+OCaml's documentation hero declares `background-color:initial` above its SVG
+background. Native layout sends that keyword to generic color conversion, whose
+invalid-color fallback is opaque black. `unset` fails in the same way. The
+background is non-inherited and its initial color is transparent:
+[CSS Backgrounds §2.2](https://drafts.csswg.org/css-backgrounds-3/#background-color),
+[CSS Cascade §7.3](https://drafts.csswg.org/css-cascade-5/#initial).
+
+A shared background-color resolver now handles wide reset keywords before
+generic color conversion in direct declarations and ordered background
+composition. Explicit inheritance remains intact, and a color reset retains
+the image layer. The reduced `background-initial.html` shows initial/unset alpha
+255 before the fix, versus alpha0 for authored transparent. Native regression
+`BackgroundColorWideKeywordsUseTransparentInitialValue` covers these cases,
+shorthand reset and inheritance. Evidence: Lambda `temp/online-visual-round2/`.
+
+Verification: see the [online visual qualification](#online-visual-review-20261112).
+
+
+<a id="ri-025"></a>
+
+### RI-025 — Headless exports never queue ordinary network image dependencies
+
+**Status:** FIXED, 2026-11-12.
+**Lambda task blocker:** no. Native ownership: **D9.1.1v4 / D9.1.3v2**;
+finite snapshot frame selection: **D10.1.7**.
+
+Loader-stage HTTP documents have a resource manager. `load_image_resource`
+correctly consumes only ready bytes during layout/paint, but export preparation
+never discovers ordinary `img` requests. Curl's main SVG logo is absent and
+laid out with fallback dimensions; DEBUG logs say `Network image not ready
+without blocking` with no corresponding request. The same logo and NOAA's photo
+decode/render correctly from local files. This is a missing integration step,
+not an unsupported image codec.
+
+`radiant_prepare_snapshot_resources` now queues selected image sources and
+external SVG uses before layout, binds the existing native resource manager,
+and shares the layout CLI's existing bounded wait with export. It delivers
+native completions without executing JS timers or advancing the virtual frame.
+No budget increases or synchronous HTTP fetches were added to layout/paint.
+The existing wait defaults to1000ms, with the existing 0–5000ms environment
+override. Slow/pending resources can still be absent; this is not a claim of
+full lazy-media/video support.
+
+Offline regression `ExportQueuesOrdinaryNetworkImagesBeforeInitialLayout`
+starts from a cached73×41 SVG available only through its HTTP request identity.
+Before repair it has fallback height16 and no image; after repair it has the
+correct natural geometry/image and virtual time0. The shared native image/use
+discovery walker is also reused by interactive resource discovery. Evidence:
+Lambda `temp/online-visual-round2/test-image-{before,after}.log`, `curl-debug.log`,
+`assets-test.png` and live probes.
+
+The followup also queues `video[poster]` as an opaque image dependency, without
+binding it to the video as an `img` owner. Video width/height hints now survive
+style resolution. When video metadata is unavailable, the existing replaced
+intrinsic facts use a ready poster's natural dimensions before assigning the
+generic 300×150 fallback. Automatic axes use the existing replaced-size
+constraint solver so a maximum height scales the width with it. Size containment
+keeps its substituted dimensions and suppresses the poster's natural ratio.
+The cached-SVG export regression covers ordinary images, authored video sizes,
+automatic poster sizes, max-height and containment. Automatic video size fails
+before with 300×150 and passes after with 73×41. This is the existing poster
+and intrinsic-sizing path; it does not implement video timeline parity.
+
+
+Verification: see the [online visual qualification](#online-visual-review-20261112).
+
+
+<a id="ri-024"></a>
+
+### RI-024 — Multi-keyword link relations omit entire stylesheets
+
+**Status:** FIXED, 2026-11-12.
+**Lambda task blocker:** no. Native ownership: **D9.1.1v4 / D9.1.3v2**.
+`vite_docs` and `rollup_docs` use `rel="preload stylesheet"`. Initial CSS
+prefetch, linked-sheet loading and dynamic resource discovery compared `rel`
+against the complete string `stylesheet`, omitting these sheets. Vite's banner
+image consequently expands across the unstyled document. The HTML link relation
+is a set of case-insensitive ASCII-whitespace-separated keywords:
+[HTML links](https://html.spec.whatwg.org/multipage/links.html#linkTypes).
+
+Promoted the existing sandbox token walker to `radiant_html_has_token` and
+reused it in all three paths. The newly recognized titled alternate sheets stay
+loaded but initially disabled; existing CSSOM can enable them. Native focused
+regressions pass for keyword boundaries, case, HTML whitespace (excluding VT),
+actual stylesheet application, and alternate activation. Live Vite/Rollup
+captures now retain their document CSS. Qualification and residual details are
+under Lambda `temp/online-visual-round2/`.
+
+Verification: see the [online visual qualification](#online-visual-review-20261112).
+
+
+<a id="ri-022"></a>
+
+### RI-022 — Downloaded dynamic stylesheets lose their link media condition
+
+**Status:** FIXED for the confirmed sheet activation defects, 2026-11-12. **Lambda task blocker:** no; this affects one
+remaining large-difference class. Native ownership: **D9.1.1v4 / D9.1.3v2**.
+
+`lambda.exe render https://webassembly.org/ -o temp/online-visual/wasm.png
+-vw 1200 -vh 800` can export the dark stylesheet despite light media preferences.
+The site writes both theme links from a `noscript` template. Their `media`
+attributes select mutually exclusive color schemes. `process_css_resource` in
+`radiant/resource_loaders.cpp` parses completed dynamic CSS and assigns its owner,
+but leaves `CssStylesheet::media` null. Both sheets can enter the cascade, making
+the result depend on loading. The initial linked-sheet collector already checks
+media; the asynchronous completion path does not. The native cause is confirmed;
+additional custom-element behavior on this site is not qualified.
+
+Evidence in Lambda: `temp/online-visual/webassembly.html`, the preserved
+`refreshed-before/webassembly-lambda.png`, and
+`probes/webassembly.png` plus its log. Expected: retain the link's media
+condition on the associated sheet and evaluate it with the shared CSS engine.
+Do not force a particular theme or choose sheets by their filenames.
+The selection requirement is also stated in the
+[HTML link media processing rules](https://html.spec.whatwg.org/multipage/semantics.html#processing-the-media-attribute).
+
+Implemented the completion-path correction: copy the owner's media query into
+the document pool and initialize its disabled flag before appending the sheet.
+The native `DownloadedStylesheetsRespectLinkMediaAndDisabledState` regression
+covers completed/cached downloads and active/inactive/disabled sheets; the full
+11-case input-value suite passes. Three final WebAssembly.org captures still
+select dark, so this site is not claimed fixed. Its custom element changes
+media and disabled state during loading; the remaining association/mutation
+cause is unconfirmed. Evidence: `temp/online-visual/wasm-final-{0,1,2}/`.
+The separately built pristine-current-source control produces the identical
+61.45% mean error against the browser image (`pristine-wasm/webassembly.png`),
+so this remaining mismatch is not introduced by the three repairs.
+
+**Confirmed followup and repair (second review):** `link.media` and `style.media`
+were absent from IDL reflection; `link.disabled` used the style element's
+sheet-only setter and lost pending-link state. Associated sheets did not receive
+owner attribute edits. Lambda's shared CSSOM owner-attribute hook now updates
+the retained sheet condition/disabled state, invalidates it, and preserves
+unrelated CSSOM state. Initial and dynamically parsed inactive sheets remain
+associated with their media conditions instead of being discarded.
+
+The native fast, reference, layer-rank and single-element cascade paths also
+ignored root-sheet media; they now share an active-sheet predicate. The new
+`StylesheetOwnerMediaAndPendingDisabledRetainTheirAttributes` integration test
+fails before and passes after (pending-link booleans, media on/off, attribute
+set/remove, immediate computed style and sheet identity). The final
+WebAssembly.org capture selects light: mean color error 61.4%→0.6%. Its shadow
+control rendering remains partial under Lambda JS13-L2. The earlier unconfirmed
+association/mutation cause above is now resolved; WASM execution was not the
+cause of this theme mismatch. HTMLLinkElement's disabled IDL is reflected,
+whereas HTMLStyleElement's disabled IDL controls its associated sheet:
+[HTML link/style interfaces](https://html.spec.whatwg.org/multipage/semantics.html#the-link-element).
+
+
+Verification: see the [online visual qualification](#online-visual-review-20261112).
+
+
+<a id="ri-021"></a>
+
+### RI-021 — Grid placement declarations suppress actual flex items
+
+**Status:** FIXED, 2026-11-12.
+**Lambda task blocker:** no. Computed/view storage follows **D5.5.1**;
+native ownership follows **D9.1.1v4 / D9.1.3v2**.
+
+Chrome, Firebase, Google Cloud and web.dev documentation pages wrap ordinary
+description text into tiny columns or give it zero-sized boxes. A local
+reduction requires a column flex parent and a child with `grid-area: content`.
+Resolving the declaration provisionally allocates the parent-item union's grid
+arm. Flex initialization refuses to overwrite that arm, so the flex algorithm
+cannot size the item. The property's declaration order incorrectly determines
+participation in its parent's formatting context.
+
+`layout_set_parent_item_kind` now releases the provisional owning prop, adopts
+the actual parent role and invalidates the computed storage before applying
+its CSS again. Flex and grid initialization share this transition. It also
+replaces grid's previous discriminant-only conversion, which abandoned the
+old owning prop. The authored CSS remains in the cascade; no grid declarations
+are removed to match a page. Native regressions cover text geometry and four
+flex/grid parent switches. All 63 dynamic-layout checks and integer-cast lint
+pass. The reduced Chrome description grows from zero to the browser's 564px.
+Both aggregate integration runs have 8,163 passes, 299 partials, 20 skips and
+one existing forced-GC iframe failure (Lambda JS03-L2). A separate pristine
+current-source host reproduces that failure 3/3, as does the repaired host.
+The gate remains red; its failure is not suppressed. Broader live recapture
+is recorded in the Lambda online-visual checkpoint.
+
+Evidence in Lambda: `temp/online-visual/min-rules.json`, `prop-no_area.json`,
+`chrome-static-fixed.json`, `test-root-causes.log`, and `test-dynamic-all.log`.
+
+<a id="ri-020"></a>
+
+### RI-020 — An initially disabled linked theme participates in the cascade
+
+**Status:** FIXED, 2026-11-12.
+**Lambda task blocker:** no. Native ownership: **D9.1.1v4 / D9.1.3v2**.
+
+Chrome documentation links its dark theme with the boolean `disabled`
+attribute. `collect_stylesheets_in_document_order` loaded the sheet but did not
+initialize its existing `disabled` flag, so its dark declarations replaced the
+active light theme. Firebase, Cloud and web.dev share this failure.
+
+The collector now retains the sheet for CSSOM access while marking the root
+sheet disabled. Its imports stay inactive through the existing sheet-tree
+traversal. Native tests cover the empty boolean attribute, `disabled='false'`,
+imported rules and enabling/disabling the retained sheet across recascades.
+All focused and neighboring native tests pass. Aggregate qualification has
+the same existing iframe failure documented above under RI-021.
+The minimal before fixture incorrectly gives a light page a dark
+background and changes a 600px block to 8px. Evidence in Lambda:
+`temp/online-visual/disabled-before.json` and `test-root-causes.log`.
+
+Live before/after coarse mean image error against the unchanged Chromium image:
+Chrome 79.5%→7.3%, Firebase 75.8%→1.5%, Cloud 67.1%→4.1%, web.dev 57.0%→6.0%.
+These improvements combine RI-020 and RI-021; remaining icon/image details are
+outside the major-difference milestone.
+
+Verification evidence: `../../lambda/temp/online-visual/radiant-baseline-final.log`,
+`test-dynamic-all.log`, `test-media-final-all.log`, `layout-lint.log` and
+`pristine-build.py`. The online comparison scripts and saved before/after
+images retain the remaining differences; none are filtered out to qualify these repairs.
+
 <a id="ri-018"></a>
 
 ### RI-018 — Online exports exhaust memory before viewport PNG encoding

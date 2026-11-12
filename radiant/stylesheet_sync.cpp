@@ -33,6 +33,8 @@ static CssStylesheet* stylesheet_parse_inline(DomElement* elem) {
     if (!sheet) return nullptr;
 
     sheet->owner_element = elem;
+    const char* media = elem->get_attribute("media");
+    sheet->media = media ? pool_strdup(pool, media) : nullptr;
     return sheet;
 }
 

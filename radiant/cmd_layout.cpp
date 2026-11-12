@@ -1198,7 +1198,7 @@ static void collect_external_resource_urls(Element* elem, const char* base_path,
     if (kind == EXTERNAL_PREFETCH_STYLESHEET && str_ieq_cstr(type->name.str, "link")) {
         const char* rel = extract_element_attribute(elem, "rel", nullptr);
         const char* href = extract_element_attribute(elem, "href", nullptr);
-        if (rel && href && str_ieq_cstr(rel, "stylesheet")) {
+        if (href && radiant_html_has_token(rel, "stylesheet")) {
             char* abs = resolve_http_href(href, base_path);
             append_external_resource_url(abs, external_prefetch_priority(elem, kind),
                                          out_urls, out_count, out_capacity);
@@ -1297,11 +1297,10 @@ static void load_linked_stylesheet(Element* elem, CssEngine* engine, const char*
     if (!str_ieq_cstr(type->name.str, "link")) return;
     const char* rel = extract_element_attribute(elem, "rel", nullptr);
     const char* href = extract_element_attribute(elem, "href", nullptr);
-    if (!rel || !href || !str_ieq_cstr(rel, "stylesheet")) return;
+    if (!href || !radiant_html_has_token(rel, "stylesheet")) return;
 
     const char* link_charset = extract_element_attribute(elem, "charset", nullptr);
     const char* media = extract_element_attribute(elem, "media", nullptr);
-    if (media && !css_evaluate_media_query(engine, media)) return;
 
     char css_path[1024];
     bool is_http_css = false;
@@ -1414,6 +1413,7 @@ static void load_linked_stylesheet(Element* elem, CssEngine* engine, const char*
                     CssStylesheet* stylesheet = parse_and_collect_stylesheet(
                         engine, css_pool_copy, css_path, css_path, pool,
                         stylesheets, count, capacity, 0);
+                    if (stylesheet && media) stylesheet->media = pool_strdup(pool, media);
                     if (!stylesheet || stylesheet->rule_count == 0) {
                         log_warn("[CSS] Failed to parse stylesheet or empty: %s", css_path);
                     }
@@ -1454,6 +1454,8 @@ static CssStylesheet* parse_inline_style_chunks(CssEngine* engine,
     const char* inline_origin = base_path ? base_path : "<inline-style>";
     CssStylesheet* stylesheet = parse_and_collect_stylesheet(
         engine, css, inline_origin, base_path, pool, stylesheets, count, capacity, 0);
+    const char* media = owner ? owner->get_attribute("media") : nullptr;
+    if (stylesheet && media) stylesheet->media = pool_strdup(pool, media);
     for (int i = before; i < *count; i++) {
         (*stylesheets)[i]->owner_element = owner;
     }
@@ -1483,25 +1485,31 @@ static void collect_stylesheets_in_document_order(Element* elem, DomElement* dom
             for (int i = before; i < *count; i++) {
                 (*stylesheets)[i]->owner_element = owner;
             }
+            if (*count > before) {
+                // retain the sheet for CSSOM enabling, but keep an initially
+                // disabled link and its imports out of the first cascade.
+                const char* title = extract_element_attribute(elem, "title", nullptr);
+                const char* rel = extract_element_attribute(elem, "rel", nullptr);
+                (*stylesheets)[before]->disabled = elem->has_attr("disabled") ||
+                    (title && *title && radiant_html_has_token(rel, "alternate"));
+            }
         } else if (str_ieq_cstr(type->name.str, "style")) {
-            const char* media = extract_element_attribute(elem, "media", nullptr);
-            if (!media || css_evaluate_media_query(engine, media)) {
-                InlineStyleTextChunk* chunks = (InlineStyleTextChunk*)pool_alloc(
-                    pool, (size_t)elem->length * sizeof(InlineStyleTextChunk));
-                if (chunks || elem->length == 0) {
-                    size_t chunk_count = 0;
-                    for (int64_t i = 0; i < elem->length; i++) {
-                        Item child_item = elem->items[i];
-                        if (get_type_id(child_item) != LMD_TYPE_STRING) continue;
-                        String* css_text = (String*)child_item.string_ptr;
-                        if (css_text && css_text->len > 0) {
-                            chunks[chunk_count++] = {css_text->chars, (size_t)css_text->len};
-                        }
+            // media controls activation, not the existence of the CSSOM sheet.
+            InlineStyleTextChunk* chunks = (InlineStyleTextChunk*)pool_alloc(
+                pool, (size_t)elem->length * sizeof(InlineStyleTextChunk));
+            if (chunks || elem->length == 0) {
+                size_t chunk_count = 0;
+                for (int64_t i = 0; i < elem->length; i++) {
+                    Item child_item = elem->items[i];
+                    if (get_type_id(child_item) != LMD_TYPE_STRING) continue;
+                    String* css_text = (String*)child_item.string_ptr;
+                    if (css_text && css_text->len > 0) {
+                        chunks[chunk_count++] = {css_text->chars, (size_t)css_text->len};
                     }
-                    parse_inline_style_chunks(engine, chunks, chunk_count,
-                        dom_find_element_for_source(dom_root, elem), base_path, pool,
-                        stylesheets, count, capacity);
                 }
+                parse_inline_style_chunks(engine, chunks, chunk_count,
+                    dom_find_element_for_source(dom_root, elem), base_path, pool,
+                    stylesheets, count, capacity);
             }
         }
     }
@@ -1525,37 +1533,30 @@ void collect_inline_styles_from_dom(DomElement* elem, CssEngine* engine, const c
 
     // Check if this is a <style> element
     if (elem->tag_name && str_icmp_cstr(elem->tag_name, "style") == 0) {
-        // Check disabled attribute — skip disabled stylesheets
-        if (!elem->has_attribute("disabled")) {
-            // Check media attribute
-            const char* media = elem->get_attribute("media");
-            if (!media || css_evaluate_media_query(engine, media)) {
-                size_t text_count = 0;
-                DomNode* child = elem->first_child;
-                while (child) {
-                    if (child->node_type == DOM_NODE_TEXT) {
-                        DomText* text_node = lam::dom_require_text(child);
-                        if (text_node->text && text_node->length > 0) text_count++;
-                    }
-                    child = child->next_sibling;
-                }
-                InlineStyleTextChunk* chunks = text_count
-                    ? (InlineStyleTextChunk*)pool_alloc(pool,
-                        text_count * sizeof(InlineStyleTextChunk)) : nullptr;
-                if (chunks || text_count == 0) {
-                    size_t chunk_count = 0;
-                    for (child = elem->first_child; child; child = child->next_sibling) {
-                        if (child->node_type != DOM_NODE_TEXT) continue;
-                        DomText* text_node = lam::dom_require_text(child);
-                        if (text_node->text && text_node->length > 0) {
-                            chunks[chunk_count++] = {text_node->text, text_node->length};
-                        }
-                    }
-                    parse_inline_style_chunks(engine, chunks, chunk_count, elem, base_path,
-                        pool, stylesheets, count, capacity);
-                }
+        size_t text_count = 0;
+        DomNode* child = elem->first_child;
+        while (child) {
+            if (child->node_type == DOM_NODE_TEXT) {
+                DomText* text_node = lam::dom_require_text(child);
+                if (text_node->text && text_node->length > 0) text_count++;
+            }
+            child = child->next_sibling;
         }
-    }
+        InlineStyleTextChunk* chunks = text_count
+            ? (InlineStyleTextChunk*)pool_alloc(pool,
+                text_count * sizeof(InlineStyleTextChunk)) : nullptr;
+        if (chunks || text_count == 0) {
+            size_t chunk_count = 0;
+            for (child = elem->first_child; child; child = child->next_sibling) {
+                if (child->node_type != DOM_NODE_TEXT) continue;
+                DomText* text_node = lam::dom_require_text(child);
+                if (text_node->text && text_node->length > 0) {
+                    chunks[chunk_count++] = {text_node->text, text_node->length};
+                }
+            }
+            parse_inline_style_chunks(engine, chunks, chunk_count, elem, base_path,
+                pool, stylesheets, count, capacity);
+        }
     }
 
     // Recursively process children
@@ -2148,18 +2149,6 @@ DocumentJsHostConfig document_js_host_config_inherit(UiContext* uicon,
     return config;
 }
 
-// HTML §4.8.5: the sandbox attribute is a set of space-separated tokens
-static bool frame_sandbox_has_token(const char* tokens, const char* token) {
-    size_t length = strlen(token);
-    for (const char* p = tokens; *p;) {
-        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\f' || *p == '\r') p++;
-        const char* start = p;
-        while (*p && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\f' && *p != '\r') p++;
-        if ((size_t)(p - start) == length && strncasecmp(start, token, length) == 0) return true;
-    }
-    return false;
-}
-
 DocumentJsHostConfig document_js_host_config_for_frame(UiContext* uicon,
                                                        const DomDocument* source,
                                                        DomElement* frame) {
@@ -2169,7 +2158,7 @@ DocumentJsHostConfig document_js_host_config_for_frame(UiContext* uicon,
         // MQ11: a sandboxed frame loads script-free until Lambda implements
         // sandboxing; no token re-enables scripts yet
         config.scripting_disabled = true;
-        if (frame_sandbox_has_token(sandbox, "allow-scripts")) {
+        if (radiant_html_has_token(sandbox, "allow-scripts")) {
             log_info("frame sandbox: allow-scripts is not honoured yet; the frame's scripts stay off");
         }
     }
@@ -5960,44 +5949,6 @@ static char* generate_output_path(const char* input_file, const char* output_dir
     return output_path;
 }
 
-static int layout_resource_wait_timeout_ms() {
-    const char* env = getenv("RADIANT_LAYOUT_RESOURCE_TIMEOUT_MS");
-    if (env && env[0]) {
-        char* end = nullptr;
-        long parsed = strtol(env, &end, 10);
-        if (end != env && parsed >= 0) {
-            if (parsed > 5000) return 5000;
-            return (int)parsed; // INT_CAST_OK: bounded millisecond timeout.
-        }
-    }
-    return 1000;
-}
-
-static void layout_wait_for_network_resources(DomDocument* doc) {
-    if (!doc || !doc->resource_manager) return;
-
-    int waited_ms = 0;
-    const int poll_ms = 10;
-    int timeout_ms = layout_resource_wait_timeout_ms();
-    while (timeout_ms > 0 && waited_ms < timeout_ms &&
-           !resource_manager_is_fully_loaded(doc->resource_manager)) {
-        resource_manager_flush_layout_updates(doc->resource_manager);
-#ifndef _WIN32
-        usleep((useconds_t)poll_ms * 1000);
-#endif
-        waited_ms += poll_ms;
-    }
-    resource_manager_flush_layout_updates(doc->resource_manager);
-
-    int total_resources = 0;
-    int completed_resources = 0;
-    int failed_resources = 0;
-    resource_manager_get_stats(doc->resource_manager, &total_resources,
-                               &completed_resources, &failed_resources);
-    log_info("[Layout] Network resources total=%d completed=%d failed=%d waited=%dms",
-             total_resources, completed_resources, failed_resources, waited_ms);
-}
-
 static bool layout_doc_has_remote_font_face(DomDocument* doc) {
     if (!doc || !doc->stylesheets || doc->stylesheet_count <= 0) return false;
 
@@ -6023,9 +5974,7 @@ static EnhancedFileCache* layout_prepare_network_resources(UiContext* ui_context
     // Remote HTML now creates its manager during loader-stage dependency
     // discovery; do not replace that request/cache identity before layout.
     if (doc->resource_manager) {
-        resource_manager_set_ui_context(doc->resource_manager, ui_context);
-        radiant_discover_document_font_resources(doc);
-        layout_wait_for_network_resources(doc);
+        radiant_prepare_snapshot_resources(ui_context, doc);
         return nullptr;
     }
     if (!layout_doc_has_remote_font_face(doc)) return nullptr;
@@ -6046,10 +5995,7 @@ static EnhancedFileCache* layout_prepare_network_resources(UiContext* ui_context
         return nullptr;
     }
 
-    resource_manager_set_ui_context(doc->resource_manager, ui_context);
-    radiant_discover_document_font_resources(doc);
-
-    layout_wait_for_network_resources(doc);
+    radiant_prepare_snapshot_resources(ui_context, doc);
     return file_cache;
 }
 

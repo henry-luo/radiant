@@ -292,9 +292,12 @@ static CssValue* css_compute_registered_dimension(Pool* pool, DomElement* owner,
         CssUnit canonical = CSS_UNIT_PX;
         bool resolved = css_dimension_to_canonical(unit, amount, &canonical, &pixels);
         if (!resolved && owner && owner->doc) {
-            resolved = css_viewport_length_to_px(unit, amount, owner->doc->viewport.width,
-                owner->doc->viewport.height, owner->blk && owner->block()->writing_mode != WM_HORIZONTAL_TB,
-                &pixels);
+            CssEngine* engine = (CssEngine*)owner->doc->services.cached_css_engine;
+            // registered lengths share the active CSS environment with ordinary
+            // viewport units, rather than the document's raw mobile meta hints.
+            if (engine) resolved = css_viewport_length_to_px(unit, amount,
+                engine->context.viewport_width, engine->context.viewport_height,
+                owner->blk && owner->block()->writing_mode != WM_HORIZONTAL_TB, &pixels);
         }
         if (!resolved && (unit == CSS_UNIT_EM || unit == CSS_UNIT_REM) && owner) {
             DomElement* basis = owner;

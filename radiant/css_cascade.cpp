@@ -15,6 +15,13 @@
 __attribute__((weak)) void state_configure_selector_matcher(
         DocState* /*state*/, SelectorMatcher* /*matcher*/) {}
 
+static bool cascade_stylesheet_is_active(CssStylesheet* sheet, CssEngine* engine,
+                                         bool include_import_child = false) {
+    // owner media remains live when an associated sheet is retained across attribute changes.
+    return sheet && !sheet->disabled && (include_import_child || !sheet->is_import_child) &&
+        (!sheet->media || !*sheet->media || css_evaluate_media_query(engine, sheet->media));
+}
+
 typedef struct CssLayerNode {
     const char* name;
     struct CssLayerNode* first_child;
@@ -167,7 +174,7 @@ static void css_layer_rank_stylesheets(DomDocument* doc,
     registry.valid = true;
     for (int i = 0; i < count; i++) {
         CssStylesheet* sheet = stylesheets[i];
-        if (!sheet || sheet->disabled || sheet->is_import_child) continue;
+        if (!cascade_stylesheet_is_active(sheet, engine)) continue;
         for (size_t j = 0; j < sheet->rule_count; j++) {
             css_layer_collect_rule(&registry, sheet->rules[j], nullptr, engine);
         }
@@ -666,10 +673,6 @@ static void apply_active_rules_to_tree(DomElement* root, CssRule** rules,
     }
 }
 
-static bool cascade_stylesheet_is_active(CssStylesheet* sheet, bool include_import_child) {
-    return sheet && !sheet->disabled && (include_import_child || !sheet->is_import_child);
-}
-
 static void apply_stylesheets_reference_to_tree(DomElement* root,
                                                CssStylesheet** sheets, int sheet_count,
                                                SelectorMatcher* matcher,
@@ -681,7 +684,7 @@ static void apply_stylesheets_reference_to_tree(DomElement* root,
     if (!root->is_synthetic()) {
         for (int sheet = 0; sheet < sheet_count; sheet++) {
             CssStylesheet* stylesheet = sheets[sheet];
-            if (!cascade_stylesheet_is_active(stylesheet, include_import_child)) continue;
+            if (!cascade_stylesheet_is_active(stylesheet, engine, include_import_child)) continue;
             for (size_t i = 0; i < stylesheet->rule_count; i++) {
                 apply_rule_to_element_with_nested(root, stylesheet->rules[i], matcher,
                                                    pool, engine, 0);
@@ -704,7 +707,7 @@ static void apply_stylesheets_to_tree(DomElement* root, CssStylesheet** sheets, 
     size_t count = 0;
     for (int sheet = 0; sheet < sheet_count; sheet++) {
         CssStylesheet* stylesheet = sheets[sheet];
-        if (!cascade_stylesheet_is_active(stylesheet, include_import_child)) continue;
+        if (!cascade_stylesheet_is_active(stylesheet, engine, include_import_child)) continue;
         for (size_t i = 0; i < stylesheet->rule_count; i++) {
             count += active_rule_count(stylesheet->rules[i], engine);
         }
@@ -729,7 +732,7 @@ static void apply_stylesheets_to_tree(DomElement* root, CssStylesheet** sheets, 
     size_t written = 0;
     for (int sheet = 0; sheet < sheet_count; sheet++) {
         CssStylesheet* stylesheet = sheets[sheet];
-        if (!cascade_stylesheet_is_active(stylesheet, include_import_child)) continue;
+        if (!cascade_stylesheet_is_active(stylesheet, engine, include_import_child)) continue;
         for (size_t i = 0; i < stylesheet->rule_count; i++) {
             active_rule_collect(stylesheet->rules[i], engine, rules, count, &written);
         }
@@ -746,7 +749,7 @@ void radiant_apply_css_stylesheet_to_tree(DomElement* root,
                                           CssStylesheet* stylesheet,
                                           SelectorMatcher* matcher, Pool* pool,
                                           CssEngine* engine) {
-    if (!root || !stylesheet || stylesheet->disabled || stylesheet->rule_count == 0 ||
+    if (!root || !cascade_stylesheet_is_active(stylesheet, engine, true) || stylesheet->rule_count == 0 ||
         !matcher || !pool || !engine) {
         return;
     }
@@ -845,7 +848,7 @@ void radiant_cascade_styles_for_element_with_matcher(DomElement* element,
 
     for (int i = 0; i < doc->stylesheet_count; i++) {
         CssStylesheet* stylesheet = doc->stylesheets[i];
-        if (!stylesheet || stylesheet->disabled || stylesheet->is_import_child) continue;
+        if (!cascade_stylesheet_is_active(stylesheet, engine)) continue;
         for (size_t j = 0; j < stylesheet->rule_count; j++) {
             CssRule* rule = stylesheet->rules[j];
             if (rule) apply_rule_to_element(element, rule, matcher, pool, engine);

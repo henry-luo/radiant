@@ -7904,6 +7904,20 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
     float default_width = 0.0f;
     float default_height = 0.0f;
     layout_replaced_default_size(elmt_name, &default_width, &default_height);
+    if (elmt_name == MARKUP_NAME_VIDEO) {
+        ReplacedIntrinsicFacts facts = layout_replaced_intrinsic_facts(lycon, block);
+        // use ready media metadata before the generic 300x150 fallback becomes a given size.
+        layout_replaced_default_object_size(&facts, default_width, default_height,
+                                            &default_width, &default_height);
+        if (lycon->block.given_width < 0.0f && lycon->block.given_height < 0.0f &&
+            facts.has_natural_width && facts.has_natural_height) {
+            ReplacedSizeConstraints constraints = layout_replaced_size_constraints(block,
+                NAN, NAN, layout_used_preferred_aspect_ratio(block),
+                layout_aspect_ratio_uses_content_box(block));
+            layout_replaced_content_size(&facts, &constraints, default_width,
+                                          &default_width, &default_height);
+        }
+    }
     if (elmt_name == MARKUP_NAME_IFRAME || elmt_name == MARKUP_NAME_VIDEO ||
         is_open_popover_object ||
         object_uses_default_size) {

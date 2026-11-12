@@ -2540,6 +2540,14 @@ Color resolve_color_value(LayoutContext* lycon, const CssValue* value) {
     return resolve_color_using_current(lycon, value, get_current_color(lycon));
 }
 
+static Color resolve_background_color(LayoutContext* context, const CssValue* value) {
+    if (css_value_keyword_equals(value, CSS_VALUE_INHERIT)) return inherit_background_color(context);
+    // background-color is non-inherited and initially transparent; wide reset
+    // keywords are not colors and must not enter the generic black fallback.
+    if (!value || css_value_is_global_keyword(value)) return Color{};
+    return resolve_color_value(context, value);
+}
+
 // Get the CSS currentColor value for the element being styled.
 // Since 'color' may not be resolved yet on the current element (border properties
 Color get_current_color_for_view(ViewSpan* span) {
@@ -8098,8 +8106,7 @@ static bool compute_background_winners(LayoutContext* context,
         color_value = background_shorthand_parts(
             background_list_item(color_value, background_list_count(color_value) - 1)).color;
     result->color = !color.declaration && previous ? previous->color
-        : css_value_keyword_equals(color_value, CSS_VALUE_INHERIT) ? inherit_background_color(context)
-        : color_value ? resolve_color_value(context, color_value) : Color{};
+        : resolve_background_color(context, color_value);
     return true;
 }
 
@@ -9321,12 +9328,7 @@ void css_apply_computed_property(CssPropertyCode prop_id,
             if (shorthand_overrides_longhand(
                     lycon, CSS_PROPERTY_BACKGROUND, decl)) break;
             layout_ensure_background(lycon, span);
-            if (value->type == CSS_VALUE_TYPE_KEYWORD &&
-                value->data.keyword == CSS_VALUE_INHERIT) {
-                span->boundary_mut()->background->color = inherit_background_color(lycon);
-                break;
-            }
-            span->boundary_mut()->background->color = resolve_color_value(lycon, value);
+            span->boundary_mut()->background->color = resolve_background_color(lycon, value);
             break;
         }
         case CSS_PROPERTY_BACKGROUND_IMAGE:

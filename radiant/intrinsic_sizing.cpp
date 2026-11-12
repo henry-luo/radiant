@@ -205,6 +205,10 @@ static float intrinsic_element_preferred_aspect_ratio(ViewBlock* view) {
 float layout_used_preferred_aspect_ratio(ViewBlock* block) {
     float specified_ratio = layout_preferred_aspect_ratio(block);
     if (!block) return specified_ratio;
+    // size containment substitutes both natural axes; the poster's ratio cannot override them.
+    if (block->tag() == MARKUP_NAME_VIDEO &&
+        layout_block_has_size_containment_in_axis(block, true) &&
+        layout_block_has_size_containment_in_axis(block, false)) return specified_ratio;
 
     bool uses_content_box_ratio = layout_aspect_ratio_uses_content_box(block);
     ReplacedIntrinsicFacts facts = layout_replaced_intrinsic_facts(nullptr, block);
