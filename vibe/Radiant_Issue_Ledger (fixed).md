@@ -14,6 +14,361 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-055"></a>
+
+### RI-055 — Paint engine lacks the M3 wet-media kernels
+
+**Status:** FIXED, 2026-11-12. Native ownership: **D9.1.1v4 / D9.1.3v2**; engine contract: PE9.
+
+Initially the paint engine had no `paint_wet_layout`, `paint_wet_step`, or
+`paint_wet_deposit` implementation. PE9 calls for a caller-owned planar sheet,
+in-place Curtis steps, activity bounds, and transfer into pigment tiles. At the initial report Lambda could not connect the native watercolor path or
+establish parity and the 512-by-512 step budget without those kernels and their API.
+This is an unimplemented milestone, not a diagnosed defect in existing kernels.
+
+Reproduce from Lambda-opus: inspect `../radiant/radiant/paint/` and run
+`rg -n 'wet_step|wet_deposit|PaintWet|wet_layout' ../radiant/radiant/paint`;
+at the initial report there were no matches. `lmd/package/procart/watercolor.ls` supplies the 21-plane
+reference and `vibe/Lambda_Pkg_Paint.md` section 6 gives M3 acceptance: parity,
+the wet-step budget, and the unchanged procart watercolor demo on the native
+step. Implement and test the kernels in Radiant, then expose the owner-defined
+interface through Lambda's adapter and validate those acceptance cases.
+
+Continuation: the user authorized Radiant changes. `paint_wet_step` now has a
+three-pigment, caller-owned 21-plane implementation with validation and focused
+native tests. A ten-step, 40-by-32 two-pigment comparison against the Lambda
+reference differed by at most 1.2e-7 across the planes; this is a focused
+check, not full M3 qualification. The continuation now adds dry-to-pigment
+transfer and Lambda adapters for both f32 and float64 sheets. An 80-step
+reference comparison passes on the three Lambda tiers with forced GC, and five
+30-step runs against a pinned release archive give medians of 6.04 ms (f32)
+and 6.98 ms (float64) for a fully active 512 x 512 sheet. The watercolor replay
+passes 64/65; its one mobile layout assertion fails identically with the original
+Lambda step. At that checkpoint the wet layout was still fixed to three pigments; the
+continuation below resolves that engine limitation. Evidence: Lambda-opus `temp/paint_m3/`.
+
+Resolution: `paint_wet_layout` now describes 1–4,096 pigments with `12 + 3M`
+planes, and the shared f32/float64 kernels step, track activity, dry and transfer
+every pigment. The bridge checks table/shape agreement and charges work by count.
+Native tests cover one, four and seven pigments, the last pigment's activity and
+drying, span rejection and transfer; a 4,096-pigment Lambda probe passes. The
+three-pigment outputs remain byte-identical to the prior implementation in six
+checked cases. A source-matched isolated release archive passes 36 native paint
+tests and the 512 x 512 wet budget (6.79 ms f32, 7.47 ms float64 locally).
+Lambda's isolated baseline passes 7,457/7,457 and Test262 passes 40,261/40,261;
+five wet fixtures pass on three tiers under forced GC. Both the native-step and
+reference-step watercolor replays still fail the same one mobile layout assertion
+(64/65 each); its ownership is unconfirmed and it is not claimed as fixed here.
+Evidence: Lambda-opus `temp/paint_m3_general/`.
+
+<a id="ri-054"></a>
+
+### RI-054 — Owner-held font fixture lookup under Lambda integration
+
+**Status:** FIXED, 2026-11-12. Ownership: **D9.1.1v4 / D9.1.3v2**.
+`radiant_test_fixture_path` chose Lambda's `test/fixtures` merely because the
+directory existed, even when the requested `fonts/cmunrm.woff2` belonged to
+Radiant. This made `FontMetricTest.RasterPreservesNativeGrayscaleCoverage` fail
+with a null loaded font. The shared helper now tests the requested local file
+before resolving the owner-held fixture; isolated runs use `RADIANT_ROOT`.
+The same font test fails before and passes after correction. Native metric
+expectations and grayscale comparisons are unchanged. Evidence in Lambda-opus:
+`temp/paged-p7-integration/{paged.xml,updated-focused.xml,paged-final.xml}`.
+
+
+<a id="ri-053"></a>
+
+### RI-053 — Historical P7 comparison artifacts are unavailable in the current checkouts
+
+**Status:** CLOSED by explicit user waiver, 2026-11-12. Native ownership:
+D9.1.1v4 / D9.1.3v2. No layout ruling changes.
+
+The historical P7 record in Lambda's `vibe/impl/Radiant_Impl_Paged_Integration.md`
+requires the archived 113-input source inventory, release executables/receipts,
+PNG controls and source-size snapshot under `temp/paged_release/`. That directory
+and its qualification/source-size/raster scripts or archives are absent from the
+available Radiant, Lambda and Lambda-opus temp trees. The source commit
+`1a9921fe9` still exists in Lambda history, but the generated input hashes and
+exact captured artifact set are unavailable. A source reconstruction alone must
+not be reported as a replay of the original measured corpus.
+
+Reproduction: from Radiant, inspect `temp/paged_release/`,
+`../Lambda/temp/paged_release/` and `../Lambda-opus/temp/paged_release/`, then
+search the three temp inventories for `paged*qualification.json`,
+`paged*source_sizes.json`, `qualify.py`, `raster_controls.py` and paged archives.
+The required historical set is not present. Cause of its loss is **unconfirmed**.
+
+On 2026-11-12 the user confirmed that the archive location is unknown and
+instructed us to assume it is deleted/lost and ignore its replay. This closes
+the missing-artifact blocker by waiver; it does not make the old raster,
+performance or source-reduction comparisons pass. Fresh source/core-fidelity
+receipts under Radiant's `temp/paged-core-*` establish the current scope.
+`scripts/qualify_paged.py` records the waiver separately from its current gates.
+No reference results or historical measurements are reset.
+
+
+<a id="online-visual-review-20261112"></a>
+
+### Online visual qualification — 2026-11-12
+
+RI-022 and RI-024–RI-027: 68 native dynamic layout tests, the document activation
+regression, 38 StyleEpoch tests and 11 owner input-value tests pass (118 focused
+cases). Online tools pass 14 checks. The aggregate Radiant gate retains the
+existing JS03-L2 forced-GC iframe failure: 8,163 pass, 299 partial, 20 skip,
+one fail. The final CSS images suite passes all 56 cases, including size
+containment of video posters. No references, URLs, deadlines or comparison
+thresholds changed. Evidence and the full comparison are under Lambda
+`temp/online-visual-round2/` (`radiant-baseline-qualified.log`).
+
+<a id="ri-027"></a>
+
+### RI-027 — Mobile viewport metadata shrinks desktop layout independently of its host
+
+**Status:** FIXED, 2026-11-12.
+**Lambda task blocker:** no. Ownership: **D9.1.1v4 / D9.1.3v2**; scale axes
+remain distinct under the scale design's **RSC6/RSC7**.
+
+Cap'n Proto declares `width=480`. A 1200×800 desktop capture keeps a1200-pixel
+surface and JS window but uses 480 pixels for the native root and CSS media
+queries, leaving a large dark region. Chromium's desktop root is 1200 pixels.
+The cause is the direct use of raw mobile meta dimensions in `layout_init`,
+layout publication inputs and CSS media setup.
+
+A shared host-viewport resolver now supplies all three stages. Parsed metadata
+remains available, while desktop layout follows the host's CSS viewport.
+Registered viewport-unit lengths also use that active CSS environment instead
+of raw meta hints. Native regression covers width480/height320 metadata,
+1200→800 host resize, CSS media queries, vw/vh, registered vw lengths and
+oversized2000×2000 metadata. It fails before and passes after repair. Mobile
+viewport adaptation/zoom remains outside this correction. Evidence: Lambda
+`temp/online-visual-round2/capnproto-tree.json`, `test-viewport-{before,after}.log`.
+
+Verification: see the [online visual qualification](#online-visual-review-20261112).
+
+
+<a id="ri-026"></a>
+
+### RI-026 — Background color resets paint opaque black
+
+**Status:** FIXED, 2026-11-12.
+**Lambda task blocker:** no. Ownership: **D9.1.1v4 / D9.1.3v2**.
+OCaml's documentation hero declares `background-color:initial` above its SVG
+background. Native layout sends that keyword to generic color conversion, whose
+invalid-color fallback is opaque black. `unset` fails in the same way. The
+background is non-inherited and its initial color is transparent:
+[CSS Backgrounds §2.2](https://drafts.csswg.org/css-backgrounds-3/#background-color),
+[CSS Cascade §7.3](https://drafts.csswg.org/css-cascade-5/#initial).
+
+A shared background-color resolver now handles wide reset keywords before
+generic color conversion in direct declarations and ordered background
+composition. Explicit inheritance remains intact, and a color reset retains
+the image layer. The reduced `background-initial.html` shows initial/unset alpha
+255 before the fix, versus alpha0 for authored transparent. Native regression
+`BackgroundColorWideKeywordsUseTransparentInitialValue` covers these cases,
+shorthand reset and inheritance. Evidence: Lambda `temp/online-visual-round2/`.
+
+Verification: see the [online visual qualification](#online-visual-review-20261112).
+
+
+<a id="ri-025"></a>
+
+### RI-025 — Headless exports never queue ordinary network image dependencies
+
+**Status:** FIXED, 2026-11-12.
+**Lambda task blocker:** no. Native ownership: **D9.1.1v4 / D9.1.3v2**;
+finite snapshot frame selection: **D10.1.7**.
+
+Loader-stage HTTP documents have a resource manager. `load_image_resource`
+correctly consumes only ready bytes during layout/paint, but export preparation
+never discovers ordinary `img` requests. Curl's main SVG logo is absent and
+laid out with fallback dimensions; DEBUG logs say `Network image not ready
+without blocking` with no corresponding request. The same logo and NOAA's photo
+decode/render correctly from local files. This is a missing integration step,
+not an unsupported image codec.
+
+`radiant_prepare_snapshot_resources` now queues selected image sources and
+external SVG uses before layout, binds the existing native resource manager,
+and shares the layout CLI's existing bounded wait with export. It delivers
+native completions without executing JS timers or advancing the virtual frame.
+No budget increases or synchronous HTTP fetches were added to layout/paint.
+The existing wait defaults to1000ms, with the existing 0–5000ms environment
+override. Slow/pending resources can still be absent; this is not a claim of
+full lazy-media/video support.
+
+Offline regression `ExportQueuesOrdinaryNetworkImagesBeforeInitialLayout`
+starts from a cached73×41 SVG available only through its HTTP request identity.
+Before repair it has fallback height16 and no image; after repair it has the
+correct natural geometry/image and virtual time0. The shared native image/use
+discovery walker is also reused by interactive resource discovery. Evidence:
+Lambda `temp/online-visual-round2/test-image-{before,after}.log`, `curl-debug.log`,
+`assets-test.png` and live probes.
+
+The followup also queues `video[poster]` as an opaque image dependency, without
+binding it to the video as an `img` owner. Video width/height hints now survive
+style resolution. When video metadata is unavailable, the existing replaced
+intrinsic facts use a ready poster's natural dimensions before assigning the
+generic 300×150 fallback. Automatic axes use the existing replaced-size
+constraint solver so a maximum height scales the width with it. Size containment
+keeps its substituted dimensions and suppresses the poster's natural ratio.
+The cached-SVG export regression covers ordinary images, authored video sizes,
+automatic poster sizes, max-height and containment. Automatic video size fails
+before with 300×150 and passes after with 73×41. This is the existing poster
+and intrinsic-sizing path; it does not implement video timeline parity.
+
+
+Verification: see the [online visual qualification](#online-visual-review-20261112).
+
+
+<a id="ri-024"></a>
+
+### RI-024 — Multi-keyword link relations omit entire stylesheets
+
+**Status:** FIXED, 2026-11-12.
+**Lambda task blocker:** no. Native ownership: **D9.1.1v4 / D9.1.3v2**.
+`vite_docs` and `rollup_docs` use `rel="preload stylesheet"`. Initial CSS
+prefetch, linked-sheet loading and dynamic resource discovery compared `rel`
+against the complete string `stylesheet`, omitting these sheets. Vite's banner
+image consequently expands across the unstyled document. The HTML link relation
+is a set of case-insensitive ASCII-whitespace-separated keywords:
+[HTML links](https://html.spec.whatwg.org/multipage/links.html#linkTypes).
+
+Promoted the existing sandbox token walker to `radiant_html_has_token` and
+reused it in all three paths. The newly recognized titled alternate sheets stay
+loaded but initially disabled; existing CSSOM can enable them. Native focused
+regressions pass for keyword boundaries, case, HTML whitespace (excluding VT),
+actual stylesheet application, and alternate activation. Live Vite/Rollup
+captures now retain their document CSS. Qualification and residual details are
+under Lambda `temp/online-visual-round2/`.
+
+Verification: see the [online visual qualification](#online-visual-review-20261112).
+
+
+<a id="ri-022"></a>
+
+### RI-022 — Downloaded dynamic stylesheets lose their link media condition
+
+**Status:** FIXED for the confirmed sheet activation defects, 2026-11-12. **Lambda task blocker:** no; this affects one
+remaining large-difference class. Native ownership: **D9.1.1v4 / D9.1.3v2**.
+
+`lambda.exe render https://webassembly.org/ -o temp/online-visual/wasm.png
+-vw 1200 -vh 800` can export the dark stylesheet despite light media preferences.
+The site writes both theme links from a `noscript` template. Their `media`
+attributes select mutually exclusive color schemes. `process_css_resource` in
+`radiant/resource_loaders.cpp` parses completed dynamic CSS and assigns its owner,
+but leaves `CssStylesheet::media` null. Both sheets can enter the cascade, making
+the result depend on loading. The initial linked-sheet collector already checks
+media; the asynchronous completion path does not. The native cause is confirmed;
+additional custom-element behavior on this site is not qualified.
+
+Evidence in Lambda: `temp/online-visual/webassembly.html`, the preserved
+`refreshed-before/webassembly-lambda.png`, and
+`probes/webassembly.png` plus its log. Expected: retain the link's media
+condition on the associated sheet and evaluate it with the shared CSS engine.
+Do not force a particular theme or choose sheets by their filenames.
+The selection requirement is also stated in the
+[HTML link media processing rules](https://html.spec.whatwg.org/multipage/semantics.html#processing-the-media-attribute).
+
+Implemented the completion-path correction: copy the owner's media query into
+the document pool and initialize its disabled flag before appending the sheet.
+The native `DownloadedStylesheetsRespectLinkMediaAndDisabledState` regression
+covers completed/cached downloads and active/inactive/disabled sheets; the full
+11-case input-value suite passes. Three final WebAssembly.org captures still
+select dark, so this site is not claimed fixed. Its custom element changes
+media and disabled state during loading; the remaining association/mutation
+cause is unconfirmed. Evidence: `temp/online-visual/wasm-final-{0,1,2}/`.
+The separately built pristine-current-source control produces the identical
+61.45% mean error against the browser image (`pristine-wasm/webassembly.png`),
+so this remaining mismatch is not introduced by the three repairs.
+
+**Confirmed followup and repair (second review):** `link.media` and `style.media`
+were absent from IDL reflection; `link.disabled` used the style element's
+sheet-only setter and lost pending-link state. Associated sheets did not receive
+owner attribute edits. Lambda's shared CSSOM owner-attribute hook now updates
+the retained sheet condition/disabled state, invalidates it, and preserves
+unrelated CSSOM state. Initial and dynamically parsed inactive sheets remain
+associated with their media conditions instead of being discarded.
+
+The native fast, reference, layer-rank and single-element cascade paths also
+ignored root-sheet media; they now share an active-sheet predicate. The new
+`StylesheetOwnerMediaAndPendingDisabledRetainTheirAttributes` integration test
+fails before and passes after (pending-link booleans, media on/off, attribute
+set/remove, immediate computed style and sheet identity). The final
+WebAssembly.org capture selects light: mean color error 61.4%→0.6%. Its shadow
+control rendering remains partial under Lambda JS13-L2. The earlier unconfirmed
+association/mutation cause above is now resolved; WASM execution was not the
+cause of this theme mismatch. HTMLLinkElement's disabled IDL is reflected,
+whereas HTMLStyleElement's disabled IDL controls its associated sheet:
+[HTML link/style interfaces](https://html.spec.whatwg.org/multipage/semantics.html#the-link-element).
+
+
+Verification: see the [online visual qualification](#online-visual-review-20261112).
+
+
+<a id="ri-021"></a>
+
+### RI-021 — Grid placement declarations suppress actual flex items
+
+**Status:** FIXED, 2026-11-12.
+**Lambda task blocker:** no. Computed/view storage follows **D5.5.1**;
+native ownership follows **D9.1.1v4 / D9.1.3v2**.
+
+Chrome, Firebase, Google Cloud and web.dev documentation pages wrap ordinary
+description text into tiny columns or give it zero-sized boxes. A local
+reduction requires a column flex parent and a child with `grid-area: content`.
+Resolving the declaration provisionally allocates the parent-item union's grid
+arm. Flex initialization refuses to overwrite that arm, so the flex algorithm
+cannot size the item. The property's declaration order incorrectly determines
+participation in its parent's formatting context.
+
+`layout_set_parent_item_kind` now releases the provisional owning prop, adopts
+the actual parent role and invalidates the computed storage before applying
+its CSS again. Flex and grid initialization share this transition. It also
+replaces grid's previous discriminant-only conversion, which abandoned the
+old owning prop. The authored CSS remains in the cascade; no grid declarations
+are removed to match a page. Native regressions cover text geometry and four
+flex/grid parent switches. All 63 dynamic-layout checks and integer-cast lint
+pass. The reduced Chrome description grows from zero to the browser's 564px.
+Both aggregate integration runs have 8,163 passes, 299 partials, 20 skips and
+one existing forced-GC iframe failure (Lambda JS03-L2). A separate pristine
+current-source host reproduces that failure 3/3, as does the repaired host.
+The gate remains red; its failure is not suppressed. Broader live recapture
+is recorded in the Lambda online-visual checkpoint.
+
+Evidence in Lambda: `temp/online-visual/min-rules.json`, `prop-no_area.json`,
+`chrome-static-fixed.json`, `test-root-causes.log`, and `test-dynamic-all.log`.
+
+<a id="ri-020"></a>
+
+### RI-020 — An initially disabled linked theme participates in the cascade
+
+**Status:** FIXED, 2026-11-12.
+**Lambda task blocker:** no. Native ownership: **D9.1.1v4 / D9.1.3v2**.
+
+Chrome documentation links its dark theme with the boolean `disabled`
+attribute. `collect_stylesheets_in_document_order` loaded the sheet but did not
+initialize its existing `disabled` flag, so its dark declarations replaced the
+active light theme. Firebase, Cloud and web.dev share this failure.
+
+The collector now retains the sheet for CSSOM access while marking the root
+sheet disabled. Its imports stay inactive through the existing sheet-tree
+traversal. Native tests cover the empty boolean attribute, `disabled='false'`,
+imported rules and enabling/disabling the retained sheet across recascades.
+All focused and neighboring native tests pass. Aggregate qualification has
+the same existing iframe failure documented above under RI-021.
+The minimal before fixture incorrectly gives a light page a dark
+background and changes a 600px block to 8px. Evidence in Lambda:
+`temp/online-visual/disabled-before.json` and `test-root-causes.log`.
+
+Live before/after coarse mean image error against the unchanged Chromium image:
+Chrome 79.5%→7.3%, Firebase 75.8%→1.5%, Cloud 67.1%→4.1%, web.dev 57.0%→6.0%.
+These improvements combine RI-020 and RI-021; remaining icon/image details are
+outside the major-difference milestone.
+
+Verification evidence: `../../lambda/temp/online-visual/radiant-baseline-final.log`,
+`test-dynamic-all.log`, `test-media-final-all.log`, `layout-lint.log` and
+`pristine-build.py`. The online comparison scripts and saved before/after
+images retain the remaining differences; none are filtered out to qualify these repairs.
+
 <a id="ri-018"></a>
 
 ### RI-018 — Online exports exhaust memory before viewport PNG encoding
@@ -1277,3 +1632,628 @@ failing native clip report remains in `temp/ledger-next-clip-before.{json,log}`.
 **`radiant_frame_clock_start` has dead trailing statements.** The `#else` fallthrough stores `running = 0` and returns `false`, but the two statements after the `#endif` (`frame_clock.cpp:369`-`370`) are unreachable on every platform — harmless but confusing.
 
 **Resolved (2026-11-11):** removed the shared trailing store/return after the platform selection. The macOS defensive mode rejection remains inside its own branch, and all branches now return explicitly. Native animation/scheduler regressions remain in the aggregate gate. See the [implementation record](Radiant_Impl_Ledger_Clip_Defaults.md#rad16-5--frame-clock-control-flow). Authority: **D9.1.1v4 / D9.1.3v2**.
+
+<a id="ri-028"></a>
+
+### RI-028 — Auto-height flex columns shrink natural content to their minimum
+
+**Status:** FIXED, 2026-11-12. **Lambda blocker:** cleared for the reduced
+ImageMagick header. Ownership **D9.1.1v4 / D9.1.3v2**. ImageMagick uses a column
+body with `min-height:100vh` and an overflow-hidden hero. The initialization
+used that minimum as available main size before natural line sizing. Flex
+shrink then reduced the hero to its padding and clipped its heading/actions.
+A reduced 800px-minimum column shrank a 340px header to 40px and a 100px footer
+to 0px despite 1000px of main content; the auto container should grow to 1440px.
+
+The existing natural column-size pass now selects the larger of the minimum
+used size and natural hypothetical lines when the main size is not definite.
+A new regression fails before and passes after, including short-content
+minimum/growth controls. All 69 native dynamic tests pass; all 3851 recorded
+static layout baselines pass with 6 skips and no changed tolerances. The layout
+integer-cast lint passes. The repaired offline full ImageMagick document's
+hero grows from 105px to 604.4px; exact font/spacing parity is not claimed.
+Evidence: Lambda `temp/online-visual-round3/{flex-before.log,dynamic-after.log,
+baseline-layout.log,imagemagick-local.json,imagemagick-after.json}`.
+
+
+<a id="ri-030"></a>
+
+### RI-030 — Grid row growth leaves stale scroll clips that hide item contents
+
+**Status:** FIXED for the isolated defect, 2026-11-12. **Lambda blocker:**
+cleared for the reduced paint case; full DigitalOcean content remains under
+investigation. Ownership **D9.1.1v4 / D9.1.3v2**. DigitalOcean's missing content
+led to a small two-row grid reproduction: an overflow-auto main item has final
+height 1400px, but `setup_scroller` clips its children at a cached height 0px.
+An adjacent sidebar's cached clip is 18px while its final used height is 800px.
+`layout_final_grid_content` published scroll bounds before content-driven row
+growth and final alignment changed those used boxes.
+
+The existing publication now runs after row growth/alignment, before sticky
+positioning. No new clip implementation or page-specific rule was added.
+`GridScrollBoundsUseFinalContentGrownRows` fails before on both stale-state
+assertions and passes after; the reduced PNG's interior pixel changes from
+parent yellow to child red. All 70 native dynamic tests and all 3851 recorded
+static layout baselines pass (6 skips); integer-cast lint passes. The full
+DigitalOcean offline page still loses main content after this repair, so this
+entry does not claim its entire visual mismatch is solved.
+Evidence: Lambda `temp/online-visual-round3/{grid-before.log,dynamic-grid-after.log,
+baseline-grid.log,grid-scroll.html,grid-scroll.png,grid-scroll-after.png,
+do-after-debug.log}`. The final 142 grid-using candidates are refreshed separately.
+
+<a id="ri-032"></a>
+
+### RI-032 — Flex SVG automatic cross sizes ignore the flexed main size
+
+**Status:** FIXED, 2026-11-12. **Lambda blocker:** cleared for the reduced
+Opus announcement. Native layout ownership follows **D9.1.1v4 / D9.1.3v2**.
+An SVG with `viewBox="0 0 20 20"` and CSS `width:14px` inside a flex row
+receives a provisional intrinsic height of 1,184px from available space.
+Cross-size finalization used only authored aspect ratios, so it never
+transferred the SVG's natural ratio from the final 14px main size. The icon
+made the announcement 1,200px tall and pushed the hero below the viewport.
+
+Finalization now uses the existing preferred/natural ratio query and existing
+border/content-box transfer helper. The regression fails before and passes
+after for physical/logical widths, non-square viewBoxes, padding/borders,
+explicit independent height and width mutation. The full static Opus document
+now has a 32.8px announcement and its main begins at 101.8px, rather than an
+announcement above 1,100px. This does not add a new SVG feature or page rule.
+
+Qualification: all 73 dynamic-layout tests pass; all 3,851 recorded static and
+630 JavaScript layout baselines pass (six static skips). Evidence: Lambda
+`temp/online-visual-round4/{svg-before.log,svg-after.log,dynamic-final.log,
+svg-physical.html,saas_landing_254-static-after.json,radiant-baseline.log}`.
+Online capture qualification is recorded separately in the round-four audit.
+
+<a id="ri-033"></a>
+
+### RI-033 — Propagated body backgrounds cover negative stacking layers
+
+**Status:** FIXED for the isolated ordering defect, 2026-11-12.
+**Lambda blocker:** cleared for the reduced Vogelhaus sky. Ownership
+**D9.1.1v4 / D9.1.3v2**. The renderer selected the body background as the canvas
+background, then painted it again during the ordinary body boundary visit.
+Root negative-z descendants were already painted, so the repeated body fill
+covered the hero's gradient and made white text disappear. CSS Backgrounds 3
+§2.11.2 gives a propagated body's background its transparent initial used value.
+
+The shared background-source walk now records that selected source during the
+root boundary visit and suppresses its later body visit. Both paint drivers
+admit canvas recording when the root has no own background, and optimized
+boundary paths use the same source selection. Existing layer accessors and
+canvas selection moved to the lightweight boundary module to preserve native
+recorder test linkage; they were not copied or replaced by test stubs.
+Existing image positioning and the canvas viewport extension remain shared.
+
+The native pixel regression fails before and passes after for solid and
+gradient body sources and an explicit root-background control. It samples both
+a narrow negative layer and exposed canvas. All 73 dynamic tests pass, local
+PNG/SVG controls agree after headless-shell rasterization, and the unchanged
+`canvas_body_background` integration fixture passes all six assertions,
+including zero-height tiled body images and a later explicit root color.
+A local extension also passes all 12 assertions while changing body colors
+and restoring the image, checking retained canvas-source freshness.
+Containment and fragmented canvas backgrounds remain outside these checks.
+Evidence: Lambda `temp/online-visual-round4/{canvas-before.log,dynamic-final.log,
+export-controls.json,ui-canvas-final.log,canvas-body.html}`.
+Spec: https://www.w3.org/TR/css-backgrounds-3/#special-backgrounds
+
+<a id="ri-034"></a>
+
+### RI-034 — Positioned intrinsic sizing leaks its query mode to following blocks
+
+**Status:** FIXED, 2026-11-12. **Lambda blocker:** cleared for the reduced
+Vogelhaus width. Ownership **D9.1.1v4 / D9.1.3v2**. `layout_abs_block_internal`
+selects min/max-content available space for an intrinsically sized positioned
+box. Its public wrapper returned without restoring that state. A fixed
+`width:max-content` header therefore made a following ordinary block choose
+max-content width: 3,000px instead of its 1,200px containing width. Vogelhaus's
+archived main grew to 4,482px and centered the hero outside the viewport.
+
+The positioned wrapper now saves and restores the parent's available space.
+The regression fails before and passes after with fixed max-content,
+absolute min-content, a definite-size control and relayout. Overflowing child
+content keeps its 3,000px width, while both normal-flow siblings stay 1,200px.
+The archived full Vogelhaus main now stays 1,200px. All 73 native dynamic,
+3,851 recorded static and 630 JavaScript layout baselines pass (six skips).
+Evidence: Lambda `temp/online-visual-round4/{space-before.log,abs-space.html,
+abs-space-after.json,reduce-width-2.log,saas_landing_476-static-after.json,
+dynamic-final.log,radiant-baseline.log}`.
+
+
+<a id="ri-036"></a>
+
+### RI-036 — Nested column flex intrinsic heights omit main-axis gaps
+
+**Status:** FIXED, 2026-11-12. **Lambda blocker:** no. Ownership
+**D9.1.1v4 / D9.1.3v2**. `FlexIntrinsicAccumulator::add_width` counted only row
+children; the subsequent intrinsic contribution added only column gaps to row
+widths. Nested auto columns therefore omitted every row gap from their height,
+then an enclosing column shrank fixed-height contents to fit that underestimated
+budget. A reduced 736px hero, 6000px following section, 120px gap and 40px padding
+produced a 6776px page instead of 6896px and compressed the hero to 722.9px.
+
+Count contributions for either orientation and add the main-axis gap through
+`layout_flex_style_info`, reusing the existing style resolver. The regression
+`NestedColumnIntrinsicHeightIncludesMainAxisGaps` fails before repair and passes
+with both 120px and 40px gaps across recascade/relayout. All 77 dynamic-layout
+checks, 3851 static and 630 JavaScript layout cases pass (six static skips), as
+does layout integer-cast lint. Evidence: Lambda
+`temp/online-visual-round5/{gap-before.log,dynamic-final.log,craft-min.html}`.
+Craft's full-page residual is separately open as RI-039.
+
+<a id="ri-037"></a>
+
+### RI-037 — Authored display bypasses scripting-enabled noscript suppression
+
+**Status:** FIXED, 2026-11-12. **Lambda blocker:** no. Ownership
+**D9.1.1v4 / D9.1.3v2**. The existing scripting-mode guard operated in inline
+layout, so explicit `display:contents`, block, flex or grid roles could bypass
+it. Raw noscript markup became text or a 400px box could enter a flex/grid.
+`layout_resolved_display` now applies the existing
+`layout_noscript_content_suppressed` predicate before selecting a used layout
+role. CSSOM still reads `resolve_display_value`, preserving authored computed
+CSS and DOM contents. No public style is rewritten.
+
+`ScriptingEnabledNoscriptCannotCreateBoxesThroughCssDisplay` covers native
+scripting-disabled fallback followed by enabled-mode recascade and relayout.
+Lambda `test/ui/dom/noscript_used_display` verifies computed CSS, zero DOMRects,
+retained DOM text and normal following flow through the real script host (five
+assertions). Its old-host control fails. Qualification is the same complete
+layout gates as RI-036. Evidence: Lambda
+`temp/online-visual-round5/{noscript-before.log,noscript-before-ui-result.json,noscript-final-ui-result.json}`.
+
+<a id="ri-038"></a>
+
+### RI-038 — Intrinsic ratio heights ignore inline min/max constraints
+
+**Status:** FIXED, 2026-11-12. **Lambda blocker:** no. Ownership
+**D9.1.1v4 / D9.1.3v2**. Intrinsic height transferred its provisional inline
+query width through `aspect-ratio` before applying inline min/max constraints.
+A grid item with `width:100%;max-width:56px;aspect-ratio:1` reserved an 856px auto
+row; its percentage-height child remained 205px despite its final 56px square.
+Both an empty item and an image-containing flex item reproduce this defect.
+
+Before ratio transfer, constrain the candidate using the existing border-box
+conversion and `layout_apply_min_max_border_box_axis` helpers. This implements
+CSS Sizing 4 §4.2/§4.4's constrained ratio-determining size without duplicating
+constraint logic. `GridRatioHeightUsesConstrainedInlineSize` fails before and
+passes after; it checks empty/image items, 56px→112px mutation and preserved
+explicit 90px height. All 77 native dynamic checks and both recorded layout
+gates pass, with integer-cast lint. Evidence: Lambda
+`temp/online-visual-round5/{ratio-before.log,ratio-after.log,grid-ratio.html}`.
+The reduced Craft grid/image now measure 56px; RI-039 retains the distinct outer
+flex-height residual. Do not claim this repair alone resolves Craft's hero.
+
+
+<a id="ri-039"></a>
+
+### RI-039 — Intrinsic height recursion borrows an outer percentage-height basis
+
+**Status:** FIXED, 2026-11-12. **Lambda blocker:** no. Ownership
+**D9.1.1v4 / D9.1.3v2**. Recursive intrinsic height queries installed each
+child's inline basis but retained an outer block's definite height through
+auto-height ancestors. In a script-free nested flex/grid reduction, a 100%
+image borrowed viewport/outer query heights (800px, then 1152px and 1392px in
+LLDB) instead of its own containing box's auto/ratio size. A 136px following
+card acquired a 1392px wrapper and squeezed an earlier 736px hero to 540px.
+
+Install the current element's own explicit or ratio-derived content height,
+or an indefinite basis for auto height, through the existing
+`LayoutContainingBlockScope`. `IntrinsicDescendantPercentHeightUsesItsOwnContainingBlock`
+fails before and passes after, including 56px→112px square mutations and
+relayout. All 77 native dynamic tests, 3851 static and 630 JavaScript layout
+cases pass (six static skips); integer-cast lint passes. The full frozen
+Craft hero now measures 736px. The separate nested-height failure in RI-040
+still obscures live hero content and reproduces on the previous renderer
+when the hero is fixed at 736px. This is an isolated sizing repair, not a
+claim that the entire page matches.
+
+Evidence: Lambda `temp/online-visual-round5/{percent-before.log,dynamic-qualified-final.log,craft-fivefix.json,lldb-height.log,craft-thin.html}`. Captures use
+`lambda-fivefix.exe` SHA-256
+`6993045526db37b5a4b9b1b4ce504ede4e9c6eaafa582105ac4d52572425c0a4`.
+
+
+<a id="ri-040"></a>
+
+### RI-040 — Maximum constraints erase definite flex main sizes
+
+**Status:** FIXED, 2026-11-12. **Lambda blocker:** no. Ownership
+**D9.1.1v4 / D9.1.3v2**; size/percentage behavior follows
+[CSS Flexbox §9.8](https://www.w3.org/TR/css-flexbox-1/#definite-sizes).
+In init_flex_container, the maximum-size branch replaced has_definite_main
+with a comparison against the maximum. An explicitly 736px-high container
+with max-height:1100px therefore became indefinite, even though no clamping
+occurred. Percentage-height descendants then used their content minima:
+Craft's nested wrapper became600px and its padded inner flex box120px
+instead of736px. The product image overpainted the heading. The code handles
+either main axis.
+
+Preserve an already definite main size while retaining the previous rule
+for an automatic size that reaches its maximum. The standalone reduction
+temp/online-visual-round6/percent-max.html reproduces without scripts or
+site CSS. MaximumConstraintPreservesDefiniteFlexMainAxis fails before and
+passes after repair: inactive1100px maximum, clamped600px maximum and removal
+of the maximum, with nested percentages, positioned bottom child and a
+neighboring percentage-basis row across recascade/relayout.
+
+All78 native dynamic tests,3851 static and630 JavaScript layout cases pass
+(six static skips), and layout integer-cast lint passes. Full frozen Craft
+keeps both outer and inner content736px; the live heading/button/product
+image are restored. URL-masked decorative geometry remains RI-041, so the
+page is not declared a complete visual match. Prior fixed-height controls
+remain valid evidence that this defect predates RI-039.
+
+Evidence: Lambda temp/online-visual-round6/{max-before.log,dynamic-max.log,
+percent-matrix.log,percent-ancestors.log,craft-max.json,craft-live.png}.
+Qualified host: lambda-max.exe, SHA-256
+34795256482fbda34c9e677bc079475ae48963d43fb5733c9748e8694fc24891.
+
+
+<a id="ri-042"></a>
+
+### RI-042 — CSS math gaps are dropped before layout
+
+**Status:** FIXED for length-valued math, 2026-11-12. **Lambda blocker:** no.
+Ownership **D9.1.1v4 / D9.1.3v2**, document style contract **D5.5.1**;
+[CSS Box Alignment §8](https://www.w3.org/TR/css-align-3/#gaps) defines
+nonnegative gap lengths. Craft uses gap:calc(var(--spacing) * 10) with
+--spacing:.25rem. The variable and computed serialization are correct, but
+the gap shorthand excludes FUNCTION values and resolve_gap_property handles
+only literal lengths/numbers/percentages. Every corresponding layout gap
+therefore becomes zero. The root cause is unrelated to the unsupported URL
+masks (RI-041) and is not a missing Tailwind theme variable.
+
+Admit math-valued shorthand components and resolve their substituted definite
+lengths through the existing length/math resolver. Clamp negative computed
+lengths to zero. The shared consumer feeds flex, grid and multicolumn geometry;
+no page-specific stylesheet or spacing is substituted. Pure percentages retain
+their existing deferred flags. Percentage-containing math expressions still
+lack a retained gap expression and used-container basis; this limited repair
+does not claim that separate incomplete consumer is supported.
+
+MathGapsUseOwnerUnitsAcrossLayoutModes fails before the repair in all three
+layout modes and passes afterward. It checks calc/min-max-family math,
+custom-property substitution, rem/em owner units, two-value shorthand,
+nonnegative clamping, pure-percentage controls and 16px to20px root-font
+mutation with recascade/relayout. Chromium headless-shell independently
+returns the same16 expected relative coordinates. All79 native dynamic
+layout tests pass. Final integration qualification and online capture counts
+are recorded in Lambda test/online/README.md.
+
+Evidence in Lambda temp/online-visual-round6/: gap-before.log,
+dynamic-gap.log, gap-browser.json, craft-spacing-probe-output.log.
+Final host lambda-final.exe SHA-256
+60f757cadefdbc438344b5826696c6b1536e5c81f4cd777ff2d531a9529b1c60.
+
+
+<a id="ri-043"></a>
+
+### RI-043 — Unsubstituted variables incorrectly trigger cyclic intrinsic sizing
+
+**Status:** FIXED, 2026-11-12. **Lambda blocker:** no. Ownership
+**D9.1.1v4 / D9.1.3v2**, document contract **D5.5.1**;
+[CSS Sizing §5.2](https://www.w3.org/TR/css-sizing-3/#intrinsic-contribution)
+requires the appropriate min/max constraints in intrinsic contributions.
+measure_element_intrinsic_widths classifies authored width and max-width with
+layout_css_value_has_percentage before variable substitution. That predicate
+conservatively treats var() as potentially percentage-valued. A definite
+max-width:var(--cap), with --cap:800px, therefore enters the cyclic-percentage
+policy and loses its cap when a flex parent measures an auto-width child.
+This enlarges Maven Central's text column and shrinks its promo image.
+
+Use the existing layout_css_size_facts query to classify the substituted
+owner value. No new resolver or page-specific geometry is introduced. A
+literal 800px override on the frozen page already restores the correct
+contribution, proving that font noise and script readiness are not this cause.
+The first reduced promo has browser text/image widths600.64/327.36 versus
+old native678.8/249.2; this repair gives600.6/327.4. That reduction uses a
+436x347 natural image to separate the independent image-hint defect RI-044.
+
+IntrinsicVariableMaximumConstrainsNestedFlexContributions checks literal,
+local-variable, owner-em and variable-math maxima, recascade after cap300->200,
+and a zero-percentage math neighbor against an unconstrained control. Chromium
+independently confirms that calc(300px + 0%) retains a cyclic dependency and
+must not be forced to behave like a pure length. All81 native dynamic tests
+pass with RI-044. Final recorded-layout and online qualification is in Lambda
+test/online/README.md. No percentage basis or tolerance is substituted.
+
+Evidence in Lambda temp/online-visual-round7/: maven-matrix.json,
+constraint-before.log, constraint-browser-before.json, dynamic-twofix.log.
+
+<a id="ri-044"></a>
+
+### RI-044 — Intrinsic images restore HTML width hints overridden by CSS
+
+**Status:** FIXED, 2026-11-12. **Lambda blocker:** no. Ownership
+**D9.1.1v4 / D9.1.3v2**, document contract **D5.5.1**;
+[CSS2 §6.4.4](https://www.w3.org/TR/CSS2/cascade.html#preshint) puts presentation
+hints below author CSS. The intrinsic IMG branch correctly avoids a provisional
+resolved percentage width, then falls back to the raw HTML width attribute.
+That fallback revives a hint which authored width:auto or a cyclic percentage
+already overrode. Maven's image has natural972x613 dimensions but HTML436x347
+hints; width:100%;height:auto must keep the natural intrinsic contribution.
+
+Only use the raw HTML fallback when no winning physical size declaration
+exists. Resolved definite CSS sizing remains authoritative; bare HTML hints
+remain available. The shared physical declaration selector includes logical
+inline-size, so it follows the same cascade without a copied special case.
+IntrinsicImageCssOverrideDoesNotRestoreHtmlWidthHint fails before repair and
+passes after: percentage, automatic, variable percentage and logical widths,
+plus untouched bare-hint/fixed-CSS controls. Row width400->500 and HTML hint
+100->80 mutations verify that overridden hints stay overridden. Chromium's
+independent six-case geometry control includes an automatic image retaining
+its natural300px width while its flex wrapper shrinks to200px.
+
+All81 native dynamic tests pass. With both repairs, the frozen real-dimension
+Maven promo has text/image widths419/509px and height327px; Chromium returns
+418.97/509.03px and327.02px. The missing client-created search input remains
+unresolved; this is not a claim of full application execution support.
+Evidence in Lambda temp/online-visual-round7/: image-before.log,
+image-browser.json, dynamic-twofix.log, maven-natural-browser.json,
+maven-facts.json, maven-final-summary.json. Final pinned host lambda-final.exe
+SHA-256 76e79482164f6192fee0b148cfa929e56b4d8cd129730ef36518b369bca67c9c.
+
+
+<a id="ri-045"></a>
+
+### RI-045 — Headless document hosts omit the browsing profile
+
+**Status:** FIXED, 2026-11-12. **Lambda blocker:** cleared for cookie startup;
+remaining visual omissions require their own evidence. Ownership
+**D9.1.1v4 / D9.1.3v2**, headless parity **D9.2.1v2**, snapshot policy **D10.1.7**.
+Twenty-six remaining high-severity captures report document.cookie setter
+SecurityError. Export initializes a native UI context but no BrowsingSession;
+view and js --document already have one. The loader therefore receives no
+cookie jar, loses initial response cookies, reports cookieEnabled=false and
+throws on script cookie writes. Layout and legacy PNG batches share this gap.
+
+UiContext now owns an ephemeral session only when its caller supplied none.
+Exports ensure it before loading; the common hosted loader also ensures it
+from explicit/TLS UI configuration before HTTP and passes the same jar to
+subresources. Existing window profiles remain borrowed. UI retirement releases
+its owned session after the document and loader tasks retire. A shared batch UI
+retains the profile across jobs; independent exports do not persist it.
+No synthetic cookie success value or setter exception suppression is used.
+
+The real local HTTP renderer regressions in Lambda
+ test/online/render_session.test.cjs cover response/DOM cookies, HttpOnly
+visibility, initial and script-created image requests, redirects, independent
+exports, layout and both batch paths. The initial renderer fails all three
+export cases; the intermediate export-only repair leaves layout/legacy batches
+failing; all six pass with the common-loader repair and input LI-018/LI-019.
+OwnedEphemeralBrowsingSessionEndsWithUi and
+BorrowedBrowsingSessionSurvivesUiCleanup verify profile lifetime and isolation.
+All83 focused native cases and574 AST baseline tests pass. A restricted-sandbox
+media failure reproduces on old/new renderers and passes on both with native
+macOS services; no media implementation or expectation was changed.
+
+Input transport fixes LI-018/LI-019 are necessary companions: enabling a jar
+exposed corrupt terminal cookie attributes and port-bearing cookie domains.
+Final aggregate/capture counts and limitations are recorded in Lambda
+ test/online/README.md. These exception repairs do not establish that every
+cookie-using page now visually matches. Evidence in Lambda
+ temp/online-visual-round8/: cookie-before.log, session-before.log,
+ session-frontends-before.log, session-qualified.log, native-qualified.log,
+ js-baseline-ast-qualified.log, media-controls.json, media-native-services.json.
+Final host lambda-final.exe SHA-256
+ff06c819f1cfa2a8e3bc1d1a7e20ae6e2bc9e6f153e9f10b8b1b2f5cbc8ea209.
+
+
+<a id="ri-046"></a>
+
+### RI-046 — Pending style text reparses discard later CSSOM edits
+
+**Status:** FIXED, 2026-11-12. **Lambda blocker:** cleared for dynamic sheet
+retention; unrelated omissions remain explicit. Native/adapter ownership
+**D9.1.1v4 / D9.1.3v2**; finite frame capture remains **D10.1.7**.
+
+A script connects an empty style node and calls sheet.insertRule. Its CSSOM
+rule list reports the insertion, but the post-script native rescan reparses the
+queued DOM text update and replaces the sheet with its empty text source.
+Computed color can report the CSSOM edit before the final image loses it;
+geometry reads can trigger the stale rescan sooner. Libraries that insert
+rules without serializing them into text children lose their entire stylesheet.
+The element.sheet getter also returned the old sheet after textContent changed.
+
+radiant_sync_mutated_inline_stylesheets now consumes each successfully synced
+owner once, retaining the batch count for reconciliation. The Lambda CSSOM
+adapter flushes pending text changes before returning an inline sheet, so later
+CSSOM edits survive the final rescan. An actual later text replacement still
+creates its new sheet. Explicit native radiant_sync_inline_stylesheet calls
+retain their force-parse contract. CSSOM rules are not copied back into text,
+and no site-specific selectors, opacity overrides or timer advances are used.
+
+Lambda test/online/render_stylesheet.test.cjs covers new empty-sheet insertion,
+existing rule declaration edits, text replacement followed by a sheet read and
+CSSOM insertion, and later text superseding CSSOM. Two of four cases fail with
+the prior qualified renderer; all four pass with the repair, including exported
+solid-color pixels. Chromium independently confirms the reduced insertion and
+replacement behavior. The new native input-value regression checks repeated
+synchronization retains CSSOM state and a new text update still replaces it.
+The real window/event fixture dom_stylesheet_cssom_retention fails3 of4
+assertions with the previous renderer and passes4 of4 with the repair. All3
+recent DOM integration fixtures pass15 assertions.
+All12 native input-value cases,574 AST baseline cases,3851 recorded static layout
+cases (6 skips),630 JavaScript layout cases,6 HTTP/session cases and5 comparator
+tests pass. The native aggregate has928 passes,1 skip and the existing RI-035
+unavailable-voice failure. Initial AST worktree failures use stale/missing
+fixture/module links; the qualified current fixture/module environment passes
+all574 without crypto/media source or expectation changes.
+
+Diagnostic captures restore Northstar home/about layout and Greenlist styling;
+Greenlist's hero remains absent and must remain high even below the metric
+threshold. Final per-page results and qualification limits are in Lambda
+ test/online/README.md and temp/online-visual-round9/. Reduced source, PNGs,
+stylesheet-before.log,render-qualified.log,native-input-value.log,
+cssom-browser.json,js-baseline-ast-qualified.log and layout/native logs retain
+the controls. Final host SHA-256:
+044ca5945f52565491a82c67ad85437473eb8489ad981f4bc51b69f75875f71b.
+
+
+<a id="ri-047"></a>
+
+### RI-047 — Raw basic-shape parsing drops computed clip geometry
+
+**Status:** FIXED, 2026-11-12. **Lambda blocker:** cleared for the confirmed
+menu overlay; unrelated visual differences remain. Native ownership follows
+**D9.1.1v4 / D9.1.3v2**, transient value ownership **D5.5.1**, selected-frame
+snapshot policy **D10.1.7**.
+
+Hive Streaming uses a fixed menu at1200px and closes it with
+clip-path:inset(0 0 calc((1 - var(--menu-open,0)) * 100%) 0).
+render_clip.cpp read raw declaration text with strtof, so math did not advance
+and the shape became an unclipped rectangle. A whole-property variable also
+failed. The open menu covered the main hero although HTTP loading succeeded.
+Separately, one/two-value inset percentages were resolved once on the vertical
+axis and copied to horizontal edges; circle percentages used the shorter side
+instead of the normalized diagonal. Relative lengths were read as raw numbers.
+
+Basic shapes now consume parsed, substituted CssValue trees. Their shared
+length sink uses the existing native CSS numeric/font/unit/math resolver with
+an explicit reference basis; its original three-argument API retains its prior
+behavior. Inset shorthand expands syntax before each physical-axis resolution.
+Circle/ellipse center positions reuse the existing CSS position grammar;
+closest/farthest-side radii and a default circle use their box distances.
+Only resolved coordinates enter the clip scratch scope, including polygon
+vertices. Empty/overconstrained insets stay empty. Raster and vector consumers
+share this geometry, including CSS zoom. No math parser is copied, no vendor
+code edited, and no site selector, clipping override or timer advancement added.
+
+The frozen original Hive HTML/CSS and a control differing only by the equivalent
+literal inset(0 0 100% 0) reproduce the menu/hero difference with the previous
+renderer. The repaired original matches the old literal control exactly in
+pixels, as well as its repaired literal control. A live diagnostic capture
+restores the hero and changes coarse mean error from59.7% to1.6%; full-round
+measurements retain consent/content/readiness caveats.
+
+Eighteen real PNG cases cover closed/partial clips, variable fallback and whole
+values, shorthand axes, nonlinear math, font units, circle/ellipse/polygon,
+script mutation, zoom, empty shapes and invalid dimensions. The previous pin
+fails15 of18; the repaired pin passes18. Independent Chromium agrees with all18
+expected pixel sets, and18 exported SVGs rasterized by Chromium pass the same
+checks. The window/event regression fails4 of6 assertions before and passes6
+of6 after variable changes and a used-box resize. All4 recent DOM fixtures pass
+21 assertions. All83 focused native cases,574 full AST cases,3851 recorded
+static layout cases(6 skips),630 JS layout cases,28 real CLI regressions,8
+existing clip-render corpus cases,5 comparator cases and geometry lint pass.
+The native aggregate has928 passes,1 skip and the same RI-035 voice failure.
+Input implementation is unchanged in this round.
+
+Full inset corner/slash rounding, polygon fill rules, complete shape() grammar,
+URL clips and geometry boxes remain incomplete. Existing bounded path()/shape()
+command parsing is retained. The HTML/CSS support matrix records these limits.
+No high-severity page is cleared solely from a metric threshold.
+
+Evidence in Lambda temp/online-visual-round10/: clip-probe.html,
+clip-before.png,clip-browser.json,clip-tests-before.log,clip-tests-after.log,
+clip-browser-cases.json,vector-controls.json,hive-frozen.html,hive-literal.html,
+hive-*-before.png,hive-*-after.png,ui-before.log,ui-qualified.log,
+render-qualified.log,render-clips.log and layout/native qualification logs.
+Pinned final host SHA-256:
+bbea00e3ff61c45ba59b981ee38781c0bdb46c700d4fcb1d351cdda770965fb5.
+
+
+<a id="ri-048"></a>
+
+### RI-048 — Grid-item percentage sizes use the whole grid instead of their area
+
+**Status:** FIXED, 2026-11-12. **Lambda blocker:** no. Native ownership
+**D9.1.1v4 / D9.1.3v2**, temporary query scope **D5.5.1**.
+[CSS Sizing §5.2.1](https://www.w3.org/TR/css-sizing-3/#cyclic-percentage-contribution)
+and [CSS Grid track sizing](https://www.w3.org/TR/css-grid-1/#algo-content)
+require cyclic percentage contributions to be separated from used item sizing.
+
+Nova Benefits' hero is a 1160px, two-column `1fr 1fr` grid with a 64px gap.
+Its first item is a flex column with `width:100%`. Intrinsic measurement used
+1160px as that percentage's containing block, producing tracks of 1160px/380px.
+The loaded, visible 560px hero image consequently began at x1244, outside the
+viewport. Chromium instead gives 548px/548px tracks and image x632. Separately,
+percentage-containing math bypassed the explicit-size exclusion and retained
+its provisional whole-grid preferred size after track placement.
+
+`calculate_grid_item_intrinsic_sizes` now uses the existing containing-block
+scope for the unsolved contribution axis and the shared substituted CSS size
+facts for percentage classification. Solved row-axis column geometry remains
+available. Placement reevaluates percentage math with the existing owner-aware
+length resolver against the solved area; border-box conversion remains shared.
+No page selector, guessed size, min-width override or alternate CSS is added.
+
+The same frozen original HTML/CSS restores 548px/548px tracks and the hero.
+A diagnostic control changes only the first item's width:100% to auto; it works
+on the old renderer, and the repaired original matches that control exactly
+in pixels. The live page also restores the illustration. A frozen Zapier customer-story
+page reproduces its displaced narrow hero on the previous engine and restores
+the two-column heading/photo after the same native repair, with identical
+HTML/CSS and no scripts. These controls isolate native layout; live score
+movement can additionally include consent/content.
+
+`GridPercentageContributionsUseTheUnsolvedArea` covers nine width/constraint
+variants at 1160px and 1080px, with independent Chromium geometry. The previous
+engine fails 16 assertions; all 18 case/phase geometry sets pass after repair.
+Ten real PNG fixtures add owner-em and substituted mixed math: old 5 pass/5 fail,
+new 10 pass, and independent Chromium confirms all 10 pixel/geometry sets.
+`grid_percentage_area` tests live resize, font and variable changes: old 2/8,
+new 8/8 assertions. Current milestone gates pass 84 native dynamic cases,
+42 real CLI cases, eight DOM UI fixtures with 58 assertions, 574 AST cases,
+3,851 recorded static layout cases (six skips), 630 JS layout cases and geometry
+lint. The native aggregate retains 929 passes, one device skip and the known
+RI-035 unavailable-voice failure. Input implementation is unchanged.
+
+Evidence in Lambda `temp/online-visual-round12/`: `grid-before.log`,
+`grid-after.log` (intermediate scope-only repair; final is native-dynamic.log),
+`grid-browser.json`, `grid-png-before/after.log`, `grid-browser-png/results.json`,
+`ui-before/final.log`, `nova-frozen-comparison.json`, `nova-browser-boxes.json`,
+`nova-original-after-lambda-output.log`, and milestone logs. Final online
+qualification and remaining severity counts are in Lambda `test/online/README.md`.
+
+<a id="ri-049"></a>
+
+### RI-049 — Root font-size evaluation leaves descendants on the initial rem basis
+
+**Status:** FIXED, 2026-11-12. **Lambda blocker:** no. Native style/layout
+ownership **D9.1.1v4 / D9.1.3v2**, query scratch **D5.5.1**; capture virtual time
+remains **D10.1.7**. [CSS Values 4 font-relative lengths](https://www.w3.org/TR/css-values-4/#font-relative-lengths)
+uses the initial font for the root's own font-relative font-size and the
+computed root font for descendant rem lengths.
+
+Zammad's company page sets the root to
+`clamp(.875rem,.25rem + .8333vw,1rem)` at 1200px. While computing that value,
+the general rem resolver primed root_font_size with the initial 16px. The
+actual root font subsequently became 14px, but the cache was only published
+when negative. Descendant layout retained 16px: the 4rem heading used 64px and
+wrapped to two lines, while CSSOM correctly reported 56px. Root restyles could
+also reuse the previous root basis for their own rem font-size.
+
+The existing owner-aware length resolver now evaluates the root's own rem
+font-size against the initial font without priming the descendant cache. The
+font prepass publishes the computed root size before other root geometry;
+root layout also publishes it on cached-style paths. The stored basis stays
+unzoomed, so zoom is applied once by existing consumers. No clamp expression,
+page selector or input stylesheet is rewritten by the repair.
+
+The same frozen HTML/CSS, with scripts removed, now matches Chromium's 14px
+root, one-line 56px heading at y252 and 52.5px paragraph at y336. The repaired
+original and both old/new renderers of a diagnostic one-declaration 14px
+control match exactly in pixels. The control is not a catalog or source edit.
+
+`RootRelativeFontSizesPublishTheComputedRemBasis` covers nine font/variable/math/
+shorthand/viewport/zoom variants with repeated forced recascades. The native
+dynamic suite passes 85 cases. Eight real PNG cases change from one pass/seven
+failures to eight passes; independent Chromium validates their geometry and
+pixels, plus the native fixture's nine geometries. The live DOM UI fixture
+changes from two of six pixels to six of six after root-variable mutations.
+All 50 real CLI cases, nine UI fixtures/64 assertions, 574 AST cases, 3851 static
+layout cases (six skips), 630 JS layout cases, five comparator tests and integer
+cast lint pass. The native aggregate has 930 passes, one device skip and the
+independent known RI-035 voice failure. Input implementation is unchanged.
+
+Evidence: Lambda `temp/online-visual-round13/` contains the frozen original,
+literal control, before/after PNGs, rem-controls.log, rem-png-before/after.log,
+root-rem-browser.json, native-dynamic-final.log and qualification logs. The
+initial native probe included an incorrect global-coordinate assertion against
+parent-relative positions; its failure count is not used as repair evidence.
+The corrected source checks root boundary padding directly. The compatible
+integration host uses exact repaired root sources and current sibling archives;
+the independent main-checkout paint API mismatch remains outside this repair.

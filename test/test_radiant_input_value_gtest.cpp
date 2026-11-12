@@ -7,6 +7,7 @@
 #include "radiant/loader_runtime_host.hpp"
 #include "radiant/reactive_render_host.hpp"
 #include "radiant/stylesheet_sync.hpp"
+#include "radiant/dom_mutation_record.hpp"
 #include "radiant/resource_loaders.h"
 #include "lambda/network/network_resource_manager.h"
 #include "lambda/input/css/dom_element.hpp"
@@ -73,6 +74,44 @@ TEST(RadiantInputValueTest, NativeInlineStylesheetsTrackTextAndDocumentOrder) {
     ASSERT_EQ(document->stylesheet_count, 1);
     EXPECT_EQ(document->stylesheets[0]->owner_element, second);
 }
+TEST(RadiantInputValueTest, InlineStylesheetTextUpdatesAreConsumedBeforeCssomEdits) {
+    NativeInputDocument fixture;
+    DomDocument* document = fixture.document;
+    ASSERT_NE(document, nullptr);
+    ASSERT_TRUE(css_property_system_init(document->document_pool));
+    DomElement* root = dom_create_backed_element_identity(document, "head", nullptr, false);
+    DomElement* style = dom_create_backed_element_identity(document, "style", nullptr, false);
+    ASSERT_TRUE(root && style);
+    document->root = lam::up(root);
+    ASSERT_TRUE(root->append_child(style));
+    const char* source = ".first { width: 20px; }";
+    DomText* text = DomText::create_detached_copy(document, source, strlen(source));
+    ASSERT_NE(text, nullptr);
+    ASSERT_TRUE(style->append_child(text));
+    radiant_dom_record_inline_stylesheet_owner(document, style);
+    radiant_sync_mutated_inline_stylesheets(document);
+    ASSERT_EQ(document->stylesheet_count, 1);
+    CssStylesheet* sheet = document->stylesheets[0];
+    ASSERT_NE(sheet, nullptr);
+    // cssom state is independent of the style element's unchanged text children.
+    sheet->disabled = true;
+    radiant_sync_mutated_inline_stylesheets(document);
+    EXPECT_EQ(document->stylesheets[0], sheet);
+    EXPECT_TRUE(document->stylesheets[0]->disabled);
+    EXPECT_EQ(document->js.inline_stylesheet_mutation_count, 1);
+    EXPECT_EQ(document->js.inline_stylesheet_mutations[0], nullptr);
+
+    const char* extra = ".second { width: 40px; }";
+    DomText* second = DomText::create_detached_copy(document, extra, strlen(extra));
+    ASSERT_NE(second, nullptr);
+    ASSERT_TRUE(style->append_child(second));
+    radiant_dom_record_inline_stylesheet_owner(document, style);
+    radiant_sync_mutated_inline_stylesheets(document);
+    EXPECT_NE(document->stylesheets[0], sheet);
+    EXPECT_EQ(document->stylesheets[0]->rule_count, 2u);
+    EXPECT_FALSE(document->stylesheets[0]->disabled);
+}
+
 TEST(RadiantInputValueTest, DownloadedStylesheetsUseOwnerOrderAcrossCompletionOrder) {
     NativeInputDocument fixture;
     DomDocument* document = fixture.document;
@@ -109,6 +148,48 @@ TEST(RadiantInputValueTest, DownloadedStylesheetsUseOwnerOrderAcrossCompletionOr
     EXPECT_EQ(document->stylesheets[2]->owner_element, last);
     EXPECT_EQ(document->stylesheets[0]->rule_count, 1u);
     EXPECT_EQ(document->stylesheets[2]->rule_count, 1u);
+}
+
+TEST(RadiantInputValueTest, DownloadedStylesheetsRespectLinkMediaAndDisabledState) {
+    NativeInputDocument fixture;
+    DomDocument* document = fixture.document;
+    ASSERT_NE(document, nullptr);
+    ASSERT_TRUE(css_property_system_init(document->document_pool));
+    DomElement* root = dom_create_backed_element_identity(document, "head", nullptr, false);
+    ASSERT_NE(root, nullptr);
+    document->root = lam::up(root);
+    CssEngine* engine = css_engine_create(document->document_pool);
+    ASSERT_NE(engine, nullptr);
+    const char* queries[] = {"(prefers-color-scheme: dark)", "(prefers-color-scheme: light)", "all"};
+    for (int i = 0; i < 3; i++) {
+        SCOPED_TRACE(queries[i]);
+        DomElement* link = dom_create_backed_element_identity(document, "link", nullptr, false);
+        ASSERT_NE(link, nullptr);
+        ASSERT_TRUE(link->set_attribute("rel", "stylesheet"));
+        ASSERT_TRUE(link->set_attribute("media", queries[i]));
+        if (i == 2) ASSERT_TRUE(link->set_attribute("disabled", ""));
+        ASSERT_TRUE(root->append_child(link));
+        NetworkResource resource = {};
+        char url[] = "https://example.test/theme.css";
+        char local_path[] = "test/fixtures/stylesheet-order.css";
+        resource.url = url;
+        resource.local_path = local_path;
+        resource.state = i % 2 ? STATE_CACHED : STATE_COMPLETED;
+        resource.owner_element = link;
+        process_css_resource(&resource, document);
+        ASSERT_EQ(document->stylesheet_count, i + 1);
+        CssStylesheet* sheet = document->stylesheets[i];
+        EXPECT_STREQ(sheet->media, queries[i]);
+        EXPECT_EQ(css_evaluate_media_query(engine, queries[i]), i != 0);
+        int active_rules = 0;
+        ASSERT_TRUE(css_stylesheet_visit_active_rules(engine, sheet,
+            [](void* context, const CssRule*) {
+                (*(int*)context)++;
+                return true;
+            }, &active_rules));
+        EXPECT_EQ(active_rules, i == 1 ? 1 : 0);
+    }
+    css_engine_destroy(engine);
 }
 
 static Runtime* loader_test_get(UiContext* host) { loader_test_host = host; return loader_test_runtime; }

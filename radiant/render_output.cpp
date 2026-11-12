@@ -11,6 +11,7 @@
 #include "render_glyph_run_raster_lower.hpp"
 #include "render_effect_raster_fallback.hpp"
 #include "event.hpp"
+#include "network_integration.h"
 
 #include "tagged.hpp"
 #include "lambda/input/css/css_engine.hpp"
@@ -504,6 +505,11 @@ static bool render_export_session_begin_internal(
         render_export_session_finish(session);
         return false;
     }
+    if (!session->ui_context->ensure_browsing_session()) {
+        log_error("export-session: failed to create browsing profile");
+        render_export_session_finish(session);
+        return false;
+    }
     ui_context_set_device_scale(session->ui_context, session->device_scale, session->device_scale);
     session->ui_context->render_failed = false;
     // Only documents that actually request scene pixels acquire a graphics host.
@@ -551,6 +557,7 @@ static bool render_export_session_begin_internal(
     session->document->viewport.output_scale = session->output_scale;
     ui_context_sync_document_raster_scale(session->ui_context,
                                           session->document);
+    radiant_prepare_snapshot_resources(session->ui_context, session->document);
     process_document_font_faces(session->ui_context, session->document);
     if (paged) {
         // the page flow is laid out by the browsing engine through this host (design §1.3)

@@ -37,21 +37,37 @@ static bool grid_item_inline_area_is_definite(const GridItemProp* grid_item,
     return true;
 }
 
-static float grid_item_placed_axis_size(ViewBlock* item, float track_size,
-                                        bool horizontal) {
+static float grid_item_placed_axis_size(LayoutContext* lycon, ViewBlock* item,
+                                        float track_size, bool horizontal) {
     if (!item || !item->blk) return track_size;
 
     LayoutAxisRefs axis(item->block_mut(), horizontal);
+    float preferred = axis.given ? *axis.given : -1.0f;
+    bool resolved_percentage = false;
     if (axis.given_percent && !isnan(*axis.given_percent)) {
-        float content_size = track_size * *axis.given_percent / 100.0f;
-        *axis.given = content_size;
-        return layout_uses_border_box(item)
-            ? layout_floor_border_box_axis(item, content_size, horizontal)
-            : layout_border_size_from_content_box(item, content_size, horizontal);
+        preferred = track_size * *axis.given_percent / 100.0f;
+        resolved_percentage = true;
+    } else if (lycon) {
+        DomElement* element = item->as_element();
+        CssDeclaration* declaration = layout_specified_physical_size_declaration(element, horizontal);
+        if (layout_css_size_facts(lycon, element, declaration).percentage) {
+            // calculated percentages also use the solved area, with the item's own units and variables.
+            LayoutContainingBlockScope area_scope(lycon,
+                horizontal ? LAYOUT_AXIS_X : LAYOUT_AXIS_Y, track_size);
+            float computed = resolve_element_length_value(lycon, element,
+                horizontal ? CSS_PROPERTY_WIDTH : CSS_PROPERTY_HEIGHT, declaration->value);
+            if (isfinite(computed)) {
+                preferred = max(computed, 0.0f);
+                resolved_percentage = true;
+            }
+        }
     }
-    if (axis.given && *axis.given > 0.0f) {
-        return layout_css_size_to_border_box(
-            item->bound, layout_box_sizing(item), *axis.given, horizontal);
+    if (resolved_percentage || preferred > 0.0f) {
+        *axis.given = preferred;
+        float border_size = layout_css_size_to_border_box(
+            item->bound, layout_box_sizing(item), preferred, horizontal);
+        return resolved_percentage
+            ? layout_floor_border_box_axis(item, border_size, horizontal) : border_size;
     }
     return track_size;
 }
@@ -177,8 +193,8 @@ void position_grid_items(GridContainerLayout* grid_layout, ViewBlock* container,
 
         // percentage sizes resolve against the final grid area; definite sizes
         // use the same border-box conversion for both physical axes.
-        item_width = grid_item_placed_axis_size(item, track_width, true);
-        item_height = grid_item_placed_axis_size(item, track_height, false);
+        item_width = grid_item_placed_axis_size(grid_layout->lycon, item, track_width, true);
+        item_height = grid_item_placed_axis_size(grid_layout->lycon, item, track_height, false);
 
         // grid positioning uses border-box geometry; content-box constraints must
         // be converted before clamping rather than compared to a border-box size.

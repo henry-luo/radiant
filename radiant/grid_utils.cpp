@@ -444,8 +444,14 @@ IntrinsicSizes calculate_grid_item_intrinsic_sizes(LayoutContext* lycon, ViewBlo
     }
     if (!lycon) return {0.0f, layout_axis_size(item, axis)};
 
+    // intrinsic column contributions depend on the unsolved grid area, not the whole grid.
+    LayoutContainingBlockScope track_scope(lycon, axis, -1.0f, !is_row_axis);
+    // math and substituted values retain percentage dependencies after provisional pixel resolution.
+    bool percentage_size = layout_axis_size_is_percentage(item, horizontal) ||
+        layout_css_size_facts(lycon, item->as_element(),
+            layout_specified_physical_size_declaration(item->as_element(), horizontal)).percentage;
     bool explicit_size = layout_axis_has_given_size(item, horizontal) &&
-        !layout_axis_size_is_percentage(item, horizontal) && !layout_css_size_is_automatic(item, horizontal);
+        !percentage_size && !layout_css_size_is_automatic(item, horizontal);
     bool intrinsic_constraint = layout_intrinsic_min_size_keyword(item, horizontal) != CSS_VALUE__UNDEF ||
         layout_intrinsic_max_size_keyword(item, horizontal) != CSS_VALUE__UNDEF;
     if (explicit_size && !intrinsic_constraint) {

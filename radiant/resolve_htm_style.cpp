@@ -1533,7 +1533,8 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         break;
     }
     case MARKUP_NAME_VIDEO: {
-        apply_html_replaced_default(lycon, elmt, block, false, false, false, true, false);
+        // video has no canvas-style natural-size reader; retain its authored dimension hints.
+        apply_html_replaced_default(lycon, elmt, block, false, true, false, true, false, false);
         initialize_html_media(lycon, elmt, block, true);
         break;
     }

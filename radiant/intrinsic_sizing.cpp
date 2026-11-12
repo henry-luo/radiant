@@ -205,6 +205,10 @@ static float intrinsic_element_preferred_aspect_ratio(ViewBlock* view) {
 float layout_used_preferred_aspect_ratio(ViewBlock* block) {
     float specified_ratio = layout_preferred_aspect_ratio(block);
     if (!block) return specified_ratio;
+    // size containment substitutes both natural axes; the poster's ratio cannot override them.
+    if (block->tag() == MARKUP_NAME_VIDEO &&
+        layout_block_has_size_containment_in_axis(block, true) &&
+        layout_block_has_size_containment_in_axis(block, false)) return specified_ratio;
 
     bool uses_content_box_ratio = layout_aspect_ratio_uses_content_box(block);
     ReplacedIntrinsicFacts facts = layout_replaced_intrinsic_facts(nullptr, block);
@@ -4081,12 +4085,14 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     bool width_is_percentage = resolved_width_view->blk &&
         !isnan(resolved_width_view->block()->given_width_percent);
     if (!width_is_percentage && width_declaration && width_declaration->value) {
-        width_is_percentage = layout_css_value_has_percentage(width_declaration->value);
+        width_is_percentage = layout_css_size_facts(lycon, element, width_declaration).percentage;
     }
     bool max_width_is_percentage = resolved_width_view->blk &&
         !isnan(resolved_width_view->block()->given_max_width_percent);
     if (!max_width_is_percentage && max_width_declaration && max_width_declaration->value) {
-        max_width_is_percentage = layout_css_value_has_percentage(max_width_declaration->value);
+        // var() is only potentially percentage-valued until substitution;
+        // a definite length maximum must still constrain this contribution.
+        max_width_is_percentage = layout_css_size_facts(lycon, element, max_width_declaration).percentage;
     }
     bool percentage_size_resolves_to_zero = lycon->available_space.width.is_definite() &&
         lycon->available_space.width.value <= 0.0f &&
@@ -4494,7 +4500,9 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
                     view_block_replaced->block_mut()->given_width >= 0 &&
                     !percentage_width_is_intrinsic_auto) {
                     specified_width = view_block_replaced->block()->given_width;
-                } else {
+                } else if (!width_declaration) {
+                    // an authored auto/cyclic percentage overrides the HTML
+                    // hint too; intrinsic sizing must not restore that hint.
                     const char* attr_w = element->get_attribute("width");
                     if (attr_w && attr_w[0] >= '0' && attr_w[0] <= '9') {
                         // skip percentage widths (can't resolve during intrinsic sizing)
@@ -7405,9 +7413,12 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
     float aspect_ratio_min_height = 0.0f;
     float preferred_aspect_ratio = layout_used_preferred_aspect_ratio(view);
     if (preferred_aspect_ratio > 0.0f && replaced_query_width > 0.0f) {
-        // A definite inline size transfers through a preferred ratio even when
-        // an otherwise empty non-replaced element has no content height.
-        float ratio_height = replaced_query_width / preferred_aspect_ratio;
+        // transfer the constrained inline size, including for empty boxes;
+        // a provisional grid area can exceed max-width and inflate an auto row.
+        float ratio_width = layout_border_size_from_content_box(view, replaced_query_width, true);
+        ratio_width = layout_apply_min_max_border_box_axis(view, ratio_width, true);
+        ratio_width = layout_content_size_from_border_box(view, ratio_width, true);
+        float ratio_height = ratio_width / preferred_aspect_ratio;
         ratio_height = layout_apply_min_max_axis(view, ratio_height, false,
                                                    layout_uses_border_box(view));
         if (!element_has_in_flow_intrinsic_content(element)) {
@@ -7417,6 +7428,14 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
         // non-replaced box beyond it and must remain in its intrinsic height.
         aspect_ratio_min_height = ratio_height;
     }
+
+    // descendant percentages belong to this box, not the outer query's
+    // containing block; an auto height supplies no definite percentage basis.
+    float child_height_basis = explicit_height >= 0.0f ? explicit_height : aspect_ratio_min_height;
+    if (child_height_basis <= 0.0f && explicit_height < 0.0f) child_height_basis = -1.0f;
+    if (child_height_basis >= 0.0f)
+        child_height_basis = layout_content_size_if_border_box(view, child_height_basis, false);
+    LayoutContainingBlockScope child_height_scope(lycon, LAYOUT_AXIS_Y, child_height_basis);
 
     float contain_intrinsic_width = -1.0f;
     float contain_intrinsic_height = -1.0f;

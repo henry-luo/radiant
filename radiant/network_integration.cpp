@@ -15,8 +15,22 @@
 #include "lib/url.h"
 #include "lib/mem.h"
 #include "lib/time_util.h"
+#include "lib/str.h"
+#include "lib/uv_loop.h"
 #include "lambda/input/css/css_font_face.hpp"
 #include <time.h>
+
+bool radiant_html_has_token(const char* tokens, const char* token) {
+    if (!tokens || !token || !*token) return false;
+    size_t length = strlen(token);
+    for (const char* p = tokens; *p;) {
+        while (str_is_html_space(*p)) p++;
+        const char* start = p;
+        while (*p && !str_is_html_space(*p)) p++;
+        if (str_ieq(start, (size_t)(p - start), token, length)) return true;
+    }
+    return false;
+}
 
 static void process_registered_font_resource(const CssFontFaceDescriptor* descriptor,
                                              void* user_data) {
@@ -203,14 +217,14 @@ static void discover_link_callback(DomElement* link, void* user_data) {
     const char* href = link->get_attribute("href");
     if (!href) return;
 
-    if (strcmp(rel, "stylesheet") == 0) {
+    if (radiant_html_has_token(rel, "stylesheet")) {
         log_debug("network: discovered stylesheet: %s", href);
 
         // Resolve relative URL against document base
         // Local stylesheets are already loaded synchronously by the document parser.
         queue_resolved_http_resource(doc, href, RESOURCE_CSS, PRIORITY_HIGH, link);
     }
-    else if (strcmp(rel, "preload") == 0) {
+    else if (radiant_html_has_token(rel, "preload")) {
         // <link rel="preload" href="..." as="...">
         const char* as_type = link->get_attribute("as");
         if (!as_type) return;
@@ -432,6 +446,51 @@ void radiant_prefetch_document_stylesheet_resources(DomDocument* doc) {
     }
 }
 
+static void discover_document_image_resources(DomDocument* doc) {
+    find_elements_by_selector(doc->root, "img", discover_img_callback, doc);
+    find_elements_by_selector(doc->root, "use", discover_use_callback, doc);
+    find_elements_by_selector(doc->root, "video", [](DomElement* video, void* context) {
+        const char* poster = video->get_attribute("poster");
+        // posters consume ready image bytes without changing the video's embedded media owner.
+        if (poster && *poster) queue_resolved_http_resource((DomDocument*)context,
+            poster, RESOURCE_PREFETCH, PRIORITY_NORMAL, nullptr);
+    }, doc);
+}
+
+static int snapshot_resource_wait_timeout_ms() {
+    const char* env = getenv("RADIANT_LAYOUT_RESOURCE_TIMEOUT_MS");
+    if (env && env[0]) {
+        char* end = nullptr;
+        long parsed = strtol(env, &end, 10);
+        if (end != env && parsed >= 0) {
+            if (parsed > 5000) return 5000;
+            return (int)parsed; // INT_CAST_OK: bounded millisecond timeout.
+        }
+    }
+    return 1000;
+}
+
+void radiant_prepare_snapshot_resources(UiContext* ui, DomDocument* doc) {
+    if (!ui || !doc || !doc->resource_manager) return;
+    resource_manager_set_ui_context(doc->resource_manager, ui);
+    radiant_discover_document_font_resources(doc);
+    // network-managed layout only reads ready bytes, so ordinary image requests
+    // must enter the scheduler here even when no interactive window is created.
+    discover_document_image_resources(doc);
+    uint64_t start_ms = time_now_ms();
+    uint64_t timeout_ms = (uint64_t)snapshot_resource_wait_timeout_ms();
+    while (time_elapsed_ms_since(start_ms) < timeout_ms &&
+           !resource_manager_is_fully_loaded(doc->resource_manager)) {
+        resource_manager_flush_layout_updates(doc->resource_manager);
+        uv_sleep(10);
+    }
+    resource_manager_flush_layout_updates(doc->resource_manager);
+    int total = 0, completed = 0, failed = 0;
+    resource_manager_get_stats(doc->resource_manager, &total, &completed, &failed);
+    log_info("snapshot-resources: total=%d completed=%d failed=%d waited=%llums",
+        total, completed, failed, (unsigned long long)time_elapsed_ms_since(start_ms));
+}
+
 // Discover and queue all network resources in a document
 void radiant_discover_document_resources(DomDocument* doc) {
     if (!doc || !doc->resource_manager) {
@@ -449,11 +508,7 @@ void radiant_discover_document_resources(DomDocument* doc) {
     // Find all <link rel="stylesheet">
     find_elements_by_selector(doc->root, "link", discover_link_callback, doc);
 
-    // Find all <img>
-    find_elements_by_selector(doc->root, "img", discover_img_callback, doc);
-
-    // Find all <svg><use>
-    find_elements_by_selector(doc->root, "use", discover_use_callback, doc);
+    discover_document_image_resources(doc);
 
     // Find all <script src="...">
     find_elements_by_selector(doc->root, "script", discover_script_callback, doc);

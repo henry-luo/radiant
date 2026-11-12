@@ -1,0 +1,2993 @@
+{
+  "scope": "topology-changing tail reflow, split-item inline-width replay and vertical principal-flow progression, plus prior qualified profiles",
+  "cases": [
+    {
+      "name": "float-defer-1",
+      "input": "test/fixtures/paged/float-defer-1.html",
+      "reference": "test/fixtures/paged/float-defer-1.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute placement; no page-float policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 110,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "not_rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 2,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 10,
+          "y": 10,
+          "not_rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "float-defer-2",
+      "input": "test/fixtures/paged/float-defer-2.html",
+      "reference": "test/fixtures/paged/float-defer-2.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute placement; no page-float policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 210,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "not_rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 3,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 10,
+          "y": 10,
+          "not_rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "float-defer-99",
+      "input": "test/fixtures/paged/float-defer-99.html",
+      "reference": "test/fixtures/paged/float-defer-99.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute placement; no page-float policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 210,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "not_rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 3,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 10,
+          "y": 10,
+          "not_rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "nested-width",
+      "input": "test/fixtures/paged/nested-width.html",
+      "reference": "test/fixtures/paged/nested-width.control.html",
+      "pages": 3,
+      "oracle": "existing top-level named-page layout with the same authored text and percentage box",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 105,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 5,
+          "not_rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 2,
+          "x": 10,
+          "y": 5,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 10,
+          "y": 5,
+          "not_rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "float-last",
+      "input": "test/fixtures/paged/float-last.html",
+      "reference": "test/fixtures/paged/float-defer-2.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute placement; no page-float policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 210,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "not_rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 3,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 10,
+          "y": 10,
+          "not_rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "float-negative-2",
+      "input": "test/fixtures/paged/float-negative-2.html",
+      "reference": "test/fixtures/paged/float-defer-1.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute placement; no page-float policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 110,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "not_rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 2,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 10,
+          "y": 10,
+          "not_rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "column-balance",
+      "input": "test/fixtures/paged/column-balance.rpd",
+      "reference": "test/fixtures/paged/column-balance.control.rpd",
+      "pages": 1,
+      "oracle": "authored equal 40px native column rectangles; no balancing policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 110,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 110,
+          "y": 30,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 1,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 110,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 110,
+          "y": 30,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "flex-rows",
+      "input": "test/fixtures/paged/flex-rows.html",
+      "reference": "test/fixtures/paged/flex-rows.control.html",
+      "pages": 3,
+      "oracle": "separately authored absolute boxes on forced physical sheets",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 30,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 130,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 230,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 1,
+          "x": 10,
+          "y": 30,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 10,
+          "y": 30,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 10,
+          "y": 30,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "grid-rows",
+      "input": "test/fixtures/paged/grid-rows.html",
+      "reference": "test/fixtures/paged/grid-rows.control.html",
+      "pages": 3,
+      "oracle": "separately authored absolute boxes on forced physical sheets",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 30,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 130,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 230,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 1,
+          "x": 10,
+          "y": 30,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 10,
+          "y": 30,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 10,
+          "y": 30,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fixed-width",
+      "input": "test/fixtures/paged/fixed-width.html",
+      "reference": "test/fixtures/paged/fixed-width.control.html",
+      "pages": 3,
+      "oracle": "existing top-level named-page path with explicit 150px contents",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 110,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 80,
+          "y": 110,
+          "rgba": [
+            255,
+            255,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 2,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 80,
+          "y": 10,
+          "rgba": [
+            255,
+            255,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "auxiliary-columns",
+      "input": "test/fixtures/paged/auxiliary-columns.rpd",
+      "reference": "test/fixtures/paged/auxiliary-columns.control.html",
+      "pages": 1,
+      "oracle": "independently authored absolute rectangles on forced physical sheets; no tested reservation, balancing or formatting policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 30,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 50,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 110,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 1,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 10,
+          "y": 30,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 10,
+          "y": 50,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 110,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "backward-top",
+      "input": "test/fixtures/paged/backward-top.html",
+      "reference": "test/fixtures/paged/backward-top.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute rectangles on forced physical sheets; no tested reservation, balancing or formatting policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 30,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 110,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 1,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 10,
+          "y": 30,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "backward-bottom",
+      "input": "test/fixtures/paged/backward-bottom.html",
+      "reference": "test/fixtures/paged/backward-bottom.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute rectangles on forced physical sheets; no tested reservation, balancing or formatting policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 90,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 1,
+          "x": 10,
+          "y": 90,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "nested-flex",
+      "input": "test/fixtures/paged/nested-flex.html",
+      "reference": "test/fixtures/paged/nested-flex.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute rectangles on forced physical sheets; no tested reservation, balancing or formatting policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 110,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 210,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 290,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 2,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 10,
+          "y": 90,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "nested-grid",
+      "input": "test/fixtures/paged/nested-grid.html",
+      "reference": "test/fixtures/paged/nested-grid.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute rectangles on forced physical sheets; no tested reservation, balancing or formatting policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 110,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 210,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 290,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 2,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 10,
+          "y": 90,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "column-flex",
+      "input": "test/fixtures/paged/column-flex.html",
+      "reference": "test/fixtures/paged/column-flex.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute rectangles on forced physical sheets; no tested reservation, balancing or formatting policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 110,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 210,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 270,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 2,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 10,
+          "y": 70,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "variable-flex",
+      "input": "test/fixtures/paged/variable-flex.html",
+      "reference": "test/fixtures/paged/variable-flex.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute rectangles on forced sheets; no track or lane pagination policy",
+      "preview_witnesses": [
+        {
+          "x": 60,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 160,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 110,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 160,
+          "y": 110,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 60,
+          "y": 210,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 160,
+          "y": 210,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ],
+          "page": 1
+        },
+        {
+          "x": 110,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ],
+          "page": 1
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ],
+          "page": 2
+        },
+        {
+          "x": 160,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ],
+          "page": 2
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ],
+          "page": 3
+        },
+        {
+          "x": 110,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ],
+          "page": 3
+        }
+      ]
+    },
+    {
+      "name": "variable-grid",
+      "input": "test/fixtures/paged/variable-grid.html",
+      "reference": "test/fixtures/paged/variable-grid.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute rectangles on forced sheets; no track or lane pagination policy",
+      "preview_witnesses": [
+        {
+          "x": 60,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 160,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 110,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 160,
+          "y": 110,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 60,
+          "y": 210,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 160,
+          "y": 210,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ],
+          "page": 1
+        },
+        {
+          "x": 110,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ],
+          "page": 1
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ],
+          "page": 2
+        },
+        {
+          "x": 160,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ],
+          "page": 2
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ],
+          "page": 3
+        },
+        {
+          "x": 110,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ],
+          "page": 3
+        }
+      ]
+    },
+    {
+      "name": "wrapped-columns",
+      "input": "test/fixtures/paged/wrapped-columns.html",
+      "reference": "test/fixtures/paged/wrapped-columns.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute rectangles on forced sheets; no track or lane pagination policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 110,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 110,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 110,
+          "y": 110,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 210,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 110,
+          "y": 210,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ],
+          "page": 1
+        },
+        {
+          "x": 110,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ],
+          "page": 1
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ],
+          "page": 2
+        },
+        {
+          "x": 110,
+          "y": 10,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ],
+          "page": 2
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ],
+          "page": 3
+        },
+        {
+          "x": 110,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ],
+          "page": 3
+        }
+      ]
+    },
+    {
+      "name": "vertical-flex",
+      "input": "test/fixtures/paged/vertical-flex.html",
+      "reference": "test/fixtures/paged/vertical-flex.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute rectangles on forced sheets; no track or lane pagination policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 110,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 210,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ],
+          "page": 1
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ],
+          "page": 2
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ],
+          "page": 3
+        }
+      ]
+    },
+    {
+      "name": "vertical-grid",
+      "input": "test/fixtures/paged/vertical-grid.html",
+      "reference": "test/fixtures/paged/vertical-grid.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute rectangles on forced sheets; no track or lane pagination policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 40,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 110,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 40,
+          "y": 110,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 210,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 40,
+          "y": 210,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ],
+          "page": 1
+        },
+        {
+          "x": 40,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ],
+          "page": 1
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ],
+          "page": 2
+        },
+        {
+          "x": 40,
+          "y": 10,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ],
+          "page": 2
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ],
+          "page": 3
+        },
+        {
+          "x": 40,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ],
+          "page": 3
+        }
+      ]
+    },
+    {
+      "name": "orthogonal-root",
+      "input": "test/fixtures/paged/orthogonal-root.html",
+      "reference": "test/fixtures/paged/orthogonal-root.control.html",
+      "pages": 2,
+      "oracle": "independently authored absolute rectangles on forced sheets; no track or lane pagination policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 110,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 185,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ],
+          "page": 1
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ],
+          "page": 2
+        },
+        {
+          "x": 10,
+          "y": 85,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ],
+          "page": 2
+        }
+      ]
+    },
+    {
+      "name": "wrapped-boundaries",
+      "input": "test/fixtures/paged/wrapped-boundaries.html",
+      "reference": "test/fixtures/paged/wrapped-boundaries.control.html",
+      "pages": 5,
+      "oracle": "independently authored five forced sheets; no wrapped flex or endpoint break propagation",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 110,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 110,
+          "y": 110,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 210,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 110,
+          "y": 210,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 310,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 110,
+          "y": 310,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 405,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ],
+          "page": 1
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ],
+          "page": 2
+        },
+        {
+          "x": 110,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ],
+          "page": 2
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ],
+          "page": 3
+        },
+        {
+          "x": 110,
+          "y": 10,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ],
+          "page": 3
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ],
+          "page": 4
+        },
+        {
+          "x": 110,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ],
+          "page": 4
+        },
+        {
+          "x": 10,
+          "y": 5,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ],
+          "page": 5
+        }
+      ]
+    },
+    {
+      "name": "topology-flex",
+      "input": "test/fixtures/paged/topology-flex.html",
+      "reference": "test/fixtures/paged/topology-flex.control.html",
+      "pages": 4,
+      "oracle": "independently authored physical placements and explicit text lines on forced sheets; no continuation policy",
+      "preview_witnesses": [
+        {
+          "x": 145,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 245,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 95,
+          "y": 110,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 195,
+          "y": 155,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 295,
+          "y": 110,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 145,
+          "y": 210,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 245,
+          "y": 210,
+          "rgba": [
+            0,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 95,
+          "y": 310,
+          "rgba": [
+            255,
+            165,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 295,
+          "y": 370,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 1,
+          "x": 95,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 195,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 95,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 195,
+          "y": 55,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 295,
+          "y": 10,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 95,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 195,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 4,
+          "x": 95,
+          "y": 10,
+          "rgba": [
+            255,
+            165,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 4,
+          "x": 295,
+          "y": 70,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "split-width-flex",
+      "input": "test/fixtures/paged/split-width-flex.html",
+      "reference": "test/fixtures/paged/split-width-flex.control.html",
+      "pages": 3,
+      "oracle": "independently authored physical placements and explicit text lines on forced sheets; no continuation policy",
+      "preview_witnesses": [
+        {
+          "x": 95,
+          "y": 95,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 195,
+          "y": 10,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 95,
+          "y": 195,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 95,
+          "y": 235,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 195,
+          "y": 250,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 1,
+          "x": 95,
+          "y": 95,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 195,
+          "y": 10,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 45,
+          "y": 95,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 95,
+          "y": 35,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 195,
+          "y": 50,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "topology-grid",
+      "input": "test/fixtures/paged/topology-grid.html",
+      "reference": "test/fixtures/paged/topology-grid.control.html",
+      "pages": 4,
+      "oracle": "independently authored physical placements and explicit text lines on forced sheets; no continuation policy",
+      "preview_witnesses": [
+        {
+          "x": 145,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 245,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 95,
+          "y": 110,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 195,
+          "y": 155,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 295,
+          "y": 110,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 145,
+          "y": 210,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 245,
+          "y": 210,
+          "rgba": [
+            0,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 95,
+          "y": 310,
+          "rgba": [
+            255,
+            165,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 295,
+          "y": 370,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 1,
+          "x": 95,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 195,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 95,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 195,
+          "y": 55,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 295,
+          "y": 10,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 95,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 195,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 4,
+          "x": 95,
+          "y": 10,
+          "rgba": [
+            255,
+            165,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 4,
+          "x": 295,
+          "y": 70,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "split-width-grid",
+      "input": "test/fixtures/paged/split-width-grid.html",
+      "reference": "test/fixtures/paged/split-width-grid.control.html",
+      "pages": 3,
+      "oracle": "independently authored physical placements and explicit text lines on forced sheets; no continuation policy",
+      "preview_witnesses": [
+        {
+          "x": 95,
+          "y": 95,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 195,
+          "y": 10,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 95,
+          "y": 195,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 95,
+          "y": 235,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 195,
+          "y": 250,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 1,
+          "x": 95,
+          "y": 95,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 195,
+          "y": 10,
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 45,
+          "y": 95,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 95,
+          "y": 35,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 195,
+          "y": 50,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "principal-lr",
+      "input": "test/fixtures/paged/principal-lr.html",
+      "reference": "test/fixtures/paged/principal-lr.control.html",
+      "pages": 2,
+      "oracle": "independently authored physical placements and explicit text lines on forced sheets; no continuation policy",
+      "preview_witnesses": [
+        {
+          "x": 75,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 155,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 75,
+          "y": 110,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 95,
+          "y": 110,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 1,
+          "x": 75,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 155,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 75,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 95,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "principal-text-lr",
+      "input": "test/fixtures/paged/principal-text-lr.html",
+      "reference": "test/fixtures/paged/principal-text-lr.control.html",
+      "pages": 2,
+      "oracle": "independently authored physical placements and explicit text lines on forced sheets; no continuation policy",
+      "preview_witnesses": [
+        {
+          "x": 65,
+          "y": 110,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 2,
+          "x": 65,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "principal-breaks-lr",
+      "input": "test/fixtures/paged/principal-breaks-lr.html",
+      "reference": "test/fixtures/paged/principal-breaks-lr.control.html",
+      "pages": 3,
+      "oracle": "independently authored physical placements and explicit text lines on forced sheets; no continuation policy",
+      "preview_witnesses": [
+        {
+          "x": 75,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 75,
+          "y": 110,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 155,
+          "y": 195,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 15,
+          "y": 210,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 1,
+          "x": 75,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 75,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 155,
+          "y": 95,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 15,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "principal-rl",
+      "input": "test/fixtures/paged/principal-rl.html",
+      "reference": "test/fixtures/paged/principal-rl.control.html",
+      "pages": 2,
+      "oracle": "independently authored physical placements and explicit text lines on forced sheets; no continuation policy",
+      "preview_witnesses": [
+        {
+          "x": 195,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 115,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 195,
+          "y": 110,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 115,
+          "y": 110,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 1,
+          "x": 195,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 115,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 195,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 115,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "principal-text-rl",
+      "input": "test/fixtures/paged/principal-text-rl.html",
+      "reference": "test/fixtures/paged/principal-text-rl.control.html",
+      "pages": 2,
+      "oracle": "independently authored physical placements and explicit text lines on forced sheets; no continuation policy",
+      "preview_witnesses": [
+        {
+          "x": 135,
+          "y": 110,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 2,
+          "x": 135,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "principal-breaks-rl",
+      "input": "test/fixtures/paged/principal-breaks-rl.html",
+      "reference": "test/fixtures/paged/principal-breaks-rl.control.html",
+      "pages": 3,
+      "oracle": "independently authored physical placements and explicit text lines on forced sheets; no continuation policy",
+      "preview_witnesses": [
+        {
+          "x": 195,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 195,
+          "y": 110,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 115,
+          "y": 195,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 195,
+          "y": 210,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 1,
+          "x": 195,
+          "y": 10,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 195,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 2,
+          "x": 115,
+          "y": 95,
+          "rgba": [
+            0,
+            255,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 3,
+          "x": 195,
+          "y": 10,
+          "rgba": [
+            255,
+            0,
+            255,
+            255
+          ]
+        }
+      ]
+    }
+  ]
+}

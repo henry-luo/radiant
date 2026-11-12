@@ -118,6 +118,9 @@ uint8_t css_prop_compute_cascaded_containment(DomElement* element);
 bool css_prop_serialize_cascaded_value(DomElement* element, CssPropertyCode id,
     int pseudo_type, StringBuf* out, bool preserve_color_model = false);
 bool css_prop_compute_numeric_value(DomElement* element, const CssValue* value, CssMathResult* result);
+// used shape/geometry consumers supply their own percentage reference.
+bool css_prop_compute_numeric_value(DomElement* element, const CssValue* value,
+    CssMathResult* result, float percentage_base);
 // declaration computation supplies factors when the applied item record is absent.
 bool css_prop_compute_declared_flex_factor(DomElement* element, CssPropertyCode id, float* result);
 bool css_prop_compute_declared_flex_basis(DomElement* element, CssFlexBasisValue* result);
@@ -4682,6 +4685,7 @@ typedef struct UiContext {
     uint8_t click_count;
     uint8_t active_click_count;
     struct BrowsingSession* browsing_session;  // web browsing session with history
+    lam::Own<struct BrowsingSession> owned_browsing_session; // ephemeral profile when no shell session is supplied
     struct WebViewManager* webview_mgr;  // native web view manager (NULL until first <webview> element)
     struct EventStateLog* event_log;  // view-mode per-document event/state log owner
     struct StateDumpLog* state_dump_log;  // view-mode per-document Mark state dump owner
@@ -4701,6 +4705,7 @@ typedef struct UiContext {
     struct RadiantDevtools* devtools; // optional shell-owned inspector; no managed runtime values
 
     int init(bool headless, float requested_device_scale = 0.0f);
+    bool ensure_browsing_session();
     void create_surface(int pixel_width, int pixel_height);
     bool destroy_document(bool wait_for_tasks = true);
     bool destroy(bool wait_for_tasks = true);

@@ -369,7 +369,14 @@ void layout_grid_content(LayoutContext* lycon, ViewBlock* grid_container) {
         float parent_h = (float)grid_container->height;
         for (int i = 0; i < gl->item_count; i++) {
             ViewBlock* item = gl->grid_items[i];
-            if (!item || !item->position) continue;
+            if (!item) continue;
+            // row growth and stretch can change the scrollport after content layout.
+            if (item->scroller) {
+                BoxEdges border = layout_boundary_border_edges(item->boundary());
+                update_scroller(item, item->content_width + border.right,
+                    item->content_height + border.bottom);
+            }
+            if (!item->position) continue;
             if (item->positionp()->position == CSS_VALUE_STICKY) {
                 layout_sticky_positioned(lycon, item);
                 continue;
@@ -409,6 +416,7 @@ void layout_grid_content(LayoutContext* lycon, ViewBlock* grid_container) {
     // CACHE STORE: Save computed result for future lookups
     radiant::SizeF result = radiant::size_f(grid_container->width, grid_container->height);
     radiant::layout_pass_cache_store(lycon, dom_elem, known_dims, result, "GRID");
+    if (lycon->paged) paged_grid_rows(lycon, grid_container, lycon->grid_container);
     // Cleanup and restore parent context
     grid_scope.close();
 
@@ -540,12 +548,7 @@ void init_grid_item_view(LayoutContext* lycon, DomNode* child) {
     // controls retain their role data while receiving ordinary grid item state.
     ViewBlock* elem_block = lam::view_as_block(elem);
     if (!grid_item_prop(elem_block)) {
-        // Intrinsic sizing can provisionally tag an aspect-ratio box as a flex item;
-        // the actual parent formatting context must decide its item role.
-        if (elem->parent_item_kind() == DomElement::PARENT_ITEM_FLEX) {
-            elem->set_parent_item_kind(DomElement::PARENT_ITEM_NONE);
-        }
-        elem->ensure_grid_item(lycon->doc->view_tree);
+        layout_set_parent_item_kind(lycon, elem, DomElement::PARENT_ITEM_GRID);
     }
     // CRITICAL: Set lycon->view to this element so style resolution
     // applies properties to this element, not some other view
@@ -638,12 +641,6 @@ void layout_final_grid_content(LayoutContext* lycon, GridContainerLayout* grid_l
         if (!item) continue;
 
         layout_grid_item_final_content_multipass(lycon, item);
-        // grid items bypass block finalization; publish their final overflow clip even when content fits.
-        if (item->scroller) {
-            BoxEdges border = layout_boundary_border_edges(item->boundary());
-            update_scroller(item, item->content_width + border.right,
-                item->content_height + border.bottom);
-        }
     }
 
     log_info("FINAL GRID CONTENT LAYOUT END");

@@ -29,3 +29,57 @@ Use `LAYOUT_BASELINE_SUITES=baseline` for static geometry alone, `LAYOUT_BASELIN
 On macOS, `make test-native-closure` force-loads the complete Radiant and input archives without Lambda runtime or DOM libraries. Its client initializes native UI, lays out HTML, and hit-tests HTML and SVG. It checks native linkage separately from the unit tests.
 
 `make test-navigation-cli LAMBDA_HOST=../Lambda/lambda.exe` checks startup fragment navigation and timer retention. Its layout cases use `radiant.exe`; its view cases use the selected Lambda host because the standalone executable does not provide `view`. The native build and baseline do not require the external executable. Replay inputs, results and logs stay under `temp/navigation-cli/`.
+
+
+## Paged fragmentation qualification
+
+`make build/test/test_paged_fragmentation_gtest` builds owner-local paging
+regressions; run `./build/test/test_paged_fragmentation_gtest`. Paged
+fragmentation uses the shared layout, anchor reservations and bounded
+reference replay. It supports forward and end-relative `float-defer`
+(`last` and negative offsets) for page references in one-column, one-sequence
+flows. End-relative destinations before the committed anchor install earlier-page
+reservations through bounded reference replay.
+Explicit `column-fill:balance` balances the final equal-column native body page,
+including its column floats and notes.
+Horizontal flex/grid formatting rows use common line fits, row spans, explicit
+breaks and row avoidance. Oversized/nested items fit their ordinary content at
+legal line/block boundaries; concurrent peers stay independent. Single-column
+flex works in either resolved direction. Wrapped physical-Y flex lines continue
+independently, and vertical flex/grid capture the track family on the physical
+pagination axis. Horizontal rows remeasure destination tracks through the normal
+formatter; uncommitted flex/grid items can repack when wrapping or auto-placement
+changes. Split ordinary item content replays line widths and publishes boxes at
+their actual continuation tracks. Vertical principal flows fit ordinary blocks
+and committed line allocations along X in either direction, preserving glyph
+orientation, widows, forced breaks and continuous editions. Page indexes and
+resource ownership
+follow D9.1.1v4 / D9.1.3v2 and D5.5.1 / D5.1.4. See
+[vibe/impl/Radiant_Impl_P7_Fragmentation.md](vibe/impl/Radiant_Impl_P7_Fragmentation.md).
+
+The collector saves immutable source/host hashes, decoded preview pixels,
+physical PDF geometry and independent Poppler rasters. The manifest supplies
+separately authored placement controls and literal color witnesses. It requires
+libpng, pdfinfo and pdftoppm; use a fresh output directory.
+
+```bash
+LAMBDA_HOME=../Lambda-opus/lmd python3 scripts/qualify_paged.py --exe ./radiant.exe --output temp/paged-qualification-run
+make PROFILE=release -j8 build/test/paged_composition_bench
+LAMBDA_HOME=../Lambda-opus/lmd python3 scripts/qualify_paged.py --exe ./radiant.exe --composition-exe ./build/test/paged_composition_bench --output temp/paged-qualification-optimized
+```
+
+The optimized client times composition of fixed 21-page and 300-page workloads,
+excluding loading, export and retirement, and checks geometry/glyph digests across
+samples. Debug clients refuse timing. The report records current source counts,
+release build flags and the explicit user waiver of the lost historical archive;
+old speedup and source-reduction values are not reclassified as passing.
+Without `--exe` or `--composition-exe`, the collector only inventories sources.
+Named-page width changes support open ordinary-flow chains with auto or fixed
+absolute widths; fixed ancestors retain their measure while auto ancestors resume
+the new page width. Percentage-containing and independent formatting contexts
+remain outside that ordinary-flow continuation profile. Unequal columns, nested
+formatters or anonymous topology inside width remeasurement, topology changes
+inside active split items, richer definite-size/alignment combinations, vertical
+auxiliary/multicolumn producers, changing vertical inline capacity, multi-sequence
+scheduling and platform qualification remain separate extensions. RI-032 retains
+the earlier measured composition slowdown.

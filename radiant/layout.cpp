@@ -5444,6 +5444,8 @@ void layout_html_root(LayoutContext* lycon, DomNode* elmt) {
 
     if (html->font) {
         setup_font(lycon->ui_context, &lycon->font, html->font);
+        // cached root styles still publish their computed basis before child layout.
+        if (html->fontp()->font_size >= 0.0f) lycon->root_font_size = html->fontp()->font_size;
     }
     if (lycon->root_font_size < 0) {
         lycon->root_font_size = lycon->font.current_font_size < 0 ?
@@ -5994,6 +5996,13 @@ static int layout_node_visit_budget(DomDocument* doc) {
     return document_node_count * MAX_LAYOUT_NODE_VISITS_PER_DOM_NODE;
 }
 
+static radiant::SizeF layout_host_viewport_size(const UiContext* ui) {
+    // desktop layout and media queries use the host's CSS viewport; numeric
+    // mobile meta hints do not replace that viewport without mobile adaptation.
+    return radiant::size_f(ui->viewport_width > 0.0f ? ui->viewport_width : 1200.0f,
+        ui->viewport_height > 0.0f ? ui->viewport_height : 800.0f);
+}
+
 void layout_init(LayoutContext* lycon, DomDocument* doc, UiContext* uicon) {
     memset(lycon, 0, sizeof(LayoutContext));
     lycon->doc = lam::up(doc);  lycon->ui_context = lam::up(uicon);
@@ -6005,17 +6014,9 @@ void layout_init(LayoutContext* lycon, DomDocument* doc, UiContext* uicon) {
     lycon->defer_sticky_positioning = true;
     lycon->node_limit = layout_node_visit_budget(doc);
 
-    lycon->width = uicon->viewport_width > 0 ? uicon->viewport_width : 1200;
-    lycon->height = uicon->viewport_height > 0 ? uicon->viewport_height : 800;
-
-    if (doc->viewport.width > 0) {
-        lycon->width = (float)doc->viewport.width;
-        log_info("layout_init: viewport meta override width=%d", doc->viewport.width);
-    }
-    if (doc->viewport.height > 0) {
-        lycon->height = (float)doc->viewport.height;
-        log_info("layout_init: viewport meta override height=%d", doc->viewport.height);
-    }
+    radiant::SizeF viewport = layout_host_viewport_size(uicon);
+    lycon->width = viewport.width;
+    lycon->height = viewport.height;
 
     CssEngine* css_engine = (CssEngine*)doc->services.cached_css_engine;
     if (css_engine && (css_engine->context.viewport_width != lycon->width ||
@@ -6336,10 +6337,9 @@ static DocumentLayoutPublication layout_document_inputs(UiContext* ui, DomDocume
     inputs.font_generation = ui->font_ctx ? font_context_resource_generation(ui->font_ctx) : 0;
     inputs.input_revision = doc->root ? doc->root->intrinsic_input_revision : 0;
     inputs.generation = doc->view_tree->layout_generation;
-    inputs.width = doc->viewport.width > 0 ? doc->viewport.width
-        : (ui->viewport_width > 0.0f ? ui->viewport_width : 1200.0f);
-    inputs.height = doc->viewport.height > 0 ? doc->viewport.height
-        : (ui->viewport_height > 0.0f ? ui->viewport_height : 800.0f);
+    radiant::SizeF viewport = layout_host_viewport_size(ui);
+    inputs.width = viewport.width;
+    inputs.height = viewport.height;
     inputs.raster_scale = ui_context_raster_scale(ui);
     inputs.minimum_font_size = ui->minimum_logical_font_size;
     inputs.input_capabilities = ui->input_capabilities;
@@ -6515,10 +6515,9 @@ void layout_html_doc(UiContext* uicon, DomDocument *doc, bool is_reflow, PagedFl
     if (engine) {
         engine->container_provider = layout_provide_size_container;
         engine->container_context = doc;
-        float viewport_width = doc->viewport.width > 0 ? doc->viewport.width : uicon->viewport_width;
-        float viewport_height = doc->viewport.height > 0 ? doc->viewport.height : uicon->viewport_height;
-        bool environment_changed = engine->context.viewport_width != viewport_width ||
-            engine->context.viewport_height != viewport_height;
+        radiant::SizeF viewport = layout_host_viewport_size(uicon);
+        bool environment_changed = engine->context.viewport_width != viewport.width ||
+            engine->context.viewport_height != viewport.height;
         environment_changed = css_engine_set_input_capabilities(engine, &uicon->input_capabilities) || environment_changed;
         // resolution media queries follow the window's backing scale; the engine is created at 1x.
         double density = uicon->device_scale > 0 ? uicon->device_scale : 1.0;
@@ -6526,7 +6525,7 @@ void layout_html_doc(UiContext* uicon, DomDocument *doc, bool is_reflow, PagedFl
             engine->context.device_pixel_ratio = density;
             environment_changed = true;
         }
-        css_engine_set_viewport(engine, viewport_width, viewport_height);
+        css_engine_set_viewport(engine, viewport.width, viewport.height);
         if (environment_changed) {
             radiant_recascade_document_styles(doc, doc->root);
         }

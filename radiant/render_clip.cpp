@@ -5,6 +5,7 @@
 #include "lambda/input/css/css_style.hpp"
 #include "tagged.hpp"
 #include "lib/log.h"
+#include "lib/str.h"
 
 #include <stddef.h>
 #include <math.h>
@@ -159,27 +160,6 @@ static ClipShape* render_clip_clone_shape(ScratchArena* scratch, ScratchMark* me
     if (!copy) return nullptr;
     *copy = *shape;
     return copy;
-}
-
-static float render_clip_parse_len(const char*& s, float ref) {
-    while (*s == ' ' || *s == ',') s++;
-    float val = strtof(s, (char**)&s);
-    while (*s == ' ') s++;
-    if (*s == '%') { s++; return val / 100.0f * ref; }
-    if (s[0] == 'p' && s[1] == 'x') s += 2;
-    return val;
-}
-
-static void render_clip_parse_center(const char*& s, float elem_w, float elem_h,
-                                     float abs_x, float abs_y, float* cx, float* cy) {
-    *cx = abs_x + elem_w * 0.5f;
-    *cy = abs_y + elem_h * 0.5f;
-    while (*s == ' ') s++;
-    if (strncmp(s, "at", 2) != 0) return;
-
-    s += 2;
-    *cx = abs_x + render_clip_parse_len(s, elem_w);
-    *cy = abs_y + render_clip_parse_len(s, elem_h);
 }
 
 static bool render_clip_parse_polygon_len(const char*& s, float ref, float* out_value) {
@@ -416,114 +396,156 @@ static RdtPath* render_clip_parse_path_function(const char* value,
     return path;
 }
 
-static ClipShape* render_clip_parse_css_shape(ScratchArena* scratch, ScratchMark* mem,
-                                              const char* value,
-                                              float elem_w, float elem_h,
-                                              float abs_x, float abs_y) {
-    if (!scratch || !value || strncmp(value, "none", 4) == 0) return nullptr;
-
-    if (strncmp(value, "inset(", 6) == 0) {
-        const char* s = value + 6;
-        float vals[4] = {0};
-        int val_count = 0;
-        while (*s && *s != ')' && val_count < 4) {
-            while (*s == ' ') s++;
-            if (*s == ')' || strncmp(s, "round", 5) == 0) break;
-            float ref = (val_count == 0 || val_count == 2) ? elem_h : elem_w;
-            vals[val_count++] = render_clip_parse_len(s, ref);
-        }
-        float top, right_v, bottom, left_v;
-        if (val_count == 1)      { top = right_v = bottom = left_v = vals[0]; }
-        else if (val_count == 2) { top = bottom = vals[0]; right_v = left_v = vals[1]; }
-        else if (val_count == 3) { top = vals[0]; right_v = left_v = vals[1]; bottom = vals[2]; }
-        else                     { top = vals[0]; right_v = vals[1]; bottom = vals[2]; left_v = vals[3]; }
-        float rx = 0, ry = 0;
-        while (*s == ' ') s++;
-        if (strncmp(s, "round", 5) == 0) {
-            s += 5;
-            rx = render_clip_parse_len(s, elem_w);
-            ry = rx;
-        }
-        ClipShape* cs = render_clip_alloc_shape(scratch, mem);
-        if (!cs) return nullptr;
-        if (rx > 0 || ry > 0) {
-            cs->type = CLIP_SHAPE_ROUNDED_RECT;
-            cs->rounded_rect = {abs_x + left_v, abs_y + top,
-                                elem_w - left_v - right_v, elem_h - top - bottom,
-                                rx, rx, rx, rx};
-        } else {
-            cs->type = CLIP_SHAPE_INSET;
-            cs->inset = {abs_x + left_v, abs_y + top,
-                         elem_w - left_v - right_v, elem_h - top - bottom, 0, 0};
-        }
-        return cs;
+struct ClipComponents {
+    const CssValue* value;
+    int count() const { return !value ? 0 : value->type == CSS_VALUE_TYPE_LIST ? value->data.list.count : 1; }
+    const CssValue* at(int index) const {
+        if (index < 0 || index >= count()) return nullptr;
+        return value->type == CSS_VALUE_TYPE_LIST ? value->data.list.values[index] : value;
     }
-
-    if (strncmp(value, "circle(", 7) == 0) {
-        const char* s = value + 7;
-        float ref = fmin(elem_w, elem_h);
-        float r = render_clip_parse_len(s, ref);
-        float cx, cy;
-        render_clip_parse_center(s, elem_w, elem_h, abs_x, abs_y, &cx, &cy);
-        ClipShape* cs = render_clip_alloc_shape(scratch, mem);
-        if (!cs) return nullptr;
-        cs->type = CLIP_SHAPE_CIRCLE;
-        cs->circle = {cx, cy, r};
-        return cs;
+    const CssValue* tail(int index, CssValue* storage) const {
+        if (!at(index)) return nullptr;
+        if (value->type != CSS_VALUE_TYPE_LIST) return value;
+        storage->type = CSS_VALUE_TYPE_LIST;
+        storage->data.list = value->data.list;
+        storage->data.list.values += index;
+        storage->data.list.count -= index;
+        return storage;
     }
+};
 
-    if (strncmp(value, "ellipse(", 8) == 0) {
-        const char* s = value + 8;
-        float rx = render_clip_parse_len(s, elem_w);
-        float ry = render_clip_parse_len(s, elem_h);
-        float cx, cy;
-        render_clip_parse_center(s, elem_w, elem_h, abs_x, abs_y, &cx, &cy);
-        ClipShape* cs = render_clip_alloc_shape(scratch, mem);
-        if (!cs) return nullptr;
-        cs->type = CLIP_SHAPE_ELLIPSE;
-        cs->ellipse = {cx, cy, rx, ry};
-        return cs;
+static bool render_clip_word(const CssValue* value, const char* word) {
+    const char* name = css_value_identifier_name(value);
+    return name && str_icmp_cstr(name, word) == 0;
+}
+
+static bool render_clip_resolve_length(DomElement* owner, const CssValue* value,
+        float reference, float unit_scale, float* result) {
+    CssMathResult math = {};
+    if (!(unit_scale > 0.0f) || !css_prop_compute_numeric_value(owner, value, &math, reference / unit_scale) ||
+        (math.type != CSS_MATH_LENGTH && math.type != CSS_MATH_PERCENT &&
+         math.type != CSS_MATH_LENGTH_PERCENT && !(math.type == CSS_MATH_NUMBER && math.value == 0.0)) ||
+        !isfinite(math.value)) return false;
+    *result = (float)math.value * unit_scale;
+    return isfinite(*result);
+}
+
+static bool render_clip_resolve_center(DomElement* owner, ClipComponents components, int at,
+        float width, float height, float unit_scale, float* x, float* y) {
+    *x = width * 0.5f; *y = height * 0.5f;
+    if (at < 0) return true;
+    CssValue storage = {};
+    CssPositionAxis axes[2] = {};
+    if (!css_position_components(components.tail(at + 1, &storage), axes, false)) return false;
+    for (int axis = 0; axis < 2; axis++) {
+        float reference = axis ? height : width, offset = 0.0f;
+        if (axes[axis].offset && !render_clip_resolve_length(owner, axes[axis].offset,
+                reference, unit_scale, &offset)) return false;
+        float position = axes[axis].origin == CSS_VALUE_CENTER ? reference * 0.5f + offset
+            : axes[axis].origin == CSS_VALUE_RIGHT || axes[axis].origin == CSS_VALUE_BOTTOM
+                ? reference - offset : offset;
+        (axis ? *y : *x) = position;
     }
+    return true;
+}
 
-    if (strncmp(value, "polygon(", 8) == 0) {
-        const char* s = value + 8;
-        const char* scan = s;
+static bool render_clip_resolve_radius(DomElement* owner, const CssValue* value,
+        float reference, float nearest, float farthest, float unit_scale, float* radius) {
+    if (!value || render_clip_word(value, "closest-side")) *radius = nearest;
+    else if (render_clip_word(value, "farthest-side")) *radius = farthest;
+    else if (!render_clip_resolve_length(owner, value, reference, unit_scale, radius)) return false;
+    return *radius >= 0.0f;
+}
+
+static ClipShape* render_clip_parse_resolved_shape(ScratchArena* scratch, ScratchMark* mem,
+        DomElement* owner, const CssValue* value, float elem_w, float elem_h,
+        float abs_x, float abs_y, float unit_scale) {
+    if (!value || value->type != CSS_VALUE_TYPE_FUNCTION || !value->data.function) return nullptr;
+    const CssFunction* function = value->data.function;
+    if (!function->name) return nullptr;
+    ClipComponents components = {function->arg_count == 1 ? function->args[0] : nullptr};
+    if (strcmp(function->name, "inset") == 0 && function->arg_count == 1) {
         int count = 0;
-        while (*scan && *scan != ')') {
-            while (*scan == ' ' || *scan == ',') scan++;
-            if (*scan == ')') break;
-            float dummy_x = 0.0f, dummy_y = 0.0f;
-            // Unsupported units/functions such as calc() and rem leave strtof
-            // unable to advance; abort the optional clip-path instead of
-            // spinning forever while rendering the page.
-            if (!render_clip_parse_polygon_len(scan, elem_w, &dummy_x) ||
-                !render_clip_parse_polygon_len(scan, elem_h, &dummy_y)) {
-                return nullptr;
-            }
-            count++;
-            while (*scan == ' ' || *scan == ',') scan++;
+        while (count < components.count() && !render_clip_word(components.at(count), "round")) count++;
+        if (count < 1 || count > 4) return nullptr;
+        float edges[4] = {};
+        for (int side = 0; side < 4; side++) {
+            int index = side < count ? side : side == 3 && count > 1 ? 1 : 0;
+            // expand syntax before resolving percentages against each physical axis.
+            if (!render_clip_resolve_length(owner, components.at(index), side % 2 ? elem_w : elem_h,
+                    unit_scale, &edges[side])) return nullptr;
         }
-        if (count < 3) return nullptr;
-
-        float* vx = (float*)scratch_scope_alloc(scratch, mem, (size_t)count * sizeof(float));
-        float* vy = (float*)scratch_scope_alloc(scratch, mem, (size_t)count * sizeof(float));
-        if (!vx || !vy) return nullptr;
-        for (int i = 0; i < count; i++) {
-            if (!render_clip_parse_polygon_len(s, elem_w, &vx[i]) ||
-                !render_clip_parse_polygon_len(s, elem_h, &vy[i])) {
-                return nullptr;
-            }
-            vx[i] += abs_x;
-            vy[i] += abs_y;
+        float radius = 0.0f;
+        if (count < components.count() && (!render_clip_resolve_length(owner, components.at(count + 1),
+                elem_w, unit_scale, &radius) || radius < 0.0f)) return nullptr;
+        ClipShape* shape = render_clip_alloc_shape(scratch, mem);
+        if (!shape) return nullptr;
+        float width = fmaxf(0.0f, elem_w - edges[1] - edges[3]);
+        float height = fmaxf(0.0f, elem_h - edges[0] - edges[2]);
+        if (radius > 0.0f) {
+            shape->type = CLIP_SHAPE_ROUNDED_RECT;
+            shape->rounded_rect = {abs_x + edges[3], abs_y + edges[0], width, height,
+                radius, radius, radius, radius};
+        } else {
+            shape->type = CLIP_SHAPE_INSET;
+            shape->inset = {abs_x + edges[3], abs_y + edges[0], width, height, 0, 0};
         }
-        ClipShape* cs = render_clip_alloc_shape(scratch, mem);
-        if (!cs) return nullptr;
-        cs->type = CLIP_SHAPE_POLYGON;
-        cs->polygon = {lam::own_arr(vx), lam::own_arr(vy), count};
-        return cs;
+        return shape;
     }
-
+    bool circle = strcmp(function->name, "circle") == 0;
+    if ((circle || strcmp(function->name, "ellipse") == 0) && function->arg_count <= 1) {
+        int at = -1;
+        for (int i = 0; i < components.count(); i++) if (render_clip_word(components.at(i), "at")) { at = i; break; }
+        int radii = at >= 0 ? at : components.count();
+        if (radii && radii != (circle ? 1 : 2)) return nullptr;
+        float x, y;
+        if (!render_clip_resolve_center(owner, components, at, elem_w, elem_h, unit_scale, &x, &y)) return nullptr;
+        float near_x = fminf(fabsf(x), fabsf(elem_w - x)), near_y = fminf(fabsf(y), fabsf(elem_h - y));
+        float far_x = fmaxf(fabsf(x), fabsf(elem_w - x)), far_y = fmaxf(fabsf(y), fabsf(elem_h - y));
+        float rx, ry;
+        if (!render_clip_resolve_radius(owner, radii ? components.at(0) : nullptr, circle ? hypotf(elem_w, elem_h) / sqrtf(2.0f) : elem_w,
+                circle ? fminf(near_x, near_y) : near_x, circle ? fmaxf(far_x, far_y) : far_x,
+                unit_scale, &rx)) return nullptr;
+        if (circle) ry = rx;
+        else if (!render_clip_resolve_radius(owner, radii ? components.at(1) : nullptr, elem_h, near_y, far_y, unit_scale, &ry)) return nullptr;
+        ClipShape* shape = render_clip_alloc_shape(scratch, mem);
+        if (!shape) return nullptr;
+        if (circle) { shape->type = CLIP_SHAPE_CIRCLE; shape->circle = {abs_x + x, abs_y + y, rx}; }
+        else { shape->type = CLIP_SHAPE_ELLIPSE; shape->ellipse = {abs_x + x, abs_y + y, rx, ry}; }
+        return shape;
+    }
+    if (strcmp(function->name, "polygon") == 0 && function->arg_count >= 3) {
+        int count = function->arg_count;
+        float* x = (float*)scratch_scope_alloc(scratch, mem, (size_t)count * sizeof(float));
+        float* y = (float*)scratch_scope_alloc(scratch, mem, (size_t)count * sizeof(float));
+        if (!x || !y) return nullptr;
+        for (int i = 0; i < count; i++) {
+            ClipComponents point = {function->args[i]};
+            if (point.count() != 2 || !render_clip_resolve_length(owner, point.at(0), elem_w, unit_scale, &x[i]) ||
+                !render_clip_resolve_length(owner, point.at(1), elem_h, unit_scale, &y[i])) return nullptr;
+            x[i] += abs_x; y[i] += abs_y;
+        }
+        ClipShape* shape = render_clip_alloc_shape(scratch, mem);
+        if (!shape) return nullptr;
+        shape->type = CLIP_SHAPE_POLYGON;
+        shape->polygon = {lam::own_arr(x), lam::own_arr(y), count};
+        return shape;
+    }
     return nullptr;
+}
+
+static ClipShape* render_clip_parse_css_shape(ScratchArena* scratch, ScratchMark* mem,
+        DomElement* owner, float elem_w, float elem_h, float abs_x, float abs_y, float scale) {
+    CssDeclaration* declaration = owner ? dom_element_get_specified_value(owner, CSS_PROPERTY_CLIP_PATH) : nullptr;
+    if (!scratch || !declaration) return nullptr;
+    Pool* pool = pool_create();
+    if (!pool) return nullptr;
+    // keep substituted syntax temporary; only resolved coordinates enter the clip scope.
+    const CssValue* value = css_resolve_element_var_value(pool, owner, declaration->value, CSS_PROPERTY_CLIP_PATH);
+    ClipShape* shape = render_clip_parse_resolved_shape(scratch, mem, owner, value,
+        elem_w, elem_h, abs_x, abs_y, scale * layout_effective_zoom(owner));
+    pool_destroy(pool);
+    return shape;
 }
 
 static bool render_clip_push_shape_scope(RasterRenderContext* rdcon, RenderClipScope* scope,
@@ -596,8 +618,8 @@ RenderClipScope render_clip_push_css_scope(RasterRenderContext* rdcon, ViewBlock
     }
 
     ScratchMark mem = scratch_scope_begin(&rdcon->scratch);
-    ClipShape* css_shape = render_clip_parse_css_shape(&rdcon->scratch, &mem, clip_str,
-                                                       elem_w, elem_h, abs_x, abs_y);
+    ClipShape* css_shape = render_clip_parse_css_shape(&rdcon->scratch, &mem, block,
+                                                       elem_w, elem_h, abs_x, abs_y, scale);
     if (!render_clip_push_owned_shape(rdcon, &scope, css_shape, &mem,
             render_state_current_transform(rdcon))) return scope;
     log_debug("[CLIP] CSS clip-path: %s on element %s", clip_str, block->node_name());
@@ -617,8 +639,8 @@ bool render_clip_push_vector_css(PaintList* paint, ViewElement* element,
         ScratchArena scratch = {};
         scratch_init(&scratch, backing);
         ScratchMark scope = scratch_scope_begin(&scratch);
-        ClipShape* shape = render_clip_parse_css_shape(&scratch, &scope, value,
-            element->width, element->height, abs_x, abs_y);
+        ClipShape* shape = render_clip_parse_css_shape(&scratch, &scope, element,
+            element->width, element->height, abs_x, abs_y, 1.0f);
         if (shape) path = render_clip_create_shape_path(shape);
         scratch_scope_end(&scratch, &scope);
         scratch_release(&scratch);

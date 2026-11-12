@@ -33,6 +33,14 @@ bool paint_tiles_valid(const PaintTiles* tiles, const char** reason) {
     if (tiles->format == PAINT_FORMAT_RGBA) {
         if (tiles->elem != PAINT_ELEM_F32) { *reason = "rgba paint tiles must be f32"; return false; }
         channels = 4;
+    } else if (tiles->format == PAINT_FORMAT_PIGMENT) {
+        if (tiles->elem != PAINT_ELEM_F32) { *reason = "pigment paint tiles must be f32"; return false; }
+        if (tiles->bands < 1 || tiles->bands > PAINT_MAX_BANDS) { *reason = "pigment layers have 1 to 8 bands"; return false; }
+        for (int32_t b = 0; b < tiles->bands; b++)
+            if (!(tiles->substrate[b] >= 0.0f && tiles->substrate[b] <= 1.0f)) {
+                *reason = "pigment substrate reflectance must be in [0, 1]"; return false;
+            }
+        channels = paint_pigment_channels(tiles->bands);
     } else if (tiles->format == PAINT_FORMAT_COVERAGE) {
         if (tiles->elem != PAINT_ELEM_F32 && tiles->elem != PAINT_ELEM_U8) {
             *reason = "coverage tiles must be u8 or f32"; return false;
@@ -53,6 +61,15 @@ static bool paint_params_valid(const PaintDabParams* params, const char** reason
         if (!paint_plane_valid(&params->tips[i])) { *reason = "a paint tip must be a f32 (h, w) plane of at most 4096 x 4096"; return false; }
     if (params->paper && !paint_plane_valid(params->paper)) { *reason = "paper must be a f32 (h, w) plane of at most 4096 x 4096"; return false; }
     if (params->smudge_buckets < 0 || (params->smudge_buckets > 0 && !params->smudge)) { *reason = "smudge buckets are missing"; return false; }
+    if (params->pigment_bands < 0 || params->pigment_bands > PAINT_MAX_BANDS) { *reason = "pigment layers have 1 to 8 bands"; return false; }
+    if (params->pigment_count < 0 || (params->pigment_count > 0 && !params->pigments) ||
+        (params->pigment_count > 0 && params->pigment_bands == 0)) { *reason = "a pigment table needs a pigment target"; return false; }
+    // K and S per unit amount; 1e4 is far past opacity and keeps every product finite in f32.
+    for (int64_t i = 0; i < (int64_t)params->pigment_count * 2 * params->pigment_bands; i++)
+        if (!(params->pigments[i] >= 0.0f && params->pigments[i] <= 1.0e4f)) {
+            *reason = "pigment K and S must be in [0, 10000]"; return false;
+        }
+    if (params->pigment_bands > 0 && params->resolved) { *reason = "resolved colours are not available for pigment layers"; return false; }
     return true;
 }
 
@@ -106,9 +123,27 @@ bool paint_dab_decode(const float* row, int32_t width, int32_t height, const Pai
         *reason = "dab tip must be -1 or the index of a supplied tip"; return false;
     }
     if (row[PAINT_DAB_GRAIN] > 0.0f && !(params && params->paper)) { *reason = "a grained dab needs paper"; return false; }
-    // pigment, wet and impasto columns arrive with later media (PE8, PE9); refuse rather than ignore.
-    if (row[PAINT_DAB_PIGMENT] != -1.0f || row[PAINT_DAB_AMOUNT] != 0.0f || row[PAINT_DAB_WATER] != 0.0f ||
-        row[PAINT_DAB_THICKNESS] != 0.0f) { *reason = "dab uses a medium this engine version does not support"; return false; }
+    // the wet medium arrives with PE9; refuse rather than ignore.
+    if (row[PAINT_DAB_WATER] != 0.0f) { *reason = "dab uses a medium this engine version does not support"; return false; }
+    bool pigment = params && params->pigment_bands > 0;
+    if (!pigment && (row[PAINT_DAB_PIGMENT] != -1.0f || row[PAINT_DAB_AMOUNT] != 0.0f || row[PAINT_DAB_THICKNESS] != 0.0f)) {
+        *reason = "only a pigment layer takes dab pigment, amount and thickness"; return false;
+    }
+    if (pigment) {
+        if (!paint_index(row[PAINT_DAB_PIGMENT], params->pigment_count)) {
+            *reason = "a dab on a pigment layer names a row of the pigment table"; return false;
+        }
+        if (!paint_in(row[PAINT_DAB_AMOUNT], 0.0f, 64.0f) || !paint_in(row[PAINT_DAB_THICKNESS], 0.0f, 64.0f)) {
+            *reason = "dab amount and thickness must be in [0, 64]"; return false;
+        }
+        // the film mixes by concentration; the rgba recolouring modes have no film meaning.
+        bool shifted = false;
+        for (int column = PAINT_DAB_DH; column <= PAINT_DAB_DHSV_S; column++) shifted |= row[column] != 0.0f;
+        if (row[PAINT_DAB_LOCK_ALPHA] != 0.0f || row[PAINT_DAB_COLORIZE] != 0.0f || row[PAINT_DAB_POSTERIZE] != 0.0f ||
+            row[PAINT_DAB_BLEND] != (float)PAINT_BLEND_NORMAL || shifted) {
+            *reason = "a pigment layer takes no lock alpha, colorize, posterize, blend mode or colour shift"; return false;
+        }
+    }
     float profile = row[PAINT_DAB_PROFILE];
     if (profile != (float)PAINT_PROFILE_MYPAINT && profile != (float)PAINT_PROFILE_LINEAR) {
         *reason = "unknown dab falloff profile"; return false;
@@ -126,6 +161,8 @@ bool paint_dab_decode(const float* row, int32_t width, int32_t height, const Pai
     dab->smudge = row[PAINT_DAB_SMUDGE]; dab->smudge_length = row[PAINT_DAB_SMUDGE_LENGTH];
     dab->smudge_radius = row[PAINT_DAB_SMUDGE_RADIUS]; dab->grain = row[PAINT_DAB_GRAIN];
     dab->smudge_bucket = (int32_t)row[PAINT_DAB_SMUDGE_BUCKET];  // INT_CAST_OK: validated bucket index
+    dab->pigment = pigment ? (int32_t)row[PAINT_DAB_PIGMENT] : -1;  // INT_CAST_OK: validated pigment index
+    dab->amount = row[PAINT_DAB_AMOUNT]; dab->thickness = row[PAINT_DAB_THICKNESS];
     for (int i = 0; i < 5; i++) dab->shift[i] = row[PAINT_DAB_DH + i];
     dab->tip = row[PAINT_DAB_TIP] >= 0.0f ? &params->tips[(int32_t)row[PAINT_DAB_TIP]] : nullptr;  // INT_CAST_OK: validated tip index
     dab->profile = profile == (float)PAINT_PROFILE_LINEAR ? PAINT_PROFILE_LINEAR : PAINT_PROFILE_MYPAINT;

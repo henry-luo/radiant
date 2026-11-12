@@ -2,7 +2,7 @@
 
 > **Status:** proposal, 2026-11-09, requested by the user as the native half of the [Lambda Paint Package proposal](../../Lambda/vibe/Lambda_Pkg_Paint.md) (ledger PT#). The user's rulings recorded there apply here: the engine replaces `lambda.image`'s native round-dab brush (PT13); its media scope covers dabs with smudge and blending, pigment mixing, wet media and bristle brushes (PT5); and Radiant adds pen pressure and tilt for a new `lambda demo paint` (PT10). A second round on 2026-11-09 ruled that kernels **write in place** into storage lent through `var` borrows (PT7), placed the sources at **`radiant/paint/`** (PE2), and accepted that `lambda-cli`, which omits Radiant, has no paint engine. Batched tile-parallel replay (PE4, PE12) and a GPU backend (PE13) answer that round's questions and are proposals. Within PE13, the user ruled that the CPU kernels are the pixel reference and that GPU output is accepted within tolerance.
 >
-> **Implementation:** M0 landed on 2026-11-09, uncommitted. It comprises `radiant/paint/paint.hpp` and the `paint_view.cpp`, `paint_dab.cpp` and `paint_present.cpp` kernels: views, the bounds query, procedural dabs in both profiles, build-up, wash, import and presentation. `test/test_paint_gtest.cpp` covers them, and its 11 cases pass. M1's engine part landed the same day, also uncommitted, in `paint_smudge.cpp` and extensions to the other kernels: smudge buckets, resolved colours, bitmap tips, paper grain, the six blend modes, colorize, posterize, colour shifts and `paint_sample`. `test_paint_gtest` now has 17 passing cases. The PE7 dirty-rectangle canvas write landed in `canvas_2d.cpp`. All of this was committed on 2026-11-09. PE6 pen capture on macOS followed on 2026-11-10; its note closes PE6. Progress is tracked in the Lambda [implementation record](../../Lambda/vibe/impl/Lambda_Impl_Paint.md). Everything not marked USER is proposed; this note and the record say what is implemented.
+> **Implementation:** M0 landed on 2026-11-09, uncommitted. It comprises `radiant/paint/paint.hpp` and the `paint_view.cpp`, `paint_dab.cpp` and `paint_present.cpp` kernels: views, the bounds query, procedural dabs in both profiles, build-up, wash, import and presentation. `test/test_paint_gtest.cpp` covers them, and its 11 cases pass. M1's engine part landed the same day, also uncommitted, in `paint_smudge.cpp` and extensions to the other kernels: smudge buckets, resolved colours, bitmap tips, paper grain, the six blend modes, colorize, posterize, colour shifts and `paint_sample`. `test_paint_gtest` now has 17 passing cases. The PE7 dirty-rectangle canvas write landed in `canvas_2d.cpp`. All of this was committed on 2026-11-09. PE6 pen capture on macOS followed on 2026-11-10; its note closes PE6. M2's engine part landed on 2026-11-12, uncommitted: the pigment medium (PE8) in `paint_pigment.cpp`, impasto lighting (PE7 step 5) and bristle trails (PE10) in `paint_bristle.cpp`. `test_paint_gtest` has 30 passing cases plus a disabled release throughput benchmark. Progress is tracked in the Lambda [implementation record](../../Lambda/vibe/impl/Lambda_Impl_Paint.md). Everything not marked USER is proposed; this note and the record say what is implemented.
 >
 > **Scope:** a minimal, context-free C++ library of per-pixel painting kernels under `radiant/paint/` in this repository, an optional GPU backend for the same work, and the two Radiant services painting needs: pen input capture and dirty-rectangle canvas upload. Brushes, dynamics, strokes, planning, analysis, sessions and file formats are Lambda's and are out of scope here (PT1, PT9).
 >
@@ -139,6 +139,8 @@ M1 implements this as `dom.set_canvas_pixels_rect(canvas, pixels, [x0, y0, x1, y
 
 Presenting directly into the retained canvas surface, without the u8 intermediate, is PE-O2.
 
+*Implemented (M2, lighting).* `paint_present` lights a pigment layer when `PaintPresentParams.has_lighting` is set. The height is `relief·(h + t)`, the dried relief plus the wet film. Normals come from central differences, clamped at the layer's edges. The shade is `1 + diffuse·(max(N·L, 0)/L_z − 1)` and the highlight `specular·max(0, (N·H)^n − H_z^n)`, both relative to a flat normal, so a flat film shows its exact KM colour. A pigment layer is opaque and takes no background. An rgba layer refuses lighting. Steps 1, 3 and 4 (paper texture, several layers, the wet overlay) are not composited by the engine yet; the package presents one layer.
+
 ### PE8 — Pigment medium
 
 A `pigment` layer has 3B + 2 channels per pixel:
@@ -160,9 +162,17 @@ B = 3 initially, which is the RGB-band KM that Curtis and `procart.watercolor` u
   Guarded limits handle `t → 0`, giving `R → R_g`, and `S → 0`.
 - **Drying.** `paint_pigment_dry(tiles, rect, rate)` folds the film into the substrate by KM layer composition. It moves `t` into `h` as relief and clears the film, so later glazes stay transparent and the relief persists.
 
+*Implemented (M2).* `PAINT_FORMAT_PIGMENT` tiles hold `tK[B], tS[B], t, R[B], h`, with B from 1 to 8 (3 in use). `PaintTiles` gains `bands` and `substrate`, the reflectance an empty (clean) tile shows. `PaintDabParams` gains `pigment_bands`, `pigments` (a `(count, 2B)` table of K then S per unit amount) and `pigment_count`.
+- **Deposit.** A dab on a pigment target names a pigment row. `amount` scales the pigment (`tK += c·amount·K`, `tS += c·amount·S`) and `thickness` the body (`t += c·thickness`), with `c = mask·opacity·flow` after grain. With both equal this is the deposit above. Erasing scales the film by `1 − c·(1 − eraser)`.
+- **Smudge.** Buckets carry film (2B + 1 fields). Pickup samples the mask-weighted mean film under the footprint, as rgba pickup samples colour. A smudging dab moves the film toward the bucket's by `c·smudge` and deposits brush paint with the rest.
+- **Refused.** Lock alpha, colorize, posterize, blend modes and colour shifts have no meaning for a film and are refused on pigment targets. So is resolved-colour output until batched replay (PT16).
+- **Display.** Kubelka's formula reads only `tK/tS` and `tS`, so the film's thickness cancels and nothing divides by `t`. A pure absorber (`tS → 0`) gives `R_g·e^{−2tK}`, and an optically deep film (`b·tS > 40`) gives `R∞ = 1/(a + b)`. For B ≠ 3 a `(B, 3)` band matrix is required.
+- **Drying.** `rate` in (0, 1] folds that fraction: the substrate becomes the reflectance of `rate` of the film over it, and the relief gains `rate·t`. Two partial dryings equal one full drying, because KM layers of one material compose.
+- **Tests.** Clean tiles show their substrate; the white, black, pure-absorber and R∞ limits hold; deposit is additive and commutes; blue over yellow mixes green; drying keeps appearance and a glaze over dried paint stays a glaze; lighting leaves flat films unchanged and shades slopes; smudge carries film; refusals write nothing. In a release build the pigment dab kernel covers about 97 M px/s at B = 3, against the 50 M budget.
+
 ### PE9 — Wet medium
 
-`paint_wet_step(sheet, paper, params, window, steps)` advances a dense planar sheet `f32[P, h, w]` over an active window. The planes follow `procart.watercolor`: paper height, water saturation, pressure, velocities u and v, suspended pigment g_k and deposited pigment d_k for each pigment k, and scratch planes. The caller supplies the scratch planes as part of the sheet, and `paint_wet_layout(pigments) → P` fixes the plane count, so the step itself allocates nothing.
+`paint_wet_step(sheet, paper, params, window, steps)` advances a dense planar sheet `f32[P, h, w]` or `float[P, h, w]` over an active window. The implementation supports both lanes through one kernel so the existing `procart.watercolor` float64 sheet does not need per-step conversions (D3.2.1, S9.2.1). The planes follow `procart.watercolor`: paper height, water saturation, pressure, velocities u and v, suspended pigment g_k and deposited pigment d_k for each pigment k, and scratch planes. The caller supplies the scratch planes as part of the sheet, and `paint_wet_layout(pigments) → P` fixes the plane count, so the step itself allocates nothing. For M in 1–4,096, P is `12 + 3M`: eight fixed planes, M suspended, M deposited, M pigment scratch and four shared blur planes. The three-pigment layout stays identical to `procart.watercolor`.
 
 Each step runs the Curtis 1997 sequence in the reference's order:
 
@@ -174,6 +184,8 @@ Each step runs the Curtis 1997 sequence in the reference's order:
 
 The call returns the bounds of remaining activity so that Lambda can grow or shrink the window. `paint_wet_deposit(sheet, window, pigment_tiles)` moves deposited pigment into the pigment layer when an area dries.
 
+*Presentation and direct dry (M3).* `paint_wet_present` combines suspended and deposited sheet pigment with the underlying three-band pigment film through the shared PE8 Kubelka–Munk renderer, without mutating either owner. It checks the sheet, pigment table, rectangle and count-scaled work before writing (**D5.5.2**, **D7.6.4**). `paint_wet_dry` runs the same evaporation/settling stage as a wet step with zero evaporation, without advecting the sheet; it supports both numeric lanes.
+
 The kernel is written fresh from the paper and the Lambda reference, carrying the Washes MIT notice for derived parts (PT14). Parity with `procart.watercolor` within tolerance is the acceptance test. Live painting steps the sheet in place through a `var` borrow (PT7). A pure watercolor render runs all of its steps inside one call, on a sheet that the call owns.
 
 ### PE10 — Bristle tips
@@ -184,6 +196,15 @@ The kernel is written fresh from the paper and the Lambda reference, carrying th
 - **Motion.** For each segment between consecutive dab positions, a bristle's position is the dab centre plus its offset, rotated by the dab angle and spread by pressure, lagging by its stiffness.
 - **Drawing.** Each bristle draws an anti-aliased thin segment whose ink is load × pressure. It depletes its load by the amount deposited and picks up canvas colour when pickup is enabled.
 - **Output.** Trails go into `rgba` or `pigment` tiles. The updated state is returned, so a stroke may span calls. The caller places bristles with keyed randomness; the engine adds none.
+
+*Implemented (M2).* `paint_bristle_bounds` and `paint_bristles` take the brush path as a dab table, of which x, y, radius, aspect, angle, opacity, flow, eraser, aa and grain apply. Tips, smudge and recolouring are refused, and the colour columns are not read.
+- **State layout v1.** One f32 row per bristle (`PaintBristleColumn`): `ox, oy` (brush frame, in radii; `oy` is divided by aspect), `stiffness` in [0, 0.99], `width` in pixels, `load`, `x, y` (the tip), `placed`, then the ink. The ink is straight `r, g, b` on rgba and paint per unit coverage `tK[B], tS[B], t` on pigment, so a row has 11 or 10 + 2B columns.
+- **Motion and drawing.** At each row the target is the row centre plus the offset rotated by the row angle. The tip moves `1 − stiffness` of the way and draws an anti-aliased segment without its end cap, so consecutive segments do not double their joints. Strength is `opacity·flow·min(1, load)`. The first row only places a tip.
+- **Depletion and pickup.** After a segment of length `L`, `load −= depletion·L·strength`. Before drawing, pickup mixes the canvas at the new tip into the ink: straight colour on rgba, and on pigment the film's composition at the bristle's own body thickness.
+- **Order.** Rows run in path order and bristles by index within a row, so a path split across calls draws exactly what one call draws. One geometry pass serves the bounds, the tile-presence check and drawing, so they agree on every box.
+- **Tests.** The first row only places; load falls monotonically and the trail fades along a long stroke; a split path equals the whole; pickup mixes; trails deposit film on pigment; refusals.
+
+*Wet-sheet extension (M3).* The same PE10 geometry and segment traversal writes to a PE9 wet sheet in f32 or float64. A wet bristle carries the selected pigment amount and water; pickup mixes those two components from the sheet at the tip, while other pigment channels remain on the sheet. Depletion and split-stroke ordering follow PE10. Bounds, sheet and state are validated before either value is written (**D5.5.2**, **D7.6.4**). Erasing and recolouring remain unsupported.
 
 ### PE11 — Numerics, determinism, bounds and errors
 
@@ -284,10 +305,10 @@ One `f32` row per dab. The column count and order are versioned (`PAINT_DAB_LAYO
 | 21–25 | `dh`, `dl`, `dhsl_s`, `dv`, `dhsv_s` | Colour shifts applied after smudge |
 | 26 | `tip` | Tip index; −1 is procedural |
 | 27 | `grain` | Paper-grain strength |
-| 28 | `pigment` | Pigment-table index; −1 uses `r`, `g`, `b` |
-| 29 | `amount` | Pigment amount or wet-medium paint load |
-| 30 | `water` | Wet-medium water load |
-| 31 | `thickness` | Impasto thickness gain |
+| 28 | `pigment` | Pigment-table index on a pigment layer; −1 on rgba and coverage layers (M2) |
+| 29 | `amount` | Pigment load per unit coverage on a pigment layer (M2); wet-medium paint load later |
+| 30 | `water` | Wet-medium water load (PE9; must be 0 until M3) |
+| 31 | `thickness` | Paint body per unit coverage on a pigment layer, which becomes relief (M2) |
 | 32 | `profile` | Falloff: 0 is libmypaint's two-segment curve over squared distance; 1 is a linear cone with a flat core of radius `hardness`, used by `lambda.image`'s brush |
 | 33 | `blend` | 0 normal, 1 multiply, 2 screen, 3 overlay, 4 darken, 5 lighten, 6 add (`PaintBlend`) |
 
