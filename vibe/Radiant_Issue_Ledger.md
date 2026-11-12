@@ -20,6 +20,176 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-048"></a>
+
+- [RI-048 — Grid-item percentage sizes use the whole grid instead of their area](<Radiant_Issue_Ledger (fixed).md#ri-048>).
+
+<a id="ri-049"></a>
+
+- [RI-049 — Root font-size evaluation leaves descendants on the initial rem basis](<Radiant_Issue_Ledger (fixed).md#ri-049>).
+
+<a id="ri-047"></a>
+
+- [RI-047 — Raw basic-shape parsing drops computed clip geometry](<Radiant_Issue_Ledger (fixed).md#ri-047>).
+
+<a id="ri-046"></a>
+
+- [RI-046 — Pending style text reparses discard later CSSOM edits](<Radiant_Issue_Ledger (fixed).md#ri-046>).
+
+<a id="ri-045"></a>
+
+- [RI-045 — Headless document hosts omit the browsing profile](<Radiant_Issue_Ledger (fixed).md#ri-045>).
+
+<a id="ri-043"></a>
+
+- [RI-043 — Unsubstituted variables incorrectly trigger cyclic intrinsic sizing](<Radiant_Issue_Ledger (fixed).md#ri-043>).
+
+<a id="ri-044"></a>
+
+- [RI-044 — Intrinsic images restore HTML width hints overridden by CSS](<Radiant_Issue_Ledger (fixed).md#ri-044>).
+
+<a id="ri-038"></a>
+
+- [RI-038 — Intrinsic ratio heights ignore inline min/max constraints](<Radiant_Issue_Ledger (fixed).md#ri-038>).
+
+<a id="ri-037"></a>
+
+- [RI-037 — Authored display bypasses scripting-enabled noscript suppression](<Radiant_Issue_Ledger (fixed).md#ri-037>).
+
+<a id="ri-036"></a>
+
+- [RI-036 — Nested column flex intrinsic heights omit main-axis gaps](<Radiant_Issue_Ledger (fixed).md#ri-036>).
+
+<a id="ri-039"></a>
+
+- [RI-039 — Intrinsic height recursion borrows an outer percentage-height basis](<Radiant_Issue_Ledger (fixed).md#ri-039>).
+
+<a id="ri-040"></a>
+
+- [RI-040 — Maximum constraints erase definite flex main sizes](<Radiant_Issue_Ledger (fixed).md#ri-040>).
+
+<a id="ri-042"></a>
+
+- [RI-042 — CSS math gaps are dropped before layout](<Radiant_Issue_Ledger (fixed).md#ri-042>).
+
+<a id="ri-041"></a>
+
+### RI-041 — URL-based CSS image masks have no paint consumer
+
+**Status:** OPEN feature gap, 2026-11-12. **Lambda blocker:** no; captures
+complete, but Craft's decorative paper shapes remain substantially different.
+Ownership **D9.1.1v4 / D9.1.3v2**, effects contract **D5.5.1 / CI-18**.
+The existing mask path is limited to radial gradients: MaskProp retains only
+a RadialGradient and resolve_css_mask_image calls resolve_radial_gradient_value;
+URL image masks are not retained or consumed. The support matrix already
+marks URL/linear/multilayer mask consumers open.
+
+Craft's authored CSS uses mask-image:url(/images/decorations/paperSheetMask.svg)
+and paperShredTriangleFrontMask/paperShredBlobMask variants. These masks cut
+the torn edges in Chromium; Radiant paints the unmasked solid paper geometry.
+The inline logo-outline URL mask has the same unsupported image consumer.
+RI-040 restores the heading and product placement, isolating this remaining
+large decoration difference from the repaired flex sizing.
+
+Implementing resource-backed mask images, sizing/positioning and SVG mask
+rasterization/composition is outside this round's existing-bug milestone.
+No shape is substituted or hidden. Evidence: Lambda
+temp/online-visual-round5/craft-static.html, round-six live capture
+temp/online-visual-round6/craft-live.png, and the unchanged browser reference
+test/online/snapshots/saas_landing_436-browser.png. This observation does not
+assign other pages' blank content to masking without their own evidence.
+
+<a id="ri-035"></a>
+
+### RI-035 — Unavailable-voice native provider test stays pending on this macOS session
+
+**Status:** OPEN, cause unconfirmed, 2026-11-12. **Lambda blocker:** no;
+this limits the native aggregate qualification, not the online page captures.
+Ownership **D9.1.1v4 / D9.1.3v2**. Running
+`./build/test/test_radiant_media_backend_gtest --gtest_filter=RadiantNativeMedia.SpeechProviderReportsAnUnavailableVoice`
+in the owner checkout returns a non-null speech job for
+`invalid.lambda.test.voice`, but `rdt_speech_job_state` remains pending (0),
+not failed (2), and the error is null. It fails in the native gate and three
+isolated repeats. No speech implementation or test was changed by the online
+rendering repairs. The cause and any dependency on the macOS provider/service
+state remain unisolated; no assertion or skip was added. Evidence: Lambda
+`temp/online-visual-round4/{native-gate-final.log,speech-1.log,speech-2.log,speech-3.log}`.
+
+<a id="ri-034"></a>
+
+- [RI-034 — Positioned intrinsic sizing leaks its query mode to following blocks](<Radiant_Issue_Ledger (fixed).md#ri-034>).
+
+<a id="ri-033"></a>
+
+- [RI-033 — Propagated body backgrounds cover negative stacking layers](<Radiant_Issue_Ledger (fixed).md#ri-033>).
+
+<a id="ri-032"></a>
+
+- [RI-032 — Flex SVG automatic cross sizes ignore the flexed main size](<Radiant_Issue_Ledger (fixed).md#ri-032>).
+
+<a id="ri-031"></a>
+
+### RI-031 — Current Dock document exceeds the online layout deadline
+
+**Status:** OPEN, root cause unconfirmed, 2026-11-12. **Lambda blocker:** yes
+for a new canonical Dock snapshot; other online cases continue. Native layout
+ownership **D9.1.1v4 / D9.1.3v2**. Two fresh repaired-host attempts at
+`https://www.dock.us/` were killed by the existing 150s parent deadline during
+deep nested grid/flex content layout. A control using the prior qualified
+renderer (`8f3326ea42be5041d44bc776888dad4b4c1f2a7a008eb42611aa2666a88044a2`)
+also times out at 150s. The failure therefore also exists without these changes; its cost change is unmeasured;
+current document complexity, layout repetition and origin-dependent input
+still need isolation. This is a capture correctness observation, not a release
+performance benchmark. No deadline was raised or prior PNG accepted as fresh.
+The round-thirteen root-font repair retry also times out at the unchanged
+150s deadline (2026-11-12T13:34:03.960Z); see Lambda
+`temp/online-visual-round13/dock-result.json`. The round-twelve result is
+retained in its corresponding evidence directory.
+The round-eleven DOM interface/initial-observer retry also times out at the
+unchanged 150s deadline (2026-11-12T12:11:34.567Z); see Lambda
+`temp/online-visual-round11/dock-result.json`. No partial PNG is promoted.
+The round-ten computed-clip repair retry also times out at the unchanged
+150s deadline; see Lambda temp/online-visual-round10/dock-result.json.
+The round-nine CSSOM synchronization repair retry also times out at the
+unchanged150s deadline; see Lambda temp/online-visual-round9/capture.log.
+The round-eight session/cookie repair retry also times out at the unchanged
+150s deadline; see Lambda temp/online-visual-round8/capture.log.
+The round-seven intrinsic-sizing repair retry also times out at150s; see
+Lambda temp/online-visual-round7/capture.log.
+The round-six three-fix retry also times out at the unchanged 150s deadline;
+see Lambda temp/online-visual-round6/capture-threefix.log.
+The round-five five-fix retry also times out at the same 150s deadline; see
+Lambda `temp/online-visual-round5/capture-fivefix.log`.
+The round-four repaired-host retry also times out at the same 150s deadline;
+see Lambda `temp/online-visual-round4/capture.log`.
+Evidence: Lambda `temp/online-visual-round3/{capture-all.log,capture-grid.log,
+dock-control/result.json,dock-control/dock-control-lambda.log}`, plus canonical
+`test/online/snapshots/saas_landing_310-lambda.log` and manifest failure status.
+
+<a id="ri-030"></a>
+
+- [RI-030 — Grid row growth leaves stale scroll clips that hide item contents](<Radiant_Issue_Ledger (fixed).md#ri-030>).
+
+<a id="ri-029"></a>
+
+### RI-029 — Modal dialog top-layer and backdrop painting remain incomplete
+
+**Status:** OPEN feature gap, 2026-11-12. **Lambda blocker:** no; major new
+paint ordering is outside the current online bug-fix milestone. Ownership
+**D9.1.1v4 / D9.1.3v2**. Leaflet's reference page calls showModal: native DOM
+modal state and fixed centering exist, but the renderer has no top-layer
+painting pass and the parsed `::backdrop` has no layout/paint consumer.
+Ordinary page text can paint over the dialog and no dimming backdrop appears.
+These limits are already recorded in Lambda's HTML/CSS support matrix;
+this record ties them to `https://leafletjs.com/reference.html` and its online
+snapshot. The cause is not assigned to image loading or CSS opacity.
+Evidence: Lambda round2/browser/leaflet_docs.json, canonical paired PNGs,
+`render_block.cpp`, dialog DOM state and the support-matrix dialog/backdrop rows.
+
+<a id="ri-028"></a>
+
+- [RI-028 — Auto-height flex columns shrink natural content to their minimum](<Radiant_Issue_Ledger (fixed).md#ri-028>).
+
 <a id="ri-027"></a>
 
 - [RI-027 — Mobile viewport metadata shrinks desktop layout independently of its host](<Radiant_Issue_Ledger (fixed).md#ri-027>).

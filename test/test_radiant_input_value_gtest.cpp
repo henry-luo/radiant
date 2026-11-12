@@ -7,6 +7,7 @@
 #include "radiant/loader_runtime_host.hpp"
 #include "radiant/reactive_render_host.hpp"
 #include "radiant/stylesheet_sync.hpp"
+#include "radiant/dom_mutation_record.hpp"
 #include "radiant/resource_loaders.h"
 #include "lambda/network/network_resource_manager.h"
 #include "lambda/input/css/dom_element.hpp"
@@ -73,6 +74,44 @@ TEST(RadiantInputValueTest, NativeInlineStylesheetsTrackTextAndDocumentOrder) {
     ASSERT_EQ(document->stylesheet_count, 1);
     EXPECT_EQ(document->stylesheets[0]->owner_element, second);
 }
+TEST(RadiantInputValueTest, InlineStylesheetTextUpdatesAreConsumedBeforeCssomEdits) {
+    NativeInputDocument fixture;
+    DomDocument* document = fixture.document;
+    ASSERT_NE(document, nullptr);
+    ASSERT_TRUE(css_property_system_init(document->document_pool));
+    DomElement* root = dom_create_backed_element_identity(document, "head", nullptr, false);
+    DomElement* style = dom_create_backed_element_identity(document, "style", nullptr, false);
+    ASSERT_TRUE(root && style);
+    document->root = lam::up(root);
+    ASSERT_TRUE(root->append_child(style));
+    const char* source = ".first { width: 20px; }";
+    DomText* text = DomText::create_detached_copy(document, source, strlen(source));
+    ASSERT_NE(text, nullptr);
+    ASSERT_TRUE(style->append_child(text));
+    radiant_dom_record_inline_stylesheet_owner(document, style);
+    radiant_sync_mutated_inline_stylesheets(document);
+    ASSERT_EQ(document->stylesheet_count, 1);
+    CssStylesheet* sheet = document->stylesheets[0];
+    ASSERT_NE(sheet, nullptr);
+    // cssom state is independent of the style element's unchanged text children.
+    sheet->disabled = true;
+    radiant_sync_mutated_inline_stylesheets(document);
+    EXPECT_EQ(document->stylesheets[0], sheet);
+    EXPECT_TRUE(document->stylesheets[0]->disabled);
+    EXPECT_EQ(document->js.inline_stylesheet_mutation_count, 1);
+    EXPECT_EQ(document->js.inline_stylesheet_mutations[0], nullptr);
+
+    const char* extra = ".second { width: 40px; }";
+    DomText* second = DomText::create_detached_copy(document, extra, strlen(extra));
+    ASSERT_NE(second, nullptr);
+    ASSERT_TRUE(style->append_child(second));
+    radiant_dom_record_inline_stylesheet_owner(document, style);
+    radiant_sync_mutated_inline_stylesheets(document);
+    EXPECT_NE(document->stylesheets[0], sheet);
+    EXPECT_EQ(document->stylesheets[0]->rule_count, 2u);
+    EXPECT_FALSE(document->stylesheets[0]->disabled);
+}
+
 TEST(RadiantInputValueTest, DownloadedStylesheetsUseOwnerOrderAcrossCompletionOrder) {
     NativeInputDocument fixture;
     DomDocument* document = fixture.document;

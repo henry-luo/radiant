@@ -3229,6 +3229,10 @@ DisplayValue layout_resolved_display(void* child) {
     DomNode* node = static_cast<DomNode*>(child);
     DomElement* element = node && node->is_element() ? node->as_element() : nullptr;
     if (!element) return resolve_display_value(child);
+    // noscript represents nothing with scripting enabled, regardless of its
+    // authored display; keep the computed CSS value in resolve_display_value.
+    if (layout_noscript_content_suppressed(element))
+        return {CSS_VALUE_NONE, CSS_VALUE_NONE};
     if (layout_is_active(element->doc)) {
         // layout reset invalidates this field; the first query publishes its role.
         if (element->display.outer == CSS_VALUE__UNDEF)
@@ -3433,6 +3437,12 @@ static float resolve_length_value_mode(LayoutContext* lycon, uintptr_t property,
         }
         switch (unit) {
         case CSS_UNIT_REM:
+            if (effective_property == CSS_PROPERTY_FONT_SIZE && lycon->doc &&
+                    length_owner == lycon->doc->root) {
+                // the root's own font-size uses the initial font, never a previous root size.
+                result = num * (lycon->ui_context ? lycon->ui_context->default_font.font_size : 16.0f);
+                break;
+            }
             if (lycon->root_font_size < 0) {
                 resolve_current_font_size(lycon);
                 lycon->root_font_size = lycon->font.current_font_size < 0 ?
@@ -5819,6 +5829,11 @@ void resolve_css_styles(DomElement* dom_elem, LayoutContext* lycon) {
             lycon->font.current_font_size = span->fontp()->font_size;
         }
     }
+    if (lycon->doc && dom_elem == lycon->doc->root && dom_elem->font &&
+            dom_elem->fontp()->font_size >= 0.0f) {
+        // root box lengths and descendants use the computed, unzoomed rem basis.
+        lycon->root_font_size = dom_elem->fontp()->font_size;
+    }
     if (all_reset_keyword == CSS_VALUE_INHERIT) {
         // `all` is a virtual declaration for every property except direction,
         // unicode-bidi and custom properties. Apply its non-inherited values
@@ -6443,8 +6458,13 @@ static void resolve_gap_property(LayoutContext* lycon, ViewBlock* block,
     if (normal) {
         gap = 16.0f;
     } else if (value->type == CSS_VALUE_TYPE_LENGTH ||
-               value->type == CSS_VALUE_TYPE_NUMBER) {
-        gap = resolve_length_value(lycon, property, value);
+               value->type == CSS_VALUE_TYPE_NUMBER ||
+               (value->type == CSS_VALUE_TYPE_FUNCTION &&
+                !layout_css_value_has_percentage(value))) {
+        // use the shared math resolver after substitution; percentage gaps
+        // still need their container's used size rather than its parent's.
+        float resolved = resolve_length_value(lycon, property, value);
+        if (!isnan(resolved)) gap = max(resolved, 0.0f);
     } else if (value->type == CSS_VALUE_TYPE_PERCENTAGE) {
         gap = value->data.percentage.value;
         percent = true;
@@ -10270,7 +10290,8 @@ void css_apply_computed_property(CssPropertyCode prop_id,
             }
             bool scalar = value->type == CSS_VALUE_TYPE_LENGTH ||
                 value->type == CSS_VALUE_TYPE_NUMBER ||
-                value->type == CSS_VALUE_TYPE_PERCENTAGE;
+                value->type == CSS_VALUE_TYPE_PERCENTAGE ||
+                value->type == CSS_VALUE_TYPE_FUNCTION;
             if (scalar || (value->type == CSS_VALUE_TYPE_LIST &&
                            value->data.list.count == 2)) {
                 resolve_gap_property(lycon, block, CSS_PROPERTY_ROW_GAP, row_value, true);

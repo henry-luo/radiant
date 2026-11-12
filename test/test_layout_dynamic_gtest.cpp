@@ -9,6 +9,7 @@
 #include "radiant/network_integration.h"
 #include "lambda/input/input.hpp"
 #include "lambda/network/enhanced_file_cache.h"
+#include "lambda/network/cookie_jar.h"
 #include "lambda/input/css/css_engine.hpp"
 #include "lambda/io/image_io.h"
 #include "lib/file.h"
@@ -1183,6 +1184,22 @@ TEST_F(DynamicLayoutTest, ColumnFlexTransfersStretchedWidthThroughAspectRatio) {
     }
 }
 
+TEST_F(DynamicLayoutTest, ColumnFlexMinimumHeightDoesNotShrinkNaturalContents) {
+    load("<!doctype html><style>body{margin:0}.column{display:flex;flex-direction:column;min-height:800px}"
+         "#header{overflow:hidden;padding:20px 0}#header div{height:300px}"
+         "#main div{height:1000px}.footer{height:100px}#grow{flex:1}</style>"
+         "<div id='tall' class='column'><header id='header'><div></div></header>"
+         "<main id='main'><div></div></main><footer id='footer' class='footer'></footer></div>"
+         "<div id='short' class='column'><div id='grow'></div><div class='footer'></div></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_FLOAT_EQ(element("header")->height, 340.0f);
+    EXPECT_FLOAT_EQ(element("main")->height, 1000.0f);
+    EXPECT_FLOAT_EQ(element("footer")->height, 100.0f);
+    EXPECT_FLOAT_EQ(element("tall")->height, 1440.0f);
+    EXPECT_FLOAT_EQ(element("short")->height, 800.0f);
+    EXPECT_FLOAT_EQ(element("grow")->height, 700.0f);
+}
+
 TEST_F(DynamicLayoutTest, ColumnFlexShrinksWithinAutomaticMaxHeight) {
     load("<!doctype html><style>div{display:flex;flex-direction:column}"
          "#parent{max-height:100px;width:100px}</style>"
@@ -1209,6 +1226,27 @@ TEST_F(DynamicLayoutTest, NestedGridUsesAssignedStretchHeight) {
     ASSERT_NE(document, nullptr);
     EXPECT_FLOAT_EQ(element("first")->height, 50.0f);
     EXPECT_FLOAT_EQ(element("second")->height, 50.0f);
+}
+
+TEST_F(DynamicLayoutTest, GridScrollBoundsUseFinalContentGrownRows) {
+    load("<!doctype html><style>body{margin:0}#grid{display:grid;"
+         "grid-template-columns:240px 1fr;grid-template-rows:1fr auto}"
+         "#sidebar{grid-row:1/3;max-height:800px;overflow:auto}"
+         "#content{overflow-x:auto}#content div{height:1400px}</style>"
+         "<div id='grid'><aside id='sidebar'><div style='height:1200px'></div></aside>"
+         "<main id='content'><div></div></main><footer>Footer</footer></div>");
+    ASSERT_NE(document, nullptr);
+    DomElement* content = element("content");
+    DomElement* sidebar = element("sidebar");
+    ASSERT_NE(content, nullptr);
+    ASSERT_NE(sidebar, nullptr);
+    ASSERT_NE(content->scroller, nullptr);
+    EXPECT_FLOAT_EQ(content->height, 1400.0f);
+    EXPECT_FALSE(content->scroll()->has_clip);
+    Bound clip = {};
+    ASSERT_TRUE(layout_block_overflow_clip(lam::view_require_block(sidebar), &clip));
+    EXPECT_FLOAT_EQ(clip.bottom, sidebar->height);
+    EXPECT_FLOAT_EQ(sidebar->height, 800.0f);
 }
 
 TEST_F(DynamicLayoutTest, GridPercentagePaddingUsesAreaWidth) {
@@ -1412,4 +1450,486 @@ TEST_F(DynamicLayoutTest, ReversedCounterIncludesOwnIncrement) {
          "<span></span><span></span><span></span><span></span></div>");
     ASSERT_NE(document, nullptr);
     EXPECT_STREQ(element("result")->pseudo->before->first_child->as_text()->text, "10");
+}
+
+TEST_F(DynamicLayoutTest, FlexSvgAutomaticCrossSizeUsesFlexedMainSize) {
+    load("<!doctype html><style>body{margin:0}.page{display:flex;flex-direction:column}"
+         ".bar{display:flex;align-items:center;padding:8px}.icon{width:14px}"
+         "#logical{inline-size:14px}#padded{padding:2px;border:1px solid}"
+         "#fixed{height:9px}</style><div class='page'>"
+         "<a id='bar' class='bar'><span>Announcement</span>"
+         "<svg id='physical' class='icon' viewBox='0 0 20 20'></svg>"
+         "<svg id='logical' class='icon' viewBox='0 0 20 10'></svg>"
+         "<svg id='padded' class='icon' viewBox='0 0 20 20'></svg>"
+         "<svg id='fixed' class='icon' viewBox='0 0 20 20'></svg></a>"
+         "<main id='hero'>Hero heading</main></div>");
+    for (int phase = 0; phase < 2; phase++) {
+        SCOPED_TRACE(phase);
+        if (phase) {
+            ASSERT_TRUE(element("physical")->set_attribute("style", "width:28px"));
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, false);
+        }
+        EXPECT_NEAR(element("physical")->width, phase ? 28.0f : 14.0f, 0.1f);
+        EXPECT_NEAR(element("physical")->height, phase ? 28.0f : 14.0f, 0.1f);
+        EXPECT_NEAR(element("logical")->width, 14.0f, 0.1f);
+        EXPECT_NEAR(element("logical")->height, 7.0f, 0.1f);
+        EXPECT_NEAR(element("padded")->width, 20.0f, 0.1f);
+        EXPECT_NEAR(element("padded")->height, 20.0f, 0.1f);
+        EXPECT_NEAR(element("fixed")->height, 9.0f, 0.1f);
+        EXPECT_NEAR(element("bar")->height, phase ? 44.0f : 36.0f, 0.1f);
+        EXPECT_NEAR(element("hero")->y, element("bar")->height, 0.1f);
+    }
+}
+
+TEST_F(DynamicLayoutTest, PropagatedBodyBackgroundPrecedesNegativeStackingLayers) {
+    const char* backgrounds[] = {"body{background:white}",
+        "body{background:linear-gradient(white,blue)}", "html{background:lime}body{background:white}"};
+    for (int phase = 0; phase < 3; phase++) {
+        SCOPED_TRACE(phase);
+        if (document) { free_document(document); document = nullptr; ui.document = nullptr; }
+        StrBuf* source = strbuf_create("<!doctype html><style>html,body{margin:0}");
+        strbuf_append_str(source, backgrounds[phase]);
+        strbuf_append_str(source, ".hero{position:relative;height:800px}"
+            ".sky{position:absolute;inset:0 auto 0 0;width:100px;z-index:-1;background:red}</style>"
+            "<div class='hero'><div class='sky'></div>Heading</div>");
+        load(source->str);
+        strbuf_free(source);
+        render_html_doc(&ui, document->view_tree, "temp/ledger-canvas-order.png");
+        ASSERT_FALSE(ui.render_failed);
+        int width, height, channels;
+        unsigned char* pixels = image_load("temp/ledger-canvas-order.png", &width, &height, &channels, 4);
+        ASSERT_NE(pixels, nullptr);
+        ASSERT_GT(width, 100); ASSERT_GT(height, 100);
+        const unsigned char* pixel = pixels + (100 * width + 50) * 4;
+        EXPECT_EQ(pixel[0], 255);
+        EXPECT_EQ(pixel[1], phase == 2 ? 255 : 0);
+        EXPECT_EQ(pixel[2], phase == 2 ? 255 : 0);
+        const unsigned char* canvas = pixels + (100 * width + 200) * 4;
+        EXPECT_EQ(canvas[2], 255);
+        if (phase == 1) EXPECT_LT(canvas[0], 250);
+        else EXPECT_EQ(canvas[0], 255);
+        image_free(pixels);
+    }
+}
+
+TEST_F(DynamicLayoutTest, PositionedIntrinsicSizingDoesNotLeakIntoFollowingBlocks) {
+    load("<!doctype html><style>body{margin:0}header{position:fixed;width:max-content}"
+         "</style><header id='navigation'>Navigation</header>"
+         "<main id='flow'><div style='width:3000px;height:20px'>Wide content</div></main>"
+         "<div id='next'>Following sibling</div>");
+    const char* styles[] = {"position:fixed;width:max-content", "position:absolute;width:min-content",
+        "position:fixed;width:140px"};
+    for (const char* style : styles) {
+        SCOPED_TRACE(style);
+        ASSERT_TRUE(element("navigation")->set_attribute("style", style));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        EXPECT_NEAR(element("flow")->width, 1200.0f, 0.1f);
+        EXPECT_NEAR(element("next")->width, 1200.0f, 0.1f);
+        EXPECT_NEAR(element("flow")->first_child->width, 3000.0f, 0.1f);
+    }
+}
+
+TEST_F(DynamicLayoutTest, NestedColumnIntrinsicHeightIncludesMainAxisGaps) {
+    load("<!doctype html><style>html{height:100%}body{margin:0;display:flex;"
+         "flex-direction:column;min-height:100vh}main,.page{display:flex;"
+         "flex-direction:column;flex-grow:1}.page{gap:120px;padding:20px}"
+         ".hero{display:flex;flex-direction:column;height:92vh;min-height:540px;max-height:1100px}"
+         ".section{height:100%;display:flex;flex-direction:column;flex-grow:1;overflow:hidden}"
+         ".picture{height:100%;min-height:600px}.rest{height:6000px}</style>"
+         "<div><main id='main'><div id='page' class='page'><div id='hero' class='hero'>"
+         "<section class='section'><div class='picture'>Hero</div></section></div>"
+         "<div id='rest' class='rest'>Rest</div></div></main><footer style='height:400px'>Footer</footer></div>");
+    for (float gap : {120.0f, 40.0f}) {
+        if (gap == 40.0f) {
+            ASSERT_TRUE(element("page")->set_attribute("style", "gap:40px"));
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, false);
+        }
+        EXPECT_NEAR(element("hero")->height, 736.0f, 0.1f);
+        EXPECT_NEAR(element("rest")->height, 6000.0f, 0.1f);
+        EXPECT_NEAR(element("page")->height, 40.0f + 736.0f + gap + 6000.0f, 0.1f);
+        EXPECT_NEAR(element("main")->height, element("page")->height, 0.1f);
+    }
+}
+
+TEST_F(DynamicLayoutTest, ScriptingEnabledNoscriptCannotCreateBoxesThroughCssDisplay) {
+    load("<!doctype html><style>body{margin:0}p{margin:0;height:20px}"
+         "noscript{height:400px}#contents{display:contents}.flex{display:flex;gap:50px}"
+         ".grid{display:grid;gap:50px}</style>"
+         "<div><noscript id='contents'><span>Fallback contents</span></noscript><p id='one'>One</p></div>"
+         "<div id='flex-parent' class='flex'><noscript id='flexed' style='display:block'>Fallback flex</noscript><p id='two'>Two</p></div>"
+         "<div id='grid-parent' class='grid'><noscript id='gridded' style='display:block'>Fallback grid</noscript><p id='three'>Three</p></div>");
+    ASSERT_NE(document, nullptr);
+    EXPECT_FALSE(document->html_scripting_enabled);
+    EXPECT_GT(element("flexed")->height, 0.0f);
+    document->html_scripting_enabled = true;
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, false);
+    for (const char* id : {"contents", "flexed", "gridded"}) {
+        SCOPED_TRACE(id);
+        EXPECT_EQ(element(id)->view_type, RDT_VIEW_NONE);
+        EXPECT_NE(resolve_display_value(element(id)).outer, CSS_VALUE_NONE);
+        ASSERT_NE(element(id)->first_child, nullptr);
+    }
+    EXPECT_FLOAT_EQ(element("one")->y, 0.0f);
+    EXPECT_FLOAT_EQ(element("two")->y, 0.0f);
+    EXPECT_FLOAT_EQ(element("three")->y, 0.0f);
+    EXPECT_FLOAT_EQ(element("flex-parent")->y, 20.0f);
+    EXPECT_FLOAT_EQ(element("grid-parent")->y, 40.0f);
+}
+
+TEST_F(DynamicLayoutTest, GridRatioHeightUsesConstrainedInlineSize) {
+    load("<!doctype html><style>body{margin:0}.grid{display:grid;width:856px;"
+         "grid-template-columns:repeat(4,minmax(0,1fr));place-items:center;gap:12px}"
+         ".tile{display:flex;aspect-ratio:1;width:100%;max-width:56px}"
+         "img{width:100%;height:100%}</style>"
+         "<div id='image-grid' class='grid'><a id='image-tile' class='tile'>"
+         "<img id='image' width='48' height='48'></a></div>"
+         "<div id='empty-grid' class='grid'><a id='empty-tile' class='tile'></a></div>"
+         "<div id='fixed-grid' class='grid'><a id='fixed-tile' class='tile' style='height:90px'></a></div>");
+    for (float limit : {56.0f, 112.0f}) {
+        if (limit == 112.0f) {
+            ASSERT_TRUE(element("image-tile")->set_attribute("style", "max-width:112px"));
+            ASSERT_TRUE(element("empty-tile")->set_attribute("style", "max-width:112px"));
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, false);
+        }
+        EXPECT_FLOAT_EQ(element("image-grid")->height, limit);
+        EXPECT_FLOAT_EQ(element("empty-grid")->height, limit);
+        EXPECT_FLOAT_EQ(element("image-tile")->width, limit);
+        EXPECT_FLOAT_EQ(element("image-tile")->height, limit);
+        EXPECT_FLOAT_EQ(element("image")->width, limit);
+        EXPECT_FLOAT_EQ(element("image")->height, limit);
+        EXPECT_FLOAT_EQ(element("fixed-grid")->height, 90.0f);
+        EXPECT_FLOAT_EQ(element("fixed-tile")->height, 90.0f);
+    }
+}
+
+TEST_F(DynamicLayoutTest, IntrinsicDescendantPercentHeightUsesItsOwnContainingBlock) {
+    load("<!doctype html><style>*{box-sizing:border-box}html{height:100%}"
+         "body{margin:0;display:flex;flex-direction:column;min-height:100vh}"
+         "main,.page,.rest{display:flex;flex-direction:column;flex-grow:1}"
+         ".page{gap:120px;padding:20px}.hero{height:92vh;min-height:540px;max-height:1100px}"
+         ".rest{margin:auto;width:100%;max-width:1080px}.section{margin:60px 0}"
+         ".card{display:flex;flex-direction:column;overflow:hidden;padding:40px}"
+         ".grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));place-items:center;gap:12px}"
+         ".tile{display:flex;aspect-ratio:1;width:100%;max-width:56px}img{width:100%;height:100%}"
+         "</style><div><main><div id='page' class='page'><div id='hero' class='hero'>Hero</div>"
+         "<div id='rest' class='rest'><div id='section' class='section'><div class='card'>"
+         "<div class='grid'><a id='tile' class='tile'><img id='image' width='48' height='48'></a></div>"
+         "</div></div></div></div></main><footer style='height:400px'></footer></div>");
+    for (float limit : {56.0f, 112.0f}) {
+        if (limit == 112.0f) {
+            ASSERT_TRUE(element("tile")->set_attribute("style", "max-width:112px"));
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, false);
+        }
+        EXPECT_FLOAT_EQ(element("hero")->height, 736.0f);
+        EXPECT_FLOAT_EQ(element("section")->height, limit + 80.0f);
+        EXPECT_FLOAT_EQ(element("rest")->height, limit + 200.0f);
+        EXPECT_FLOAT_EQ(element("page")->height, limit + 1096.0f);
+        EXPECT_FLOAT_EQ(element("image")->height, limit);
+    }
+}
+
+TEST_F(DynamicLayoutTest, MaximumConstraintPreservesDefiniteFlexMainAxis) {
+    load("<!doctype html><style>*{box-sizing:border-box}body{margin:0}"
+         "#column{height:736px;width:900px;max-height:1100px;display:flex;flex-direction:column}"
+         "#fill,#inner,#overlay{height:100%}#inner{min-height:600px}"
+         "#overlay{padding-top:120px;position:relative;display:flex}"
+         "#marker{position:absolute;bottom:0;width:100px;height:100px}"
+         "#row{display:flex;width:736px;max-width:1100px}#half{flex:0 0 50%;height:10px}"
+         "</style><div id='column'><div id='fill'><div id='inner'>"
+         "<div id='overlay'><div id='marker'></div></div></div></div></div>"
+         "<div id='row'><div id='half'></div></div>");
+    const char* height_limits[] = {"max-height:1100px", "max-height:600px", "max-height:none"};
+    const char* width_limits[] = {"max-width:1100px", "max-width:600px", "max-width:none"};
+    const float sizes[] = {736.0f, 600.0f, 736.0f};
+    for (int phase = 0; phase < 3; phase++) {
+        SCOPED_TRACE(phase);
+        if (phase) {
+            ASSERT_TRUE(element("column")->set_attribute("style", height_limits[phase]));
+            ASSERT_TRUE(element("row")->set_attribute("style", width_limits[phase]));
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, false);
+        }
+        EXPECT_FLOAT_EQ(element("column")->height, sizes[phase]);
+        EXPECT_FLOAT_EQ(element("fill")->height, sizes[phase]);
+        EXPECT_FLOAT_EQ(element("inner")->height, sizes[phase]);
+        EXPECT_FLOAT_EQ(element("overlay")->height, sizes[phase]);
+        EXPECT_FLOAT_EQ(element("marker")->y, sizes[phase] - 100.0f);
+        EXPECT_FLOAT_EQ(element("row")->width, sizes[phase]);
+        EXPECT_FLOAT_EQ(element("half")->width, sizes[phase] / 2.0f);
+    }
+}
+
+TEST_F(DynamicLayoutTest, MathGapsUseOwnerUnitsAcrossLayoutModes) {
+    load("<!doctype html><style>:root{font-size:16px;--spacing:.25rem}body{margin:0}"
+         ".item{width:10px;height:10px}#row,#column,#em,#percent,#negative{display:flex}"
+         "#row{gap:calc(var(--spacing) * 10)}"
+         "#column{flex-direction:column;row-gap:max(8px,1rem)}"
+         "#grid{display:grid;grid-template-columns:10px 10px;"
+         "gap:clamp(8px,1rem,30px) calc(3px * 4)}"
+         "#em{font-size:10px;column-gap:calc(2 * 1em)}"
+         "#percent{width:400px;column-gap:10%}"
+         "#negative{gap:calc(4px - 10px)}"
+         "#multicol{width:240px;height:40px;column-count:2;column-fill:auto;"
+         "column-gap:calc(2px * 10)}#multicol>div{height:20px}</style>"
+         "<div id='row'><div class='item'></div><div id='row-next' class='item'></div></div>"
+         "<div id='column'><div class='item'></div><div id='column-next' class='item'></div></div>"
+         "<div id='grid'><div class='item'></div><div id='grid-next' class='item'></div>"
+         "<div id='grid-row' class='item'></div></div>"
+         "<div id='em'><div class='item'></div><div id='em-next' class='item'></div></div>"
+         "<div id='percent'><div class='item'></div><div id='percent-next' class='item'></div></div>"
+         "<div id='negative'><div class='item'></div><div id='negative-next' class='item'></div></div>"
+         "<div id='multicol'><div></div><div></div><div id='column-two'></div><div></div></div>");
+    for (int phase = 0; phase < 2; phase++) {
+        SCOPED_TRACE(phase);
+        if (phase) {
+            ASSERT_TRUE(document->root->set_attribute("style", "font-size:20px"));
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, false);
+        }
+        EXPECT_FLOAT_EQ(element("row-next")->x, phase ? 60.0f : 50.0f);
+        EXPECT_FLOAT_EQ(element("column-next")->y, phase ? 30.0f : 26.0f);
+        EXPECT_FLOAT_EQ(element("grid-next")->x, 22.0f);
+        EXPECT_FLOAT_EQ(element("grid-row")->y, phase ? 30.0f : 26.0f);
+        EXPECT_FLOAT_EQ(element("em-next")->x, 30.0f);
+        EXPECT_FLOAT_EQ(element("percent-next")->x, 50.0f);
+        EXPECT_FLOAT_EQ(element("negative-next")->x, 10.0f);
+        EXPECT_FLOAT_EQ(element("column-two")->x, 130.0f);
+    }
+}
+
+TEST_F(DynamicLayoutTest, IntrinsicVariableMaximumConstrainsNestedFlexContributions) {
+    StrBuf* source = strbuf_create("<!doctype html><style>body{margin:0}"
+        ".row{display:flex;width:400px;gap:20px}.column{display:flex;flex-direction:column}"
+        ".heading{width:100px;height:10px}.copy{margin:0;font:10px/10px monospace}"
+        ".picture{flex:0 1 200px;min-width:0;height:10px}"
+        "#literal .copy{max-width:300px}"
+        "#variable .copy{--cap:300px;max-width:var(--cap)}"
+        "#font .copy{--cap:30em;max-width:var(--cap)}"
+        "#function .copy{--cap:20em;max-width:calc(var(--cap) + 100px)}"
+        "#math .copy{--cap:30em;max-width:calc(var(--cap) + 0%)}"
+        "</style>");
+    const char* variants[] = {"literal", "variable", "font", "function", "math", "unconstrained"};
+    for (const char* variant : variants) {
+        strbuf_append_format(source, "<div id='%s' class='row'><div id='%s-column' class='column'>"
+            "<div class='heading'></div><p id='%s-copy' class='copy'>", variant, variant, variant);
+        for (int word = 0; word < 30; word++) strbuf_append_str(source, "content ");
+        strbuf_append_format(source, "</p></div><div id='%s-picture' class='picture'></div></div>", variant);
+    }
+    load(source->str);
+    strbuf_free(source);
+    for (int phase = 0; phase < 2; phase++) {
+        if (phase) {
+            ASSERT_TRUE(element("literal-copy")->set_attribute("style", "max-width:200px"));
+            ASSERT_TRUE(element("variable-copy")->set_attribute("style", "--cap:200px"));
+            ASSERT_TRUE(element("font-copy")->set_attribute("style", "--cap:20em"));
+            ASSERT_TRUE(element("function-copy")->set_attribute("style", "--cap:10em"));
+            ASSERT_TRUE(element("math-copy")->set_attribute("style", "--cap:20em"));
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, false);
+        }
+        for (const char* variant : variants) {
+            SCOPED_TRACE(variant);
+            SCOPED_TRACE(phase);
+            if (strcmp(variant, "unconstrained") == 0) continue;
+            char column_id[32], picture_id[32];
+            snprintf(column_id, sizeof(column_id), "%s-column", variant);
+            snprintf(picture_id, sizeof(picture_id), "%s-picture", variant);
+            bool cyclic = strcmp(variant, "math") == 0;
+            EXPECT_NEAR(element(column_id)->width, cyclic ? element("unconstrained-column")->width
+                : phase ? 190.0f : 228.0f, 0.1f);
+            EXPECT_NEAR(element(picture_id)->width, cyclic ? element("unconstrained-picture")->width
+                : phase ? 190.0f : 152.0f, 0.1f);
+        }
+    }
+}
+
+TEST_F(DynamicLayoutTest, IntrinsicImageCssOverrideDoesNotRestoreHtmlWidthHint) {
+    ASSERT_EQ(write_text_file_atomic("temp/intrinsic-natural.svg",
+        "<svg xmlns='http://www.w3.org/2000/svg' width='300' height='100'>"
+        "<rect width='300' height='100' fill='red'/></svg>"), 0);
+    StrBuf* source = strbuf_create("<!doctype html><style>body{margin:0}"
+        ".row{display:flex;width:400px}.text{flex:0 0 200px}.picture{min-width:0}"
+        "img{height:auto}#percent img{width:100%}#automatic img{width:auto}"
+        "#variable img{--image-width:100%;width:var(--image-width)}"
+        "#logical img{inline-size:100%}#fixed img{width:150px}</style>");
+    const char* variants[] = {"percent", "automatic", "variable", "logical", "hint", "fixed"};
+    for (const char* variant : variants) {
+        strbuf_append_format(source, "<div id='%s' class='row'><div class='text'></div>"
+            "<div id='%s-picture' class='picture'><img id='%s-image' "
+            "src='intrinsic-natural.svg' width='100' height='100'></div></div>",
+            variant, variant, variant);
+    }
+    load(source->str);
+    strbuf_free(source);
+    for (int phase = 0; phase < 2; phase++) {
+        if (phase) {
+            for (const char* variant : variants) {
+                char image_id[32];
+                snprintf(image_id, sizeof(image_id), "%s-image", variant);
+                ASSERT_TRUE(element(variant)->set_attribute("style", "width:500px"));
+                ASSERT_TRUE(element(image_id)->set_attribute("width", "80"));
+            }
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, false);
+        }
+        for (const char* variant : variants) {
+            SCOPED_TRACE(variant);
+            SCOPED_TRACE(phase);
+            float expected = strcmp(variant, "hint") == 0 ? (phase ? 80.0f : 100.0f)
+                : strcmp(variant, "fixed") == 0 ? 150.0f : phase ? 300.0f : 200.0f;
+            char picture_id[32], image_id[32];
+            snprintf(picture_id, sizeof(picture_id), "%s-picture", variant);
+            snprintf(image_id, sizeof(image_id), "%s-image", variant);
+            EXPECT_NEAR(element(picture_id)->width, expected, 0.1f);
+            float image_width = strcmp(variant, "automatic") == 0 ? 300.0f : expected;
+            EXPECT_NEAR(element(image_id)->width, image_width, 0.1f);
+            EXPECT_NEAR(element(image_id)->height, image_width / 3.0f, 0.1f);
+        }
+    }
+}
+
+TEST(UiSessionTest, OwnedEphemeralBrowsingSessionEndsWithUi) {
+    UiContext ui = {};
+    ASSERT_EQ(ui_context_init(&ui, true, 1.0f), 0);
+    ASSERT_TRUE(ui.ensure_browsing_session());
+    CookieJar* jar = session_cookie_jar(ui.browsing_session);
+    ASSERT_NE(jar, nullptr);
+    BrowsingSession* initial = ui.browsing_session;
+    ASSERT_TRUE(ui.ensure_browsing_session());
+    EXPECT_EQ(ui.browsing_session, initial);
+    cookie_jar_store(jar, "https://session.test/", "token=kept; Path=/");
+    char* value = cookie_jar_build_document_cookie(jar, "https://session.test/");
+    EXPECT_STREQ(value, "token=kept");
+    mem_free(value);
+    ASSERT_TRUE(ui_context_cleanup(&ui));
+    EXPECT_EQ(ui.browsing_session, nullptr);
+    EXPECT_FALSE(ui.owned_browsing_session);
+
+    ASSERT_EQ(ui_context_init(&ui, true, 1.0f), 0);
+    ASSERT_TRUE(ui.ensure_browsing_session());
+    jar = session_cookie_jar(ui.browsing_session);
+    EXPECT_EQ(cookie_jar_count(jar), 0);
+    value = cookie_jar_build_document_cookie(jar, "https://session.test/");
+    EXPECT_EQ(value, nullptr);
+    mem_free(value);
+    EXPECT_TRUE(ui_context_cleanup(&ui));
+}
+
+TEST(UiSessionTest, BorrowedBrowsingSessionSurvivesUiCleanup) {
+    UiContext ui = {};
+    ASSERT_EQ(ui_context_init(&ui, true, 1.0f), 0);
+    BrowsingSession* borrowed = session_create(nullptr, nullptr);
+    ASSERT_NE(borrowed, nullptr);
+    ui.browsing_session = borrowed;
+    ASSERT_TRUE(ui.ensure_browsing_session());
+    EXPECT_EQ(ui.browsing_session, borrowed);
+    EXPECT_FALSE(ui.owned_browsing_session);
+    cookie_jar_store(session_cookie_jar(borrowed), "https://session.test/", "borrowed=alive; Path=/");
+    ASSERT_TRUE(ui_context_cleanup(&ui));
+    EXPECT_EQ(ui.browsing_session, borrowed);
+    char* value = cookie_jar_build_document_cookie(session_cookie_jar(borrowed),
+        "https://session.test/");
+    EXPECT_STREQ(value, "borrowed=alive");
+    mem_free(value);
+    ui.browsing_session = nullptr;
+    session_destroy(borrowed);
+}
+
+TEST_F(DynamicLayoutTest, GridPercentageContributionsUseTheUnsolvedArea) {
+    const struct {
+        const char* name;
+        const char* style;
+        float fraction;
+        float fixed_width;
+    } variants[] = {
+        {"full", "width:100%", 1.0f, -1.0f},
+        {"half", "width:50%", 0.5f, -1.0f},
+        {"math", "width:calc(100% - 0px)", 1.0f, -1.0f},
+        {"variable", "--fill:100%;width:var(--fill)", 1.0f, -1.0f},
+        {"automatic", "width:auto", 1.0f, -1.0f},
+        {"minimum", "width:100%;min-width:300px", 1.0f, -1.0f},
+        {"maximum", "width:100%;max-width:300px", 1.0f, 300.0f},
+        {"percent-max", "width:auto;max-width:50%", 0.5f, -1.0f},
+        {"fixed", "width:600px", 1.0f, 600.0f}
+    };
+    StrBuf* source = strbuf_create("<!doctype html><style>body{margin:0}"
+        ".grid{display:grid;width:var(--grid-width,1160px);grid-template-columns:1fr 1fr;gap:64px}"
+        ".column{display:flex;flex-direction:column;align-items:flex-start}"
+        ".copy{width:160px;height:20px}.picture{width:560px;height:80px;margin-right:-180px}"
+        "</style>");
+    for (const auto& variant : variants) {
+        strbuf_append_format(source, "<div class='grid'><div id='%s' class='column' style='%s'>"
+            "<div class='copy'></div></div><div id='%s-peer'><div class='picture'></div></div></div>",
+            variant.name, variant.style, variant.name);
+    }
+    load(source->str);
+    strbuf_free(source);
+    for (int phase = 0; phase < 2; phase++) {
+        if (phase) {
+            ASSERT_TRUE(document->root->set_attribute("style", "--grid-width:1080px"));
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, false);
+        }
+        float track = phase ? 508.0f : 548.0f;
+        for (const auto& variant : variants) {
+            SCOPED_TRACE(variant.name);
+            SCOPED_TRACE(phase);
+            char peer_id[32];
+            snprintf(peer_id, sizeof(peer_id), "%s-peer", variant.name);
+            float expected = variant.fixed_width >= 0.0f ? variant.fixed_width
+                : track * variant.fraction;
+            EXPECT_FLOAT_EQ(element(variant.name)->width, expected);
+            EXPECT_FLOAT_EQ(element(peer_id)->x,
+                strcmp(variant.name, "fixed") == 0 ? 664.0f : track + 64.0f);
+        }
+    }
+}
+
+TEST_F(DynamicLayoutTest, RootRelativeFontSizesPublishTheComputedRemBasis) {
+    load("<!doctype html><style>html{font-size:clamp(.875rem,.25rem + .8333vw,1rem);"
+         "padding:1rem;box-sizing:border-box}body{margin:0}"
+         "#box{width:10rem;height:2rem}#math{width:calc(2rem + 10px);height:1rem}"
+         "#label{font:4rem/1 Arial;margin:0;white-space:nowrap}</style>"
+         "<body id='body'><div id='box'></div><div id='math'></div><h1 id='label'>root units</h1></body>");
+    const struct {
+        const char* style;
+        float font_size;
+        float scale;
+        float viewport;
+    } variants[] = {
+        {"", 14.0f, 1.0f, 1200.0f},
+        {"font-size:.75rem", 12.0f, 1.0f, 1200.0f},
+        {"font-size:2rem", 32.0f, 1.0f, 1200.0f},
+        {"--font:.875rem;font-size:var(--font)", 14.0f, 1.0f, 1200.0f},
+        {"font-size:calc(.5rem + 6px)", 14.0f, 1.0f, 1200.0f},
+        {"font:.875rem/1.5 Arial", 14.0f, 1.0f, 1200.0f},
+        {"font-size:14px", 14.0f, 1.0f, 1200.0f},
+        {"font-size:.875rem;zoom:2", 14.0f, 2.0f, 1200.0f},
+        {"", 16.0f, 1.0f, 1600.0f}
+    };
+    for (const auto& variant : variants) {
+        SCOPED_TRACE(variant.style);
+        ASSERT_TRUE(document->root->set_attribute("style", variant.style));
+        ui.viewport_width = variant.viewport;
+        for (int repeat = 0; repeat < 2; repeat++) {
+            SCOPED_TRACE(repeat);
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, false);
+            ASSERT_NE(document->root->font, nullptr);
+            ASSERT_NE(element("label")->font, nullptr);
+            EXPECT_FLOAT_EQ(document->root->fontp()->font_size, variant.font_size);
+            EXPECT_FLOAT_EQ(element("label")->fontp()->font_size, variant.font_size * 4.0f);
+            EXPECT_FLOAT_EQ(element("box")->width, variant.font_size * variant.scale * 10.0f);
+            EXPECT_FLOAT_EQ(element("box")->height, variant.font_size * variant.scale * 2.0f);
+            EXPECT_FLOAT_EQ(document->root->boundary()->padding.left, variant.font_size * variant.scale);
+            EXPECT_FLOAT_EQ(element("math")->width, (variant.font_size * 2.0f + 10.0f) * variant.scale);
+            EXPECT_FLOAT_EQ(element("label")->height, variant.font_size * variant.scale * 4.0f);
+        }
+    }
 }

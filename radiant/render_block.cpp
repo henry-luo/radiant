@@ -311,7 +311,8 @@ void render_bound(RasterRenderContext* rdcon, ViewBlock* view) {
     }
 
     // Render background (gradient, solid color, and background-image) using new rendering system
-    if (view->boundary()->background || render_background_uses_table_layers(view)) {
+    if (view->boundary()->background || render_background_uses_table_layers(view) ||
+            render_document_propagated_body_background(view)) {
         render_background(rdcon, view, rect);
     }
 
@@ -465,7 +466,8 @@ static void render_block_paint_self(RasterRenderContext* rdcon, ViewBlock* block
                                     RenderBlockPhase* phase) {
     if (!rdcon || !block || !phase) return;
 
-    if (!phase->self_hidden && (block->bound || render_background_uses_table_layers(block)) &&
+    if (!phase->self_hidden && (block->bound || render_background_uses_table_layers(block) ||
+            render_document_propagated_body_background(block)) &&
         !render_paint_boundary_hidden(block)) {
         uint64_t tb1 = time_now_ns();
         render_bound(rdcon, block);

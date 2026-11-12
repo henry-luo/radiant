@@ -937,6 +937,16 @@ bool UiContext::destroy_document(bool wait_for_tasks) {
     return true;
 }
 
+bool UiContext::ensure_browsing_session() {
+    if (!browsing_session) {
+        // exports share one ephemeral profile with their UI lifetime, including
+        // batch documents; a supplied window session remains borrowed.
+        owned_browsing_session = lam::own(session_create(nullptr, nullptr));
+        browsing_session = owned_browsing_session.get();
+    }
+    return browsing_session && session_cookie_jar(browsing_session);
+}
+
 bool UiContext::destroy(bool wait_for_tasks) {
     log_debug("cleaning up UI context");
 
@@ -962,6 +972,13 @@ bool UiContext::destroy(bool wait_for_tasks) {
     if (!ui_context_release_loader_runtime(this, wait_for_tasks)) {
         log_error("ui-context: loader runtime retained; remaining teardown stopped");
         return false;
+    }
+
+    // resource managers and loader tasks borrow the profile jar until retirement.
+    if (owned_browsing_session) {
+        if (browsing_session == owned_browsing_session.get()) browsing_session = nullptr;
+        session_destroy(owned_browsing_session);
+        owned_browsing_session = nullptr;
     }
 
     log_debug("cleaning up font resources");

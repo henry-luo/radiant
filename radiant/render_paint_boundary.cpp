@@ -4,6 +4,46 @@
 #include <math.h>
 #include <string.h>
 
+int render_background_layer_count(const BackgroundProp* background) {
+    return background->layer_count > 0 ? background->layer_count : 1;
+}
+
+const BackgroundLayer* render_background_layer_at(const BackgroundProp* background, int index) {
+    return background->layer_count > 0 ? &background->layers[index] : background;
+}
+
+BackgroundLayer* render_background_layer_at(BackgroundProp* background, int index) {
+    return const_cast<BackgroundLayer*>(render_background_layer_at(static_cast<const BackgroundProp*>(background), index));
+}
+
+ViewBlock* render_document_canvas_background_view(View* root) {
+    if (!root || root->view_type != RDT_VIEW_BLOCK) return nullptr;
+    ViewBlock* html = static_cast<ViewBlock*>(root);
+    BackgroundProp* background = html->bound ? html->boundary()->background.get() : nullptr;
+    bool has_image = false;
+    for (int i = 0; background && i < render_background_layer_count(background); i++) {
+        const BackgroundLayer* layer = render_background_layer_at(background, i);
+        has_image |= layer->image || layer->gradient_type != GRADIENT_NONE;
+    }
+    if (background && (background->color.a || has_image)) return html;
+    if (html->tag_id != MARKUP_NAME_HTML) return html;
+    for (View* child = html->first_child; child; child = child->next_sibling) {
+        if (child->view_type == RDT_VIEW_BLOCK && child->is_element() &&
+                child->as_element()->tag_id == MARKUP_NAME_BODY)
+            return static_cast<ViewBlock*>(child);
+    }
+    return html;
+}
+
+ViewBlock* render_document_propagated_body_background(ViewBlock* view) {
+    if (!view || (view->tag_id != MARKUP_NAME_HTML && view->tag_id != MARKUP_NAME_BODY) ||
+            !view->doc || !view->doc->view_tree) return nullptr;
+    View* root = view->doc->view_tree->root;
+    ViewBlock* source = render_document_canvas_background_view(root);
+    if (!source || source == root || (view != root && view != source)) return nullptr;
+    return source;
+}
+
 static bool boundary_has_radius(const BorderProp* border) {
     return border && radiant_corner_has_radius(&border->radius);
 }
@@ -202,6 +242,7 @@ bool render_paint_boundary_emit_simple(PaintList* paint_list, ViewBlock* view, R
     if (render_paint_boundary_hidden(view)) return true;
     if (render_paint_boundary_has_collapsed_borders(view)) return false;
     if (render_background_uses_table_layers(view)) return false;
+    if (render_document_propagated_body_background(view)) return false;
     if (render_paint_boundary_emit_fragmented_simple(paint_list, view, rect)) return true;
     // continuous SVG/PDF retain their direct per-side painter beyond the uniform-color fast path.
     if (view->bound->border && !boundary_border_uniform_color(view->bound->border)) return false;
@@ -213,6 +254,7 @@ bool render_paint_boundary_emit_fragmented_simple(PaintList* paint_list, ViewBlo
     if (render_paint_boundary_hidden(view)) return true;
     if (render_paint_boundary_has_collapsed_borders(view)) return false;
     if (render_background_uses_table_layers(view)) return false;
+    if (render_document_propagated_body_background(view)) return false;
     // boundary painting also accepts retained blocks without a DOM node tag.
     LayoutFragmentBox* first = view->layout_fragment_list();
     if (!first || !first->next) return false;

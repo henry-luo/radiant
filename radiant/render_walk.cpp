@@ -192,7 +192,8 @@ static bool render_walk_block_paint_self(RenderPaintBlockDriver* ctx, ViewBlock*
     bool hidden = backface_hidden || view_visibility_is_hidden(block);
     if (!hidden && !render_paint_boundary_hidden(block) &&
         render_paint_phase_has_boundary(backend->ctx->paint_phase, block) &&
-        (block->bound || render_background_uses_table_layers(block)) && backend->render_bound) {
+        (block->bound || render_background_uses_table_layers(block) ||
+            render_document_propagated_body_background(block)) && backend->render_bound) {
         backend->render_bound(backend->ctx, block, state->x, state->y);
     }
 

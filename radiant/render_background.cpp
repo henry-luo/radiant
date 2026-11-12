@@ -20,36 +20,6 @@
 static RdtPath* background_image_clip_path(RasterRenderContext* rdcon, ViewBlock* view);
 static void render_background_image(RasterRenderContext* rdcon, ViewBlock* view,
                                     BackgroundLayer* bg, Rect position_rect, Rect paint_rect);
-static int background_layer_count(const BackgroundProp* background) {
-    return background->layer_count > 0 ? background->layer_count : 1;
-}
-
-static const BackgroundLayer* background_layer_at(const BackgroundProp* background, int index) {
-    return background->layer_count > 0 ? &background->layers[index] : background;
-}
-
-static BackgroundLayer* background_layer_at(BackgroundProp* background, int index) {
-    return const_cast<BackgroundLayer*>(background_layer_at(static_cast<const BackgroundProp*>(background), index));
-}
-
-ViewBlock* render_document_canvas_background_view(View* root) {
-    if (!root || root->view_type != RDT_VIEW_BLOCK) return nullptr;
-    ViewBlock* html = static_cast<ViewBlock*>(root);
-    BackgroundProp* background = html->bound ? html->boundary()->background.get() : nullptr;
-    bool has_image = false;
-    for (int i = 0; background && i < background_layer_count(background); i++) {
-        const BackgroundLayer* layer = background_layer_at(background, i);
-        has_image |= layer->image || layer->gradient_type != GRADIENT_NONE;
-    }
-    if (background && (background->color.a || has_image)) return html;
-    if (html->tag_id != MARKUP_NAME_HTML) return html;
-    for (View* child = html->first_child; child; child = child->next_sibling) {
-        if (child->view_type == RDT_VIEW_BLOCK && child->is_element() &&
-                child->as_element()->tag_id == MARKUP_NAME_BODY)
-            return static_cast<ViewBlock*>(child);
-    }
-    return html;
-}
 
 struct BackgroundGlyphMask {
     const GlyphBitmap* bitmap;
@@ -143,6 +113,13 @@ typedef bool (*BackgroundSourceVisitor)(void*, ViewBlock*, Rect, Rect);
 static bool background_sources(ViewBlock* view, Rect rect,
         void* context, BackgroundSourceVisitor visit) {
     if (!view || render_background_is_table_track(view) || render_paint_boundary_hidden(view)) return false;
+    if (ViewBlock* body = render_document_propagated_body_background(view)) {
+        // the propagated canvas background belongs below root stacking layers;
+        // the body's own used background is transparent (CSS Backgrounds 3 §2.11.2).
+        if (body == view || !body->bound || !body->boundary()->background) return false;
+        Rect position = {rect.x + body->x, rect.y + body->y, body->width, body->height};
+        return visit(context, body, position, rect);
+    }
     bool recorded = false;
     if (view->view_type == RDT_VIEW_TABLE_CELL) {
         ViewTable* table = nullptr;
@@ -1862,9 +1839,9 @@ static IRect background_blend_bounds(BackgroundPaintContext* context, Rect clip)
 }
 
 static bool background_has_blend(const BackgroundProp* background) {
-    int count = background_layer_count(background);
+    int count = render_background_layer_count(background);
     for (int index = 0; index < count; index++) {
-        const BackgroundLayer* layer = background_layer_at(background, index);
+        const BackgroundLayer* layer = render_background_layer_at(background, index);
         if (layer->blend_mode && layer->blend_mode != CSS_VALUE_NORMAL) return true;
     }
     return false;
@@ -1882,8 +1859,8 @@ static bool record_background(PaintList* paint, UiContext* ui, ViewBlock* view, 
     BackgroundPaintContext context = {paint, ui, view, raster, isolated ? nullptr : raster,
         pixel_ratio, transform, nullptr, {}, {}};
     context.text_shape = text_shape;
-    int count = background_layer_count(background);
-    BackgroundLayer* bottom = background_layer_at(background, count - 1);
+    int count = render_background_layer_count(background);
+    BackgroundLayer* bottom = render_background_layer_at(background, count - 1);
     bool recorded = false;
     if (isolated) {
         IRect bounds = background_blend_bounds(&context, painting_area ? *painting_area : rect);
@@ -1920,7 +1897,7 @@ static bool record_background(PaintList* paint, UiContext* ui, ViewBlock* view, 
     }
     // one authored-order walk feeds native raster and both vector backends (CI-18).
     for (int index = count - 1; index >= 0; index--) {
-        BackgroundLayer* layer = background_layer_at(background, index);
+        BackgroundLayer* layer = render_background_layer_at(background, index);
         if ((layer->bg_clip == CSS_VALUE_TEXT) != text_only ||
             (!layer->image && layer->gradient_type == GRADIENT_NONE)) continue;
         PaintList image_layer;
@@ -2316,9 +2293,9 @@ static void render_background_image(RasterRenderContext* rdcon, ViewBlock* view,
 static bool background_has_text_clip(const DomElement* parent) {
     if (!parent || !parent->bound || !parent->boundary()->background) return false;
     const BackgroundProp* background = parent->boundary()->background;
-    int count = background_layer_count(background);
+    int count = render_background_layer_count(background);
     for (int i = 0; i < count; i++) {
-        const BackgroundLayer* layer = background_layer_at(background, i);
+        const BackgroundLayer* layer = render_background_layer_at(background, i);
         if (layer->bg_clip == CSS_VALUE_TEXT) return true;
     }
     return false;

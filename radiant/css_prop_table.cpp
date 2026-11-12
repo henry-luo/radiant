@@ -385,7 +385,8 @@ static bool format_overflow_clip_margin_computed_value(DomElement* element,
 static bool format_clamp_computed_value(DomElement* element, const CssValue* value,
     StringBuf* output, int pseudo_type);
 static bool cssom_compute_numeric_value(DomElement* element, const CssValue* value,
-    CssMathResult* result, int pseudo_type, bool preserve_percentages = false);
+    CssMathResult* result, int pseudo_type, bool preserve_percentages = false,
+    float percentage_base = NAN);
 static bool cssom_compute_integer_value(DomElement* element, const CssValue* value,
     int pseudo_type, double minimum, double maximum, double* result);
 typedef bool (*CssomScalarPolicy)(const CssMathResult*, float*);
@@ -853,6 +854,7 @@ struct CssomFontMathContext {
     const CssomFontState* leading;
     const CssomFontState* root;
     bool viewport_vertical;
+    float percentage_base = NAN;
 };
 
 static float cssom_font_state_line_height(DomElement* element, const CssomFontState* state) {
@@ -867,6 +869,10 @@ static bool cssom_resolve_font_size_value(CssomFontMathContext* context,
 
 static bool cssom_font_math_leaf(void* data, const CssValue* value, double* result) {
     CssomFontMathContext* context = (CssomFontMathContext*)data;
+    if (value->type == CSS_VALUE_TYPE_PERCENTAGE && isfinite(context->percentage_base)) {
+        *result = value->data.percentage.value * context->percentage_base / 100.0;
+        return true;
+    }
     float size = 0.0f;
     if (!cssom_resolve_font_size_value(context, value, &size, true)) return false;
     *result = size;
@@ -1046,7 +1052,7 @@ static bool cssom_resolve_font_state(Pool* scratch, DomElement* element, int pse
 }
 
 static bool cssom_compute_numeric_value(DomElement* element, const CssValue* value,
-        CssMathResult* result, int pseudo_type, bool preserve_percentages) {
+        CssMathResult* result, int pseudo_type, bool preserve_percentages, float percentage_base) {
     if (!element || !value || !result) return false;
     Pool* scratch = mem_pool_create(nullptr, MEM_ROLE_TEMP, "css.computed_length.scratch");
     if (!scratch) return false;
@@ -1054,6 +1060,7 @@ static bool cssom_compute_numeric_value(DomElement* element, const CssValue* val
     bool valid = cssom_resolve_font_state(scratch, element, pseudo_type, &root, &state, true);
     CssomFontMathContext lengths = {element, state.font.size_px, root.font.size_px,
         &state, &state, &root, state.vertical};
+    lengths.percentage_base = percentage_base;
     value = css_resolve_element_var_value(scratch, element, value, CSS_PROPERTY_WIDTH);
     CssMathEvaluationContext math = {cssom_font_math_leaf, &lengths, 1.0, preserve_percentages};
     *result = css_math_evaluate(value, &math);
@@ -1064,6 +1071,11 @@ static bool cssom_compute_numeric_value(DomElement* element, const CssValue* val
 
 bool css_prop_compute_numeric_value(DomElement* element, const CssValue* value, CssMathResult* result) {
     return cssom_compute_numeric_value(element, value, result, 0);
+}
+
+bool css_prop_compute_numeric_value(DomElement* element, const CssValue* value,
+        CssMathResult* result, float percentage_base) {
+    return cssom_compute_numeric_value(element, value, result, 0, false, percentage_base);
 }
 
 static bool cssom_compute_integer_value(DomElement* element, const CssValue* value,

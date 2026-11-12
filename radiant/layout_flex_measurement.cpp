@@ -264,11 +264,11 @@ struct FlexIntrinsicAccumulator {
           max_item_min_width(0.0f), height(0.0f), count(0) {}
 
     void add_width(float min_content, float max_content, float margin) {
+        count++;
         if (row) {
             total_min_width += min_content + margin;
             total_width += max_content + margin;
             max_item_min_width = max(max_item_min_width, min_content + margin);
-            count++;
         } else {
             min_width = max(min_width, min_content + margin);
             max_width = max(max_width, max_content + margin);
@@ -1299,14 +1299,18 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
                 }
                 c = c->next_sibling;
             }
-            // For row flex containers, add gaps to total width
-            if (is_row_flex_container && children.count > 1) {
-                // Get gap from the flex container properties
-                float gap = layout_flex_column_gap(item);
-                children.total_width += gap * (children.count - 1);
-                // CSS Flexbox §9.9.1: a single nowrap line keeps its gaps at min-content
-                // too; without them a flex:1 item shrank below its row and overflowed.
-                children.total_min_width += gap * (children.count - 1);
+            if (is_flex_container && children.count > 1) {
+                LayoutFlexStyleInfo style = layout_flex_style_info(nullptr, item);
+                float gap = (is_row_flex_container ? style.column_gap : style.row_gap) *
+                    (children.count - 1);
+                // an auto column's intrinsic height includes its main-axis gaps;
+                // omitting them makes an enclosing flex column shrink fixed-height content.
+                if (is_row_flex_container) {
+                    children.total_width += gap;
+                    children.total_min_width += gap;
+                } else {
+                    children.height += gap;
+                }
             }
 
         }
