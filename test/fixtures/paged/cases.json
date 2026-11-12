@@ -1,0 +1,217 @@
+{
+  "scope": "forward page-float and nested named-page width core",
+  "cases": [
+    {
+      "name": "float-defer-1",
+      "input": "test/fixtures/paged/float-defer-1.html",
+      "reference": "test/fixtures/paged/float-defer-1.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute placement; no page-float policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 110,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "not_rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 2,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 10,
+          "y": 10,
+          "not_rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "float-defer-2",
+      "input": "test/fixtures/paged/float-defer-2.html",
+      "reference": "test/fixtures/paged/float-defer-2.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute placement; no page-float policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 210,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "not_rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 3,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 10,
+          "y": 10,
+          "not_rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "float-defer-99",
+      "input": "test/fixtures/paged/float-defer-99.html",
+      "reference": "test/fixtures/paged/float-defer-99.control.html",
+      "pages": 3,
+      "oracle": "independently authored absolute placement; no page-float policy",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 210,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 10,
+          "not_rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 3,
+          "x": 10,
+          "y": 10,
+          "rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 10,
+          "y": 10,
+          "not_rgba": [
+            0,
+            255,
+            0,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "name": "nested-width",
+      "input": "test/fixtures/paged/nested-width.html",
+      "reference": "test/fixtures/paged/nested-width.control.html",
+      "pages": 3,
+      "oracle": "existing top-level named-page layout with the same authored text and percentage box",
+      "preview_witnesses": [
+        {
+          "x": 10,
+          "y": 105,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "x": 10,
+          "y": 5,
+          "not_rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "pdf_witnesses": [
+        {
+          "page": 2,
+          "x": 10,
+          "y": 5,
+          "rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        },
+        {
+          "page": 1,
+          "x": 10,
+          "y": 5,
+          "not_rgba": [
+            0,
+            0,
+            255,
+            255
+          ]
+        }
+      ]
+    }
+  ]
+}

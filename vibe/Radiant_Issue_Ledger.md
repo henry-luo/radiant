@@ -20,6 +20,10 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-028"></a>
+
+- [RI-028 — Historical P7 archive lost; replay waived by user](<Radiant_Issue_Ledger (fixed).md#ri-028>).
+
 <a id="ri-027"></a>
 
 - [RI-027 — Mobile viewport metadata shrinks desktop layout independently of its host](<Radiant_Issue_Ledger (fixed).md#ri-027>).

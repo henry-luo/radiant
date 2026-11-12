@@ -68,6 +68,7 @@ struct PagedFlowWidth {
     size_t count, capacity;
     uint32_t seen_pass;
 };
+struct PagedFloatScope { const DomNode* source; uint32_t last_page; };
 struct PagedReferenceSession {
     Pool* pool;
     TypesetTargetStore targets;
@@ -78,6 +79,8 @@ struct PagedReferenceSession {
     size_t page_label_count;
     PagedTerminalPage* terminals;
     size_t terminal_count, terminal_capacity;
+    PagedFloatScope* float_scopes;
+    size_t float_scope_count, float_scope_capacity;
     PagedFlowWidth* widths;
     size_t width_count, width_capacity;
     struct PagedFolioPage { const DomElement* folio; uint32_t page; }* folios; // body folios' pages in the previous pass
@@ -900,17 +903,19 @@ struct PagedNotePiece {
     PagedNotePiece* next;
 };
 // a footnote or page float out of the flow, anchored where its call or position
-// falls (CSS GCPM 3 §2, CSS Page Floats §3); notes are atomic and floats move
-// with their anchor (plan §8 rulings 2 and 3)
+// falls (CSS GCPM 3 §2, CSS Page Floats §3). Queued figures can leave their
+// anchors; note placement retains its call-policy and continuation constraints.
 struct PagedFlowAnchor {
     DomElement* element;       // laid out by the browsing engine outside the flow
     PagedAnchorKind kind;
     PagedNotePolicy policy;    // footnote-policy (CSS GCPM 3 §2.7)
     uint8_t clear;             // the float sides a page float clears: 1 top, 2 bottom
     uint8_t view_type;         // its out-of-flow layout's view type, restored to publish it
-    bool deferred;             // an automatic note waiting for a fragmentainer after its call's
+    bool deferred;             // queued auxiliary material, independent of its body anchor
+    uint32_t defer, target_page; // positive float-defer offset and selected physical destination
+    const DomNode* sequence_source;
     float width, height;       // the width it was laid out at and its margin-box height there
-    float full_height;
+    float full_height, measure_height;
     PagedNotePiece* continuation;
     size_t fragmentainer;      // where it is placed, kPagedUnplaced before
     PagedFlowParagraph* paragraph; // the inline run of the line holding its call or position
@@ -1034,10 +1039,12 @@ struct PagedFlowState {
     uint32_t content_page;     // the page of the last published body content
     uint32_t string_depth;     // inside a string-set evaluation, where content() applies
     bool composed;             // paged_flow_compose ran for the settled pass
+    LayoutContext* context;   // borrowed while the shared layout pass is active
     PagedFlowAnchor* anchors;  // footnotes and page floats in flow order (plan P5)
     size_t anchor_count, anchor_capacity;
     size_t anchors_bound;      // the anchors before this index have their line or box
     size_t notes_waiting;      // automatic notes deferred and not yet placed
+    size_t floats_waiting;     // figures waiting independently of their anchors
     float flow_end;            // the lowest flow position a line or box reached (the root box keeps the page height)
     bool draining;             // the flow ended: new fragmentainers hold only waiting notes
     DomElement* call;          // the footnote call being laid out at its note
@@ -1060,6 +1067,27 @@ static TypesetStatus paged_flow_fail(PagedFlowState* state, TypesetStatus status
 
 ViewTree* paged_flow_view_tree(const LayoutContext* lycon) {
     return lycon->paged->tree;
+}
+
+// sequence identities survive reference replay; compiled page-program pointers do not.
+static const DomNode* paged_float_scope_source(const PagedFlowState* state, const ViewPageBox* page) {
+    return page && page->sequence && page->sequence->source.address
+        ? page->sequence->source.address : state->tree->model->document->root.get();
+}
+
+static PagedFloatScope* paged_float_scope(PagedFlowState* state, const DomNode* source) {
+    PagedReferenceSession* session = state->composition->references;
+    if (!session) return nullptr;
+    for (size_t i = 0; i < session->float_scope_count; i++)
+        if (session->float_scopes[i].source == source) return &session->float_scopes[i];
+    if (!lam::pool_grow_array(session->pool, &session->float_scopes,
+        &session->float_scope_capacity, session->float_scope_count + 1, 4)) {
+        paged_flow_fail(state, TYPESET_OUT_OF_MEMORY, const_cast<DomNode*>(source), nullptr);
+        return nullptr;
+    }
+    PagedFloatScope* scope = &session->float_scopes[session->float_scope_count++];
+    *scope = {source, 0};
+    return scope;
 }
 
 static ViewCssStyle* paged_source_style(PagedFlowState* state, DomElement* source) {
@@ -1267,6 +1295,8 @@ static bool paged_table_body_view(View* view, const ViewBlock* table) {
 }
 
 static float paged_fragmentainer_reserved(PagedFlowState* state, size_t index);
+static float paged_anchor_layout(PagedFlowState* state, LayoutContext* lycon, PagedFlowAnchor* anchor,
+    float width, float height, bool count);
 static TypesetStatus paged_fragmentainer_append(PagedFlowState* state, bool new_page, bool restart = false);
 static TypesetStatus paged_note_continue(PagedFlowState* state, PagedFlowAnchor* anchor, size_t index);
 static float paged_note_piece_height(PagedFlowState* state, PagedFlowAnchor* anchor, float offset, float available);
@@ -1381,7 +1411,10 @@ static void paged_anchor_place(PagedFlowState* state, PagedFlowAnchor* anchor, s
 
 // take an anchor off its fragmentainer (or out of the waiting notes) before it is placed again
 static void paged_anchor_lift(PagedFlowState* state, PagedFlowAnchor* anchor) {
-    if (anchor->deferred) { anchor->deferred = false; state->notes_waiting--; }
+    if (anchor->deferred) {
+        anchor->deferred = false;
+        (anchor->kind == PAGED_ANCHOR_NOTE ? state->notes_waiting : state->floats_waiting)--;
+    }
     if (anchor->fragmentainer == kPagedUnplaced) return;
     PagedFragmentainer& fragmentainer = state->fragmentainers[anchor->fragmentainer];
     if (anchor->kind == PAGED_ANCHOR_NOTE) { fragmentainer.notes -= anchor->height; fragmentainer.note_count--; }
@@ -1396,8 +1429,10 @@ static void paged_anchor_lift(PagedFlowState* state, PagedFlowAnchor* anchor) {
     if (anchor->full_height > 0.0f) anchor->height = anchor->full_height;
 }
 
-static void paged_note_defer(PagedFlowState* state, PagedFlowAnchor* anchor) {
-    anchor->deferred = true; state->notes_waiting++;
+static void paged_anchor_defer(PagedFlowState* state, PagedFlowAnchor* anchor) {
+    if (anchor->deferred) return;
+    anchor->deferred = true;
+    (anchor->kind == PAGED_ANCHOR_NOTE ? state->notes_waiting : state->floats_waiting)++;
 }
 
 // can `anchor` join fragmentainer `index` whose content reaches `content_end`?
@@ -1454,13 +1489,23 @@ static PagedAnchorFit paged_anchors_place(PagedFlowState* state, size_t first, s
             if (kept) *kept = i - first;
             return PAGED_ANCHORS_MOVE;
         }
+        const ViewPageBox* page = state->fragmentainers[index].page;
+        if (anchor->defer && page) {
+            PagedFloatScope* scope = paged_float_scope(state, anchor->sequence_source);
+            if (!scope) return PAGED_ANCHORS_FAILED;
+            uint64_t requested = (uint64_t)page->page_number + anchor->defer;
+            uint32_t last = scope->last_page ? (scope->last_page > page->page_number ? scope->last_page : page->page_number) : UINT32_MAX;
+            anchor->target_page = requested < last ? (uint32_t)requested : last; // INT_CAST_OK: bounded physical page index.
+            state->composition->reference_used = true;
+            if (anchor->target_page > page->page_number) { paged_anchor_defer(state, anchor); continue; }
+        }
         bool automatic = anchor->kind == PAGED_ANCHOR_NOTE && anchor->policy == PAGED_NOTE_AUTO;
-        if (automatic && state->notes_waiting) { paged_note_defer(state, anchor); continue; }
+        if (automatic && state->notes_waiting) { paged_anchor_defer(state, anchor); continue; }
         bool fits = paged_anchor_fits(state, anchor, index, content_end, false);
         if (!fits && starts && paged_auxiliary_extend_terminal(state, index))
             fits = paged_anchor_fits(state, anchor, index, content_end, false);
         if (fits) { paged_anchor_place(state, anchor, index); continue; }
-        if (automatic) { paged_note_defer(state, anchor); continue; }
+        if (automatic) { paged_anchor_defer(state, anchor); continue; }
         if (kept) {
             *kept = i - first;
             if (!starts || *kept) return PAGED_ANCHORS_MOVE;
@@ -1476,14 +1521,26 @@ static PagedAnchorFit paged_anchors_place(PagedFlowState* state, size_t first, s
     return PAGED_ANCHORS_PLACED;
 }
 
-// fragmentainer `index`, whose content reaches `content_end`, takes the waiting
-// notes in order while they fit
-static void paged_notes_resume(PagedFlowState* state, size_t index, float content_end, bool alone) {
-    for (size_t i = 0; state->notes_waiting && i < state->anchor_count; i++) {
+// ready auxiliary material reserves space before this fragmentainer's body is fitted.
+static void paged_anchors_resume(PagedFlowState* state, size_t index, float content_end, bool alone, bool notes) {
+    size_t& waiting = notes ? state->notes_waiting : state->floats_waiting;
+    for (size_t i = 0; waiting && i < state->anchor_count; i++) {
         PagedFlowAnchor* anchor = &state->anchors[i];
-        if (!anchor->deferred) continue;
+        if (!anchor->deferred || (anchor->kind == PAGED_ANCHOR_NOTE) != notes) continue;
+        const ViewPageBox* page = state->fragmentainers[index].page;
+        if (!notes && (!page || paged_float_scope_source(state, page) != anchor->sequence_source ||
+            page->page_number < anchor->target_page)) continue;
+        const PagedFragmentainer& frame = state->fragmentainers[index];
+        if (!notes && state->context && (fabsf(frame.rect.width - anchor->width) > kPagedFlowEpsilon ||
+            fabsf(frame.rect.height - anchor->measure_height) > kPagedFlowEpsilon)) {
+            // percentage dimensions belong to the destination area, independently of the anchor.
+            ViewType saved = anchor->element->view_type;
+            anchor->height = anchor->full_height = paged_anchor_layout(state, state->context, anchor,
+                frame.rect.width, frame.rect.height, false);
+            anchor->element->view_type = saved;
+        }
         if (!paged_anchor_fits(state, anchor, index, content_end, alone)) return;
-        anchor->deferred = false; state->notes_waiting--;
+        anchor->deferred = false; waiting--;
         paged_anchor_place(state, anchor, index);
     }
 }
@@ -1499,7 +1556,7 @@ static void paged_fragmentainer_restyle(PagedFlowState* state, size_t index, boo
         PagedFlowAnchor* anchor = &state->anchors[i];
         if (anchor->fragmentainer != index) continue;
         paged_anchor_lift(state, anchor);
-        paged_note_defer(state, anchor);
+        paged_anchor_defer(state, anchor);
     }
 }
 
@@ -1594,7 +1651,8 @@ static TypesetStatus paged_fragmentainer_append(PagedFlowState* state, bool new_
     PagedFragmentainer fragmentainer = {top, bottom, bottom, continuous ? nullptr : composer->page, composer->column_index, rect, nullptr};
     state->fragmentainers[state->fragmentainer_count++] = fragmentainer;
     // automatic notes waiting for a fragmentainer start this one (plan P5)
-    if (state->notes_waiting) paged_notes_resume(state, state->fragmentainer_count - 1, top, state->draining);
+    if (state->notes_waiting) paged_anchors_resume(state, state->fragmentainer_count - 1, top, state->draining, true);
+    if (state->floats_waiting) paged_anchors_resume(state, state->fragmentainer_count - 1, top, state->draining, false);
     return state->status;
 }
 
@@ -1767,7 +1825,7 @@ static void paged_anchor_follow(PagedFlowState* state, PagedFlowAnchor* anchor) 
     if (paged_fragmentainer_at(state, top, &index) != TYPESET_OK || anchor->fragmentainer == index) return;
     paged_anchor_lift(state, anchor);
     bool fits = paged_anchor_fits(state, anchor, index, top, false);
-    if (!fits && anchor->kind == PAGED_ANCHOR_NOTE && anchor->policy == PAGED_NOTE_AUTO) { paged_note_defer(state, anchor); return; }
+    if (!fits && anchor->kind == PAGED_ANCHOR_NOTE && anchor->policy == PAGED_NOTE_AUTO) { paged_anchor_defer(state, anchor); return; }
     if (!fits) log_debug("[PAGED_FLOW] anchor %s overfills fragmentainer %zu after its box moved", anchor->element->source_loc(), index);
     paged_anchor_place(state, anchor, index);
 }
@@ -2421,12 +2479,13 @@ static const RadiantPageSequence* paged_flow_sequence(PagedFlowState* state, Dom
     return nullptr;
 }
 
-// page-only metadata reads the same cascaded declarations as browsing layout.
-static const CssValue* paged_flow_declared(PagedFlowState*, DomElement* element, const char* name) {
+// page metadata shares browsing custom-property computation and its declaration owner.
+static const CssValue* paged_flow_declared(PagedFlowState* state, DomElement* element, const char* name) {
     CssPropertyCode property = css_property_code_from_name(name);
     const CssDeclaration* declaration = element && property > 0
         ? style_tree_get_declaration(element->specified_style, property) : nullptr;
-    return declaration ? declaration->value : nullptr;
+    return declaration ? css_resolve_element_var_value(state->composition->pool, element,
+        declaration->value, property) : nullptr;
 }
 
 // the authored `page` name of an element from the paged cascade's sources
@@ -3637,6 +3696,21 @@ static float paged_detached_layout(PagedFlowState* state, LayoutContext* lycon, 
     return view->y + view->height + margin_bottom;
 }
 
+// initial measurement counts body declarations once; later destination/paint replay does not.
+static float paged_anchor_layout(PagedFlowState* state, LayoutContext* lycon, PagedFlowAnchor* anchor,
+        float width, float height, bool count) {
+    auto counters = lycon->counter_context;
+    if (!count) lycon->counter_context = nullptr;
+    bool saved_note = state->detached_note;
+    state->detached_note = anchor->kind == PAGED_ANCHOR_NOTE;
+    float extent = paged_detached_layout(state, lycon, anchor->element, width, height);
+    state->detached_note = saved_note;
+    lycon->counter_context = counters;
+    anchor->width = width; anchor->measure_height = height;
+    anchor->view_type = anchor->element->view_type;
+    return extent;
+}
+
 // the footnote call's and marker's user-agent defaults, which author rules
 // override (CSS GCPM 3 Appendix B). The call keeps the item engine's superscript,
 // which never changed its line's height: a zero line-height keeps the raised box
@@ -3743,20 +3817,26 @@ static void paged_flow_anchor(PagedFlowState* state, LayoutContext* lycon, DomEl
             const CssDeclaration* clear = style ? style_tree_get_declaration(style, CSS_PROPERTY_CLEAR) : nullptr;
             CssEnum side = clear && clear->value && clear->value->type == CSS_VALUE_TYPE_KEYWORD ? clear->value->data.keyword : CSS_VALUE_NONE;
             anchor.clear = side == CSS_VALUE_TOP ? 1 : side == CSS_VALUE_BOTTOM ? 2 : side == CSS_VALUE_BOTH ? 3 : 0;
-            // deferral to later pages is a later extension (plan §7): the float stays with its anchor
-            const CssDeclaration* defer = style ? style_tree_get_declaration(style, CSS_PROPERTY_FLOAT_DEFER) : nullptr;
-            if (defer && defer->value && !css_value_is_none(defer->value))
-                log_debug("[PAGED_FLOW] float-defer of %s is not applied; the float stays with its anchor", element->source_loc());
+            const CssValue* defer = paged_flow_declared(state, element, "float-defer");
+            const char* reference = css_value_identifier_name(paged_flow_declared(state, element, "float-reference"));
+            bool forward_page = reference && str_ieq_cstr(reference, "page") &&
+                !paged_context_has_columns(state, index) && state->tree->model->css->page_document->sequence_count <= 1;
+            if (forward_page && defer && defer->type == CSS_VALUE_TYPE_NUMBER && isfinite(defer->data.number.value) &&
+                defer->data.number.value > 0.0 && defer->data.number.value <= UINT32_MAX &&
+                floor(defer->data.number.value) == defer->data.number.value) {
+                // the shared replay supplies the flow's last page before deferral is clamped.
+                anchor.defer = (uint32_t)defer->data.number.value; // INT_CAST_OK: validated page-count offset.
+                anchor.sequence_source = paged_float_scope_source(state, state->fragmentainers[index].page);
+                if (!paged_float_scope(state, anchor.sequence_source)) return;
+            } else if (defer && !css_value_is_none(defer)) {
+                log_debug("[PAGED_FLOW] unsupported float-defer of %s stays with its anchor", element->source_loc());
+            }
         }
         // a page float's containing block is its page area or column (CSS Page Floats 3 §4)
         paged_folios_fill(state, element, state->fragmentainers[index].page);
-        bool saved_note = state->detached_note;
-        state->detached_note = kind == PAGED_ANCHOR_NOTE;
-        anchor.height = paged_detached_layout(state, lycon, element, anchor.width,
-            kind == PAGED_ANCHOR_NOTE ? NAN : state->fragmentainers[index].rect.height);
-        state->detached_note = saved_note;
+        anchor.height = paged_anchor_layout(state, lycon, &anchor, anchor.width,
+            kind == PAGED_ANCHOR_NOTE ? NAN : state->fragmentainers[index].rect.height, true);
         anchor.full_height = anchor.height;
-        anchor.view_type = element->view_type;
         if (!lam::pool_grow_array(state->composition->pool, &state->anchors, &state->anchor_capacity, state->anchor_count + 1, 16)) {
             paged_flow_fail(state, TYPESET_OUT_OF_MEMORY, element, nullptr); return;
         }
@@ -4144,6 +4224,19 @@ static TypesetStatus paged_forced_empty_side(PagedFlowState* state, size_t index
 
 // the break before `block`: a forced break, a named page or sequence, or previous
 // content that filled its fragmentainer exactly
+// auto-width flow chains can rebase the existing context and replay their per-line measures.
+static bool paged_flow_select_width(PagedFlowState* state, ViewBlock* block, BlockContext* parent, float width) {
+    if (paged_flow_top_level(state, block) || paged_flow_width(state, block, true)) {
+        paged_flow_run_restart(state, parent, width);
+        return state->status == TYPESET_OK;
+    }
+    if (state->status != TYPESET_OK) return false;
+    if (fabsf(width - state->run_width) <= kPagedFlowEpsilon) return true;
+    paged_flow_fail(state, TYPESET_UNPLACEABLE, block,
+        "a nested named-page width transition requires an auto-width ordinary-flow containing chain");
+    return false;
+}
+
 static void paged_block_break(PagedFlowState* state, LayoutContext* lycon, ViewBlock* block, BlockContext* pa_block) {
     PagedPageCursor* composer = &state->composer;
     ViewBreak request = paged_flow_box_break(state, block, false);
@@ -4181,10 +4274,7 @@ static void paged_block_break(PagedFlowState* state, LayoutContext* lycon, ViewB
             paged_fragmentainer_restyle(state, index, false);
             PagedFragmentainer& current = state->fragmentainers[index];
             if (index == 0) state->run_width = current.rect.width;
-            else if (paged_flow_top_level(state, block)) paged_flow_run_restart(state, pa_block, current.rect.width);
-            else if (fabsf(current.rect.width - state->run_width) > kPagedFlowEpsilon)
-                paged_flow_fail(state, TYPESET_UNPLACEABLE, block,
-                    "page body width changes inside a flow run are not supported in this phase (Radiant_Impl_Paged_Integration §4.2)");
+            else if (!paged_flow_select_width(state, block, pa_block, current.rect.width)) return;
         }
         return;
     }
@@ -4202,12 +4292,8 @@ static void paged_block_break(PagedFlowState* state, LayoutContext* lycon, ViewB
         }
         if (paged_fragmentainer_append(state, new_page, top_level) != TYPESET_OK) return;
         target = state->fragmentainer_count - 1;
-        if (!top_level && fabsf(state->fragmentainers[target].rect.width - state->run_width) > kPagedFlowEpsilon) {
-            paged_flow_fail(state, TYPESET_UNPLACEABLE, block,
-                "a nested named-page transition requires reflow of its containing block"); return;
-        }
+        if (!paged_flow_select_width(state, block, pa_block, state->fragmentainers[target].rect.width)) return;
         strut = state->fragmentainers[target].top - top;
-        if (top_level) paged_flow_run_restart(state, pa_block, state->fragmentainers[target].rect.width);
     } else paged_break_truncate_margin(block);
     pa_block->advance_y += strut;
     block->y = pa_block->advance_y;
@@ -4419,12 +4505,16 @@ void paged_block_before(LayoutContext* lycon, ViewBlock* block, BlockContext* pa
             width->seen_pass = state->composition->references->pass;
         }
     }
-    // layout_block saved the parent before this hook; children inherit the updated reference, not that stale copy.
-    lycon->block.paged_reference_width = pa_block->paged_reference_width;
     if (!paged_flow_top_level(state, block)) {
         PagedFlowWidth* width = paged_flow_width(state, block, true);
-        if (width) { width->layout_width = state->run_width; width->seen_pass = state->composition->references->pass; }
+        if (width) {
+            // an ancestor can resume after a descendant selected another page measure.
+            paged_flow_run_restart(state, pa_block, state->run_width);
+            width->layout_width = state->run_width; width->seen_pass = state->composition->references->pass;
+        }
     }
+    // layout_block saved the parent before this hook; children inherit the updated reference.
+    lycon->block.paged_reference_width = pa_block->paged_reference_width;
     paged_reference_inline(lycon, block, pa_block);
     // style resolution preceded the run restart; percentage widths need the new containing block.
     if (block->blk && !isnan(block->block()->given_width_percent))
@@ -4806,6 +4896,7 @@ static void paged_flow_opening(PagedFlowState* state) {
 
 bool paged_flow_pass_begin(LayoutContext* lycon) {
     PagedFlowState* state = lycon->paged;
+    state->context = lycon;
     if (state->pass && state->composition->diagnostic.container_passes >= state->composition->options.max_container_passes) {
         paged_flow_fail(state, TYPESET_BUDGET_EXHAUSTED, state->tree->model->document->root,
             "container styles exhausted their condition-pass budget");
@@ -4820,7 +4911,7 @@ bool paged_flow_pass_begin(LayoutContext* lycon) {
     state->pending_break = VIEW_BREAK_AUTO;
     state->pending_space_count = state->space_box_count = state->space_gap_count = 0;
     state->space_open = kPagedUnplaced;
-    state->anchor_count = state->anchors_bound = state->notes_waiting = 0;
+    state->anchor_count = state->anchors_bound = state->notes_waiting = state->floats_waiting = 0;
     // condition passes must bind against their newly selected areas, not a speculative predecessor.
     state->indent_count = 0;
     state->draining = false; state->flow_end = 0.0f;
@@ -5910,15 +6001,27 @@ static TypesetStatus paged_anchors_finish(PagedFlowState* state) {
         last = state->fragmentainer_count - 1;
         content_end = flow_end = state->fragmentainers[last].top;
     }
-    if (state->notes_waiting) paged_notes_resume(state, last, fmaxf(flow_end, state->fragmentainers[last].top), false);
+    float tail = fmaxf(flow_end, state->fragmentainers[last].top);
+    if (state->notes_waiting) paged_anchors_resume(state, last, tail, false, true);
+    // a stale replay extent cannot manufacture sheets solely to honor a deferral offset.
+    const ViewPageBox* final_page = state->fragmentainers[last].page;
+    for (size_t i = 0; final_page && i < state->anchor_count; i++) {
+        PagedFlowAnchor* anchor = &state->anchors[i];
+        if (anchor->deferred && anchor->kind != PAGED_ANCHOR_NOTE &&
+            anchor->sequence_source == paged_float_scope_source(state, final_page) && anchor->target_page > final_page->page_number)
+            anchor->target_page = final_page->page_number;
+    }
+    if (state->floats_waiting) paged_anchors_resume(state, last, tail, false, false);
     state->draining = true;
-    while (state->notes_waiting) {
-        size_t waiting = state->notes_waiting;
+    while (state->notes_waiting || state->floats_waiting) {
+        size_t waiting = state->notes_waiting + state->floats_waiting;
         TypesetStatus status = paged_fragmentainer_append(state, true);
         if (status != TYPESET_OK) return status;
-        if (state->notes_waiting == waiting) {
+        if (state->notes_waiting + state->floats_waiting == waiting) {
             for (size_t i = 0; i < state->anchor_count; i++) if (state->anchors[i].deferred)
-                return paged_flow_fail(state, TYPESET_UNPLACEABLE, state->anchors[i].element, "a footnote is taller than its page's body area");
+                return paged_flow_fail(state, TYPESET_UNPLACEABLE, state->anchors[i].element,
+                    state->anchors[i].kind == PAGED_ANCHOR_NOTE ? "a footnote is taller than its page's body area" :
+                    "a deferred page float cannot fit an admitted page area");
         }
     }
     return state->status;
@@ -6251,16 +6354,9 @@ static TypesetStatus paged_publish_anchor(PagedFlowState* state, LayoutContext* 
     bool continued = anchor->continuation != nullptr;
     if (lycon && (folio || (!continued && fabsf(slot.width - anchor->width) > kPagedFlowEpsilon))) {
         log_debug("[PAGED_FLOW] %s lays out again at width %.3f (measured at %.3f)", element->source_loc(), slot.width, anchor->width);
-        auto counters = lycon->counter_context;
-        lycon->counter_context = nullptr;
-        bool saved_note = state->detached_note;
-        state->detached_note = anchor->kind == PAGED_ANCHOR_NOTE;
         float width = continued ? anchor->width : slot.width;
-        paged_detached_layout(state, lycon, element, width,
-            anchor->kind == PAGED_ANCHOR_NOTE ? NAN : state->fragmentainers[anchor->fragmentainer].rect.height);
-        state->detached_note = saved_note;
-        lycon->counter_context = counters;
-        anchor->width = width; anchor->view_type = element->view_type;
+        paged_anchor_layout(state, lycon, anchor, width,
+            anchor->kind == PAGED_ANCHOR_NOTE ? NAN : state->fragmentainers[anchor->fragmentainer].rect.height, false);
     }
     // the element left the flow: its view takes its type only while it publishes
     element->view_type = (ViewType)anchor->view_type;
@@ -6515,6 +6611,15 @@ static TypesetStatus paged_flow_compose_pages(PagedFlowState* state, LayoutConte
     if (status == TYPESET_OK) status = paged_flow_publish(state, lycon);
     if (status == TYPESET_OK) status = paged_sequence_end(composer, nullptr);
     if (status == TYPESET_OK) status = paged_flow_terminals(state);
+    PagedReferenceSession* references = composition->references;
+    for (size_t i = 0; status == TYPESET_OK && references && i < references->float_scope_count; i++) {
+        PagedFloatScope& scope = references->float_scopes[i];
+        scope.last_page = 0;
+        for (size_t j = 0; j < tree->model->page_count; j++) {
+            const ViewPageBox* page = tree->model->pages.get()[j];
+            if (!page->blank && paged_float_scope_source(state, page) == scope.source) scope.last_page = page->page_number;
+        }
+    }
     if (status == TYPESET_OK) status = paged_page_counters(tree, composition);
     for (size_t i = 0; status == TYPESET_OK && i < tree->model->page_count; i++) {
         status = paged_margin_layout(state, lycon, tree->model->pages.get()[i]);
