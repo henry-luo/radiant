@@ -398,6 +398,9 @@ struct LayoutCssSizeFacts {
 // scalar facts outlive the bounded substitution scratch; no computed value escapes.
 LayoutCssSizeFacts layout_css_size_facts(LayoutContext* context, DomElement* element,
                                         const CssDeclaration* declaration);
+// returns NaN for a preferred size without a percentage dependency.
+float layout_resolve_percentage_preferred_size(LayoutContext* context,
+    DomElement* element, bool horizontal, float containing_size);
 CssDeclaration* layout_cascaded_physical_declaration(DomElement* element,
                                                      CssPropertyCode property);
 CssDeclaration* layout_cascaded_line_clamp_declaration(DomElement* element,
@@ -638,6 +641,7 @@ ReplacedIntrinsicFacts layout_replaced_intrinsic_facts(LayoutContext* lycon,
 bool layout_replaced_intrinsic_axis_size(LayoutContext* lycon, ViewBlock* block,
                                          DomElement* element, bool horizontal,
                                          float opposite_size, float* out_size);
+bool layout_svg_percentage_attribute(DomElement* element, bool horizontal, float* percentage);
 ReplacedSvgIntrinsicSize layout_replaced_svg_intrinsic_size(DomElement* element,
                                                             float constrained_width = -1.0f);
 IntrinsicSize layout_measure_replaced(LayoutContext* lycon, ViewBlock* block, AvailableSpace space);
@@ -1116,6 +1120,7 @@ inline BoxEdges layout_boundary_border_edges(const BoundaryProp* bound) {
 inline bool layout_block_clips_overflow_axis(const ViewBlock* block, bool horizontal) {
     if (!block) return false;
     if (block->blk && block->block()->contain_paint) return true;
+    if (view_body_overflow_is_propagated(block)) return false;
     if (!block->scroller || !block->scroll()->has_clip) return false;
     return (horizontal ? block->scroll()->overflow_x : block->scroll()->overflow_y)
         != CSS_VALUE_VISIBLE;
@@ -1124,6 +1129,7 @@ inline bool layout_block_clips_overflow_axis(const ViewBlock* block, bool horizo
 inline bool layout_block_overflow_clip(const ViewBlock* block, Bound* out) {
     if (!block) return false;
     bool paint_containment = block->blk && block->block()->contain_paint;
+    if (!paint_containment && view_body_overflow_is_propagated(block)) return false;
     if (!paint_containment && (!block->scroller || !block->scroll()->has_clip)) return false;
     BoxEdges border = layout_boundary_border_edges(
         block->bound ? block->boundary() : nullptr);

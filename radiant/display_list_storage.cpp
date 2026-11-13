@@ -1504,3 +1504,18 @@ bool dl_replace_tail(DisplayList* dst, int start, const DisplayList* src, int fi
     dst->remove_range((size_t)(start + copied), (size_t)(old_count - start));
     return true;
 }
+
+bool dl_prepend_tail(DisplayList* dst, int start, const DisplayList* prefix) {
+    if (!dst || !prefix || start < 0 || start > dst->item_count()) return false;
+    if (!prefix->item_count()) return true;
+    Arena* arena = mem_arena_create(mem_context_process(MEM_ROLE_RENDER), MEM_ROLE_RENDER,
+        "display_list.deferred_prefix");
+    if (!arena) return false;
+    DisplayList staged;
+    dl_init(&staged, arena);
+    bool success = dl_copy_range(&staged, prefix, 0, prefix->item_count() - 1) &&
+        (start == dst->item_count() || dl_copy_range(&staged, dst, start, dst->item_count() - 1)) &&
+        dl_replace_tail(dst, start, &staged, 0, staged.item_count() - 1);
+    dl_destroy(&staged); mem_arena_destroy(arena);
+    return success;
+}

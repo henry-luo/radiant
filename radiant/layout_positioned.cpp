@@ -2138,9 +2138,13 @@ void re_resolve_abs_children_vertical(LayoutContext* lycon,
             containing_block, child, layout_containing_block_for_view(containing_block));
         float cb_height = cb.padding_height;
         float old_height = child->height;
-        if (child->blk && !isnan(child->block()->given_height_percent)) {
-            float new_given_height = child->block()->given_height_percent * cb_height / 100.0f;
-            new_given_height = layout_apply_min_max_axis(child, new_given_height, false, false);
+        // calculated percentages need the final containing height just like bare percentages.
+        float new_given_height = child->blk && !isnan(child->block()->given_height_percent)
+            ? child->block()->given_height_percent * cb_height / 100.0f
+            : child->blk ? layout_resolve_percentage_preferred_size(
+                lycon, child->as_element(), false, cb_height) : NAN;
+        if (child->blk && isfinite(new_given_height)) {
+            new_given_height = layout_apply_min_max_axis(child, max(new_given_height, 0.0f), false, false);
             child->blk->given_height = new_given_height;
             // This late abspos resolution is a used definite size even though
             // the declaration remains a percentage for future containing-block updates.

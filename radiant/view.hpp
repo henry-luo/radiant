@@ -2796,6 +2796,8 @@ inline ViewBlock view_with_boundary(ViewBlock* source, BoundaryProp* boundary) {
 // ===== view geometry =====
 
 bool view_is_top_level_viewport(ViewBlock* block);
+ViewBlock* view_viewport_overflow_source(DomDocument* document);
+bool view_body_overflow_is_propagated(const ViewBlock* block);
 
 // Coordinate walks accept a resolver because StateStore-backed callers must
 // read canonical scroll state, while dependency-light DOM tests use the pane

@@ -413,9 +413,11 @@ typedef struct CssResourcePrefetchContext {
     const Url* base_url;
     int queued;
     Pool* inline_parse_pool;
+    StyleTree* selected_style;
+    DomElement* element;
 } CssResourcePrefetchContext;
 
-static void prefetch_css_resource_url(CssValue* value, void* context) {
+static void prefetch_css_resource_url(const CssValue* value, void* context) {
     CssResourcePrefetchContext* prefetch = (CssResourcePrefetchContext*)context;
     if (!prefetch || !prefetch->doc || !prefetch->doc->resource_manager ||
         !value || !value->data.url || !*value->data.url || *value->data.url == '#') {
@@ -430,21 +432,49 @@ static void prefetch_css_resource_url(CssValue* value, void* context) {
     if (url) url_destroy(url);
 }
 
-void radiant_prefetch_document_stylesheet_resources(DomDocument* doc) {
-    if (!doc || !doc->resource_manager || !doc->stylesheets) return;
+static bool prefetch_selected_css_property(StyleNode* node, void* context) {
+    CssResourcePrefetchContext* prefetch = (CssResourcePrefetchContext*)context;
+    CssDeclaration* declaration = style_tree_get_declaration(
+        prefetch->selected_style, node->property_code);
+    if (!declaration || !declaration->value) return true;
+    const CssValue* value = declaration->value;
+    if (css_value_contains_pending_substitution(value)) {
+        if (!prefetch->inline_parse_pool) prefetch->inline_parse_pool = pool_create();
+        if (!prefetch->inline_parse_pool) return true;
+        value = css_resolve_element_var_value(prefetch->inline_parse_pool,
+            prefetch->element, value, declaration->property_code);
+    }
+    const char* source_file = declaration->source_file;
+    Url* source = source_file && strcmp(source_file, "<inline-style>") != 0
+        ? url_parse(source_file) : nullptr;
+    prefetch->base_url = source ? source : prefetch->doc->url.get();
+    radiant_for_each_css_value_resource_url(value, prefetch_css_resource_url, context);
+    if (source) url_destroy(source);
+    prefetch->base_url = nullptr;
+    return true;
+}
 
+static bool prefetch_selected_css_resources(DomNode* node, void* context) {
+    if (!node || !node->is_element()) return true;
+    CssResourcePrefetchContext* prefetch = (CssResourcePrefetchContext*)context;
+    prefetch->element = node->as_element();
+    prefetch->selected_style = prefetch->element->specified_style;
+    style_tree_foreach(prefetch->selected_style, prefetch_selected_css_property, context);
+    for (unsigned kind = 0; kind < PSEUDO_STYLE_COUNT; kind++) {
+        prefetch->selected_style = prefetch->element->pseudo_style((PseudoStyleKind)kind);
+        style_tree_foreach(prefetch->selected_style, prefetch_selected_css_property, context);
+    }
+    return true;
+}
+
+void radiant_prefetch_document_stylesheet_resources(DomDocument* doc) {
+    if (!doc || !doc->resource_manager || !doc->root) return;
+    // unmatched and inactive rules do not consume a page's finite resource identities.
     CssResourcePrefetchContext context = {doc, nullptr, 0};
-    for (int s = 0; s < doc->stylesheet_count; s++) {
-        CssStylesheet* sheet = doc->stylesheets[s];
-        if (!sheet) continue;
-        Url* source = sheet->origin_url ? url_parse(sheet->origin_url) : nullptr;
-        context.base_url = source ? source : doc->url.get();
-        radiant_for_each_stylesheet_resource_url(sheet, prefetch_css_resource_url, &context);
-        if (source) url_destroy(source);
-    }
-    if (context.queued > 0) {
-        log_info("[PREFETCH] queued %d CSS declaration resources", context.queued);
-    }
+    view_geometry_walk_dom_tree(doc->root, prefetch_selected_css_resources, &context);
+    if (context.inline_parse_pool) pool_destroy(context.inline_parse_pool);
+    if (context.queued > 0)
+        log_info("[PREFETCH] queued %d selected CSS declaration resources", context.queued);
 }
 
 static bool prefetch_inline_style_resource_urls(DomNode* node, void* context) {
@@ -472,7 +502,8 @@ static bool prefetch_inline_style_resource_urls(DomNode* node, void* context) {
 }
 
 static void discover_document_image_resources(DomDocument* doc) {
-    // inline attributes and script edits are parsed after stylesheet prefetch; paint only consumes ready bytes.
+    radiant_prefetch_document_stylesheet_resources(doc);
+    // uncommitted inline edits still need their bytes before the next layout.
     CssResourcePrefetchContext inline_resources = {doc, doc->url, 0};
     view_geometry_walk_dom_tree(doc->root, prefetch_inline_style_resource_urls, &inline_resources);
     if (inline_resources.inline_parse_pool) pool_destroy(inline_resources.inline_parse_pool);

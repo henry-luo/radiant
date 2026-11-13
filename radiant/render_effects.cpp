@@ -309,6 +309,40 @@ static bool render_effect_group_finish_blend(RenderEffectGroup* group,
     return true;
 }
 
+static bool render_effect_group_defer_backdrops(RenderEffectGroup* group, const IRect& region) {
+    RasterRenderContext* context = group->context;
+    if (!context || !context->dl) return false;
+    RenderEffectBackdrop* levels[] = {&group->mix_blend_backdrop, &group->opacity_backdrop, &group->filter_backdrop};
+    const bool required[] = {group->mix_blend_mode != 0, group->has_opacity_group,
+        group->has_filter && group->has_filter_backdrop};
+    int count = 0;
+    for (size_t i = 0; i < 3; i++) {
+        if (levels[i]->active) return false;
+        if (required[i]) count++;
+    }
+    if (!count) return false;
+    Arena* arena = mem_arena_create(mem_context_process(MEM_ROLE_RENDER), MEM_ROLE_RENDER,
+        "render.effect.deferred");
+    if (!arena) return false;
+    DisplayList prefix;
+    dl_init(&prefix, arena);
+    for (int i = 0; i < count; i++) dl_save_backdrop(&prefix, region.x, region.y, region.w, region.h);
+    // empty border boxes acquire descendant ink late; isolate that ink before replay paints it.
+    bool success = prefix.item_count() == count &&
+        dl_prepend_tail(context->dl, group->recording_start, &prefix);
+    if (success) {
+        group->source_start += count;
+        for (size_t i = 0; i < 3; i++) if (required[i]) {
+            *levels[i] = render_effect_empty_backdrop(context);
+            levels[i]->x = region.x; levels[i]->y = region.y;
+            levels[i]->width = region.w; levels[i]->height = region.h;
+            levels[i]->active = true;
+        }
+    } else log_error("RENDER_EFFECT_DEFERRED: cannot publish descendant backdrop prefix");
+    dl_destroy(&prefix); mem_arena_destroy(arena);
+    return success;
+}
+
 bool render_effect_group_finish(RenderEffectGroup* group,
                                 ViewBlock* block,
                                 Bound* clip) {
@@ -330,8 +364,9 @@ bool render_effect_group_finish(RenderEffectGroup* group,
         if (!(bounds.right > bounds.left && bounds.bottom > bounds.top)) {
             // the clip removed all ink: filter an empty rect, never an inverted one
             group->filter_rect = {};
-        } else if (dl_effect_bounds_to_region(&bounds, &region) &&
-                dl_resize_saved_backdrops(rdcon->dl, group->recording_start, group->source_start, &bounds)) {
+        } else if (dl_effect_bounds_to_region(&bounds, &region)) {
+            render_effect_group_defer_backdrops(group, region);
+            if (!dl_resize_saved_backdrops(rdcon->dl, group->recording_start, group->source_start, &bounds)) return false;
             // saved sources and final compositing must cover the same completed ink extent.
             RenderEffectBackdrop* levels[] = {&group->filter_backdrop, &group->opacity_backdrop, &group->mix_blend_backdrop};
             for (RenderEffectBackdrop* level : levels) if (level->active) {

@@ -1,5 +1,6 @@
 #include "view.hpp"
 #include "layout.hpp"
+#include "network_integration.h"
 #include "lambda/input/css/css_engine.hpp"
 #include "lambda/input/css/dom_element.hpp"
 #include "lambda/input/css/selector_matcher.hpp"
@@ -795,6 +796,8 @@ void radiant_apply_css_stylesheets_to_tree(DomDocument* doc, DomElement* root,
     // Finish UA and author rules together before descendants cache inherited variables.
     apply_stylesheets_to_tree(root, combined.get(), count + 1, matcher, pool, engine, 0);
     if (epoch_scope) style_epoch_cascade_end(doc);
+    // resource discovery consumes the completed cascade, including new CSSOM and selector matches.
+    radiant_prefetch_document_stylesheet_resources(doc);
 }
 
 bool radiant_clear_cascaded_styles_visitor(DomNode* node, void*) {

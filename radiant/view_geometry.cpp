@@ -9,6 +9,32 @@ bool view_is_top_level_viewport(ViewBlock* block) {
         !dom_document_embedding_element(doc);
 }
 
+static bool view_overflow_propagation_is_contained(const ViewBlock* block) {
+    if (!block || !block->blk) return false;
+    const BlockProp* style = block->block();
+    return style->computed_containment || style->contain_size || style->contain_inline_size ||
+        style->contain_positioning || style->contain_paint;
+}
+
+ViewBlock* view_viewport_overflow_source(DomDocument* document) {
+    ViewBlock* root = document && document->view_tree ? lam::view_as_block(document->view_tree->root) : nullptr;
+    if (!root || root->tag_id != MARKUP_NAME_HTML || view_overflow_propagation_is_contained(root)) return root;
+    CssEnum x = CSS_VALUE_VISIBLE, y = CSS_VALUE_VISIBLE;
+    css_prop_compute_declared_overflow(root->as_element(), &x, &y);
+    if (x != CSS_VALUE_VISIBLE || y != CSS_VALUE_VISIBLE) return root;
+    for (View* child = root->first_child; child; child = child->next()) {
+        ViewBlock* body = lam::view_as_block(child);
+        if (body && body->tag_id == MARKUP_NAME_BODY && body->view_type != RDT_VIEW_NONE)
+            return view_overflow_propagation_is_contained(body) ? root : body;
+    }
+    return root;
+}
+
+bool view_body_overflow_is_propagated(const ViewBlock* block) {
+    // CSS Overflow 3 §3.3: the viewport source body has used visible overflow on its own box.
+    return block && block->tag_id == MARKUP_NAME_BODY && view_viewport_overflow_source(block->doc) == block;
+}
+
 static void view_geometry_pane_scroll(ViewBlock* block, float* out_x,
                                       float* out_y, void* context);
 
@@ -58,7 +84,7 @@ static void view_geometry_pane_scroll(ViewBlock* block, float* out_x,
                                       float* out_y, void*) {
     float x = 0.0f;
     float y = 0.0f;
-    if (block && block->scroller && block->scroll()->pane) {
+    if (block && block->scroller && block->scroll()->pane && !view_body_overflow_is_propagated(block)) {
         x = block->scroll()->pane->h_scroll_position;
         y = block->scroll()->pane->v_scroll_position;
     }

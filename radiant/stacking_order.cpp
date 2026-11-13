@@ -197,15 +197,37 @@ static ArrayList* radiant_stack_collect_z_descendants(View* owner, bool negative
         radiant_stack_collect_z_list(element->first_child, negative) : nullptr;
 }
 
-static void radiant_stack_visit_z_descendants(View* owner, bool negative, bool reverse, void* context,
+static void radiant_stack_visit_list(ArrayList* views, View* owner, bool reverse, void* context,
         bool (*visit)(void* context, View* owner, View* layer)) {
-    ArrayList* views = radiant_stack_collect_z_descendants(owner, negative);
     if (!views) return;
     for (int i = 0; i < views->length; i++) {
         int index = reverse ? views->length - 1 - i : i;
         if (!visit(context, owner, (View*)views->data[index])) break;
     }
     arraylist_free(views);
+}
+
+static void radiant_stack_visit_z_descendants(View* owner, bool negative, bool reverse, void* context,
+        bool (*visit)(void* context, View* owner, View* layer)) {
+    radiant_stack_visit_list(radiant_stack_collect_z_descendants(owner, negative), owner, reverse, context, visit);
+}
+
+void radiant_stack_visit_positioned_children(ViewBlock* owner, bool reverse, void* context,
+        bool (*visit)(void* context, View* owner, View* layer)) {
+    ArrayList* views = radiant_stack_collect_positioned_children(owner, "[RAD_STACK_POSITIONED]");
+    radiant_stack_sort_in_paint_order(views);
+    radiant_stack_visit_list(views, owner, reverse, context, visit);
+}
+
+bool radiant_stack_overflow_applies(View* layer, View* ancestor) {
+    if (!radiant_stack_is_out_of_flow_positioned(layer) || layer == ancestor) return true;
+    ViewBlock* block = lam::view_as_block(layer);
+    ViewBlock* containing = block ? find_containing_block(block, block->positionp()->position) : nullptr;
+    if (!containing) return false;
+    // overflow does not clip an absolute/fixed descendant whose containing block is outside that ancestor.
+    for (View* parent = ancestor->parent; parent; parent = parent->parent)
+        if (parent == containing) return false;
+    return true;
 }
 
 void radiant_stack_visit_negative_z_descendants(View* owner, bool reverse, void* context,
@@ -240,6 +262,43 @@ bool radiant_stack_is_in_flow_positioned_step8(View* view) {
         position->z_index == 0;
 }
 
+static ViewBlock* radiant_stack_positioned_paint_owner(ViewBlock* child,
+                                                       ViewBlock** containing_out = nullptr) {
+    ViewBlock* containing = find_containing_block(child, child->positionp()->position);
+    if (containing_out) *containing_out = containing;
+    // opacity and isolation own descendant paint without becoming their positioning containing block.
+    for (View* ancestor = child->parent; ancestor; ancestor = ancestor->parent) {
+        if (ancestor == containing) return containing;
+        ViewBlock* block = lam::view_as_block(ancestor);
+        if (block && radiant_stack_is_context(ancestor)) return block;
+    }
+    return containing;
+}
+
+static void radiant_stack_collect_escaping_positioned(View* first, ViewBlock* owner,
+                                                       ArrayList* views, const char* log_prefix) {
+    for (View* view = first; view; view = view->next()) {
+        if (view->view_type == RDT_VIEW_NONE) continue;
+        if (radiant_stack_is_out_of_flow_positioned(view)) {
+            ViewBlock* child = lam::view_as_block(view);
+            ViewBlock* containing = nullptr;
+            if (child && !radiant_stack_is_negative_z_block(view) &&
+                !radiant_stack_is_positive_z_positioned(view) &&
+                radiant_stack_positioned_paint_owner(child, &containing) == owner && containing != owner &&
+                !arraylist_append(views, view)) {
+                log_warn("%s failed to grow escaped positioned list", log_prefix);
+                return;
+            }
+            continue;
+        }
+        ViewElement* element = lam::view_as_element(view);
+        if (element && element->first_child && !view_contents_are_skipped(view) &&
+            !radiant_stack_is_context(view)) {
+            radiant_stack_collect_escaping_positioned(element->first_child, owner, views, log_prefix);
+        }
+    }
+}
+
 ArrayList* radiant_stack_collect_positioned_children(ViewBlock* block, const char* log_prefix) {
     if (!block) return NULL;
     bool has_in_flow = false;
@@ -249,7 +308,8 @@ ArrayList* radiant_stack_collect_positioned_children(ViewBlock* block, const cha
                 radiant_stack_is_in_flow_positioned_step8(child)) { has_in_flow = true; break; }
         }
     }
-    if (!has_in_flow && (!block->position || !block->positionp()->first_abs_child)) return NULL;
+    bool owns_context = radiant_stack_is_context(block);
+    if (!has_in_flow && (!block->position || !block->positionp()->first_abs_child) && !owns_context) return NULL;
     if (!log_prefix) log_prefix = "[RAD_STACK]";
 
     ArrayList* views = arraylist_new(16);
@@ -271,6 +331,7 @@ ArrayList* radiant_stack_collect_positioned_children(ViewBlock* block, const cha
     ViewBlock* child = block->position ? block->positionp()->first_abs_child : nullptr;
     while (child) {
         if (child->view_type != RDT_VIEW_NONE && !radiant_stack_is_negative_z_block(child) &&
+            radiant_stack_positioned_paint_owner(child) == block &&
             (!radiant_stack_is_positive_z_positioned(child) || block->custom_layout_paint_prop()) &&
             !arraylist_append(views, child)) {
             log_warn("%s failed to grow positioned list", log_prefix);
@@ -278,6 +339,10 @@ ArrayList* radiant_stack_collect_positioned_children(ViewBlock* block, const cha
         }
         child = child->position ? child->positionp()->next_abs_sibling : NULL;
     }
+    if (owns_context && !view_contents_are_skipped(block)) {
+        radiant_stack_collect_escaping_positioned(block->first_child, block, views, log_prefix);
+    }
+    if (!views->length) { arraylist_free(views); return nullptr; }
     return views;
 }
 

@@ -594,90 +594,14 @@ void box_blur_region(ScratchArena* sa, ImageSurface* surface, int rx, int ry, in
     uint32_t* temp = scope.array<uint32_t>(buf_size);
     if (!temp) return;
 
-    // 3-pass box blur (horizontal then vertical each pass)
     for (int pass = 0; pass < 3; pass++) {
-        // Horizontal pass: read from surface, write to temp
-        for (int row = 0; row < rh; row++) {
-            int sy = ry + row;
-            uint32_t* src_row = pixels + sy * stride;
-
-            // Running sums for each channel
-            uint32_t sum_r = 0, sum_g = 0, sum_b = 0, sum_a = 0;
-            int count = 0;
-
-            // Initialize window for first pixel
-            for (int k = -box_r; k <= box_r; k++) {
-                int sx = rx + 0 + k;
-                if (sx >= rx && sx < rx + rw) {
-                    radiant_blur_adjust(src_row[sx], true,
-                        &sum_r, &sum_g, &sum_b, &sum_a);
-                    count++;
-                }
-            }
-
-            for (int col = 0; col < rw; col++) {
-                if (count > 0) {
-                    temp[row * rw + col] = radiant_blur_average(
-                        sum_r, sum_g, sum_b, sum_a, count);
-                } else {
-                    temp[row * rw + col] = 0;
-                }
-
-                // Slide window: remove leftmost, add new rightmost
-                int remove_x = rx + col - box_r;
-                int add_x = rx + col + box_r + 1;
-
-                if (remove_x >= rx && remove_x < rx + rw) {
-                    radiant_blur_adjust(src_row[remove_x], false,
-                        &sum_r, &sum_g, &sum_b, &sum_a);
-                    count--;
-                }
-                if (add_x >= rx && add_x < rx + rw) {
-                    radiant_blur_adjust(src_row[add_x], true,
-                        &sum_r, &sum_g, &sum_b, &sum_a);
-                    count++;
-                }
-            }
-        }
-
-        // Vertical pass: read from temp, write to surface
-        for (int col = 0; col < rw; col++) {
-            uint32_t sum_r = 0, sum_g = 0, sum_b = 0, sum_a = 0;
-            int count = 0;
-
-            // Initialize window
-            for (int k = -box_r; k <= box_r; k++) {
-                int tr = 0 + k;
-                if (tr >= 0 && tr < rh) {
-                    radiant_blur_adjust(temp[tr * rw + col], true,
-                        &sum_r, &sum_g, &sum_b, &sum_a);
-                    count++;
-                }
-            }
-
-            for (int row = 0; row < rh; row++) {
-                if (count > 0) {
-                    pixels[(ry + row) * stride + (rx + col)] = radiant_blur_average(
-                        sum_r, sum_g, sum_b, sum_a, count);
-                }
-
-                int remove_r = row - box_r;
-                int add_r = row + box_r + 1;
-
-                if (remove_r >= 0 && remove_r < rh) {
-                    radiant_blur_adjust(temp[remove_r * rw + col], false,
-                        &sum_r, &sum_g, &sum_b, &sum_a);
-                    count--;
-                }
-                if (add_r >= 0 && add_r < rh) {
-                    radiant_blur_adjust(temp[add_r * rw + col], true,
-                        &sum_r, &sum_g, &sum_b, &sum_a);
-                    count++;
-                }
-            }
-        }
+        for (int row = 0; row < rh; row++)
+            render_box_blur_span(pixels + (ry + row) * stride + rx, 1, rw,
+                temp + row * rw, 1, 0, rw, box_r, box_r, true);
+        for (int column = 0; column < rw; column++)
+            render_box_blur_span(temp + column, (size_t)rw, rh,
+                pixels + ry * stride + rx + column, (size_t)stride, 0, rh, box_r, box_r, true);
     }
-
 }
 
 static bool clip_surface_region(ImageSurface* surface, int* rx, int* ry, int* rw, int* rh) {

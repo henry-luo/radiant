@@ -61,28 +61,6 @@ static void target_stacking_view(EventContext* evcon, View* view) {
     }
 }
 
-static void target_stacking_list_reverse(EventContext* evcon, ArrayList* views) {
-    if (!evcon || !views) return;
-
-    // Hit-testing consumes the same stable paint-order list in reverse so equal
-    // z-index siblings target the later painted node instead of drifting from render.
-    for (int i = views->length - 1; i >= 0 && !evcon->target; i--) {
-        target_stacking_view(evcon, (View*)views->data[i]);
-    }
-}
-
-
-
-static void target_positioned_children(EventContext* evcon, ViewBlock* block) {
-    ArrayList* views = radiant_stack_collect_positioned_children(
-        block, "[RAD_CAP_POSITIONED_HIT]");
-    if (!views) return;
-
-    radiant_stack_sort_in_paint_order(views);
-    target_stacking_list_reverse(evcon, views);
-    arraylist_free(views);
-}
-
 static bool target_stacking_layer(void* context, View* owner, View* layer) {
     EventContext* evcon = (EventContext*)context;
     View* saved = evcon->stacking_path;
@@ -91,6 +69,12 @@ static bool target_stacking_layer(void* context, View* owner, View* layer) {
     evcon->stacking_path = lam::up(saved);
     return !evcon->target;
 }
+
+
+static void target_positioned_children(EventContext* evcon, ViewBlock* block) {
+    radiant_stack_visit_positioned_children(block, true, evcon, target_stacking_layer);
+}
+
 
 static void target_positive_z_descendants(EventContext* evcon, View* first_child) {
     if (first_child && !evcon->target) radiant_stack_visit_positive_z_descendants(
@@ -378,7 +362,9 @@ void target_block_view(EventContext* evcon, ViewBlock* block) {
     // a later sibling painted over it, e.g. a tab bar under a long <pre>. The
     // clip is in unscrolled block space, so test it before the scroll offset.
     Bound overflow_clip; Corner overflow_radius;
-    bool clipped_out = render_clip_overflow_geometry(block, &overflow_clip, &overflow_radius) &&
+    bool overflow_applies = (!path_only || radiant_stack_overflow_applies(evcon->stacking_path.get(), block)) &&
+        !view_body_overflow_is_propagated(block);
+    bool clipped_out = overflow_applies && render_clip_overflow_geometry(block, &overflow_clip, &overflow_radius) &&
         !view_is_top_level_viewport(block) &&
         ((layout_block_clips_overflow_axis(block, true) &&
             (event->x - evcon->block.x < overflow_clip.left ||
@@ -393,7 +379,7 @@ void target_block_view(EventContext* evcon, ViewBlock* block) {
     // target the scrollbars first
     View* view = NULL;
     bool hover = false;
-    if (block->scroller && block->scroll_mut()->pane) {
+    if (overflow_applies && block->scroller && block->scroll_mut()->pane) {
         hover = content_phase && !path_only && !self_unhittable && scrollpane_target(evcon, block);
         if (hover) {
             log_debug("hit on block scroll: %s", block->node_name());

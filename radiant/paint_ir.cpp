@@ -1242,12 +1242,8 @@ static bool paint_ir_lower_raster_effect_stack_command(const PaintCmd* cmd, Disp
             DisplayList staged;
             dl_init(&staged, arena);
             paint_ir_lower_raster_effect_begin(&frame->group, &staged);
-            if (staged.item_count() &&
-                    (frame->source_start == dl->item_count() ||
-                     dl_copy_range(&staged, dl, frame->source_start, dl->item_count() - 1))) {
-                if (!dl_replace_tail(dl, frame->recording_start, &staged, 0, staged.item_count() - 1))
-                    log_error("PAINT_EFFECT_DEFERRED: cannot publish measured group prefix");
-            }
+            if (staged.item_count() && !dl_prepend_tail(dl, frame->recording_start, &staged))
+                log_error("PAINT_EFFECT_DEFERRED: cannot publish measured group prefix");
             dl_destroy(&staged); mem_arena_destroy(arena);
         }
     }

@@ -101,9 +101,8 @@ inline RadiantGradientLine radiant_linear_gradient_line(Rect rect, float angle) 
             cx + dx * line_length * 0.5f, cy + dy * line_length * 0.5f};
 }
 
-inline void radiant_blur_adjust(uint32_t pixel, bool add,
-                                uint32_t* red, uint32_t* green,
-                                uint32_t* blue, uint32_t* alpha) {
+template<typename T> inline void radiant_blur_adjust(uint32_t pixel, bool add,
+                                T* red, T* green, T* blue, T* alpha) {
     uint32_t r = (pixel >> 24) & 0xFF;
     uint32_t g = (pixel >> 16) & 0xFF;
     uint32_t b = (pixel >> 8) & 0xFF;
@@ -115,10 +114,10 @@ inline void radiant_blur_adjust(uint32_t pixel, bool add,
     }
 }
 
-inline uint32_t radiant_blur_average(uint32_t red, uint32_t green,
-                                     uint32_t blue, uint32_t alpha, int count) {
-    return ((red / count) << 24) | ((green / count) << 16) |
-           ((blue / count) << 8) | (alpha / count);
+template<typename T> inline uint32_t radiant_blur_average(T red, T green,
+                                     T blue, T alpha, uint64_t count) {
+    return (uint32_t)(((red / count) << 24) | ((green / count) << 16) |
+           ((blue / count) << 8) | (alpha / count));
 }
 
 // ===== rdt_vector.hpp =====
@@ -1142,6 +1141,7 @@ void dl_destroy(DisplayList* dl);
 bool dl_copy_range(DisplayList* dst, const DisplayList* src, int start, int end);
 void dl_truncate(DisplayList* dl, int target_count);
 bool dl_replace_tail(DisplayList* dst, int start, const DisplayList* src, int first, int last);
+bool dl_prepend_tail(DisplayList* dst, int start, const DisplayList* prefix);
 
 // ---------------------------------------------------------------------------
 // Recording API — mirrors rdt_* functions
@@ -3333,6 +3333,9 @@ unsigned radiant_stack_flow_phases(View* first_child);
 bool radiant_stack_in_paint_phase(View* view, RadiantPaintPhase phase);
 RadiantPaintPhase radiant_stack_paint_phase(unsigned index);
 View* radiant_stack_path_child(View* ancestor, View* descendant);
+bool radiant_stack_overflow_applies(View* layer, View* ancestor);
+void radiant_stack_visit_positioned_children(ViewBlock* owner, bool reverse, void* context,
+    bool (*visit)(void* context, View* owner, View* layer));
 int radiant_stack_compare_tree_order(View* view_a, View* view_b);
 void radiant_stack_visit_negative_z_descendants(View* owner, bool reverse, void* context,
     bool (*visit)(void* context, View* owner, View* layer));
@@ -4363,6 +4366,9 @@ void render_box_shadow_inset(RasterRenderContext* rdcon, ViewBlock* view, Rect r
 
 // Software Gaussian blur (3-pass box blur approximation)
 // Can be used by box-shadow, text-shadow, and filter:blur()
+void render_box_blur_span(const uint32_t* source, size_t source_step, int length,
+    uint32_t* destination, size_t destination_step, int begin, int end,
+    int left, int right, bool renormalize);
 void box_blur_region(ScratchArena* sa, ImageSurface* surface, int rx, int ry, int rw, int rh, float blur_radius);
 
 // one separable Gaussian pass; edge modes are transparent, duplicate, and wrap.

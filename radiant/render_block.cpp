@@ -613,8 +613,10 @@ static void render_raster_stacking_path(RasterRenderContext* rdcon, View* owner,
     render_block_setup_font(rdcon, block);
     render_block_apply_inherited_color(rdcon, block);
     float origin_x = rdcon->block.x, origin_y = rdcon->block.y;
-    if (block->scroller) setup_scroller(rdcon, block);
-    RenderClipScope overflow = render_clip_push_overflow_scope(rdcon, block, origin_x, origin_y);
+    bool overflow_applies = radiant_stack_overflow_applies(target, block);
+    if (overflow_applies && block->scroller) setup_scroller(rdcon, block);
+    RenderClipScope overflow = {};
+    if (overflow_applies) overflow = render_clip_push_overflow_scope(rdcon, block, origin_x, origin_y);
     render_raster_stacking_path(rdcon, child, target);
     if (overflow.active) render_clip_pop_scope(rdcon, &overflow);
     if (legacy_clip.active) render_clip_pop_scope(rdcon, &legacy_clip);
@@ -625,6 +627,12 @@ static void render_raster_stacking_path(RasterRenderContext* rdcon, View* owner,
 static bool render_raster_stacking_layer(void* context, View* owner, View* layer) {
     render_raster_stacking_path((RasterRenderContext*)context, owner, layer);
     return true;
+}
+
+void render_raster_positioned_children(RasterRenderContext* rdcon, ViewBlock* block) {
+    if (!rdcon || !block) return;
+    RadiantPaintPhaseScope phase(&rdcon->paint_phase, RADIANT_PAINT_ALL);
+    radiant_stack_visit_positioned_children(block, false, rdcon, render_raster_stacking_layer);
 }
 
 void render_raster_negative_z_descendants(RasterRenderContext* rdcon, ViewBlock* block) {

@@ -2371,3 +2371,433 @@ TEST_F(DynamicLayoutTest, NestedGridContentRetainsItsFormattedBorderHeight) {
         }
     }
 }
+
+TEST_F(DynamicLayoutTest, MinContentMinimumPreservesPreferredInlineWidth) {
+    load("<!doctype html><style>body{margin:0}.host{display:inline-block}"
+         ".contents{min-width:min-content;border:0;padding:0;margin:0}"
+         "span,input,button{display:inline-block;box-sizing:border-box;height:40px;"
+         "padding:0;margin:0;border:0;vertical-align:top}"
+         "span{width:30px}input{width:220px}button{width:50px}</style>"
+         "<form class='host' id='form'><fieldset class='contents' id='fieldset'>"
+         "<span></span><input><button></button></fieldset></form>"
+         "<div class='host' id='host'><section class='contents' id='section'>"
+         "<span></span><input><button></button></section></div>");
+    for (const char* minimum : {"min-width:0", "min-width:min-content",
+                                "min-width:max-content", "min-width:min-content"}) {
+        SCOPED_TRACE(minimum);
+        for (const char* id : {"fieldset", "section"})
+            ASSERT_TRUE(element(id)->set_attribute("style", minimum));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        for (const char* id : {"form", "fieldset", "host", "section"}) {
+            SCOPED_TRACE(id);
+            EXPECT_NEAR(element(id)->width, 300.0f, 0.1f);
+            EXPECT_NEAR(element(id)->height, 40.0f, 0.1f);
+        }
+    }
+    ASSERT_TRUE(element("section")->set_attribute("style", "min-width:min-content;width:400px"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, false);
+    EXPECT_NEAR(element("host")->width, 400.0f, 0.1f);
+    ASSERT_TRUE(element("section")->set_attribute("style", "min-width:0;max-width:min-content"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, false);
+    EXPECT_NEAR(element("host")->width, 220.0f, 0.1f);
+}
+
+TEST_F(DynamicLayoutTest, InheritedAxisSizesKeepComputedPercentagesAndLengths) {
+    struct Case {const char* width; const char* extra; const char* child;
+                 float parent_width; float child_width;};
+    const Case cases[] = {
+        {"100%", "", "", 600.0f, 560.0f},
+        {"50%", "", "", 300.0f, 130.0f},
+        {"200px", "max-width:150px", "", 150.0f, 200.0f},
+        {"auto", "", "", 600.0f, 560.0f},
+        {"20em", "font-size:10px", "font-size:20px", 200.0f, 200.0f},
+        {"calc(50% - 2em)", "font-size:10px", "font-size:20px", 280.0f, 100.0f},
+        {"var(--size)", "--size:50%", "", 300.0f, 130.0f}
+    };
+    StrBuf* html = strbuf_create("<!doctype html><style>body{margin:0}*{box-sizing:border-box}"
+        ".outer{display:flex;flex-direction:column;width:600px}"
+        ".card{padding:20px}.child{width:inherit;height:10px}</style>");
+    for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+        strbuf_append_format(html,
+            "<div class='outer'><div class='card' id='parent%u' style='width:%s;%s'>"
+            "<div class='child' id='child%u' style='%s'>%s</div></div></div>",
+            i, cases[i].width, cases[i].extra, i, cases[i].child,
+            i ? "" : "<img style='display:block;width:100%;height:auto' "
+                "src=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' "
+                "width='200' height='200'%3E%3C/svg%3E\">");
+    strbuf_append_str(html,
+        "<div class='outer' style='height:400px;width:200px'>"
+        "<div id='heightparent' style='height:50%;width:100px;padding:10px'>"
+        "<div id='heightchild' style='height:inherit;width:20px;font-size:20px'>"
+        "<div id='heightgrandchild' style='height:inherit;width:10px'></div>"
+        "</div></div></div>");
+    load(html->str);
+    strbuf_free(html);
+    for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        SCOPED_TRACE(cases[i].width);
+        char parent_id[24], child_id[24];
+        snprintf(parent_id, sizeof(parent_id), "parent%u", i);
+        snprintf(child_id, sizeof(child_id), "child%u", i);
+        EXPECT_NEAR(element(parent_id)->width, cases[i].parent_width, 0.1f);
+        EXPECT_NEAR(element(child_id)->width, cases[i].child_width, 0.1f);
+    }
+    EXPECT_NEAR(element("heightparent")->height, 200.0f, 0.1f);
+    EXPECT_NEAR(element("heightchild")->height, 90.0f, 0.1f);
+    EXPECT_NEAR(element("heightgrandchild")->height, 45.0f, 0.1f);
+    ASSERT_TRUE(element("heightparent")->set_attribute("style",
+        "height:calc(50% - 2em);width:100px;padding:10px;font-size:10px"));
+    ASSERT_TRUE(element("parent0")->set_attribute("style", "width:50%"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, false);
+    EXPECT_NEAR(element("parent0")->width, 300.0f, 0.1f);
+    EXPECT_NEAR(element("child0")->width, 130.0f, 0.1f);
+    EXPECT_NEAR(element("heightparent")->height, 180.0f, 0.1f);
+    EXPECT_NEAR(element("heightchild")->height, 60.0f, 0.1f);
+    EXPECT_NEAR(element("heightgrandchild")->height, 10.0f, 0.1f);
+}
+
+TEST_F(DynamicLayoutTest, SvgPercentageViewportDimensionsDoNotInflateIntrinsicRows) {
+    struct Case {float icon, percentage, ratio, svg_size, height; const char* extra;};
+    const Case cases[] = {
+        {10, 100, 1, 10, 300, ""}, {80, 50, 2, 40, 300, ""},
+        {40, 200, 1, 80, 360, ""}, {0, 100, 1, 0, 300, ""},
+        {10, 100, 1, 40, 320, "min-width:40px"},
+        {80, 100, 1, 12, 300, "max-width:12px"},
+        {10, 100, 1, 16, 300, "width:16px;height:auto"}
+    };
+    StrBuf* source = strbuf_create("<!doctype html><style>*{box-sizing:border-box}body{margin:0}"
+        ".grid{display:grid;width:400px}.article{display:flex;flex-direction:column}"
+        ".card{padding:20px;overflow:hidden}.heading{height:40px}"
+        ".link{display:flex;align-items:flex-start}.icon{flex:none}"
+        ".label{height:20px;width:80px}.media{margin-top:20px;width:100%;aspect-ratio:2}"
+        "svg{display:block}</style>");
+    for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        const Case& test = cases[i];
+        strbuf_append_format(source,
+            "<div class='grid'><div><div class='article'><div class='card' id='card%u'>"
+            "<div class='heading'></div><div class='link'><div class='icon' style='width:%gpx'>"
+            "<svg id='svg%u' width='%g%%' height='100%%' viewBox='0 0 %g 1' style='%s'></svg>"
+            "</div><div class='label'></div></div><div class='media'></div></div></div></div></div>",
+            i, test.icon, i, test.percentage, test.ratio, test.extra);
+    }
+    load(source->str);
+    strbuf_free(source);
+    LayoutContext context = {};
+    layout_init(&context, document, &ui);
+    for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        SCOPED_TRACE(i);
+        char card_id[24], svg_id[24];
+        snprintf(card_id, sizeof(card_id), "card%u", i);
+        snprintf(svg_id, sizeof(svg_id), "svg%u", i);
+        DomElement* card = element(card_id);
+        DomElement* svg = element(svg_id);
+        EXPECT_NEAR(card->height, cases[i].height, 0.1f);
+        EXPECT_NEAR(svg->width, cases[i].svg_size, 0.1f);
+        EXPECT_NEAR(svg->height, cases[i].svg_size / cases[i].ratio, 0.1f);
+        float x = svg->x, y = svg->y, width = svg->width, height = svg->height;
+        for (float query_width : {360.0f, 160.0f, 360.0f}) {
+            EXPECT_NEAR(calculate_max_content_height(&context, card, query_width, false, true),
+                cases[i].height - (360.0f - query_width) * 0.5f, 0.1f);
+            EXPECT_FLOAT_EQ(svg->x, x); EXPECT_FLOAT_EQ(svg->y, y);
+            EXPECT_FLOAT_EQ(svg->width, width); EXPECT_FLOAT_EQ(svg->height, height);
+        }
+    }
+    layout_cleanup(&context);
+    ASSERT_TRUE(element("svg0")->set_attribute("width", "400%"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, false);
+    EXPECT_NEAR(element("svg0")->width, 40.0f, 0.1f);
+    EXPECT_NEAR(element("card0")->height, 320.0f, 0.1f);
+}
+
+TEST_F(DynamicLayoutTest, SvgInheritedSnapshotsRetainOwnersAndInvalidateWithAncestorStyles) {
+    load("<!doctype html><style>.theme{--ink:red;fill:var(--ink);stroke:blue;"
+         "stroke-width:3px;color:purple;opacity:.5}.green{--ink:green;fill:var(--ink);"
+         "stroke:black;color:navy;opacity:.75}</style>"
+         "<svg width='200' height='100'><g id='ancestor' class='theme'><g id='middle'>"
+         "<rect id='first' width='10' height='10'/><rect id='second' fill='inherit' width='10' height='10'/>"
+         "<rect id='attribute' fill='lime' width='10' height='10'/>"
+         "<rect id='initial' fill='initial' width='10' height='10'/>"
+         "<rect id='unset' fill='unset' width='10' height='10'/>"
+         "<rect id='explicit' opacity='inherit' width='10' height='10'/>"
+         "</g></g></svg>");
+    char buffer[128];
+    for (const char* css_class : {"theme", "green", "theme"}) {
+        SCOPED_TRACE(css_class);
+        ASSERT_TRUE(element("ancestor")->set_attribute("class", css_class));
+        radiant_recascade_document(document);
+        bool green = strcmp(css_class, "green") == 0;
+        for (const char* id : {"first", "second", "unset"}) {
+            bool from_css = false;
+            DomElement* owner = nullptr;
+            ASSERT_NE(svg_get_dom_presentation_property(element(id), "fill", true,
+                buffer, sizeof(buffer), &from_css, nullptr, &owner), nullptr);
+            EXPECT_STREQ(buffer, green ? "green" : "red");
+            EXPECT_TRUE(from_css);
+            EXPECT_EQ(owner, element("ancestor"));
+            EXPECT_STREQ(svg_get_dom_presentation_property(element(id), "stroke", true,
+                buffer, sizeof(buffer)), green ? "black" : "blue");
+            EXPECT_STREQ(svg_get_dom_presentation_property(element(id), "color", true,
+                buffer, sizeof(buffer)), green ? "navy" : "purple");
+        }
+        EXPECT_STREQ(svg_get_dom_presentation_property(element("attribute"), "fill", true,
+            buffer, sizeof(buffer)), "lime");
+        EXPECT_STREQ(svg_get_dom_presentation_property(element("initial"), "fill", true,
+            buffer, sizeof(buffer)), "black");
+        EXPECT_EQ(svg_get_dom_presentation_property(element("first"), "opacity", false,
+            buffer, sizeof(buffer)), nullptr);
+        // an explicit inherit reads the immediate parent's initial opacity, not a grandparent's.
+        EXPECT_EQ(svg_get_dom_presentation_property(element("explicit"), "opacity", false,
+            buffer, sizeof(buffer)), nullptr);
+        ASSERT_TRUE(element("middle")->set_attribute("opacity", "0.25"));
+        radiant_recascade_document(document);
+        ASSERT_NE(svg_get_dom_presentation_property(element("explicit"), "opacity", false,
+            buffer, sizeof(buffer)), nullptr);
+        EXPECT_NEAR(atof(buffer), 0.25, 0.0001);
+        ASSERT_TRUE(element("middle")->remove_attribute("opacity"));
+        radiant_recascade_document(document);
+    }
+}
+
+TEST_F(DynamicLayoutTest, AbsolutePercentageMathUsesTheFinalContainingHeight) {
+    load("<!doctype html><style>body{margin:0}#cb{position:relative;width:400px}"
+         "#filler{height:160px}.abs{position:absolute;top:0;width:80px}"
+         "#image{height:calc(100% + 40px)}#half{height:calc(50% + 20px)}"
+         "#variable{--part:50%;font-size:20px;height:calc(var(--part) + 2em)}"
+         "#limited{height:calc(100% + 40px);max-height:180px}"
+         "#fixed{height:40px}#percent{height:100%}</style><div id='cb'><div id='filler'></div>"
+         R"HTML(<img id="image" class="abs" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'/%3E">)HTML"
+         "<div id='half' class='abs'></div><div id='variable' class='abs'></div>"
+         "<div id='limited' class='abs'></div><div id='fixed' class='abs'></div>"
+         "<div id='percent' class='abs'></div></div>");
+    for (float height : {160.0f, 240.0f, 160.0f}) {
+        ASSERT_TRUE(element("filler")->set_attribute("style", height == 240.0f
+            ? "height:240px" : "height:160px"));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        EXPECT_NEAR(element("cb")->height, height, 0.02f);
+        EXPECT_NEAR(element("image")->height, height + 40.0f, 0.02f);
+        EXPECT_NEAR(element("half")->height, height * 0.5f + 20.0f, 0.02f);
+        EXPECT_NEAR(element("variable")->height, height * 0.5f + 40.0f, 0.02f);
+        EXPECT_NEAR(element("limited")->height, 180.0f, 0.02f);
+        EXPECT_NEAR(element("fixed")->height, 40.0f, 0.02f);
+        EXPECT_NEAR(element("percent")->height, height, 0.02f);
+    }
+    LayoutContext context;
+    layout_init(&context, document, &ui);
+    EXPECT_NEAR(layout_resolve_percentage_preferred_size(&context,
+        element("image"), false, 80.0f), 120.0f, 0.02f);
+    EXPECT_NEAR(element("image")->height, 200.0f, 0.02f);
+    EXPECT_TRUE(isnan(layout_resolve_percentage_preferred_size(&context,
+        element("fixed"), false, 80.0f)));
+    layout_cleanup(&context);
+}
+
+TEST_F(DynamicLayoutTest, NestedFlexRatioHeightUsesThePreferredWidth) {
+    load(R"HTML(<!doctype html><style>body{margin:0;font:16px Arial}
+        #form{display:flex;width:500px;gap:12px}#field{width:240px;height:44px;flex:none}
+        #button{display:flex;align-items:center;padding:16px 20px;line-height:16px}
+        #wrapper{display:flex;overflow:clip}#icon{width:16px;aspect-ratio:1;flex:none;display:flex}
+        #copy{width:100px;height:16px;flex:none}</style><div id="form"><div id="field"></div>
+        <div id="button"><div id="wrapper"><div id="icon"><svg width="100%" height="100%"
+        viewBox="0 0 16 16"><rect width="16" height="16"/></svg></div></div><div id="copy"></div></div></div>)HTML");
+    for (float width : {16.0f, 24.0f, 16.0f}) {
+        ASSERT_TRUE(element("icon")->set_attribute("style", width == 24.0f
+            ? "width:24px" : "width:16px"));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        EXPECT_NEAR(element("icon")->width, width, 0.02f);
+        EXPECT_NEAR(element("icon")->height, width, 0.02f);
+        EXPECT_NEAR(element("button")->height, width + 32.0f, 0.02f);
+        EXPECT_NEAR(element("form")->height, width + 32.0f, 0.02f);
+    }
+    LayoutContext context;
+    layout_init(&context, document, &ui);
+    for (float available : {80.0f, 160.0f, 80.0f}) {
+        EXPECT_NEAR(calculate_max_content_height(&context, element("icon"),
+            available, true, false), 16.0f, 0.02f);
+        EXPECT_NEAR(element("icon")->height, 16.0f, 0.02f);
+        EXPECT_NEAR(element("button")->height, 48.0f, 0.02f);
+    }
+    layout_cleanup(&context);
+    ASSERT_TRUE(element("icon")->set_attribute("style", "width:32px;aspect-ratio:2"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, false);
+    EXPECT_NEAR(element("icon")->height, 16.0f, 0.02f);
+    EXPECT_NEAR(element("button")->height, 48.0f, 0.02f);
+}
+
+TEST_F(DynamicLayoutTest, WrappedFlexMarginsKeepTheAllocatedCrossSize) {
+    load("<!doctype html><style>body{margin:0}*{box-sizing:border-box}"
+         "#outer{display:flex;width:300px}#wrap{display:flex;flex-wrap:wrap;"
+         "align-content:center;align-items:center;width:100%;padding:10px}"
+         ".item{width:100%;margin-bottom:20px}.fill{height:40px}"
+         "</style><div id='outer'><div id='wrap'>"
+         "<div id='one' class='item'><div class='fill'></div></div>"
+         "<div id='two' class='item'><div class='fill'></div></div>"
+         "<div id='three' class='item'><div class='fill'></div></div></div></div>");
+    const struct { const char* style; float margin; } cases[] = {
+        {"margin-bottom:20px", 20.0f}, {"margin-bottom:10%", 28.0f},
+        {"margin-bottom:-10px", -10.0f}, {"margin-bottom:20px", 20.0f}
+    };
+    for (const auto& test : cases) {
+        const char* style = test.style;
+        float margin = test.margin;
+        SCOPED_TRACE(style);
+        for (const char* id : {"one", "two", "three"})
+            ASSERT_TRUE(element(id)->set_attribute("style", style));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        float height = 20.0f + 3.0f * (40.0f + margin);
+        EXPECT_NEAR(element("wrap")->height, height, 0.02f);
+        EXPECT_NEAR(element("one")->y, 10.0f, 0.02f);
+        EXPECT_NEAR(element("two")->y, 50.0f + margin, 0.02f);
+        EXPECT_NEAR(element("three")->y, 90.0f + 2.0f * margin, 0.02f);
+        for (const char* id : {"one", "two", "three"}) {
+            SCOPED_TRACE(id);
+            DomElement* child = element(id);
+            ASSERT_NE(child->fi, nullptr);
+            EXPECT_NEAR(child->height, 40.0f, 0.02f);
+            EXPECT_NEAR(child->fi->hypothetical_cross_size, 40.0f, 0.02f);
+            EXPECT_NEAR(child->fi->hypothetical_outer_cross_size, 40.0f + margin, 0.02f);
+        }
+        LayoutContext context = {};
+        layout_init(&context, document, &ui);
+        EXPECT_NEAR(calculate_max_content_height(&context, element("wrap"), 280.0f, false, true),
+                    height, 0.02f);
+        EXPECT_NEAR(element("one")->y, 10.0f, 0.02f);
+        layout_cleanup(&context);
+    }
+}
+
+TEST_F(DynamicLayoutTest, NestedFlexIntrinsicWidthIncludesDeferredGaps) {
+    load("<!doctype html><style>body{margin:0}#outer{display:flex;flex-direction:column;"
+         "align-items:center;width:500px}#column{display:flex;flex-direction:column}"
+         "#row{display:flex;flex-wrap:wrap;gap:var(--g);--g:16px}"
+         ".item{width:100px;height:40px}</style><div id='outer'><div id='column'>"
+         "<div id='row'><div id='one' class='item'></div>"
+         "<div id='two' class='item'></div></div></div></div>");
+    EXPECT_NEAR(element("column")->width, 216.0f, 0.02f);
+    EXPECT_NEAR(element("row")->height, 40.0f, 0.02f);
+    EXPECT_NEAR(element("two")->y, 0.0f, 0.02f);
+    const struct { const char* style; float gap; } cases[] = {
+        {"--g:24px",24.0f}, {"gap:calc(6px + 10px)",16.0f},
+        {"font-size:20px;gap:.8em",16.0f}, {"--g:16px",16.0f}
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(test.style);
+        ASSERT_TRUE(element("row")->set_attribute("style", test.style));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        float width = 200.0f + test.gap;
+        EXPECT_NEAR(element("column")->width, width, 0.02f);
+        EXPECT_NEAR(element("row")->height, 40.0f, 0.02f);
+        EXPECT_NEAR(element("two")->x, 100.0f + test.gap, 0.02f);
+        LayoutContext context = {};
+        layout_init(&context, document, &ui);
+        LayoutFlexStyleInfo facts = layout_flex_declared_style_info(&context, element("row"));
+        EXPECT_NEAR(facts.column_gap, test.gap, 0.02f);
+        EXPECT_NEAR(facts.row_gap, test.gap, 0.02f);
+        layout_cleanup(&context);
+    }
+}
+
+TEST_F(DynamicLayoutTest, StaticOpacityContextOwnsEscapingAbsolutePaint) {
+    load("<!doctype html><style>body{margin:0}#lead{height:200px}#fade{opacity:0}"
+         "#child{position:absolute;top:0;left:0;width:100px;height:80px}"
+         "#relative{position:relative;height:40px}#local{position:absolute;width:20px;height:20px}"
+         "</style><div id='lead'></div><div id='fade'><div id='middle'>"
+         "<div id='child'></div></div></div><div id='relative'><div id='local'></div></div>");
+    auto contains = [](ArrayList* list, DomElement* child) {
+        if (list) for (int i = 0; i < list->length; i++)
+            if (list->data[i] == static_cast<View*>(child)) return true;
+        return false;
+    };
+    for (const char* style : {"opacity:0", "opacity:.5", "opacity:1", "opacity:0"}) {
+        SCOPED_TRACE(style);
+        ASSERT_TRUE(element("fade")->set_attribute("style", style));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        ViewBlock* body = find_containing_block(lam::view_as_block(element("child")), CSS_VALUE_ABSOLUTE);
+        ASSERT_NE(body, nullptr);
+        bool grouped = element("fade")->inl()->opacity < 1.0f;
+        ArrayList* fade = radiant_stack_collect_positioned_children(lam::view_as_block(element("fade")), nullptr);
+        ArrayList* outer = radiant_stack_collect_positioned_children(body, nullptr);
+        ArrayList* local = radiant_stack_collect_positioned_children(lam::view_as_block(element("relative")), nullptr);
+        EXPECT_EQ(contains(fade, element("child")), grouped);
+        EXPECT_EQ(contains(outer, element("child")), !grouped);
+        EXPECT_FALSE(contains(outer, element("local")));
+        EXPECT_TRUE(contains(local, element("local")));
+        EXPECT_NEAR(element("child")->x, 0.0f, 0.02f);
+        EXPECT_NEAR(element("child")->y, 0.0f, 0.02f);
+        if (fade) arraylist_free(fade);
+        if (outer) arraylist_free(outer);
+        if (local) arraylist_free(local);
+    }
+}
+
+TEST_F(DynamicLayoutTest, RootMinimumHeightSurvivesSelfCollapsingChildren) {
+    load("<!doctype html><html id='root'><style>html{min-height:100%}"
+         "body{margin:0;overflow-y:scroll;overflow-x:hidden}"
+         "#stage{position:absolute;top:0;left:0;width:100%;height:100vh;background:lime}"
+         "</style><body id='body'><div id='stage'></div></body></html>");
+    struct State { const char* style; float height; };
+    const State states[] = {
+        {"min-height:100%",800.0f}, {"min-height:320px",320.0f},
+        {"min-height:calc(100vh - 100px);max-height:600px",700.0f},
+        {"min-height:0",0.0f},
+        {"min-height:100%;box-sizing:border-box;padding:10px;border:4px solid black",800.0f},
+        {"min-height:100%",800.0f}
+    };
+    for (const State& state : states) {
+        SCOPED_TRACE(state.style);
+        ASSERT_TRUE(element("root")->set_attribute("style",state.style));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui,document,false);
+        EXPECT_NEAR(element("root")->height,state.height,.01f);
+        EXPECT_FLOAT_EQ(element("body")->height,0.0f);
+        EXPECT_FLOAT_EQ(element("stage")->height,800.0f);
+    }
+    ASSERT_TRUE(element("root")->set_attribute("style","min-height:0"));
+    ASSERT_TRUE(element("body")->set_attribute("style","margin:10px 0 20px"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui,document,false);
+    EXPECT_FLOAT_EQ(element("root")->height,20.0f);
+    EXPECT_FLOAT_EQ(element("body")->y,10.0f);
+}
+
+TEST_F(DynamicLayoutTest, BodyViewportOverflowDoesNotClipItsOwnBox) {
+    load("<!doctype html><html id='root'><style>html{min-height:100%}body{margin:0;position:relative}"
+         "#stage{position:absolute;top:20px;left:20px;width:80px;height:60px;background:lime}"
+         "</style><body id='body' style='overflow:scroll'><div id='stage'></div></body></html>");
+    struct State { const char* root; const char* body; bool clips; CssEnum viewport; };
+    const State states[] = {
+        {"","overflow:scroll",false,CSS_VALUE_SCROLL},
+        {"overflow:hidden","overflow:scroll",true,CSS_VALUE_HIDDEN},
+        {"","overflow:scroll;contain:layout",true,CSS_VALUE_AUTO},
+        {"contain:style","overflow:scroll",true,CSS_VALUE_AUTO},
+        {"","overflow:hidden",false,CSS_VALUE_HIDDEN},
+        {"","overflow:visible",false,CSS_VALUE_AUTO},
+        {"","overflow:scroll",false,CSS_VALUE_SCROLL}
+    };
+    for (const State& state : states) {
+        SCOPED_TRACE(state.root);
+        SCOPED_TRACE(state.body);
+        ASSERT_TRUE(element("root")->set_attribute("style",state.root));
+        ASSERT_TRUE(element("body")->set_attribute("style",state.body));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui,document,false);
+        ViewBlock* body = lam::view_require_block(element("body"));
+        Bound clip = {};
+        EXPECT_EQ(layout_block_overflow_clip(body,&clip),state.clips);
+        EXPECT_EQ(layout_block_clips_overflow_axis(body,true),state.clips);
+        EXPECT_EQ(layout_block_clips_overflow_axis(body,false),state.clips);
+        CssEnum x,y;
+        layout_viewport_overflow(document,&x,&y);
+        EXPECT_EQ(x,state.viewport); EXPECT_EQ(y,state.viewport);
+        EXPECT_FLOAT_EQ(body->height,0.0f);
+    }
+}

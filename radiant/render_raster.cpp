@@ -6,6 +6,34 @@
 #include <algorithm>
 #include <math.h>
 
+void render_box_blur_span(const uint32_t* source, size_t source_step, int length,
+    uint32_t* destination, size_t destination_step, int begin, int end,
+    int left, int right, bool renormalize) {
+    if (!source || !destination || length <= 0 || begin < 0 || end > length ||
+        begin >= end || left < 0 || right < 0) return;
+    uint64_t sums[4] = {};
+    int64_t first = max((int64_t)0, (int64_t)begin - left);
+    int64_t last = min((int64_t)length, (int64_t)begin + right + 1);
+    for (int64_t index = first; index < last; index++)
+        radiant_blur_adjust(source[(size_t)index * source_step], true,
+            &sums[0], &sums[1], &sums[2], &sums[3]);
+    for (int position = begin; position < end; position++) {
+        uint64_t count = renormalize ? (uint64_t)(last - first) : (uint64_t)left + right + 1;
+        destination[(size_t)position * destination_step] = count ?
+            radiant_blur_average(sums[0], sums[1], sums[2], sums[3], count) : 0;
+        if (position + 1 == end) break;
+        int64_t remove = (int64_t)position - left, add = (int64_t)position + right + 1;
+        if (remove >= 0 && remove < length)
+            radiant_blur_adjust(source[(size_t)remove * source_step], false,
+                &sums[0], &sums[1], &sums[2], &sums[3]);
+        if (add >= 0 && add < length)
+            radiant_blur_adjust(source[(size_t)add * source_step], true,
+                &sums[0], &sums[1], &sums[2], &sums[3]);
+        first = max((int64_t)0, (int64_t)position + 1 - left);
+        last = min((int64_t)length, (int64_t)position + right + 2);
+    }
+}
+
 ScaleMode render_image_scale_mode(const DomElement* element, bool repeating) {
     CssEnum rendering = element && element->in_line
         ? element->inl()->image_rendering : CSS_VALUE_AUTO;

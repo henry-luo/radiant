@@ -151,6 +151,7 @@ void scrollpane_render(RasterRenderContext* rdcon, ScrollPane* sp, Rect* block_b
 }
 
 void setup_scroller(RasterRenderContext* rdcon, ViewBlock* block) {
+    if (view_body_overflow_is_propagated(block)) return;
     float s = rdcon->raster_scale;
     Bound padding_clip; Corner radius;
     const RdtMatrix* transform = render_state_current_transform(rdcon);
@@ -199,6 +200,7 @@ bool scroll_resize_handle_rect(ViewBlock* block, Rect* rect) {
 }
 
 void render_scroller(RasterRenderContext* rdcon, ViewBlock* block, BlockBlot* pa_block) {
+    if (view_body_overflow_is_propagated(block)) return;
     log_debug("render scrollbars");
     // need to reset block.x and y, which was changed by the scroller
     float s = rdcon->raster_scale;

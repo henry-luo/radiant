@@ -521,11 +521,12 @@ static void render_walk_stacking_path(RenderBackend* backend, RenderWalkState* s
         backend->begin_clip(backend->ctx, block, state->x, state->y, RENDER_CLIP_SHAPE);
     bool legacy_clip = backend->begin_clip && backend->end_clip &&
         backend->begin_clip(backend->ctx, block, state->x, state->y, RENDER_CLIP_LEGACY);
-    bool content_clip = backend->begin_clip && backend->end_clip &&
+    bool overflow_applies = radiant_stack_overflow_applies(target, block);
+    bool content_clip = overflow_applies && backend->begin_clip && backend->end_clip &&
         backend->begin_clip(backend->ctx, block, state->x, state->y, RENDER_CLIP_CONTENTS);
-    if (backend->begin_block_children) backend->begin_block_children(backend->ctx, block);
+    if (overflow_applies && backend->begin_block_children) backend->begin_block_children(backend->ctx, block);
     render_walk_stacking_path(backend, state, child, target);
-    if (backend->end_block_children) backend->end_block_children(backend->ctx, block);
+    if (overflow_applies && backend->end_block_children) backend->end_block_children(backend->ctx, block);
     if (content_clip) backend->end_clip(backend->ctx);
     if (legacy_clip) backend->end_clip(backend->ctx);
     if (shape_clip) backend->end_clip(backend->ctx);
@@ -591,13 +592,7 @@ void render_walk_positive_z_descendants(RenderBackend* backend, RenderWalkState*
 void render_walk_positioned_children(RenderBackend* backend, RenderWalkState* state, ViewBlock* block) {
     if (!backend || !state || !block) return;
     RadiantPaintPhaseScope phase(&backend->ctx->paint_phase, RADIANT_PAINT_ALL);
-    ArrayList* views = radiant_stack_collect_positioned_children(block, "[RAD_CAP_RENDER_POSITIONED]");
-    if (!views) return;
-    radiant_stack_sort_in_paint_order(views);
-    for (int i = 0; i < views->length; i++) {
-        if (render_walk_aborted(backend)) break;
-        // relative inline boxes share this sequence without being cast to blocks.
-        render_walk_view(backend, state, (View*)views->data[i]);
-    }
-    arraylist_free(views);
+    RenderWalkBlockDriver driver = {};
+    driver.backend = backend; driver.state = state;
+    radiant_stack_visit_positioned_children(block, false, &driver, render_walk_stacking_layer);
 }

@@ -655,31 +655,43 @@ extern "C" bool radiant_canvas_restore(void* canvas_element) {
     return true;
 }
 
-extern "C" bool radiant_canvas_scale(void* canvas_element, float x, float y) {
+static bool canvas_apply_matrix(void* canvas_element, const RdtMatrix* matrix, bool replace) {
     CanvasEntry* entry = canvas_entry_for_element((DomElement*)canvas_element, true);
-    if (!entry || !isfinite(x) || !isfinite(y)) return false;
-    RdtMatrix scale = {x, 0.0f, 0.0f, 0.0f, y, 0.0f, 0.0f, 0.0f, 1.0f};
-    entry->state.transform = rdt_matrix_multiply(&entry->state.transform, &scale);
+    if (!entry) return false;
+    // replacing the CTM preserves the path, clip and other saved drawing state.
+    entry->state.transform = replace ? *matrix : rdt_matrix_multiply(&entry->state.transform, matrix);
     return true;
+}
+
+extern "C" bool radiant_canvas_transform(void* canvas_element, const float* coefficients, bool replace) {
+    if (!coefficients) return false;
+    for (unsigned index = 0; index < 6; index++)
+        if (!isfinite(coefficients[index])) return false;
+    RdtMatrix matrix = {coefficients[0], coefficients[2], coefficients[4],
+                        coefficients[1], coefficients[3], coefficients[5],
+                        0.0f, 0.0f, 1.0f};
+    return canvas_apply_matrix(canvas_element, &matrix, replace);
+}
+
+extern "C" bool radiant_canvas_scale(void* canvas_element, float x, float y) {
+    if (!isfinite(x) || !isfinite(y)) return false;
+    RdtMatrix scale = rdt_matrix_scale(x, y);
+    return canvas_apply_matrix(canvas_element, &scale, false);
 }
 
 extern "C" bool radiant_canvas_translate(void* canvas_element, float x, float y) {
-    CanvasEntry* entry = canvas_entry_for_element((DomElement*)canvas_element, true);
-    if (!entry || !isfinite(x) || !isfinite(y)) return false;
+    if (!isfinite(x) || !isfinite(y)) return false;
     RdtMatrix translation = rdt_matrix_translate(x, y);
-    entry->state.transform = rdt_matrix_multiply(&entry->state.transform, &translation);
-    return true;
+    return canvas_apply_matrix(canvas_element, &translation, false);
 }
 
 extern "C" bool radiant_canvas_rotate(void* canvas_element, float radians) {
-    CanvasEntry* entry = canvas_entry_for_element((DomElement*)canvas_element, true);
-    if (!entry || !isfinite(radians)) return false;
+    if (!isfinite(radians)) return false;
     float cosine = cosf(radians);
     float sine = sinf(radians);
     RdtMatrix rotation = {cosine, -sine, 0.0f, sine, cosine, 0.0f,
                           0.0f, 0.0f, 1.0f};
-    entry->state.transform = rdt_matrix_multiply(&entry->state.transform, &rotation);
-    return true;
+    return canvas_apply_matrix(canvas_element, &rotation, false);
 }
 
 extern "C" bool radiant_canvas_begin_path(void* canvas_element) {

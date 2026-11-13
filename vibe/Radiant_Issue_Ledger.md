@@ -20,6 +20,135 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-088"></a>
+
+### RI-088 — Inline intrinsic measurements report failed selected-flow restoration
+
+**Status:** OPEN, cause unconfirmed, 2026-11-14. **Lambda blocker:** no;
+Mymind's main content renders after the independent RI-087 clipping repair.
+Snapshot/query ownership follows D5.5.1; native implementation D9.1.1v4 / D9.1.3v2.
+The saved hydrated Mymind source in Lambda
+`temp/online-visual-round38/saas_landing_202-static.html` reports three
+`inline height: selected flow restoration failed` errors during `layout` and
+`render`. It also produces malformed CoreText font-name requests; a shared
+cause is unconfirmed. The temporary opt-in INFO trace provided no provenance
+in this release configuration and was removed. No stale-result guard is
+weakened. The existing mixed-inline preservation regression still passes.
+Evidence: that directory's mymind-before/mymind-propagation-final native logs.
+
+<a id="ri-087"></a>
+
+### RI-087 — Propagated body overflow clips its own zero-height box
+
+**Status:** FIXED for shared viewport-source selection and body-local paint,
+hit and coordinate scopes, 2026-11-14. See the
+[viewport-source repair](<Radiant_Issue_Ledger (fixed).md#ri-087>).
+
+<a id="ri-086"></a>
+
+### RI-086 — Empty-child root collapse erases resolved minimum height
+
+**Status:** FIXED for the final root sizing step, 2026-11-14. See the
+[root sizing repair](<Radiant_Issue_Ledger (fixed).md#ri-086>).
+
+
+<a id="ri-085"></a>
+
+### RI-085 — Wide SVG Gaussian kernels exhaust the work budget
+
+**Status:** FIXED for bounded linear window evaluation, 2026-11-14. See the
+[wide Gaussian repair](<Radiant_Issue_Ledger (fixed).md#ri-085>).
+
+
+<a id="ri-084"></a>
+
+### RI-084 — Static effect contexts lose positioned descendants and empty-box backdrops
+
+**Status:** FIXED for block paint ownership and deferred descendant compositing,
+2026-11-14. See the [positioned opacity repair](<Radiant_Issue_Ledger (fixed).md#ri-084>).
+No online page clearance is claimed from this repair.
+
+<a id="ri-083"></a>
+
+### RI-083 — Early flex intrinsic widths omit deferred scalar gaps
+
+**Status:** FIXED for variable, calculated and font-relative scalar gaps,
+2026-11-14. See the [intrinsic gap repair](<Radiant_Issue_Ledger (fixed).md#ri-083>).
+
+
+<a id="ri-082"></a>
+
+### RI-082 — Gaussian work accounting charges skipped flat-run convolutions
+
+**Status:** FIXED for executed-work accounting and exact transparent runs,
+2026-11-14. See the [Gaussian repair](<Radiant_Issue_Ledger (fixed).md#ri-082>).
+Overflow's larger filter graph remains unresolved.
+
+
+<a id="ri-081"></a>
+
+### RI-081 — Wrapped flex height queries omit item cross margins
+
+**Status:** FIXED for outer cross-size contributions, 2026-11-14. See the
+[wrapped flex margin repair](<Radiant_Issue_Ledger (fixed).md#ri-081>).
+
+
+<a id="ri-080"></a>
+
+### RI-080 — Nested ratio height queries consume parent free space and stale SVG heights
+
+**Status:** FIXED for preferred-width and definite SVG percentage-height queries,
+2026-11-14. See the [focused intrinsic repair](<Radiant_Issue_Ledger (fixed).md#ri-080>).
+
+
+<a id="ri-079"></a>
+
+### RI-079 — Unmatched stylesheet icons exhaust resource discovery
+
+**Status:** FIXED for selected-cascade discovery, 2026-11-14. See the
+[bounded discovery repair](<Radiant_Issue_Ledger (fixed).md#ri-079>).
+
+
+<a id="ri-078"></a>
+
+### RI-078 — Absolute percentage math keeps a provisional containing height
+
+**Status:** FIXED for late preferred-height resolution, 2026-11-14. See the
+[focused sizing repair](<Radiant_Issue_Ledger (fixed).md#ri-078>).
+
+
+<a id="ri-077"></a>
+
+### RI-077 — SVG inherited reads repeat shared ancestor declaration queries
+
+**Status:** FIXED for ancestor snapshot reuse, 2026-11-14. See the
+[bounded repair evidence](<Radiant_Issue_Ledger (fixed).md#ri-077>).
+Dock's independent whole-document capture deadline remains open as RI-031.
+
+
+
+<a id="ri-076"></a>
+
+### RI-076 — SVG percentage viewport attributes inflate intrinsic height
+
+**Status:** FIXED, 2026-11-14. See the [focused repair and qualification](<Radiant_Issue_Ledger (fixed).md#ri-076>).
+
+
+
+<a id="ri-075"></a>
+
+### RI-075 — Canvas general matrix operations are unavailable to the DOM host
+
+**Status:** FIXED, 2026-11-14. See the [bounded matrix-operation repair](<Radiant_Issue_Ledger (fixed).md#ri-075>).
+
+
+<a id="ri-074"></a>
+
+### RI-074 — A min-content minimum incorrectly caps the preferred width
+
+**Status:** FIXED, 2026-11-14. See the [focused repair evidence](<Radiant_Issue_Ledger (fixed).md#ri-074>).
+
+
 <a id="ri-073"></a>
 
 ### RI-073 — Cyclic percentage invalidation discards replaced media height
@@ -45,23 +174,7 @@ observations still require re-verification. Add new Radiant issues here.
 
 ### RI-070 — Inherited percentage width retains the parent's used width
 
-**Status:** observed pre-existing discrepancy; source cause **unconfirmed**,
-2026-11-13. **Lambda blocker:** no for RI-069's selected online sizing repair.
-Native ownership **D9.1.1v4 / D9.1.3v2**, geometry **D5.5.1**.
-
-In a 600px column flex, a border-box card with `width:100%;padding:20px` and
-an image-bearing child `width:inherit` gives the child/image 600px and the card
-640px. Chromium gives the child 560px and the card 600px: the inherited
-computed percentage resolves against the padded card's content box. Both the
-preserved round23 binary and RI-069's round24 candidate give exactly the same
-native geometry. The stage that substitutes the parent's used size for the
-inherited computed percentage is not isolated. This is an adjacent width-
-inheritance discrepancy, outside the current major online gap milestone;
-no expected result is changed or passing claim made.
-
-Evidence: Lambda `temp/online-visual-round24/width-inherit-before*` and
-`width-inherit-first*` preserve identical HTML, both native probes, Chromium
-geometry and PNGs. No concrete selected high-severity page is attributed to it.
+**Status:** FIXED, 2026-11-14. See the [computed-size repair](<Radiant_Issue_Ledger (fixed).md#ri-070>).
 
 
 <a id="ri-069"></a>
@@ -438,6 +551,20 @@ state remain unisolated; no assertion or skip was added. Evidence: Lambda
 <a id="ri-031"></a>
 
 ### RI-031 — Current Dock document exceeds the online layout deadline
+
+Latest release qualification (2026-11-14): a saved script-free control completes
+in 11.58s wall / 9.83s CPU. The scripted page instead reaches 150.04s with 149.13s
+CPU and 23 completed full layout passes. A short CPU sample places most sampled
+work in post-script-turn full rebuilds; repeated SVG ancestor declaration reads
+are one cost contributor. RI-077 repairs that reuse path with identical static
+pixels, but the final matched live profile still times out at150.04s /149.91CPU,
+with25 completed layouts. The repeated full-rebuild triggers remain incompletely
+isolated. This confirms a native workload/cascade cost, not a transport wait;
+no deadline, admission or virtual frame is changed. These profiles are diagnostic
+and do not replace the canonical failed capture. Evidence: Lambda
+`temp/online-visual-round29/`; the release build and source pins are recorded
+there. RI-031 remains OPEN; other online work can continue.
+
 
 **Status:** OPEN, root cause unconfirmed, 2026-11-12. **Lambda blocker:** yes
 for a new canonical Dock snapshot; other online cases continue. Native layout

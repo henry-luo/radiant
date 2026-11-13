@@ -1289,7 +1289,7 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
                 c = c->next_sibling;
             }
             if (is_flex_container && children.count > 1) {
-                LayoutFlexStyleInfo style = layout_flex_style_info(nullptr, item);
+                LayoutFlexStyleInfo style = layout_flex_style_info(lycon, item);
                 float gap = (is_row_flex_container ? style.column_gap : style.row_gap) *
                     (children.count - 1);
                 // an auto column's intrinsic height includes its main-axis gaps;

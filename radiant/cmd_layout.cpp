@@ -2625,7 +2625,6 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
     }
     // Font bytes may transfer during cascade; registration waits for UiContext.
     radiant_prefetch_document_font_resources(dom_doc);
-    radiant_prefetch_document_stylesheet_resources(dom_doc);
     auto t_stylesheet_setup = timing ? time_now_ns() : t_css_parse;
 
     // Step 2c: Apply inline style="" attributes BEFORE scripts

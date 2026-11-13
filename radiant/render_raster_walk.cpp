@@ -189,13 +189,6 @@ static void render_raster_walk_marker(RenderContext* vctx, ViewSpan* marker, flo
     render_marker_view(rdcon, marker);
 }
 
-static void render_raster_walk_positioned_block(RenderContext* vctx, ViewBlock* block, float abs_x, float abs_y,
-                                                FontBox* font, Color color) {
-    (void)abs_x; (void)abs_y; (void)font; (void)color;
-    RasterRenderContext* rdcon = (RasterRenderContext*)vctx;
-    render_raster_dispatch_block(rdcon, block, false);
-}
-
 static void render_raster_backend_init(RenderBackend* backend, RasterRenderContext* rdcon) {
     if (!backend) return;
     *backend = {};
@@ -216,15 +209,6 @@ static void render_raster_walk_state_init(RenderWalkState* walk_state, RasterRen
     walk_state->ui_context = rdcon->ui_context;
 }
 
-void render_raster_positioned_children(RasterRenderContext* rdcon, ViewBlock* block) {
-    if (!rdcon || !block) return;
-    RenderBackend backend;
-    render_raster_backend_init(&backend, rdcon);
-    backend.render_block = render_raster_walk_positioned_block;
-    RenderWalkState walk_state;
-    render_raster_walk_state_init(&walk_state, rdcon);
-    render_walk_positioned_children(&backend, &walk_state, block);
-}
 
 void render_raster_stacking_view(RasterRenderContext* rdcon, View* view) {
     if (ViewBlock* block = lam::view_as_block(view)) render_raster_dispatch_block(rdcon, block, false);

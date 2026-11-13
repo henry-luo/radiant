@@ -469,8 +469,9 @@ static int svg_filter_edge_index(int64_t coordinate, int low, int high, unsigned
     return low + (int)(wrapped < 0 ? wrapped + period : wrapped); // INT_CAST_OK: wrapped raster index within the input extent
 }
 
-bool render_gaussian_blur_axis(ScratchArena* scratch, const ImageSurface* source,
-    ImageSurface* destination, float sigma, unsigned axis, int low, int high, unsigned edge) {
+static bool svg_filter_gaussian_blur_axis(ScratchArena* scratch, const ImageSurface* source,
+    ImageSurface* destination, float sigma, unsigned axis, int low, int high, unsigned edge,
+    const RdtSvgFilterRun* run) {
     if (!scratch || !source || !destination || !source->pixels || !destination->pixels ||
         source->pixels == destination->pixels || source->width != destination->width ||
         source->height != destination->height || axis > 1 || !isfinite(sigma) || sigma <= 0.0f) return false;
@@ -478,6 +479,10 @@ bool render_gaussian_blur_axis(ScratchArena* scratch, const ImageSurface* source
     if (!isfinite(radius_value) || radius_value > (float)(INT_MAX / 2)) return false;
     int radius = (int)radius_value; // INT_CAST_OK: bounded raster kernel tap count
     size_t taps = (size_t)radius * 2 + 1;
+    size_t pixels = (size_t)source->width * (size_t)source->height;
+    // charge scans, output writes and kernel setup separately from convolutions skipped by flat runs.
+    if (taps > SIZE_MAX / 2 || pixels > (SIZE_MAX - 2 * taps) / 3 ||
+        !render_svg_filter_spend_work(run, 3 * pixels + 2 * taps)) return false;
     ScratchScope kernel_scope(scratch);
     float* weights = kernel_scope.array<float>(taps);
     if (!weights) return false;
@@ -515,21 +520,28 @@ bool render_gaussian_blur_axis(ScratchArena* scratch, const ImageSurface* source
                        input_line[(size_t)position * source_step]) run_end++;
             }
             int next = position + 1;
-            // flat mask interiors share every kernel sample; convolve once, including rounding.
-            // keep edge extension and run boundaries on the ordinary convolution path.
-            if ((int64_t)position - radius >= run_begin && (int64_t)position - radius >= low &&
-                (int64_t)position + radius < run_end && (int64_t)position + radius < high) {
-                next = run_end - radius;
-                if (next > high - radius) next = high - radius;
+            bool zero_pixel = input_line[(size_t)position * source_step] == 0;
+            // zero extension joins a transparent boundary run; its kernel stays exactly zero beyond the image.
+            bool open_start = !edge && zero_pixel && run_begin <= low;
+            bool open_end = !edge && zero_pixel && run_end >= high;
+            bool flat = (open_start || ((int64_t)position - radius >= run_begin &&
+                                        (int64_t)position - radius >= low)) &&
+                (open_end || ((int64_t)position + radius < run_end &&
+                              (int64_t)position + radius < high));
+            if (flat) {
+                next = open_end ? length : min(run_end - radius, high - radius);
             }
             float values[4] = {};
-            for (int tap = -radius; tap <= radius; tap++) {
-                int sample = svg_filter_edge_index((int64_t)position + tap, low, high, edge);
-                if (sample < 0 || sample >= length) continue;
-                uint32_t pixel = input_line[(size_t)sample * source_step];
-                if (equal_channels) values[0] += (float)(pixel & 255u) / 255.0f * weights[tap + radius];
-                else for (unsigned channel = 0; channel < 4; channel++) values[channel] +=
-                        (float)((pixel >> (channel * 8)) & 255u) / 255.0f * weights[tap + radius];
+            if (!flat || !zero_pixel) {
+                if (!render_svg_filter_spend_work(run, taps)) return false;
+                for (int tap = -radius; tap <= radius; tap++) {
+                    int sample = svg_filter_edge_index((int64_t)position + tap, low, high, edge);
+                    if (sample < 0 || sample >= length) continue;
+                    uint32_t pixel = input_line[(size_t)sample * source_step];
+                    if (equal_channels) values[0] += (float)(pixel & 255u) / 255.0f * weights[tap + radius];
+                    else for (unsigned channel = 0; channel < 4; channel++) values[channel] +=
+                            (float)((pixel >> (channel * 8)) & 255u) / 255.0f * weights[tap + radius];
+                }
             }
             if (equal_channels) values[1] = values[2] = values[3] = values[0];
             uint32_t pixel = svg_filter_pack(values);
@@ -539,20 +551,85 @@ bool render_gaussian_blur_axis(ScratchArena* scratch, const ImageSurface* source
     return true;
 }
 
+bool render_gaussian_blur_axis(ScratchArena* scratch, const ImageSurface* source,
+    ImageSurface* destination, float sigma, unsigned axis, int low, int high, unsigned edge) {
+    return svg_filter_gaussian_blur_axis(scratch, source, destination, sigma, axis, low, high, edge, nullptr);
+}
+
+static bool svg_filter_box_gaussian_axis(SvgFilterExecution* execution, const ImageSurface* source,
+    ImageSurface* destination, float sigma, unsigned axis, int low, int high, unsigned edge) {
+    // Filter Effects 1 §9.14: odd boxes are centered; paired even boxes balance their half-pixel offsets.
+    float diameter_value = floorf(sigma * (3.0f * sqrtf(2.0f * (float)M_PI) / 4.0f) + .5f);
+    if (!isfinite(diameter_value) || diameter_value > (float)(INT_MAX / 3)) return false;
+    int diameter = (int)diameter_value; // INT_CAST_OK: bounded discrete convolution window
+    int left[3] = {diameter / 2, diameter / 2, diameter / 2};
+    int right[3] = {diameter / 2, diameter / 2, diameter / 2};
+    if (!(diameter & 1)) { right[0]--; left[1]--; }
+    int padding = left[0] + left[1] + left[2];
+    int length = axis ? source->height : source->width;
+    int lines = axis ? source->width : source->height;
+    int64_t extent = (int64_t)length + padding + right[0] + right[1] + right[2];
+    if (extent > INT_MAX || extent <= 0 ||
+        !render_memory_allow_allocation(execution->run->memory, (size_t)extent * 2 * sizeof(uint32_t))) return false;
+    int expanded = (int)extent; // INT_CAST_OK: admitted raster line capacity
+    size_t work = (size_t)expanded + length;
+    int remaining = expanded;
+    for (unsigned pass = 0; pass < 3; pass++) {
+        remaining -= left[pass] + right[pass];
+        work += (size_t)left[pass] + right[pass] + 1 + 3 * (size_t)remaining - 2;
+    }
+    if (work > SIZE_MAX / (size_t)lines || !svg_filter_spend(execution, work * (size_t)lines)) return false;
+    ScratchScope scope(execution->run->scratch);
+    uint32_t* first = scope.array<uint32_t>((size_t)expanded);
+    uint32_t* second = scope.array<uint32_t>((size_t)expanded);
+    if (!first || !second) return false;
+    size_t source_stride = (size_t)source->pitch / sizeof(uint32_t);
+    size_t destination_stride = (size_t)destination->pitch / sizeof(uint32_t);
+    size_t source_step = axis ? source_stride : 1;
+    size_t destination_step = axis ? destination_stride : 1;
+    for (int line = 0; line < lines; line++) {
+        const uint32_t* input = (const uint32_t*)source->pixels + (axis ? (size_t)line : (size_t)line * source_stride);
+        uint32_t* output = (uint32_t*)destination->pixels + (axis ? (size_t)line : (size_t)line * destination_stride);
+        // extend the original input once; intermediate halos must survive until the last box pass.
+        for (int position = 0; position < expanded; position++) {
+            int sample = svg_filter_edge_index((int64_t)position - padding, low, high, edge);
+            first[position] = sample < 0 || sample >= length ? 0 : input[(size_t)sample * source_step];
+        }
+        uint32_t* input_line = first; uint32_t* output_line = second;
+        int begin = 0, end = expanded;
+        for (unsigned pass = 0; pass < 3; pass++) {
+            begin += left[pass]; end -= right[pass];
+            render_box_blur_span(input_line, 1, expanded, output_line, 1, begin, end,
+                left[pass], right[pass], false);
+            uint32_t* swap = input_line; input_line = output_line; output_line = swap;
+        }
+        for (int position = 0; position < length; position++)
+            output[(size_t)position * destination_step] = input_line[position + padding];
+    }
+    return true;
+}
+
 static ImageSurface* svg_filter_blur(SvgFilterExecution* execution, int input, float sigma_x, float sigma_y, bool linear, unsigned edge = 0) {
     ImageSurface* current = svg_filter_copy_input(execution, input, linear);
     if (!current) return nullptr;
-    size_t pixels = (size_t)current->width * (size_t)current->height;
     const float sigmas[] = {sigma_x, sigma_y};
+    if (max(sigma_x, sigma_y) * execution->run->density >= 2.0f) {
+        size_t count = (size_t)current->width * (size_t)current->height;
+        if (!svg_filter_spend(execution, count)) { image_surface_destroy(current); return nullptr; }
+        const uint32_t* pixels = (const uint32_t*)current->pixels;
+        size_t index = 0;
+        while (index < count && !pixels[index]) index++;
+        if (index == count) return current;
+    }
     const SvgFilterImage* source = svg_filter_image(execution, input);
     Bound region = source ? source->region : execution->region;
     for (unsigned axis = 0; axis < 2; axis++) {
         float sigma = sigmas[axis] * execution->run->density;
         if (sigma <= 0.0f) continue;
         float radius_value = ceilf(sigma * 3.0f);
-        if (!isfinite(radius_value) || radius_value > (float)(INT_MAX / 2) ||
-            (double)pixels * (2.0 * radius_value + 1.0) > (double)SIZE_MAX) { image_surface_destroy(current); return nullptr; }
-        int radius = (int)radius_value; // INT_CAST_OK: bounded raster kernel tap count
+        if (!isfinite(radius_value) || radius_value > (float)(INT_MAX / 2)) {
+            image_surface_destroy(current); return nullptr;
+        }
         float grid_origin = axis ? execution->grid.top : execution->grid.left;
         float extent = axis ? (float)current->height : (float)current->width;
         float region_low = ceilf((axis ? region.top : region.left) * execution->run->density - grid_origin - .5f);
@@ -560,11 +637,12 @@ static ImageSurface* svg_filter_blur(SvgFilterExecution* execution, int input, f
         // extension uses the input subregion, not the larger output/filter region (Filter Effects §9.14).
         int low = edge ? (int)fmaxf(0.0f, fminf(extent, region_low)) : 0; // INT_CAST_OK: bounded raster sample index
         int high = edge ? (int)fmaxf(0.0f, fminf(extent, region_high)) : (axis ? current->height : current->width); // INT_CAST_OK: bounded raster sample index
-        size_t taps = (size_t)radius * 2 + 1;
-        if (!svg_filter_spend(execution, pixels * taps)) { image_surface_destroy(current); return nullptr; }
         ImageSurface* output = svg_filter_surface(execution);
-        if (!output || !render_gaussian_blur_axis(execution->run->scratch,
-            current, output, sigma, axis, low, high, edge)) {
+        bool valid = output && (sigma >= 2.0f ?
+            svg_filter_box_gaussian_axis(execution, current, output, sigma, axis, low, high, edge) :
+            svg_filter_gaussian_blur_axis(execution->run->scratch, current, output,
+                sigma, axis, low, high, edge, execution->run));
+        if (!valid) {
             if (output) image_surface_destroy(output);
             image_surface_destroy(current); return nullptr;
         }
@@ -880,6 +958,7 @@ bool render_svg_filter_execute(const RdtSvgFilterProgram* program, const RdtSvgF
     execution.images = (SvgFilterImage*)scratch_calloc(run->scratch, program->count * sizeof(SvgFilterImage));
     execution.references = (size_t*)scratch_calloc(run->scratch, (program->count + 4) * sizeof(size_t));
     bool valid = execution.images && execution.references;
+    size_t failed_node = SIZE_MAX;
     if (valid) {
         execution.source_index = program->count;
         execution.references[program->count - 1]++;
@@ -902,6 +981,7 @@ bool render_svg_filter_execute(const RdtSvgFilterProgram* program, const RdtSvgF
         for (size_t index = 0; valid && index < program->count; index++) {
             if (!execution.references[index]) continue;
             valid = svg_filter_evaluate_node(program, index, &execution);
+            if (!valid) failed_node = index;
             // subregion metadata outlives its pixels; release each image after its last graph consumer.
             svg_filter_visit_inputs(&program->nodes[index], svg_filter_retire_input, &execution);
             if (!execution.references[index] && execution.images[index].surface) {
@@ -925,6 +1005,11 @@ bool render_svg_filter_execute(const RdtSvgFilterProgram* program, const RdtSvgF
     if (execution.images) for (size_t index = 0; index < program->count; index++) if (execution.images[index].surface) image_surface_destroy(execution.images[index].surface);
     for (size_t slot = 0; slot < 4; slot++) if (execution.standard[slot].surface) image_surface_destroy(execution.standard[slot].surface);
     scratch_restore(run->scratch, mark);
-    if (!valid) log_error("SVG_FILTER_EXECUTION: graph failed or exceeded the document memory/work budget");
+    if (!valid) log_error("SVG_FILTER_EXECUTION: graph failed or exceeded the document memory/work budget; "
+        "node=%zu kind=%u grid=%.0fx%.0f work=%zu/%zu density=%g geometry=%gx%g",
+        failed_node, failed_node < program->count ? (unsigned)program->nodes[failed_node].kind : 0u,
+        execution.grid.right - execution.grid.left, execution.grid.bottom - execution.grid.top,
+        run->work_used ? *run->work_used : 0, run->work_limit, run->density,
+        run->geometry.right - run->geometry.left, run->geometry.bottom - run->geometry.top);
     return valid;
 }

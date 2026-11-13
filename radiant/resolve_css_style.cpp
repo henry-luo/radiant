@@ -3351,6 +3351,17 @@ float resolve_element_length_value(LayoutContext* lycon, DomElement* element,
     return resolve_element_owned_length(lycon, element, property, value, false);
 }
 
+float layout_resolve_percentage_preferred_size(LayoutContext* context,
+        DomElement* element, bool horizontal, float containing_size) {
+    if (!context || !element || !isfinite(containing_size) || containing_size < 0.0f) return NAN;
+    CssDeclaration* declaration = layout_specified_physical_size_declaration(element, horizontal);
+    if (!layout_css_size_facts(context, element, declaration).percentage) return NAN;
+    LayoutContainingBlockScope basis(context,
+        horizontal ? LAYOUT_AXIS_X : LAYOUT_AXIS_Y, containing_size);
+    return resolve_element_length_value(context, element,
+        horizontal ? CSS_PROPERTY_WIDTH : CSS_PROPERTY_HEIGHT, declaration->value);
+}
+
 float resolve_element_definite_length_value(LayoutContext* lycon, DomElement* element,
         CssPropertyCode property, const CssValue* value) {
     return resolve_element_owned_length(lycon, element, property, value, true);
@@ -6394,6 +6405,34 @@ static void resolve_grid_auto_track(LayoutContext* lycon, ViewBlock* block,
 void resolve_css_axis_size(LayoutContext* lycon, ViewBlock* block,
                                   const CssValue* value,
                                   LayoutAxis axis) {
+    if (css_value_keyword_equals(value, CSS_VALUE_INHERIT)) {
+        DomElement* current = lycon->elmt && lycon->elmt->is_element()
+            ? lycon->elmt->as_element() : nullptr;
+        for (DomElement* parent = dom_parent_element(current); parent; parent = dom_parent_element(parent)) {
+            CssDeclaration* declaration = layout_specified_physical_size_declaration(
+                parent, axis == LAYOUT_AXIS_X);
+            if (!declaration || !declaration->value) break;
+            LayoutContext owner = css_length_owner_context(lycon, parent);
+            CssComputedValueScratch scratch(&owner, declaration->property_code, declaration->value, true);
+            const CssValue* inherited = resolve_layout_var_value(
+                &owner, parent, declaration->value, declaration->property_code);
+            if (css_value_keyword_equals(inherited, CSS_VALUE_INHERIT)) continue;
+            if (!inherited) break;
+            Pool* pool = layout_prop_pool(lycon);
+            CssValue* computed = css_value_clone_owned(inherited, pool);
+            if (!computed) break;
+            // inherit computed lengths while retaining percentages for the child's containing box.
+            layout_compute_math_lengths(&owner, computed, declaration->property_code, true);
+            resolve_css_axis_size(lycon, block, computed, axis);
+            css_value_destroy_owned(computed, pool);
+            return;
+        }
+        CssValue automatic = {};
+        automatic.type = CSS_VALUE_TYPE_KEYWORD;
+        automatic.data.keyword = CSS_VALUE_AUTO;
+        resolve_css_axis_size(lycon, block, &automatic, axis);
+        return;
+    }
     const CssValue* fit_limit = layout_css_fit_content_function_limit(value);
     bool horizontal = axis == LAYOUT_AXIS_X;
     CssPropertyCode axis_property = horizontal ? CSS_PROPERTY_WIDTH : CSS_PROPERTY_HEIGHT;
@@ -6401,16 +6440,7 @@ void resolve_css_axis_size(LayoutContext* lycon, ViewBlock* block,
     bool initial_auto = value->type == CSS_VALUE_TYPE_KEYWORD &&
         (value->data.keyword == CSS_VALUE_INITIAL ||
          value->data.keyword == CSS_VALUE_UNSET);
-    if (value->type == CSS_VALUE_TYPE_KEYWORD && value->data.keyword == CSS_VALUE_INHERIT) {
-        DomElement* current = lycon->elmt && lycon->elmt->is_element()
-            ? lycon->elmt->as_element() : nullptr;
-        DomElement* parent = current ? dom_parent_element(current) : nullptr;
-        ViewBlock* parent_block = parent ? lam::view_as_block(parent) : nullptr;
-        float inherited = parent_block && parent_block->blk
-            ? layout_axis_given_size(parent_block->block(),
-                horizontal ? LAYOUT_AXIS_X : LAYOUT_AXIS_Y) : -1.0f;
-        size = inherited >= 0.0f ? inherited : -1.0f;
-    } else if (initial_auto || fit_limit || (value->type == CSS_VALUE_TYPE_KEYWORD &&
+    if (initial_auto || fit_limit || (value->type == CSS_VALUE_TYPE_KEYWORD &&
                (value->data.keyword == CSS_VALUE_AUTO ||
                 value->data.keyword == CSS_VALUE_MAX_CONTENT ||
                 value->data.keyword == CSS_VALUE_MIN_CONTENT ||

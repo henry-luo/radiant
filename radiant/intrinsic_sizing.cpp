@@ -1198,22 +1198,25 @@ static bool intrinsic_resolve_margin_value(LayoutContext* lycon, CssValue* value
     return true;
 }
 
-static bool intrinsic_resolve_vertical_margins(LayoutContext* lycon, DomElement* element,
+static void intrinsic_resolve_vertical_margins(LayoutContext* lycon, DomElement* element,
                                                float inline_base, float* mt, float* mb) {
-    if (!element || !element->specified_style || !mt || !mb) return false;
-    LayoutCssBoxCandidates candidates = {};
-    candidates.collect(element, true);
-
+    *mt = 0.0f;
+    *mb = 0.0f;
+    if (!element) return;
     bool resolved = false;
-    if (candidates.sides[0].value && intrinsic_resolve_margin_value(
-            lycon, candidates.sides[0].value, inline_base, mt)) {
-        resolved = true;
+    if (element->specified_style && inline_base > 0.0f) {
+        LayoutCssBoxCandidates candidates = {};
+        candidates.collect(element, true);
+        if (candidates.sides[0].value && intrinsic_resolve_margin_value(
+                lycon, candidates.sides[0].value, inline_base, mt)) resolved = true;
+        if (candidates.sides[2].value && intrinsic_resolve_margin_value(
+                lycon, candidates.sides[2].value, inline_base, mb)) resolved = true;
     }
-    if (candidates.sides[2].value && intrinsic_resolve_margin_value(
-            lycon, candidates.sides[2].value, inline_base, mb)) {
-        resolved = true;
+    ViewElement* view = lam::view_require_element(static_cast<View*>(element));
+    if (!resolved && view->bound) {
+        *mt = view->boundary()->margin.top;
+        *mb = view->boundary()->margin.bottom;
     }
-    return resolved;
 }
 
 static float intrinsic_resolve_zero_percentage_length(LayoutContext* lycon,
@@ -3167,11 +3170,33 @@ static bool intrinsic_svg_is_ratio_only(DomElement* element, ViewBlock* view) {
         (intrinsic.has_intrinsic_aspect_ratio || preferred_ratio > 0.0f);
 }
 
+static bool intrinsic_svg_percentage_axis_content_size(LayoutContext* context,
+        ViewBlock* view, DomElement* element, bool horizontal, float* out_size) {
+    if (!context || !context->block.parent || !out_size) return false;
+    BlockContext* containing = context->block.parent;
+    float basis = horizontal ? containing->content_width : containing->content_height;
+    if (!(basis >= 0.0f) || (horizontal
+            ? intrinsic_percentage_width_is_indefinite(context, element)
+            : !(containing->given_height >= 0.0f))) return false;
+    float percentage = 0.0f;
+    if (!layout_svg_percentage_attribute(element, horizontal, &percentage)) return false;
+    // geometry attributes consume the supplied containing axis before natural-size fallback.
+    float border_size = layout_css_size_to_border_box(view->bound,
+        layout_box_sizing(view), basis * percentage / 100.0f, horizontal);
+    border_size = layout_apply_min_max_border_box_axis(view, border_size, horizontal);
+    *out_size = layout_content_size_from_border_box(view, border_size, horizontal);
+    return true;
+}
+
 static bool intrinsic_replaced_height_from_shared_facts(
         LayoutContext* lycon, ViewBlock* view, DomElement* element,
         float query_width, float* out_height) {
     if (!element || !out_height) return false;
     if (layout_is_svg_viewport(element->tag())) {
+        if (intrinsic_svg_percentage_axis_content_size(
+                lycon, view, element, false, out_height)) return true;
+        (void)intrinsic_svg_percentage_axis_content_size(
+            lycon, view, element, true, &query_width);
         if (intrinsic_svg_is_ratio_only(element, view) && query_width <= 0.0f) {
             *out_height = 0.0f;
             return true;
@@ -6521,12 +6546,8 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         layout_intrinsic_min_size_keyword(view_for_minmax, true) == CSS_VALUE_MAX_CONTENT) {
         // A max-content minimum floors the min-content contribution at max-content.
         sizes.min_content = sizes.max_content;
-    } else if (width_is_inline_axis &&
-               layout_intrinsic_min_size_keyword(view_for_minmax, true) == CSS_VALUE_MIN_CONTENT &&
-               !percentage_width_min_content_zero) {
-        // A min-content minimum caps the preferred contribution at min-content.
-        sizes.max_content = sizes.min_content;
     }
+    // min-width:min-content leaves the larger max-content contribution intact.
     CssEnum max_width_keyword = layout_intrinsic_max_size_keyword(view_for_minmax, true);
     if (width_is_inline_axis && max_width_keyword == CSS_VALUE_MIN_CONTENT) {
         // max-width:min-content limits shrink-to-fit contributions before
@@ -7359,10 +7380,17 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
     if (layout_block_is_display_none(view)) {
         return 0;
     }
+    float svg_percentage = 0.0f;
+    bool svg_relative_height = layout_svg_percentage_attribute(element, false, &svg_percentage);
+    if (svg_relative_height) {
+        float svg_height = 0.0f;
+        // resolve geometry before cached used heights or natural-ratio fallbacks consume this query.
+        if (intrinsic_svg_percentage_axis_content_size(lycon, view, element, false, &svg_height))
+            return layout_border_size_from_content_box(view, svg_height, false);
+    }
     bool replaced_intrinsic_width_query = ignore_definite_block_size && view->blk &&
         (view->block()->given_width_type == CSS_VALUE_MIN_CONTENT ||
          view->block()->given_width_type == CSS_VALUE_MAX_CONTENT);
-    float replaced_query_width = replaced_intrinsic_width_query ? -1.0f : width;
 
     float math_height = 0.0f;
     if (layout_measure_mathml(lycon, element, nullptr, &math_height)) {
@@ -7421,6 +7449,8 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
             view->blk && view->block()->given_height > 0.0f)
             explicit_height = view->block()->given_height;
     }
+    // without a definite basis a percentage attribute stays auto, never a previous used height.
+    if (svg_relative_height) explicit_height = -1.0f;
     bool has_intrinsic_height_constraint =
         layout_intrinsic_min_size_keyword(view, false) != CSS_VALUE__UNDEF ||
         layout_intrinsic_max_size_keyword(view, false) != CSS_VALUE__UNDEF;
@@ -7447,6 +7477,33 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
 
         return explicit_height;
     }
+
+    // ratio and replaced-height contributions use the resolved child width, not parent free space.
+    float content_w = width;
+    if (!width_is_used_size) {
+        // preferred expressions and clamps use this element's containing block;
+        // assigned flex/grid queries already supply the final content width.
+        float border_width = width >= 0.0f
+            ? layout_border_size_from_content_box(view, width, true) : -1.0f;
+        CssDeclaration* declaration = layout_specified_physical_size_declaration(element, true);
+        LayoutCssSizeFacts facts = layout_css_size_facts(lycon, element, declaration);
+        if (declaration && declaration->value && !facts.automatic &&
+            layout_intrinsic_preferred_size_keyword(view, true) == CSS_VALUE__UNDEF &&
+            !(facts.percentage && intrinsic_percentage_width_is_indefinite(lycon, element))) {
+            float preferred = resolve_element_length_value(
+                lycon, element, CSS_PROPERTY_WIDTH, declaration->value);
+            if (isfinite(preferred) && preferred >= 0.0f) {
+                border_width = layout_css_size_to_border_box(
+                    view->bound, layout_box_sizing(view), preferred, true);
+            }
+        }
+        if (border_width >= 0.0f) {
+            border_width = layout_apply_min_max_border_box_axis(view, border_width, true);
+            content_w = layout_content_size_from_border_box(view, border_width, true);
+        }
+    }
+
+    float replaced_query_width = replaced_intrinsic_width_query ? -1.0f : content_w;
 
     // `auto <ratio>` switches to an image's natural ratio once it is available;
     // load it before a definite grid width transfers into the block axis.
@@ -7626,30 +7683,6 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
         }
     }
 
-    float content_w = width;
-    if (!width_is_used_size) {
-        // preferred expressions and clamps use this element's containing block;
-        // assigned flex/grid queries already supply the final content width.
-        float border_width = width >= 0.0f
-            ? layout_border_size_from_content_box(view, width, true) : -1.0f;
-        CssDeclaration* declaration = layout_specified_physical_size_declaration(element, true);
-        LayoutCssSizeFacts facts = layout_css_size_facts(lycon, element, declaration);
-        if (declaration && declaration->value && !facts.automatic &&
-            layout_intrinsic_preferred_size_keyword(view, true) == CSS_VALUE__UNDEF &&
-            !(facts.percentage && intrinsic_percentage_width_is_indefinite(lycon, element))) {
-            float preferred = resolve_element_length_value(
-                lycon, element, CSS_PROPERTY_WIDTH, declaration->value);
-            if (isfinite(preferred) && preferred >= 0.0f) {
-                border_width = layout_css_size_to_border_box(
-                    view->bound, layout_box_sizing(view), preferred, true);
-            }
-        }
-        if (border_width >= 0.0f) {
-            border_width = layout_apply_min_max_border_box_axis(view, border_width, true);
-            content_w = layout_content_size_from_border_box(view, border_width, true);
-        }
-    }
-
     // Check if this is a grid container - need to detect column count
     bool is_grid_container = intrinsic_element_display_matches(
         element, CSS_VALUE_GRID, CSS_VALUE_INLINE_GRID);
@@ -7812,14 +7845,8 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
             lycon, static_cast<DomNode*>(vertical_fieldset_legend), width);
         float margin_top = 0.0f;
         float margin_bottom = 0.0f;
-        bool resolved_margins = width > 0.0f && intrinsic_resolve_vertical_margins(
+        intrinsic_resolve_vertical_margins(
             lycon, vertical_fieldset_legend, width, &margin_top, &margin_bottom);
-        ViewElement* legend_view = lam::view_require_element(
-            static_cast<View*>(vertical_fieldset_legend));
-        if (!resolved_margins && legend_view->bound) {
-            margin_top = legend_view->boundary()->margin.top;
-            margin_bottom = legend_view->boundary()->margin.bottom;
-        }
         vertical_fieldset_legend_height += margin_top + margin_bottom;
     }
 
@@ -7957,6 +7984,11 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
             float child_height = calculate_max_content_height(lycon, child, child_content_width);
             child_height = intrinsic_child_height_with_minimum(
                 lycon, child_elem, child_height, width);
+            // flex lines consume outer cross sizes; omitted margins under-allocate nested stretch.
+            float margin_top = 0.0f, margin_bottom = 0.0f;
+            intrinsic_resolve_vertical_margins(
+                lycon, child_elem, content_w, &margin_top, &margin_bottom);
+            child_height += margin_top + margin_bottom;
 
             // Check if we need to wrap to a new line
             float width_with_gap = first_on_line ? child_width : (flex_column_gap + child_width);
@@ -8057,8 +8089,9 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
             {
                 // the child re-resolves its style here; its percentages refer to
                 // this element's content box, not an outer measurement scope.
+                // zero is a definite containing width, including for SVG percentages.
                 LayoutContainingBlockScope child_cb_scope(
-                    lycon, LAYOUT_AXIS_X, content_w, content_w > 0.0f);
+                    lycon, LAYOUT_AXIS_X, content_w, content_w >= 0.0f);
                 if (child->is_element() && layout_element_is_css_replaced(child->as_element())) {
                     // CSS 2.1 §10.3.2/10.6.2: a replaced flow child owns its
                     // used width; parent free space is not a ratio-transfer input.
@@ -8070,7 +8103,8 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
                 child_height = calculate_max_content_height(lycon, child, child_content_w);
             }
             bool cyclic_percentage_ratio_child = false;
-            if (child->is_element() &&
+            // a ratio-transferred height already supplies a definite descendant percentage basis.
+            if (child->is_element() && child_height_basis < 0.0f &&
                 !intrinsic_declared_css_height_is_definite(lycon, element)) {
                 DomElement* child_elem = child->as_element();
                 ViewBlock* child_block = lam::unsafe_view_block_element_storage(child_elem);
@@ -8097,14 +8131,7 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
                 float mt = 0, mb = 0;
 
                 ViewElement* child_ve = lam::view_require_element(static_cast<View*>(child_elem));
-                bool resolved_from_style = intrinsic_resolve_vertical_margins(
-                    lycon, child_elem, content_w, &mt, &mb);
-
-                // Fall back to resolved margins when no specified margin candidate exists.
-                if (!resolved_from_style && child_ve->bound) {
-                    mt = child_ve->boundary()->margin.top;
-                    mb = child_ve->boundary()->margin.bottom;
-                }
+                intrinsic_resolve_vertical_margins(lycon, child_elem, content_w, &mt, &mb);
 
                 if (is_grid_container || is_flex_container || vertical_block_sequence) {
                     // Flex/grid: margins don't collapse, add full margins

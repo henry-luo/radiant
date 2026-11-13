@@ -17,7 +17,7 @@ struct CssStylesheet;
 struct CssFontFaceDescriptor;
 struct CssValue;
 
-typedef void (*RadiantCssUrlVisitor)(struct CssValue* value, void* context);
+typedef void (*RadiantCssUrlVisitor)(const struct CssValue* value, void* context);
 
 // Resource processing functions
 void process_css_resource(NetworkResource* res, struct DomDocument* doc);
@@ -28,7 +28,7 @@ void process_html_resource(NetworkResource* res, struct DomDocument* doc);
 void process_script_resource(NetworkResource* res, struct DomDocument* doc);
 
 // Visit authored CSS url() values without changing their consumer-relative spelling.
-void radiant_for_each_css_value_resource_url(struct CssValue* value,
+void radiant_for_each_css_value_resource_url(const struct CssValue* value,
                                              RadiantCssUrlVisitor visitor,
                                              void* context);
 void radiant_for_each_stylesheet_resource_url(struct CssStylesheet* sheet,

@@ -58,7 +58,7 @@ static bool resource_file_looks_like_svg(const char* path) {
 
 // CSS resource handler
 
-void radiant_for_each_css_value_resource_url(CssValue* value, RadiantCssUrlVisitor visitor,
+void radiant_for_each_css_value_resource_url(const CssValue* value, RadiantCssUrlVisitor visitor,
                                  void* context) {
     if (!value || !visitor) return;
     if (value->type == CSS_VALUE_TYPE_URL && value->data.url) {
@@ -160,7 +160,6 @@ void process_css_resource(NetworkResource* res, struct DomDocument* doc) {
         log_error("network: failed to add stylesheet to document");
         return;
     }
-    radiant_prefetch_document_stylesheet_resources(doc);
 
     // schedule reflow for entire document (CSS affects all elements)
     if (res->manager && doc->root) {

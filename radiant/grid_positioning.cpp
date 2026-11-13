@@ -49,18 +49,11 @@ float layout_grid_item_border_box_size(LayoutContext* lycon, ViewBlock* item,
         preferred = track_size * *axis.given_percent / 100.0f;
         resolved_percentage = true;
     } else if (lycon) {
-        DomElement* element = item->as_element();
-        CssDeclaration* declaration = layout_specified_physical_size_declaration(element, horizontal);
-        if (layout_css_size_facts(lycon, element, declaration).percentage) {
-            // calculated percentages also use the solved area, with the item's own units and variables.
-            LayoutContainingBlockScope area_scope(lycon,
-                horizontal ? LAYOUT_AXIS_X : LAYOUT_AXIS_Y, track_size);
-            float computed = resolve_element_length_value(lycon, element,
-                horizontal ? CSS_PROPERTY_WIDTH : CSS_PROPERTY_HEIGHT, declaration->value);
-            if (isfinite(computed)) {
-                preferred = max(computed, 0.0f);
-                resolved_percentage = true;
-            }
+        float computed = layout_resolve_percentage_preferred_size(
+            lycon, item->as_element(), horizontal, track_size);
+        if (isfinite(computed)) {
+            preferred = max(computed, 0.0f);
+            resolved_percentage = true;
         }
     }
     if (resolved_percentage || preferred >= 0.0f) {

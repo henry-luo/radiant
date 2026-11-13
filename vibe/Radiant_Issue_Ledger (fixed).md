@@ -14,6 +14,576 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-087"></a>
+
+### RI-087 — Propagated body overflow clips its own zero-height box
+
+**Status:** FIXED for the selected clipping/coordinate milestone, 2026-11-14.
+**Lambda blocker:** cleared for the saved Mymind main-content omission.
+Native ownership D9.1.1v4 / D9.1.3v2; declaration reads follow D5.5.1.
+
+A zero-height body with overflow scroll/hidden/auto clips its absolutely
+positioned content to an empty box. Its overflow instead belongs to the
+viewport when the HTML root has visible overflow on both axes. The source
+body then uses visible overflow locally ([CSS Overflow §3.3](https://www.w3.org/TR/css-overflow-3/#overflow-propagation)).
+Root/body containment disables this transfer; ordinary boxes keep their clips.
+The existing iframe viewport selector also missed those containment guards.
+
+One shared `view_viewport_overflow_source` selects the root or first displayed
+body with those guards. Viewport overflow resolution reuses it. Shared clip
+geometry/axes, raster scroll scopes and scrollbar paint, native hit testing
+and coordinate scroll scopes skip the source body's local overflow. Declared
+CSS remains intact. No page condition, stylesheet modification, changed frame,
+threshold or budget is used; no public structure layout changes.
+
+The new native propagation case fails before repair; five focused native
+cases and the existing clip/hit regression pass afterward. Exact PNG controls
+change from5/8 to8/8, with all eight independently confirmed by Chromium.
+Cases include scroll/hidden/auto transfer, explicit root overflow, root style
+containment, body layout/paint containment and ordinary-box clipping. The
+unchanged saved Mymind source now displays its heading, copy and actions.
+RI-086 alone repaired root geometry but left the pixel control blank; that
+intermediate host was held. RI-088 remains an independent unresolved query error.
+Evidence: Lambda `temp/online-visual-round38/`, propagation native/PNG before
+and final logs, browser-body-overflow.json and source freezes. Integer lint
+passes. The later live canonical capture remains blank and is not cleared;
+its initialization state is a separate unresolved cause. Full baselines and
+catalog capture are deferred under focused checking. The user cleared the goal
+while the completed repair was being wrapped up.
+
+<a id="ri-086"></a>
+
+### RI-086 — Empty-child root collapse erases resolved minimum height
+
+**Status:** FIXED for the selected final root calculation, 2026-11-14.
+**Lambda blocker:** cleared for root geometry; RI-087 separately fixes painting.
+Native ownership D9.1.1v4 / D9.1.3v2; scalar sizing follows D5.5.1.
+
+Mymind's min-height100% resolves to800px, but the late all-self-collapsing-child
+shortcut replaces its already-constrained root height with0. A border-box
+control similarly falls from800 to14px. The shortcut now reuses the existing
+`layout_apply_min_max_axis` resolver and retains the larger content overflow
+extent. It does not replace collapsed-margin handling or make auto height definite.
+
+The native regression fails five height assertions before repair. Six live
+states then agree with independent Chromium geometry: percentage and fixed
+minima, conflicting calculated minimum/maximum, zero minimum, border-box
+padding/border and restoration. The empty-body margin control retains20px
+root height and10px body Y. Both source styles and capture clocks are unchanged.
+Evidence: Lambda `temp/online-visual-round38/`, native-before/native-focused,
+browser-root-min.json and the minimum-only held host/source pin. The final
+combined qualification includes the additional RI-087 viewport controls.
+
+
+<a id="ri-085"></a>
+
+### RI-085 — Wide SVG Gaussian kernels exhaust the work budget
+
+**Status:** FIXED for the existing wide Gaussian path, 2026-11-14.
+**Lambda task blocker:** cleared for Overflow's missing colored SVG background;
+other page residuals are reported separately. Native ownership D9.1.1v4 /
+D9.1.3v2; temporary window storage and work admission follow D5.5.1.
+
+Overflow's two single-node Gaussian graphs use standard deviations80 and130.
+Their5285×3322 and6229×2896 raster grids exhaust the unchanged805,306,368-unit
+work limit while convolving each varying pixel over every kernel tap. RI-082's
+exact flat-run reuse cannot remove that radius-dependent work on gradients.
+Failure provenance now records the node, grid, density and used/allowed work.
+
+For physical sigma>=2, the existing SVG path now uses the three sliding box
+passes permitted by [Filter Effects §9.14](https://www.w3.org/TR/filter-effects-1/#feGaussianBlurElement).
+Odd windows remain centered; the first two even windows balance their half-pixel
+offsets. Virtual line halos extend the original none/duplicate/wrap input once
+and survive all three passes. X and Y deviations remain independent. Smaller
+kernels and the public exact Gaussian reference routine retain their previous
+math. Fully transparent input has an admitted scan and returns its existing
+zero surface. No budget, capture frame, resource admission or page condition
+changes; this is an algorithm change within an existing filter feature.
+
+One shared strided box-window span now serves both SVG and the existing CSS
+shadow passes. The original CSS edge renormalization and integer truncation
+are preserved, with widened sums. Window scratch is line-sized and memory/work
+admitted before evaluation. SVG accounting includes extension, initial windows,
+sliding updates, output writes and line copies.
+
+The new native regression fails before repair at sigma40 under a linear work
+budget. After repair it covers18 combinations of deviation, edge and axis,
+compares against the independent exact Gaussian within the specified3% envelope,
+and retains low-budget rejection. Literal span values verify asymmetric windows,
+strides, truncation, renormalization and untouched output. Nine initial focused
+tests pass; the milestone extends this once to21 filter, shadow and budget tests,
+all passing. Four independent Chromium controls (including even windows and
+anisotropic blur) differ by at most3 channel values, with mean errors0.027%–0.098%.
+Layout integer lint passes. No public structure layout changes.
+
+The identical saved Overflow source restores its colored hero with no filter
+failure and completes in1.65s versus the diagnostic failing2.64s run. These are
+capture observations, not a broad performance benchmark. Evidence: Lambda
+`temp/online-visual-round37/`, native-before/native-first/native-milestone logs,
+Chromium control comparison, diagnostic and repaired source pins, and selected
+capture audit. Full native/layout/JS/Input baselines and catalog recapture remain
+deferred; original Chromium references and D10.1.7 clocks are retained.
+
+
+<a id="ri-084"></a>
+
+### RI-084 — Static effect contexts lose positioned descendants and empty-box backdrops
+
+**Status:** FIXED for the selected block-context traversal, 2026-11-14.
+**Lambda task blocker:** the reduced opacity defect is cleared; no online page
+clearance is inferred. Native ownership D9.1.1v4 / D9.1.3v2; display-list resource
+copies and temporary borrows follow D5.5.1.
+
+An absolute child beneath a static opacity parent uses an external containing
+block. The zero-level paint list followed only that block's `first_abs_child`
+chain, painting the child after the opacity group closed. SVG export confirms
+the colored rectangle outside the empty opacity group. Paint ownership now
+chooses the nearest block stacking context before the containing block. The
+original containing block still supplies coordinates. Nested contexts and
+positive/negative layers retain their existing traversal. Inline effect-context
+ownership is outside this repair's acceptance scope.
+
+Raster/export/hit consumers share the sorted positioned visitor and reuse their
+existing ancestry replay. Raster's former bridge ignored the walker's coordinates;
+using its existing direct stacking path preserves the containing-block basis.
+Overflow and scrolling below an external absolute/fixed containing block do not
+apply, while containing-block and outer clips remain. Chromium independently
+confirms that escape rule; the initial local clip expectation was corrected
+before promotion, without weakening an existing tolerance.
+
+A separate zero-height group had no backdrop admitted at begin, so its descendant
+ink composited at full opacity. Completed ink bounds now admit the required
+backdrop prefix before replay. Shared `dl_prepend_tail` reuses existing resource
+copy/replacement helpers and also replaces PaintIR's duplicated staging shape.
+No public structure layout, page-specific condition, capture frame, budget or
+admission change is introduced.
+
+The previous qualified binary passes two and fails six of the final eight PNG
+controls. The final binary passes all eight, including transparent and half
+opacity, overlapping children composited once, fixed/positive-z children, a local
+relative containing block and ordinary overflow escape. Four native ownership,
+paint-order, clip and hit tests pass; three focused display-list resource/mask
+checks and all eight independent Chromium controls pass. Layout integer lint
+has no violations. Two intermediate candidates were held after focused pixel
+failures and were not promoted.
+
+Identical saved Metronome and Highnote sources have unchanged pixels before/after;
+their visible residuals are not assigned to this repair. No canonical captures,
+scores or references were changed. Evidence: Lambda `temp/online-visual-round36/`,
+source hash freeze, native-before/final, png-before-final/png-final, browser-opacity,
+rdt-focused and lint-final logs. Full baselines and catalog capture are deferred.
+
+<a id="ri-083"></a>
+
+### RI-083 — Early flex intrinsic widths omit deferred scalar gaps
+
+**Status:** FIXED for the selected declared-length path, 2026-11-14.
+**Lambda task blocker:** cleared for Affinity button-row/nav sizing; independent
+card animation/font differences remain. Native ownership D9.1.1v4 / D9.1.3v2;
+bounded owner-aware declaration queries follow D5.5.1.
+
+A wrapping row inside an automatic-width flex column sized two100px items at
+200px, omitting its16px variable gap. Final layout resolves that gap and wraps
+the second item, producing96px height instead of40px. A literal16px control
+already uses216px and stays on one line. Affinity has the same root: its parent
+uses344px (the sum of its buttons), omits16px, and stacks the actions.
+
+`layout_flex_declared_length` accepted only a raw CSS length and silently
+ignored `var()` and math functions. Its font-relative lengths also used the
+caller's font. It now reuses `resolve_element_definite_length_value` to consume
+the declaring element's substituted value and font. The existing definite-only
+contract excludes cyclic percentages. One nested measurement call now retains
+its available context rather than passing null. No duplicate variable/math
+resolver, page override, public ABI or structure change is introduced.
+
+The native regression fails20 assertions before the fix. Four focused native
+cases pass afterward, including existing nested-wrap, ratio-height and margin
+controls. Chromium confirms all five cold/live states:16px variable,24px variable,
+calc(6px +10px),.8em at20px, and restoration. Layout integer lint has no violations.
+The identical saved Affinity HTML/CSS now lays out the actions in one row and
+stops clipping the navigation labels at the top. Additional media loaded from
+cache during the later run is not attributed to this sizing fix. Font and card
+motion differences remain; no broad page-fidelity completion is claimed.
+Evidence: Lambda `temp/online-visual-round35/`, gap-control/fixed views,
+native-before.log, native-focused.log, browser-gap.json and affinity-static/final
+PNGs. Full baselines and catalog recapture are deferred under focused verification.
+
+
+<a id="ri-082"></a>
+
+### RI-082 — Gaussian work accounting charges skipped flat-run convolutions
+
+**Status:** FIXED for accounting and transparent runs, 2026-11-14.
+**Lambda task blocker:** Overflow's complete filter graph remains unresolved.
+Native ownership D9.1.1v4 / D9.1.3v2; filter-run borrows and scratch D5.5.1.
+
+The Gaussian kernel already shares an exact convolution across flat pixel
+runs, but its caller precharged every output pixel times every kernel tap.
+A constant 128×128 image with sigma1.5 fails under16 work units per pixel even
+though the exact optimized kernel fits. The private budgeted kernel now charges
+linear channel/run scans, output writes and kernel setup separately, then each
+convolution immediately before executing it. The public API remains unchanged.
+No cap, admission profile, image bounds, frame clock or approximation changes.
+
+A related redundant-work path treated transparent image edges as boundaries
+that always require convolution, even when zero extension makes every sample
+zero. The existing flat-run optimization now joins transparent boundary runs
+with zero extension and skips the exactly-zero kernel. Nonzero and duplicate/
+wrap edge math retains its prior behavior. This also handles a transparent
+128×128 image with sigma80, wider than the image, under the same linear budget.
+
+Five focused native tests pass. The new test compares unlimited and budgeted
+pixels byte for byte across none/duplicate/wrap modes, checks the wide zero
+kernel, and confirms that noisy input still rejects the same budget with an
+existing shared charge. Existing independent Gaussian pixels, channel/pitch
+and edge-extension checks, shared graph accounting, and memory reclamation/
+oversized-grid rejection pass. Evidence: Lambda `temp/online-visual-round34/`,
+native-before.log, native-focused.log, native-final.log and source hash freezes.
+
+The saved Overflow page still reports two generic filter memory/work failures
+with both candidates, and its PNG is unchanged between them. The remaining
+rejection phase has not been isolated; this repair does not clear the page.
+Stored logs show filter failures on Overflow, Calendly, FramerAuth and Pitch,
+which are candidates rather than claimed beneficiaries. No canonical capture
+or comparison score is refreshed without demonstrated page improvement. Full
+baselines and catalog captures are deferred under focused verification.
+
+
+<a id="ri-081"></a>
+
+### RI-081 — Wrapped flex height queries omit item cross margins
+
+**Status:** FIXED for the selected intrinsic query, 2026-11-14.
+**Lambda task blocker:** cleared for Betterway hero placement. Native ownership
+D9.1.1v4 / D9.1.3v2; scalar queries retain geometry under D5.5.1.
+
+Betterway's heading started 80px too high, partially hidden behind its header.
+A local reduction has three 40px full-width flex items with 20px bottom margins
+inside a wrapping row with 10px padding, nested in a stretched parent. The
+container eventually reaches the correct 200px height, but its items retain a
+30px upward offset. Their individual hypothetical border/outer cross sizes
+are already correct (40/60px). The scalar wrapping-height query omitted the
+margins, causing the parent to allocate only 140px and center the lines in too
+little space before late content growth.
+
+The wrapping query now includes each child's non-collapsing vertical margins.
+It reuses the existing signed/percentage/auto resolver; the existing fieldset
+and ordinary-flow fallback are folded into that resolver to avoid a third
+copy. No alternate alignment rule, site CSS, source mutation, horizontal-size
+change, budget or capture-clock adjustment is introduced.
+
+The new native regression fails three positions before the fix and passes
+afterward across live 20px, 10%, -10px and restored 20px margins. It also checks
+read-only intrinsic queries and the unchanged 40px item height. Chromium
+independently agrees with all four states. Four focused native cases pass,
+including existing nested wrapping, flexed-width and RI-080 controls; layout
+integer lint has zero violations. The identical saved Betterway HTML renders
+its complete hero heading at Chromium's position. Evidence: Lambda
+`temp/online-visual-round33/`, native-before.log, native-focused.log,
+browser-control.json and betterway-current/final.png. No ABI/structure change;
+full baselines and catalog recapture are deferred under the user's focused
+verification instruction.
+
+
+<a id="ri-080"></a>
+
+### RI-080 — Nested ratio height queries consume parent free space and stale SVG heights
+
+**Status:** FIXED for the selected preferred-size queries, 2026-11-14.
+**Lambda task blocker:** no after repair. Native ownership is D9.1.1v4 /
+D9.1.3v2; scalar queries preserve selected geometry and scratch lifetime under
+D5.5.1.
+
+Isomeet's 16px ratio icon made a nested flex button approximately 176px high,
+versus Chromium's 48px reduction. Height queries applied preferred/natural ratios
+before resolving the child's declared width, using the parent's free space.
+The existing width-expression/min/max resolution now runs before ratio and
+replaced-size contributions, after the definite-height fast return. Assigned
+used widths retain their existing priority.
+
+The non-square control exposed two connected SVG paths: a percentage geometry
+height could be replaced by cached used height or a natural-ratio fallback,
+and a ratio-transferred parent height was still treated as cyclic. The shared
+SVG percentage-axis helper now consumes a definite height before those
+fallbacks, retains automatic sizing for an indefinite basis, and preserves CSS
+precedence and existing box/min/max handling. Cyclic fallback applies only when
+no definite child-height basis exists. No structure or public ABI change.
+
+Qualification: seven new exported PNG controls improve from 3/7 to 7/7; all
+seven independently pass Chromium. Seven existing SVG percentage controls also
+pass. The first 6/7 renderer was held for the non-square failure. Four selected
+native cases pass, including live 16/24/16px mutations, a 2:1 ratio, alternate
+query widths and geometry preservation, plus the existing width-expression,
+computed-inheritance and SVG percentage regressions. Integer lint checks 89
+casts with zero unmarked. The saved Isomeet page restores the launch badge,
+normal form control size and hero placement. Evidence: Lambda's
+`temp/online-visual-round32/`; tracked controls are
+`test/online/nested_ratio_height_fixtures.cjs` in Lambda. Broad layout/paint/JS/
+Input baselines were deferred under the user's focused-verification instruction.
+
+
+<a id="ri-079"></a>
+
+### RI-079 — Unmatched stylesheet icons exhaust resource discovery
+
+**Status:** FIXED for selected-cascade discovery, 2026-11-14.
+**Lambda task blocker:** no after repair. Native ownership is D9.1.1v4 /
+D9.1.3v2; temporary substitution values retain D5.5.1 lifetimes.
+
+Conductor's 11 stylesheets contain over 700 URL declarations, mostly icon
+classes absent from its 1,124-element document (36 icon classes). The loader
+prefetched every raw stylesheet declaration before cascade, including unmatched
+and inactive rules. It reached the unchanged 500-resource limit before the
+hero, logo images and script consumers loaded. Storetasker also has recorded
+capacity rejections among the remaining high-severity pages.
+
+Discovery now reads selected element and pseudo-element style trees after
+cascade publication, including live selector/CSSOM changes. It retains source-file
+URL bases and the existing variable, fallback, inline-edit and image-set paths.
+The URL walker is read-only and substitution scratch dies after discovery.
+Premature raw-sheet discovery is removed from stylesheet completion and loader
+setup. Resource limits, network waits and D10.1.7 snapshot clocks are unchanged;
+Input LI-036 separately preserves reuse of existing resources at capacity.
+
+Qualification: five new loopback HTTP PNG/request controls improve from 0/5 to
+5/5, covering 600 unmatched icon rules, inactive conditions, stylesheet-relative
+variables, pseudo backgrounds and live selector activation. Five existing inline
+CSS image controls also pass, including video and style mutations; three input
+capacity/cache lifetime units pass. Focused integer lint checks 89 casts with zero
+unmarked. The exact saved Conductor source now displays the large hero and brand
+marks, without a capacity warning. Evidence: Lambda's
+`temp/online-visual-round31/`; tracked integration controls are
+`test/online/render_css_resource_discovery.test.cjs` in Lambda.
+
+This remains speculative discovery of URLs in selected cascade declarations;
+visibility pruning and exhaustive resource selection are not claimed. Full
+layout/paint/JS/Input baselines and catalog recapture were deferred.
+
+
+<a id="ri-078"></a>
+
+### RI-078 — Absolute percentage math keeps a provisional containing height
+
+**Status:** FIXED for late preferred-height resolution, 2026-11-14.
+**Lambda task blocker:** no after repair. Native ownership is D9.1.1v4 /
+D9.1.3v2; scalar declaration queries preserve D5.5.1 owner/scratch lifetime.
+
+Statamic's script-free hero contains an absolute image with
+`height:calc(100% + 3rem)`. It retained 48px after its auto-height parent reached
+952px, omitting the landscape. The late absolute-child pass revisited only the
+bare percentage scalar, ignoring calculated percentage dependencies.
+
+The existing grid percentage-preferred-size resolver is now shared through
+`layout_resolve_percentage_preferred_size`. It classifies after substitution,
+borrows the final containing axis through `LayoutContainingBlockScope`, resolves
+with the child's own units and variables, and returns only a scalar. Grid keeps
+its existing behavior; the absolute-height pass reuses the helper and its
+existing min/max, box-size and ratio handling. Fixed/automatic heights are not
+replaced by percentage guesses. No public structure layout changes.
+
+Qualification: new native `AbsolutePercentageMathUsesTheFinalContainingHeight`
+checks images, blocks, own font/variables, a maximum, fixed and bare-percentage
+controls through live 160/240/160px parent changes, plus query/geometry isolation.
+It and three existing grid/absolute sizing cases pass. Six PNG controls improve
+from 2/6 to 6/6 and independently pass Chromium. The focused integer-cast lint
+checks 89 casts with zero unmarked. Evidence: Lambda's
+`temp/online-visual-round30/`; tracked reductions are
+`test/online/abs_percentage_height_fixtures.cjs` in Lambda. Full layout/paint
+baselines and catalog captures were deferred under the user's focused budget.
+
+
+<a id="ri-077"></a>
+
+### RI-077 — SVG inherited reads repeat shared ancestor declaration queries
+
+**Status:** FIXED for the selected cache path, 2026-11-14. Native ownership
+**D9.1.1v4 / D9.1.3v2**, cache-pool lifetime **D5.5.1**, unchanged snapshot frame
+**D10.1.7**. This is a partial cost repair; Dock's capture blocker is not cleared.
+
+A release CPU sample of Dock localizes repeated full-sheet declaration queries
+inside SVG transition baselines. The existing per-document computed-property
+cache retained the requesting child's result, but inheritance walked common
+ancestors again for each sibling. The resolver now stops at an existing parent
+snapshot and fills the visited ancestry with that same computed value. The
+walk stays iterative, and direct hits allocate nothing. Existing document,
+selector-state, stylesheet/query, font, layout, animation-generation, base-value
+and inheritance guards are retained; scoped use-instance and incomplete SMIL
+reads remain uncached. Values stay owned by the existing SVG cache pool, with
+no borrowed declaration payload or native/public structure-layout addition.
+
+The new native regression covers sibling inheritance, variables, source owners,
+initial/unset, explicit inheritance of non-inherited opacity and ancestor class
+and attribute changes. It and the neighboring SVG percentage case pass. Five
+existing SVG inheritance, animation-base/retargeting, text-hit invalidation,
+paint invalidation and cache-teardown tests pass. The same saved script-free
+Dock page produces a byte-identical PNG before/after. Single release controls
+observe 9.83 CPU seconds before and 9.12 after; these are limited observations,
+not a stable performance guarantee or page-wide improvement claim.
+
+Matched live release profiles both reach the unchanged 150-second cutoff:
+23 completed layouts before and 25 after. Repeated script-turn full recascade
+and layout remains the dominating capture cost (RI-031). No canonical page
+capture or reference is replaced from these diagnostic profiles. No URL, site
+condition, admission, time/grace budget, clock or broad verification gate changes.
+Only the two native and five existing SVG cases were selected; full baseline
+and catalog capture were deferred under the user's instruction.
+
+Evidence: Lambda `temp/online-visual-round29/`, `qualified-source-sha256.json`,
+`native-final.log`, `rdt-focused.log`, `dock-{static-profile,static-final,live-profile,live-final}.json`,
+identical static PNGs and `dock-live.symbolicated.txt`. The linker-map image's
+text-section hash was checked equal to the sampled pre-change release image
+before resolving its addresses. Final release pin SHA256
+`c82dd7955d760cbb7e101bc062f9d049c4164bd3e2e2a7fe51fc3dbae3412f49`.
+
+
+
+<a id="ri-076"></a>
+
+### RI-076 — SVG percentage viewport attributes inflate intrinsic height
+
+**Status:** FIXED for the selected height-at-width path, 2026-11-14. Native
+ownership **D9.1.1v4 / D9.1.3v2**, measurement rollback **D5.5.1** and snapshot
+frame **D10.1.7**. User authorization permits sibling changes.
+
+Contentsquare's saved script-free blog gives the lead card 757.65px native
+height versus Chromium 501.61px. The media's final dimensions agree; removing
+the tiny Read More SVG removes 256px of excess card height. A network-free
+reduction gives a 10×10 final SVG but a 300px intrinsic contribution, inflating
+its card to 761.65px versus Chromium 481.64px. Equivalent CSS percentages work.
+
+SVG percentage geometry attributes were applied only in final viewport layout.
+Intrinsic width queried them as unresolved and selected the 300px default;
+the containing height query reused that width even with a definite narrow
+containing block. The existing percentage-attribute getter is now shared with
+final layout. Height-at-width queries resolve the attribute against their own
+containing width, apply existing width constraints and transfer the ratio.
+Authored CSS precedence and cyclic/indefinite width handling are preserved.
+The child containing-block scope also retains definite zero instead of silently
+borrowing the outer width. No authored style, site condition, admission limit,
+resource grace or capture time is changed.
+
+Seven PNG controls improve from 2/7 to 7/7; all independently pass Chromium.
+They cover partial/oversized percentages, nonsquare ratios, definite zero,
+min/max clamps and CSS precedence. The first candidate's 6/7 result was held
+until zero propagation was repaired. The native regression additionally checks
+alternate-width queries preserve selected geometry and a live width-attribute
+edit changes the card's size. All 98 selected layout/cache unit cases pass;
+integer lint reports 89 casts and zero unmarked. Same saved full-page geometry
+now gives a 502.05px card, agreeing within 0.5px with Chromium. Small text/baseline
+residue and cookie/interactive differences are outside this bounded repair.
+
+A public read-only helper was added; runtime/native structure layouts and Node
+state ABI are unchanged. Broader layout/paint baselines and catalog recapture
+are deferred under the user's focused-verification instruction. Canonical page
+qualification is recorded in Lambda's round28 online comparison audit/report.
+Evidence: Lambda `temp/online-visual-round28/`, original/repaired card captures,
+`svg-percentage-{before,final}.log`, `svg-percentage-browser.json`,
+`native-final.log`, `lint.log`; native
+`DynamicLayoutTest.SvgPercentageViewportDimensionsDoNotInflateIntrinsicRows` and
+Lambda `test/online/render_svg_percentage_intrinsics.test.cjs`.
+
+
+
+<a id="ri-075"></a>
+
+### RI-075 — Canvas general matrix operations are unavailable to the DOM host
+
+**Status:** FIXED, 2026-11-14. Native provider **D9.5.6**, ownership
+**D9.1.1v4 / D9.1.3v2**, synchronous matrix borrow **D5.5.1**. The selected
+Origin callback failure is cleared; page-wide hero parity remains unresolved.
+
+Origin's DOMContentLoaded particle initializer throws at `context.setTransform`.
+An unchanged extracted local script reproduces this exactly. Canvas already
+retains a CTM and supports scale/rotate/translate, but has no general set/compose
+provider operation and the DOM bindings publish none of these matrix methods.
+The native provider now accepts six affine coefficients and set/compose mode.
+Existing matrix application is shared with scale/rotate/translate; the setter
+preserves clip, path and other drawing state. Runtime bindings supply transform,
+setTransform (six numbers or DOMMatrix2DInit aliases/defaults) and resetTransform.
+Receiver, arity, conversion, alias and nonfinite checks run before native state
+changes. No site condition, alternate source, animation time or budget changes.
+
+All 10 new PNG controls fail before and pass after; 10 independent Chromium
+controls agree. They cover composition/order, off-diagonal coefficients,
+replacement, reset, clip/style preservation, dictionary/error behavior,
+save/restore, resize and actual load-callback initialization. Existing Canvas
+context and drawImage goldens pass; the rebuilt DOM graphics-provider contract
+case passes and layout integer lint reports zero unmarked casts. The saved
+Origin page callback completes after repair. Other visibility/Worker gaps remain.
+The provider table gains an operation; affected providers/clients are rebuilt.
+Runtime/DocState layout and Node state ABI are unchanged. No playback, WebGL,
+getTransform or complete Canvas conformance claim is made.
+
+Evidence: Lambda `temp/online-visual-round27/`, new
+`test/online/canvas_transform_fixtures.cjs` / `render_canvas_transform.test.cjs`,
+`canvas-before.log`, `canvas-after.log`, `canvas-browser.json`,
+`canvas-app*-output.log`, `origin-*-output.log` and `provider-test.log`.
+The selected matrix contracts follow HTML Canvas transformations and Geometry
+Interfaces DOMMatrix2DInit validation; no Lambda formal ruling is changed.
+
+<a id="ri-070"></a>
+
+### RI-070 — Inherited percentage width retains the parent's used width
+
+**Status:** FIXED, 2026-11-14. Native ownership **D9.1.1v4 / D9.1.3v2**,
+computed-value lifetime **D5.5.1**. No full online page is attributed to this
+adjacent defect without a fresh page-specific comparison.
+
+`resolve_css_axis_size` copied the parent's mutable given size for `inherit`,
+losing percentages, keywords and the difference between a preferred size and
+its clamped used size. A 600px card with 20px padding gave its width-inheriting
+child 600px instead of 560px; the image-bearing reduction could enlarge the
+card to 640px. The resolver now follows the parent's winning physical/logical
+size declaration and inheritance chain. Existing variable and owner-context
+helpers substitute the parent's value; lengths are normalized in the parent's
+font context, percentages remain for the child's containing box, and the
+existing axis resolver consumes the temporary owned value before it retires.
+No persistent field, API or native layout structure is added.
+
+One focused native regression fails before and passes after. Seven width cases
+cover percentages, parent max-width clamping, auto, em, percentage calc with
+different parent/child fonts and variables. A percentage-sized image and live
+style edits are included. Height and grandchild inheritance additionally check
+percentage and calc values. The neighboring min-width regression also passes.
+Broader verification is deferred under the user's focused-check instruction.
+
+Evidence: Lambda `temp/online-visual-round26/inherit-before.log`,
+`inherit-after.log`, `inherit-controls.log`; native
+`DynamicLayoutTest.InheritedAxisSizesKeepComputedPercentagesAndLengths`.
+The original image-bearing reduction remains in Lambda
+`temp/online-visual-round24/width-inherit-before.html`.
+
+<a id="ri-074"></a>
+
+### RI-074 — A min-content minimum incorrectly caps the preferred width
+
+**Status:** FIXED, 2026-11-14. Native ownership **D9.1.1v4 / D9.1.3v2**,
+geometry ownership **D5.5.1**. The selected sizing blocker is cleared; Python
+page-wide comparison remains unresolved.
+
+`measure_element_intrinsic_widths` set max-content equal to min-content for
+`min-width:min-content`. A minimum is not a cap on preferred width. This also
+breaks fieldsets, whose UA minimum is min-content. Python.org's search fieldset
+loses the combined width of its inline controls and wraps them vertically.
+A reduced 30px span + 220px input + 50px button becomes 220x120 native versus
+300x40 Chromium; replacing fieldset with an ordinary block without that minimum
+already gives 300x40. The repair removes the incorrect min-width cap while
+preserving max-width:min-content and min-width:max-content behavior.
+
+One focused native regression fails before and passes after. It covers fieldset
+and ordinary block wrappers, zero/min-content/max-content live transitions,
+a definite preferred width and a max-width:min-content control. On identical
+saved Python HTML, form width improves from 239.4px to 303.381px and height from
+114.6px to 98.6px; Chromium is 348.859px by 57.375px. Separate icon visibility
+and slider initial-frame differences remain; full-page clearance is not claimed.
+Aggregate verification is deferred under the user's focused-check instruction.
+No capture clocks, admission rules, references or thresholds change.
+
+Evidence: Lambda `temp/online-visual-round26/minwidth-before.log`,
+`minwidth-after.log`, `fieldset-before*`, `fieldset-browser*`,
+`python-before*` / `python-after*`; native
+`DynamicLayoutTest.MinContentMinimumPreservesPreferredInlineWidth`.
+
 <a id="ri-073"></a>
 
 ### RI-073 — Cyclic percentage invalidation discards replaced media height

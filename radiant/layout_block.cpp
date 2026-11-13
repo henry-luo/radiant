@@ -5078,18 +5078,10 @@ DomDocument* layout_ensure_iframe_document(LayoutContext* lycon, ViewBlock* bloc
 void layout_viewport_overflow(DomDocument* doc, CssEnum* overflow_x, CssEnum* overflow_y) {
     *overflow_x = CSS_VALUE_AUTO;
     *overflow_y = CSS_VALUE_AUTO;
-    ViewBlock* root = doc && doc->view_tree ? lam::view_as_block(doc->view_tree->root) : nullptr;
-    if (!root) return;
+    ViewBlock* source = view_viewport_overflow_source(doc);
+    if (!source) return;
     CssEnum x = CSS_VALUE_VISIBLE, y = CSS_VALUE_VISIBLE;
-    css_prop_compute_declared_overflow(root->as_element(), &x, &y);
-    if (x == CSS_VALUE_VISIBLE && y == CSS_VALUE_VISIBLE) {
-        for (View* child = root->first_child; child; child = child->next_sibling) {
-            ViewBlock* body = lam::view_as_block(child);
-            if (!body || body->tag() != MARKUP_NAME_BODY) continue;
-            css_prop_compute_declared_overflow(body->as_element(), &x, &y);
-            break;
-        }
-    }
+    css_prop_compute_declared_overflow(source->as_element(), &x, &y);
     *overflow_x = x == CSS_VALUE_VISIBLE ? CSS_VALUE_AUTO : x;
     *overflow_y = y == CSS_VALUE_VISIBLE ? CSS_VALUE_AUTO : y;
 }
@@ -7935,15 +7927,9 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
             DomElement* svg_element = block->as_element();
             for (LayoutAxis axis : layout_axes()) {
                 bool horizontal = layout_axis_is_horizontal(axis);
-                CssDeclaration* declaration =
-                    layout_specified_physical_size_declaration(svg_element, horizontal);
-                const char* attribute = svg_animation_attribute(svg_element, horizontal ? "width" : "height");
-                if (!declaration && attribute && strchr(attribute, '%')) {
-                    float percent = (float)atof(attribute);
-                    if (percent >= 0.0f) {
-                        layout_store_percentage_axis(lycon, block, percent, horizontal);
-                    }
-                }
+                float percent = 0.0f;
+                if (layout_svg_percentage_attribute(svg_element, horizontal, &percent))
+                    layout_store_percentage_axis(lycon, block, percent, horizontal);
             }
         }
         if (block->blk && pa_block) {

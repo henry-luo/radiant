@@ -1789,13 +1789,13 @@ static void layout_apply_flex_declared_keyword(LayoutFlexStyleInfo* info,
     }
 }
 
-static bool layout_flex_declared_length(LayoutContext* lycon, StyleTree* style,
+static bool layout_flex_declared_length(LayoutContext* lycon, DomElement* element,
                                         CssPropertyCode property, float* out) {
-    if (!lycon || !style || !out) return false;
-    CssDeclaration* declaration = style_tree_get_declaration(style, property);
-    if (!declaration || !declaration->value ||
-        declaration->value->type != CSS_VALUE_TYPE_LENGTH) return false;
-    float value = resolve_length_value(lycon, property, declaration->value);
+    if (!lycon || !element || !element->specified_style || !out) return false;
+    CssDeclaration* declaration = style_tree_get_declaration(element->specified_style, property);
+    if (!declaration || !declaration->value) return false;
+    // early intrinsic queries need substituted gaps and the declaring element's font before used flex styles exist.
+    float value = resolve_element_definite_length_value(lycon, element, property, declaration->value);
     if (!isfinite(value)) return false;
     *out = value;
     return true;
@@ -1831,15 +1831,15 @@ LayoutFlexStyleInfo layout_flex_declared_style_info(
     layout_apply_flex_declared_keyword(&info, keyword);
 
     float gap = 0.0f;
-    if (layout_flex_declared_length(lycon, style, CSS_PROPERTY_GAP, &gap)) {
+    if (layout_flex_declared_length(lycon, element, CSS_PROPERTY_GAP, &gap)) {
         info.row_gap = info.column_gap = gap;
     }
     if (layout_flex_declared_length(
-            lycon, style, CSS_PROPERTY_ROW_GAP, &gap)) {
+            lycon, element, CSS_PROPERTY_ROW_GAP, &gap)) {
         info.row_gap = gap;
     }
     if (layout_flex_declared_length(
-            lycon, style, CSS_PROPERTY_COLUMN_GAP, &gap)) {
+            lycon, element, CSS_PROPERTY_COLUMN_GAP, &gap)) {
         info.column_gap = gap;
     }
     return info;
@@ -5873,8 +5873,9 @@ void layout_html_root(LayoutContext* lycon, DomNode* elmt) {
             root_child = root_child->next();
         }
         if (has_root_content_extent && all_root_children_self_collapsing) {
-            html->height = collapsed_root_content_extent;
-            html->content_height = collapsed_root_content_extent;
+            // empty-child margin collapse must retain the root's already-resolved sizing bounds.
+            html->height = layout_apply_min_max_axis(html, collapsed_root_content_extent, false, true);
+            html->content_height = max(html->height, collapsed_root_content_extent);
         } else {
             if (root_content_extent > html->height) html->height = root_content_extent;
             if (root_content_extent > html->content_height) html->content_height = root_content_extent;

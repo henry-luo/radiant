@@ -390,6 +390,18 @@ bool layout_replaced_intrinsic_axis_size(LayoutContext* lycon, ViewBlock* block,
     return *out_size > 0.0f;
 }
 
+bool layout_svg_percentage_attribute(DomElement* element, bool horizontal, float* percentage) {
+    if (!element || !percentage || !layout_is_svg_viewport(element->tag()) ||
+        layout_specified_physical_size_declaration(element, horizontal)) return false;
+    // geometry attributes remain fallbacks; authored CSS owns the axis.
+    const char* attribute = svg_animation_attribute(element, horizontal ? "width" : "height");
+    if (!attribute || !strchr(attribute, '%')) return false;
+    float value = (float)atof(attribute);
+    if (!isfinite(value) || value < 0.0f) return false;
+    *percentage = value;
+    return true;
+}
+
 ReplacedSvgIntrinsicSize layout_replaced_svg_intrinsic_size(DomElement* element,
                                                             float constrained_width) {
     ReplacedSvgIntrinsicSize result = {REPLACED_DEFAULT_WIDTH, REPLACED_DEFAULT_HEIGHT};

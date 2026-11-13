@@ -60,8 +60,8 @@ void radiant_discover_document_font_resources(DomDocument* doc);
 // remains deferred until the UiContext is available on the page thread.
 void radiant_prefetch_document_font_resources(DomDocument* doc);
 
-// Queue remote CSS declaration URL bytes after stylesheet parsing. These are
-// paint dependencies, so they must not compete with CSS or font transfers.
+// Queue remote URL bytes from the selected element/pseudo cascades. Run after
+// cascade publication so unmatched and inactive rules do not acquire resources.
 void radiant_prefetch_document_stylesheet_resources(DomDocument* doc);
 
 /**

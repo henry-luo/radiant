@@ -1124,11 +1124,36 @@ DomNode* svg_dom_style_parent(DomNode* node, const SvgDomStyleScope* scope) {
     return parent;
 }
 
+static SvgStyleProperty* svg_dom_cached_property(SvgStyleContext* query,
+    DomElement* element, const char* name, bool inherits) {
+    SvgStyleEntry* entry = svg_style_entry(query, dom_element_to_element(element));
+    bool base = css_animation_is_sampling_base();
+    uint64_t generation = svg_animation_source_generation(element->doc,
+        dom_element_to_element(element), element);
+    for (SvgStyleProperty* property = entry ? entry->computed_properties : nullptr;
+         property; property = property->next) {
+        if (property->inherits == inherits && property->base_value == base &&
+            property->animation_generation == generation && strcmp(property->name, name) == 0)
+            return property;
+    }
+    return nullptr;
+}
+
 static const char* svg_dom_resolve_property(SvgStyleContext* query, DomElement* element,
     const char* name, bool inherits, bool* from_css, DomElement** declaring_element,
-    const SvgDomStyleScope* scope) {
-    for (DomNode* node = element; query->matcher && node && node->is_element(); node = svg_dom_style_parent(node, scope)) {
+    const SvgDomStyleScope* scope, bool cache, DomElement** stopped_at) {
+    for (DomNode* node = element; query->matcher && node && node->is_element();
+         node = svg_dom_style_parent(node, scope)) {
         DomElement* current = node->as_element();
+        *stopped_at = current;
+        if (cache) {
+            SvgStyleProperty* property = svg_dom_cached_property(query, current, name, inherits);
+            if (property) {
+                *from_css = property->from_css;
+                *declaring_element = property->declaring_element;
+                return property->value;
+            }
+        }
         CssDeclaration declaration = {};
         bool selected = svg_select_property_declaration(query, current, name, &declaration, scope);
         const char* value = selected ? svg_resolve_property_declaration(query, current, name, &declaration, scope)
@@ -1149,13 +1174,59 @@ static const char* svg_dom_resolve_property(SvgStyleContext* query, DomElement* 
         }
         if (value && !inherit) {
             // animateTransform emits SVG transform syntax even when targeting the CSS property.
-            if (from_css) *from_css = selected && sample_from_css;
-            if (declaring_element) *declaring_element = current;
+            *from_css = selected && sample_from_css;
+            *declaring_element = current;
             return value;
         }
         if (!inherits && !inherit) break;
     }
     return nullptr;
+}
+
+static const char* svg_dom_query_property(SvgStyleContext* query, DomElement* element,
+    const char* name, bool inherits, bool* from_css, DomElement** declaring_element,
+    const SvgDomStyleScope* scope, bool cache) {
+    // base values stay distinct from animated paint; incomplete SMIL samples are never cached.
+    cache = cache && !svg_animation_is_sampling(element->doc);
+    if (cache) {
+        SvgStyleProperty* property = svg_dom_cached_property(query, element, name, inherits);
+        if (property) {
+            if (from_css) *from_css = property->from_css;
+            if (declaring_element) *declaring_element = property->declaring_element;
+            return property->value;
+        }
+    }
+    bool css = false;
+    DomElement* owner = nullptr;
+    DomElement* stopped_at = nullptr;
+    const char* value = svg_dom_resolve_property(query, element, name, inherits,
+        &css, &owner, scope, cache, &stopped_at);
+    const char* retained = cache && value ? pool_strdup(query->pool, value) : nullptr;
+    // reuse the parent's resolved value across siblings without adding C++ stack depth.
+    for (DomNode* node = element; cache && stopped_at && (!value || retained) &&
+         node && node->is_element(); node = svg_dom_style_parent(node, scope)) {
+        DomElement* current = node->as_element();
+        SvgStyleEntry* entry = svg_style_entry(query, dom_element_to_element(current));
+        if (entry && !svg_dom_cached_property(query, current, name, inherits)) {
+            SvgStyleProperty* property = (SvgStyleProperty*)pool_calloc(query->pool, sizeof(SvgStyleProperty));
+            if (!property) break;
+            property->name = pool_strdup(query->pool, name);
+            if (!property->name) break;
+            property->value = retained;
+            property->animation_generation = svg_animation_source_generation(current->doc,
+                dom_element_to_element(current), current);
+            property->inherits = inherits;
+            property->base_value = css_animation_is_sampling_base();
+            property->from_css = css;
+            property->declaring_element = owner;
+            property->next = entry->computed_properties;
+            entry->computed_properties = property;
+        }
+        if (current == stopped_at) break;
+    }
+    if (from_css) *from_css = css;
+    if (declaring_element) *declaring_element = owner;
+    return value;
 }
 
 const char* svg_get_dom_presentation_property(DomElement* element, const char* name,
@@ -1176,38 +1247,8 @@ const char* svg_get_dom_presentation_property(DomElement* element, const char* n
         query->matcher = selector_matcher_create(query->pool);
         if (query->matcher) state_configure_selector_matcher((DocState*)element->doc->state, query->matcher);
     }
-    // CSS base queries need a separate cache key so transition snapshots never
-    // read animated paint values or repeat the host cascade during measurement.
-    // SMIL sampling still bypasses caching until its sample is complete.
-    bool base_value = css_animation_is_sampling_base();
-    SvgStyleEntry* entry = shared && !svg_animation_is_sampling(element->doc)
-        ? svg_style_entry(query, dom_element_to_element(element)) : nullptr;
-    uint64_t generation = svg_animation_source_generation(element->doc, dom_element_to_element(element), element);
-    SvgStyleProperty* property = entry ? entry->computed_properties : nullptr;
-    while (property && (property->inherits != inherits || property->base_value != base_value ||
-        property->animation_generation != generation ||
-        strcmp(property->name, name) != 0)) property = property->next;
-    bool css = false;
-    DomElement* owner = nullptr;
-    const char* value = property ? property->value
-        : svg_dom_resolve_property(query, element, name, inherits, &css, &owner, scope);
-    if (!property && entry) {
-        property = (SvgStyleProperty*)pool_calloc(query->pool, sizeof(SvgStyleProperty));
-        if (property) {
-            property->name = pool_strdup(query->pool, name);
-            // animation samples are borrowed from a pool that can change between queries.
-            property->value = value ? pool_strdup(query->pool, value) : nullptr;
-            property->animation_generation = generation;
-            property->inherits = inherits;
-            property->base_value = base_value;
-            property->from_css = css;
-            property->declaring_element = owner;
-            property->next = entry->computed_properties;
-            entry->computed_properties = property;
-        }
-    }
-    if (from_css) *from_css = property ? property->from_css : css;
-    if (declaring_element) *declaring_element = property ? property->declaring_element : owner;
+    const char* value = svg_dom_query_property(query, element, name, inherits,
+        from_css, declaring_element, scope, shared != nullptr);
     bool found = value != nullptr;
     if (value) {
         if (owned_value) { *owned_value = mem_strdup(value, MEM_CAT_RENDER); found = *owned_value != nullptr; }
