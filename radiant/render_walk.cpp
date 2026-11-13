@@ -288,10 +288,10 @@ static double render_walk_block_paint_children(RenderPaintBlockDriver* ctx, View
             }
             radiant_stack_free_custom_layout_paint(&paint);
         } else {
-            render_walk_children(backend, state, block->first_child);
+            render_walk_children(backend, state, block->first_child, true);
         }
 
-        if (content_phase && block->position) {
+        if (content_phase) {
             render_walk_positioned_children(backend, state, block);
         }
         if (content_phase && !block->custom_layout_paint_prop()) {
@@ -544,7 +544,7 @@ void render_walk_negative_z_descendants(RenderBackend* backend, RenderWalkState*
     radiant_stack_visit_negative_z_descendants(block, false, &driver, render_walk_stacking_layer);
 }
 
-void render_walk_children(RenderBackend* backend, RenderWalkState* state, View* view) {
+void render_walk_children(RenderBackend* backend, RenderWalkState* state, View* view, bool defer_positioned) {
     unsigned phases = backend->ctx->paint_phase == RADIANT_PAINT_ALL ? radiant_stack_flow_phases(view) : 0;
     if (phases) {
         // CSS 2.2 E.2: float subtrees sit between block backgrounds and inline foreground.
@@ -552,7 +552,7 @@ void render_walk_children(RenderBackend* backend, RenderWalkState* state, View* 
             RadiantPaintPhase next = radiant_stack_paint_phase(index);
             if (!(phases & (1u << next))) continue;
             RadiantPaintPhaseScope phase(&backend->ctx->paint_phase, next);
-            render_walk_children(backend, state, view);
+            render_walk_children(backend, state, view, defer_positioned);
         }
         return;
     }
@@ -569,7 +569,8 @@ void render_walk_children(RenderBackend* backend, RenderWalkState* state, View* 
     }
     // CSS 2.1 Appendix E step 8: in-flow positioned siblings paint above the
     // others, in tree order; target_children hit-tests them in reverse.
-    if (!has_step8) return;
+    // block owners merge these siblings with their absolute chain in step 8.
+    if (!has_step8 || defer_positioned) return;
     for (View* child = view; child; child = child->next()) {
         if (render_walk_aborted(backend)) break;
         if (!radiant_stack_is_deferred_from_normal_flow(child) &&
@@ -588,24 +589,15 @@ void render_walk_positive_z_descendants(RenderBackend* backend, RenderWalkState*
 }
 
 void render_walk_positioned_children(RenderBackend* backend, RenderWalkState* state, ViewBlock* block) {
-    if (!backend || !state || !block || !block->position) return;
+    if (!backend || !state || !block) return;
     RadiantPaintPhaseScope phase(&backend->ctx->paint_phase, RADIANT_PAINT_ALL);
-
-    ArrayList* abs_children = radiant_stack_collect_positioned_children(
-        block, "[RAD_CAP_RENDER_ABS]");
-    if (!abs_children) return;
-    radiant_stack_sort_in_paint_order(abs_children);
-
-    for (int i = 0; i < abs_children->length; i++) {
+    ArrayList* views = radiant_stack_collect_positioned_children(block, "[RAD_CAP_RENDER_POSITIONED]");
+    if (!views) return;
+    radiant_stack_sort_in_paint_order(views);
+    for (int i = 0; i < views->length; i++) {
         if (render_walk_aborted(backend)) break;
-        ViewBlock* abs_child = (ViewBlock*)abs_children->data[i];
-        if (view_backface_is_hidden(abs_child, BACKFACE_SUBTREE)) continue;
-        if (backend->render_block) {
-            backend->render_block(backend->ctx, abs_child,
-                                  state->x, state->y, &state->font, state->color);
-        } else {
-            render_walk_block(backend, state, abs_child);
-        }
+        // relative inline boxes share this sequence without being cast to blocks.
+        render_walk_view(backend, state, (View*)views->data[i]);
     }
-    arraylist_free(abs_children);
+    arraylist_free(views);
 }

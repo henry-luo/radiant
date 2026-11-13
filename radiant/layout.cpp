@@ -3530,6 +3530,8 @@ void view_vertical_align(LayoutContext* lycon, View* view) {
                 ? margin.right : margin.left;
             block->y = lycon->block.advance_y + block_offset + margin_start;
         }
+        // line alignment must retain the offsets already applied by enclosing relative inlines.
+        block->y += layout_applied_inline_relative_y(view);
         // CSS 2.1 §9.4.3: Apply relative positioning to inline-blocks after vertical
         if (block->position && block->positionp()->position == CSS_VALUE_RELATIVE) {
             // vertical alignment resets Y, but repeated alignment retains the already shifted X.

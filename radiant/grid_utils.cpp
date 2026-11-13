@@ -519,8 +519,21 @@ IntrinsicSizes calculate_grid_item_intrinsic_sizes(LayoutContext* lycon, ViewBlo
     } else {
         // a block-axis query wraps at the solved column area; an unsolved or
         // orthogonal area uses the item's intrinsic width, never a guessed width.
+        bool solved_width = is_row_axis && column_span >= 0.0f && grid &&
+            layout_grid_track_axis(grid, true) == LAYOUT_AXIS_X;
+        bool has_parent_basis = grid && layout_grid_track_axis(grid, true) == LAYOUT_AXIS_X;
+        LayoutContainingBlockScope parent_scope(lycon, LAYOUT_AXIS_X,
+            solved_width ? column_span : has_parent_basis ? grid->content_width : 0.0f,
+            solved_width || has_parent_basis);
         float width = -1.0f;
-        if (layout_axis_has_given_size(item, true) && !layout_css_size_is_automatic(item, true)) {
+        if (solved_width) {
+            // provisional percentages belong to the whole grid; row queries
+            // must use the same solved area and preferred size as placement.
+            float border_width = layout_grid_item_border_box_size(
+                lycon, item, column_span, true, false);
+            border_width = layout_apply_min_max_border_box_axis(item, border_width, true);
+            width = layout_content_size_from_border_box(item, border_width, true);
+        } else if (layout_axis_has_given_size(item, true) && !layout_css_size_is_automatic(item, true)) {
             width = layout_content_size_if_border_box(item, item->block()->given_width, true);
         } else if (is_row_axis && column_span >= 0.0f) {
             width = layout_content_size_from_border_box(item, column_span, true);
@@ -528,10 +541,8 @@ IntrinsicSizes calculate_grid_item_intrinsic_sizes(LayoutContext* lycon, ViewBlo
             IntrinsicSizes widths = layout_measure_intrinsic_widths(lycon, item);
             width = layout_content_size_from_border_box(item, widths.max_content, true);
         }
-        bool has_parent_basis = grid && layout_grid_track_axis(grid, true) == LAYOUT_AXIS_X;
-        LayoutContainingBlockScope parent_scope(lycon, LAYOUT_AXIS_X,
-            has_parent_basis ? grid->content_width : 0.0f, has_parent_basis);
-        float height = calculate_max_content_height(lycon, item, max(width, 0.0f));
+        float height = calculate_max_content_height(
+            lycon, item, max(width, 0.0f), false, solved_width);
         sizes = {height, height};
     }
     // non-replaced auto items can transfer the solved inline area through an authored ratio.

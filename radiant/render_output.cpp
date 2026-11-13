@@ -2144,7 +2144,7 @@ static int render_output_render_raster_target(UiContext* uicon, ViewTree* view_t
         render_output_note_compositor(outcome);
     }
     else if (compositing && !cuts) render_output_note_compositor("CPU (no eligible native viewport)");
-    else if (video) render_output_note_compositor("CPU (video blits after replay)");
+    else if (video) render_output_note_compositor("CPU (ordered video snapshots)");
     else if (cuts && !kept && dropped) render_output_note_compositor(dropped);
     rdcon.compositor = nullptr;
     if (!region_replayed && !composited)
@@ -2165,10 +2165,8 @@ static int render_output_render_raster_target(UiContext* uicon, ViewTree* view_t
     }
 
     DocState* rstate = uicon->document ? uicon->document->state : nullptr;
-    render_video_frames(replay_recording.content().has_video ? &display_list : nullptr,
-        rdcon.ui_context->surface, rstate, rdcon.ui_context);
-    // a selective frame, paint-only or dirty-region, cleared and replayed only its damage; video
-    // blits after replay and a full repaint write anywhere (Radiant_Design_GPU_Compositor C5)
+    doc_state_clear_video_frame_pending(rstate);
+    // selective non-video frames upload their replay damage; media still selects a full repaint.
     if (selective && !target->output_file && !replay_recording.content().has_video) {
         float s = rdcon.raster_scale > 0.0f ? rdcon.raster_scale : 1.0f;
         ui_context_add_present_damage(uicon, {rdcon.dirty_union.left * s, rdcon.dirty_union.top * s,

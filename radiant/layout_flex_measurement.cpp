@@ -227,10 +227,10 @@ static bool flex_break_has_block_siblings(ViewElement* item) {
 }
 
 float flex_measure_intrinsic_max_height(LayoutContext* lycon, DomNode* node, float width,
-                                        float percentage_containing_width) {
+                                        float percentage_containing_width, bool width_is_used_size) {
     if (!lycon || !node) return 0.0f;
     ViewBlock* block = node->is_element() ? lam::view_as_block(node->as_element()) : NULL;
-    if (!block) return calculate_max_content_height(lycon, node, width);
+    if (!block) return calculate_max_content_height(lycon, node, width, false, width_is_used_size);
 
     // The intrinsic query re-resolves style, so percentages must retain the
     // flex container's definite cross-size instead of the outer block width.
@@ -238,7 +238,7 @@ float flex_measure_intrinsic_max_height(LayoutContext* lycon, DomNode* node, flo
         lycon, LAYOUT_AXIS_X, percentage_containing_width,
         percentage_containing_width > 0.0f);
     // a definite wrapping width makes a second subtree width measurement unnecessary.
-    return calculate_max_content_height(lycon, node, width);
+    return calculate_max_content_height(lycon, node, width, false, width_is_used_size);
 }
 
 struct FlexChildExplicitSizes {
@@ -1215,14 +1215,6 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
                         bool child_width_is_percentage = layout_axis_size_is_percentage(
                             c->as_element(), true) ||
                             layout_axis_size_is_percentage(lam::view_as_block(child_view), true);
-                        float child_width_percentage = NAN;
-                        CssDeclaration* child_width_decl = c->as_element()
-                            ? dom_element_get_specified_value(c->as_element(), CSS_PROPERTY_WIDTH)
-                            : nullptr;
-                        if (child_width_decl && child_width_decl->value &&
-                            child_width_decl->value->type == CSS_VALUE_TYPE_PERCENTAGE) {
-                            child_width_percentage = child_width_decl->value->data.percentage.value;
-                        }
                         // Get child width - explicit (from View or DOM) or intrinsic
                         if (child_explicit.has_width) {
                             // Explicit width is both min and max
@@ -1244,10 +1236,7 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
                                 lycon, child_view, /*content_only=*/child_width_is_percentage);
                             child_min_width = child_sizes.min_content;
                             child_max_width = child_sizes.max_content;
-                            if (!isnan(child_width_percentage)) {
-                                child_min_width = child_max_width *
-                                    child_width_percentage / 100.0f;
-                            }
+                            // cyclic preferred percentages behave as auto for intrinsic contributions.
                         } else if (layout_form_control_has_native_intrinsic_size(child_view)) {
                             child_min_width = child_max_width = child_view->form->intrinsic_width;
                         }

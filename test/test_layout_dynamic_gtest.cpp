@@ -871,6 +871,55 @@ TEST_F(DynamicLayoutTest, WhitespaceCacheTracksOverridesAndRetainedStyleChanges)
     EXPECT_FLOAT_EQ(element("ua")->height, 20.0f);
 }
 
+TEST_F(DynamicLayoutTest, VideoCyclicPercentageHeightRetainsNaturalAndFallbackSize) {
+    ASSERT_EQ(write_text_file_atomic("temp/ledger-cyclic-video.svg",
+        "<svg xmlns='http://www.w3.org/2000/svg' width='200' height='100'>"
+        "<rect width='200' height='100' fill='red'/></svg>"), 0);
+    for (bool has_poster : {true, false}) {
+        SCOPED_TRACE(has_poster);
+        if (document) { ui.document = nullptr; free_document(document); document = nullptr; }
+        StrBuf* source = strbuf_create("<!doctype html><style>body{margin:0}"
+            "#frame{width:320px}video{display:block;width:100%;height:100%}</style>"
+            "<div id='frame'><video id='media'");
+        if (has_poster) strbuf_append_str(source, " poster='ledger-cyclic-video.svg'");
+        strbuf_append_str(source, "></video></div>");
+        load(source->str);
+        strbuf_free(source);
+        ViewBlock* media = lam::view_require_block(static_cast<View*>(element("media")));
+        ReplacedIntrinsicFacts facts = layout_replaced_intrinsic_facts(nullptr, media);
+        EXPECT_EQ(facts.has_natural_aspect_ratio, has_poster);
+        if (has_poster) EXPECT_FLOAT_EQ(facts.natural_aspect_ratio, 2.0f);
+        float automatic_height = has_poster ? 160.0f : 150.0f;
+        struct Case { const char* parent_style; const char* media_style; float height; };
+        const Case cases[] = {
+            {"width:320px", "", automatic_height},
+            {"width:320px;height:240px", "", 240.0f},
+            {"width:320px;height:0px", "", 0.0f},
+            {"width:320px", "height:50%", automatic_height},
+            {"width:320px;height:200px", "height:50%", 100.0f},
+            {"width:320px", "", automatic_height}
+        };
+        for (const Case& entry : cases) {
+            SCOPED_TRACE(entry.parent_style);
+            SCOPED_TRACE(entry.media_style);
+            ASSERT_TRUE(element("frame")->set_attribute("style", entry.parent_style));
+            ASSERT_TRUE(element("media")->set_attribute("style", entry.media_style));
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, false);
+            EXPECT_NEAR(media->width, 320.0f, 0.01f);
+            EXPECT_NEAR(media->height, entry.height, 0.01f);
+        }
+        if (has_poster) {
+            ASSERT_TRUE(element("media")->set_attribute("style",
+                "box-sizing:border-box;padding:10px;border:2px solid black"));
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, false);
+            EXPECT_NEAR(media->width, 320.0f, 0.01f);
+            EXPECT_NEAR(media->height, 172.0f, 0.01f);
+        }
+    }
+}
+
 TEST_F(DynamicLayoutTest, VideoPosterPaintsWithoutSourceAndSurvivesReplacement) {
     ASSERT_EQ(write_text_file_atomic("temp/ledger-impl-poster.svg",
         "<svg xmlns='http://www.w3.org/2000/svg' width='100' height='50'>"
@@ -1541,6 +1590,56 @@ TEST_F(DynamicLayoutTest, FlexSvgDimensionHintsPreserveIndependentCrossSize) {
     }
 }
 
+TEST_F(DynamicLayoutTest, InlineAtomicAlignmentPreservesRelativeAncestors) {
+    load("<!doctype html><style>body{margin:0}section{font-size:0;line-height:0;width:600px;height:400px}"
+         "span{position:relative;left:40px;top:40px}#inner{left:10px;top:10px}"
+         "#marker{display:inline-block;vertical-align:top;width:100px;height:100px;background:lime}"
+         "</style><section><span><span id='inner'><i id='marker'></i></span></span></section>");
+    const char* styles[] = {"", "position:relative;left:5px;top:5px", "", "position:relative;left:5px;top:5px"};
+    for (int index = 0; index < 4; index++) {
+        SCOPED_TRACE(index);
+        ASSERT_TRUE(element("marker")->set_attribute("style", styles[index]));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        float offset = index % 2 ? 55.0f : 50.0f;
+        EXPECT_NEAR(element("marker")->x, offset, 0.01f);
+        EXPECT_NEAR(element("marker")->y, offset, 0.01f);
+    }
+}
+
+TEST_F(DynamicLayoutTest, ZeroPositionedSiblingsSharePaintAndHitOrder) {
+    load("<!doctype html><style>body{margin:0}#hero{position:relative;width:600px;height:400px}"
+         "#background{position:absolute;inset:0;background:navy}"
+         "#foreground{position:relative;left:40px;top:40px;width:100px;height:100px;background:lime}"
+         "</style><section id='hero'><div id='background'></div><div id='foreground'></div></section>");
+    const char* backgrounds[] = {"", "z-index:0", "z-index:1", "z-index:-1"};
+    for (int index = 0; index < 4; index++) {
+        SCOPED_TRACE(backgrounds[index]);
+        ASSERT_TRUE(element("background")->set_attribute("style", backgrounds[index]));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        render_html_doc(&ui, document->view_tree, "temp/ledger-positioned-order.png");
+        ASSERT_FALSE(ui.render_failed);
+        int width, height, channels;
+        unsigned char* pixels = image_load("temp/ledger-positioned-order.png", &width, &height, &channels, 4);
+        ASSERT_NE(pixels, nullptr);
+        ASSERT_GT(width, 60); ASSERT_GT(height, 60);
+        const unsigned char* pixel = pixels + (60 * width + 60) * 4;
+        EXPECT_EQ(pixel[0], 0);
+        EXPECT_EQ(pixel[1], index == 2 ? 0 : 255);
+        EXPECT_EQ(pixel[2], index == 2 ? 128 : 0);
+        image_free(pixels);
+        EventContext context = {};
+        context.ui_context = &ui;
+        context.target_document = document;
+        context.event.type = RDT_EVENT_MOUSE_MOVE;
+        context.event.mouse_position.x = context.viewport_pointer_x = 60.0f;
+        context.event.mouse_position.y = context.viewport_pointer_y = 60.0f;
+        target_html_doc(&context, document->view_tree);
+        EXPECT_EQ(context.target, element(index == 2 ? "background" : "foreground"));
+    }
+}
+
 TEST_F(DynamicLayoutTest, PropagatedBodyBackgroundPrecedesNegativeStackingLayers) {
     const char* backgrounds[] = {"body{background:white}",
         "body{background:linear-gradient(white,blue)}", "html{background:lime}body{background:white}"};
@@ -1611,6 +1710,187 @@ TEST_F(DynamicLayoutTest, NestedColumnIntrinsicHeightIncludesMainAxisGaps) {
         EXPECT_NEAR(element("page")->height, 40.0f + 736.0f + gap + 6000.0f, 0.1f);
         EXPECT_NEAR(element("main")->height, element("page")->height, 0.1f);
     }
+}
+
+TEST_F(DynamicLayoutTest, NestedColumnIntrinsicHeightRetainsInlineForcedBreaks) {
+    load("<!doctype html><style>body{margin:0;font:20px/24px monospace}"
+         "*{box-sizing:border-box}#hero{display:flex;align-items:flex-end;width:600px;"
+         "height:360px;padding:20px}#row{display:flex;align-items:flex-end;width:560px}"
+         "#column,#group,#title{display:flex;flex-direction:column;flex:none;height:min-content}"
+         "#column{width:240px;gap:40px}#group{width:100%;gap:24px}#wrap{display:contents}"
+         "#spacer{height:42px;flex:none}#title{width:100%}h1{margin:0;font:30px/36px monospace}"
+         "p{margin:0;font:12px/24px monospace}#button{width:80px;height:48px;flex:none}</style>"
+         "<div id='hero'><div id='row'><div id='column'><div id='group'><div id='spacer'></div>"
+         "<div id='wrap'><div id='title'><h1 id='heading'><span>AAAA AAAA AAAA AAAA</span>"
+         "<span id='break'><br></span><span>BBBB</span></h1></div></div>"
+         "<p>first line<br>second line</p></div><div id='button'></div></div></div></div>");
+    for (bool show_break : {true, false, true}) {
+        SCOPED_TRACE(show_break);
+        ASSERT_TRUE(element("break")->set_attribute("style", show_break ? "" : "display:none"));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        EXPECT_NEAR(element("heading")->height, show_break ? 108.0f : 72.0f, 0.1f);
+        EXPECT_NEAR(element("column")->height, show_break ? 334.0f : 298.0f, 0.1f);
+        EXPECT_NEAR(element("row")->height, element("column")->height, 0.1f);
+        EXPECT_NEAR(element("column")->y, 0.0f, 0.1f);
+        EXPECT_NEAR(element("button")->y + element("button")->height,
+                    element("column")->height, 0.1f);
+    }
+    DomNode* selected_text = element("heading")->first_child->as_element()->first_child;
+    float x = selected_text->x, y = selected_text->y;
+    float width = selected_text->width, height = selected_text->height;
+    LayoutContext context = {};
+    layout_init(&context, document, &ui);
+    for (float query_width : {120.0f, 240.0f, 120.0f}) {
+        EXPECT_NEAR(calculate_max_content_height(&context, element("heading"), query_width),
+                    query_width == 120.0f ? 180.0f : 108.0f, 0.1f);
+        EXPECT_FLOAT_EQ(selected_text->x, x);
+        EXPECT_FLOAT_EQ(selected_text->y, y);
+        EXPECT_FLOAT_EQ(selected_text->width, width);
+        EXPECT_FLOAT_EQ(selected_text->height, height);
+        EXPECT_NEAR(element("heading")->height, 108.0f, 0.1f);
+    }
+    layout_cleanup(&context);
+}
+
+TEST_F(DynamicLayoutTest, CenteredAutoColumnMeasuresFlattenedTextItemsBeforeAlignment) {
+    load("<!doctype html><style>body{margin:0}*{box-sizing:border-box}"
+         "#hero{display:flex;flex-direction:column;align-items:center;justify-content:center;"
+         "width:1200px;height:800px;padding-top:84px}#column{display:flex;flex-direction:column;"
+         "align-items:center;justify-content:center;width:100%;height:min-content;gap:32px;"
+         "padding-bottom:80px;overflow:clip}#wrap{display:contents}#title{display:flex;"
+         "flex-direction:column;flex:none;width:100%;height:auto}h1{margin:0;font:48px/60px monospace}"
+         "#button{display:flex;flex:none;width:100px;height:56px}</style>"
+         "<div id='hero'><div id='column'><div id='wrap'><div id='title'>"
+         "<h1 id='heading'>AAAA AAAA AAAA<br><span>BBBB BBBB BBBB</span></h1>"
+         "</div></div><div id='button'></div></div></div>");
+    for (const char* alignment : {"center", "flex-start", "center"}) {
+        SCOPED_TRACE(alignment);
+        StrBuf* style = strbuf_new();
+        strbuf_append_format(style, "justify-content:%s", alignment);
+        ASSERT_TRUE(element("column")->set_attribute("style", style->str));
+        strbuf_free(style);
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        EXPECT_NEAR(element("heading")->height, 120.0f, 0.1f);
+        EXPECT_NEAR(element("title")->y, 0.0f, 0.1f);
+        EXPECT_NEAR(element("column")->height, 288.0f, 0.1f);
+        EXPECT_NEAR(element("column")->y, 298.0f, 0.1f);
+        EXPECT_NEAR(element("button")->y, 152.0f, 0.1f);
+    }
+}
+
+TEST_F(DynamicLayoutTest, IntrinsicHeightResolvesWidthExpressionsAndLimits) {
+    load("<!doctype html><style>body{margin:0}*{box-sizing:border-box}"
+         "#outer{display:flex;flex-direction:column;width:600px;--size:200px}"
+         "#card{width:100%;padding:20px}#narrow{width:200px;margin:auto}"
+         "img{display:block;width:100%;height:auto;aspect-ratio:1}"
+         "#band{height:10px;flex:none}</style><div id='outer'><div id='card'>"
+         "<div id='narrow'><img id='image' src=\"data:image/svg+xml,%3Csvg "
+         "xmlns='http://www.w3.org/2000/svg' width='200' height='200'/%3E\">"
+         "</div></div><div id='band'></div></div>");
+    const char* styles[] = {"width:200px", "width:var(--size)",
+        "width:calc(100% - 360px)", "width:100%;max-width:200px",
+        "width:100px;min-width:200px", "width:var(--size);--size:320px"};
+    for (int index = 0; index < 6; index++) {
+        SCOPED_TRACE(styles[index]);
+        ASSERT_TRUE(element("narrow")->set_attribute("style", styles[index]));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        float size = index == 5 ? 320.0f : 200.0f;
+        EXPECT_NEAR(element("narrow")->width, size, 0.02f);
+        EXPECT_NEAR(element("image")->height, size, 0.02f);
+        EXPECT_NEAR(element("card")->height, size + 40.0f, 0.02f);
+        EXPECT_NEAR(element("band")->y, size + 40.0f, 0.02f);
+    }
+    LayoutContext context = {};
+    layout_init(&context, document, &ui);
+    {
+        LayoutContainingBlockScope parent_scope(&context, LAYOUT_AXIS_X, 560.0f);
+        for (bool used_width : {false, true, false, true}) {
+            EXPECT_NEAR(calculate_max_content_height(&context, element("narrow"),
+                560.0f, false, used_width), used_width ? 560.0f : 320.0f, 0.02f);
+            EXPECT_NEAR(element("narrow")->width, 320.0f, 0.02f);
+            EXPECT_NEAR(element("image")->height, 320.0f, 0.02f);
+        }
+    }
+    layout_cleanup(&context);
+}
+
+TEST_F(DynamicLayoutTest, GridRowHeightUsesTheSolvedPercentageWidth) {
+    load("<!doctype html><style>body{margin:0}*{box-sizing:border-box}"
+         "#section{width:600px;display:flex;align-items:center;min-height:400px}"
+         "#wrapper{width:100%}#grid{display:grid;width:100%;"
+         "grid-template-columns:1fr 1fr 1fr;gap:16px}"
+         "#center{min-width:280px;height:200px}#left,#right{width:100%;overflow:hidden}"
+         "img{display:block;width:100%;height:auto;aspect-ratio:1;object-fit:contain}</style>"
+         "<div id='section'><div id='wrapper'><div id='grid'><div id='left'></div>"
+         "<div id='center'></div><div id='right'><img id='image' "
+         "src=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'/%3E\">"
+         "</div></div></div></div>");
+    for (float width : {600.0f, 900.0f, 600.0f}) {
+        const char* style = width == 900.0f ? "width:900px" : "width:600px";
+        ASSERT_TRUE(element("section")->set_attribute("style", style));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        float side = width == 600.0f ? 144.0f : (900.0f - 32.0f) / 3.0f;
+        float row = max(200.0f, side);
+        EXPECT_NEAR(element("section")->height, 400.0f, 0.02f);
+        EXPECT_NEAR(element("grid")->height, row, 0.02f);
+        EXPECT_NEAR(element("wrapper")->y, (400.0f - row) / 2.0f, 0.02f);
+        EXPECT_NEAR(element("right")->width, side, 0.02f);
+        EXPECT_NEAR(element("image")->height, side, 0.02f);
+    }
+    LayoutContext context = {};
+    layout_init(&context, document, &ui);
+    for (float width : {900.0f, 600.0f, 900.0f}) {
+        float expected = width == 600.0f ? 200.0f : (900.0f - 32.0f) / 3.0f;
+        EXPECT_NEAR(measure_grid_height_at_width(&context, lam::view_as_block(element("grid")), width), expected, 0.02f);
+        EXPECT_NEAR(element("grid")->width, 600.0f, 0.02f);
+        EXPECT_NEAR(element("grid")->height, 200.0f, 0.02f);
+        EXPECT_NEAR(element("wrapper")->y, 100.0f, 0.02f);
+        EXPECT_NEAR(element("image")->height, 144.0f, 0.02f);
+    }
+    layout_cleanup(&context);
+}
+
+TEST_F(DynamicLayoutTest, RowCrossHeightUsesTheFlexedWidth) {
+    load("<!doctype html><style>body{margin:0}*{box-sizing:border-box}#row{display:flex;"
+         "align-items:flex-end;width:600px}#left{display:flex;flex-direction:column;"
+         "flex:1 0 0;width:100px;height:min-content;gap:12px;align-items:flex-start}"
+         "#label{margin:0;font:12px/16px monospace}#title{width:100%;height:auto}"
+         "#text{margin:0;font:20px/24px monospace}#right{flex:none;width:200px;height:40px}"
+         "#band{height:10px;width:600px}</style><div id='row'><div id='left'>"
+         "<p id='label'>caption</p><div id='title'><p id='text'>AAAA BBBB CCCC DDDD</p>"
+         "</div></div><div id='right'></div></div><div id='band'></div>");
+    for (const char* style : {"width:100px;height:auto", "width:1px;height:min-content",
+                              "width:auto;height:min-content", "width:100px;height:min-content"}) {
+        SCOPED_TRACE(style);
+        ASSERT_TRUE(element("left")->set_attribute("style", style));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        EXPECT_NEAR(element("left")->width, 400.0f, 0.1f);
+        EXPECT_NEAR(element("row")->height, 52.0f, 0.1f);
+        EXPECT_NEAR(element("right")->y, 12.0f, 0.1f);
+        EXPECT_NEAR(element("band")->y, 52.0f, 0.1f);
+    }
+    for (float width : {600.0f, 360.0f, 600.0f}) {
+        ASSERT_TRUE(element("row")->set_attribute("style", width == 360.0f ? "width:360px" : "width:600px"));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        EXPECT_NEAR(element("left")->width, width - 200.0f, 0.1f);
+        EXPECT_NEAR(element("row")->height, width == 360.0f ? 76.0f : 52.0f, 0.1f);
+    }
+    LayoutContext context = {};
+    layout_init(&context, document, &ui);
+    for (bool used_width : {false, true, false, true}) {
+        EXPECT_NEAR(calculate_max_content_height(&context, element("left"), 400.0f, false, used_width),
+                    used_width ? 52.0f : 124.0f, 0.1f);
+        EXPECT_NEAR(element("left")->width, 400.0f, 0.1f);
+        EXPECT_NEAR(element("left")->height, 52.0f, 0.1f);
+        EXPECT_NEAR(element("text")->height, 24.0f, 0.1f);
+    }
+    layout_cleanup(&context);
 }
 
 TEST_F(DynamicLayoutTest, ScriptingEnabledNoscriptCannotCreateBoxesThroughCssDisplay) {

@@ -539,7 +539,7 @@ void dl_replay_tile(DisplayList* dl, RdtVector* vec,
             break;
 
         case DL_VIDEO_PLACEHOLDER:
-            // no-op during tile replay; video frames are blitted post-composite
+            // decoder epoch only; immutable image commands carry the media pixels.
             break;
 
         case DL_WEBVIEW_LAYER_PLACEHOLDER: {

@@ -237,7 +237,9 @@ void layout_apply_preferred_ratio_to_replaced_auto_axes(LayoutContext* lycon,
     };
     float preferred_aspect_ratio = layout_used_preferred_aspect_ratio(block);
     if (preferred_aspect_ratio <= 0.0f || (!automatic.x && !automatic.y)) return;
-    bool ratio_uses_content_box = layout_aspect_ratio_uses_content_box(block);
+    // a natural ratio describes content even when the specified size uses border-box.
+    bool ratio_uses_content_box = layout_aspect_ratio_uses_content_box(block) ||
+        layout_preferred_aspect_ratio(block) <= 0.0f;
     bool ratio_uses_border_box = !ratio_uses_content_box && layout_uses_border_box(block);
     LayoutAxisPair<float> used = {lycon->block.given_width, lycon->block.given_height};
     if (automatic.x && automatic.y) {
@@ -7901,6 +7903,10 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
         !block->get_attribute(MARKUP_NAME_DATA);
     bool object_uses_default_size = block->is_element() &&
         layout_object_uses_default_size(block->as_element());
+    bool uses_default_replaced_size = elmt_name == MARKUP_NAME_IFRAME ||
+        elmt_name == MARKUP_NAME_VIDEO || is_open_popover_object || object_uses_default_size;
+    bool uses_embedded_object_size = elmt_name == MARKUP_NAME_EMBED ||
+        (elmt_name == MARKUP_NAME_OBJECT && block->get_attribute(MARKUP_NAME_DATA));
     float default_width = 0.0f;
     float default_height = 0.0f;
     layout_replaced_default_size(elmt_name, &default_width, &default_height);
@@ -7917,51 +7923,6 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
             layout_replaced_content_size(&facts, &constraints, default_width,
                                           &default_width, &default_height);
         }
-    }
-    if (elmt_name == MARKUP_NAME_IFRAME || elmt_name == MARKUP_NAME_VIDEO ||
-        is_open_popover_object ||
-        object_uses_default_size) {
-        // Table-internal display resolution can skip BlockProp creation, but an
-        // element's intrinsic fallback must persist on the box's used-size slots.
-        block->ensure_block(lycon);
-        LayoutAxisPair<float> defaults = {default_width, default_height};
-        LayoutAxisPair<float> parent_sizes = {
-            pa_block ? pa_block->content_width : 0.0f,
-            pa_block ? pa_block->content_height : 0.0f
-        };
-        for (LayoutAxis axis : layout_axes()) {
-            bool horizontal = layout_axis_is_horizontal(axis);
-            LayoutAxisRefs context(&lycon->block, axis);
-            LayoutAxisRefs props(block->block_mut(), axis);
-            bool has_percent = props.given_percent && !isnan(*props.given_percent);
-            if (context.given && *context.given >= 0.0f &&
-                props.given && *props.given < 0.0f && !has_percent) {
-                // The fallback was selected before sizing allocated BlockProp;
-                // retain it when CSS fit-content would otherwise collapse it.
-                layout_store_given_axis(lycon, block, *context.given, horizontal, false);
-                layout_clear_auto_axis_type(block, horizontal);
-            }
-            if (context.given && *context.given < 0.0f && !has_percent) {
-                layout_store_given_axis(lycon, block, defaults[axis], horizontal, false);
-                layout_clear_auto_axis_type(block, horizontal);
-            }
-            if (!has_percent || !context.given || *context.given >= 0.0f) continue;
-            float base = parent_sizes[axis];
-            if (base > 0.0f) {
-                float used = base * *props.given_percent / 100.0f;
-                layout_store_given_axis(lycon, block, used, horizontal, false);
-            } else if (axis == LAYOUT_AXIS_Y) {
-                // CSS 2.1 §10.5: percentage height cannot resolve without a basis.
-                layout_store_given_axis(lycon, block, defaults[axis], horizontal, false);
-            }
-        }
-        layout_apply_preferred_ratio_to_replaced_auto_axes(lycon, block);
-    } else if (elmt_name == MARKUP_NAME_EMBED ||
-               (elmt_name == MARKUP_NAME_OBJECT && block->get_attribute(MARKUP_NAME_DATA))) {
-        if (block->is_element() && layout_aspect_ratio_uses_content_box(block)) {
-            layout_ensure_replaced_image_surface(lycon, block, block->as_element());
-        }
-        layout_apply_preferred_ratio_to_replaced_auto_axes(lycon, block);
     }
     if (layout_is_svg_viewport(elmt_name) &&
         !(block->blk && block->block()->content_visibility_skipped)) {
@@ -8067,6 +8028,7 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
             layout_clear_auto_axis_type(block, false);
         }
     }
+    bool cyclic_percentage_height = false;
     if (block->blk && !isnan(block->block()->given_height_percent) &&
         !layout_orthogonal_inline_percentage_applies(block, LAYOUT_AXIS_Y)) {
         // the cyclic block-height rule excludes orthogonal inline percentages.
@@ -8093,17 +8055,60 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
             layout_store_given_axis(lycon, block, used_height, false, false);
             layout_clear_auto_axis_type(block, false);
         }
-        bool iframe_intrinsic_fallback = block->tag() == MARKUP_NAME_IFRAME &&
-            lycon->block.given_height >= 0.0f;
         bool canvas_abspos_percentage_has_basis = block->tag() == MARKUP_NAME_CANVAS &&
             layout_definite_abspos_content_height(containing_view) >= 0.0f;
-        if (containing_height_is_auto && !iframe_intrinsic_fallback &&
-            !canvas_abspos_percentage_has_basis) {
-            // A cyclic percentage height must become auto before a replaced
+        if (containing_height_is_auto && !canvas_abspos_percentage_has_basis) {
+            // unresolved percentage heights become auto before natural/default sizing.
+            cyclic_percentage_height = true;
             block->blk->given_height = -1.0f;
             block->blk->given_height_type = CSS_VALUE_AUTO;
             lycon->block.given_height = -1.0f;
         }
+    }
+    // intrinsic sizing must follow cyclic-percentage invalidation, which clears a provisional height.
+    if (uses_default_replaced_size) {
+        // Table-internal display resolution can skip BlockProp creation, but an
+        // element's intrinsic fallback must persist on the box's used-size slots.
+        block->ensure_block(lycon);
+        LayoutAxisPair<float> defaults = {default_width, default_height};
+        LayoutAxisPair<float> parent_sizes = {
+            pa_block ? pa_block->content_width : 0.0f,
+            pa_block ? pa_block->content_height : 0.0f
+        };
+        for (LayoutAxis axis : layout_axes()) {
+            bool horizontal = layout_axis_is_horizontal(axis);
+            LayoutAxisRefs context(&lycon->block, axis);
+            LayoutAxisRefs props(block->block_mut(), axis);
+            bool has_percent = props.given_percent && !isnan(*props.given_percent) &&
+                (horizontal || !cyclic_percentage_height);
+            if (context.given && *context.given >= 0.0f &&
+                props.given && *props.given < 0.0f && !has_percent) {
+                // The fallback was selected before sizing allocated BlockProp;
+                // retain it when CSS fit-content would otherwise collapse it.
+                layout_store_given_axis(lycon, block, *context.given, horizontal, false);
+                layout_clear_auto_axis_type(block, horizontal);
+            }
+            if (context.given && *context.given < 0.0f && !has_percent) {
+                layout_store_given_axis(lycon, block, defaults[axis], horizontal, false);
+                layout_clear_auto_axis_type(block, horizontal);
+            }
+            if (!has_percent || !context.given || *context.given >= 0.0f) continue;
+            float base = parent_sizes[axis];
+            if (base > 0.0f) {
+                float used = base * *props.given_percent / 100.0f;
+                layout_store_given_axis(lycon, block, used, horizontal, false);
+            } else if (axis == LAYOUT_AXIS_Y) {
+                // CSS 2.1 §10.5: percentage height cannot resolve without a basis.
+                layout_store_given_axis(lycon, block, defaults[axis], horizontal, false);
+            }
+        }
+    } else if (uses_embedded_object_size) {
+        if (block->is_element() && layout_aspect_ratio_uses_content_box(block)) {
+            layout_ensure_replaced_image_surface(lycon, block, block->as_element());
+        }
+    }
+    if (uses_default_replaced_size || uses_embedded_object_size) {
+        layout_apply_preferred_ratio_to_replaced_auto_axes(lycon, block);
     }
     if (lycon->table_cell_first_row_layout && block->blk &&
         !isnan(block->block()->given_height_percent)) {

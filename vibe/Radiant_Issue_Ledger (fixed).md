@@ -14,6 +14,503 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-073"></a>
+
+### RI-073 — Cyclic percentage invalidation discards replaced media height
+
+**Status:** FIXED, 2026-11-13. **Lambda blocker:** cleared for Pivot271's selected
+zero-height media defect. Native ownership **D9.1.1v4 / D9.1.3v2**, region/state
+ownership **D5.5.1**, unchanged capture frame **D10.1.7**. User authorized edits.
+
+The same saved script-free Pivot source loads its MP4 and reports natural
+506x720 with all 180 resources complete. The enclosing column is about 619.94px
+high in both engines, but native video/immediate wrapper height is zero versus
+619.72px in Chromium. Authored CSS is `width:100%;height:100%` in an auto parent.
+A network-free 200x100 poster video in a 320px auto parent reproduces native 0
+versus Chromium 160, while its natural ratio remains correctly available.
+Posterless video also loses its 150px default height.
+
+The default/natural replaced-size and ratio stage runs before cyclic percentage
+height handling, which clears its result. The stage now follows invalidation;
+only the invalidated height percentage is treated as automatic. Existing type
+conditions and helpers supply dimensions/constraints, the obsolete iframe
+fallback exception is removed, and the repeated ratio call is shared. A natural
+ratio also describes content when specified sizing uses border-box; the common
+ratio helper now preserves that distinction. No page condition, geometry
+constant, CSS rewrite, new decoder or capture/readiness change is added.
+
+The native live-style test fails before and passes after with correct intrinsic
+facts, auto/definite/zero parent transitions, 50%/100% percentages, fallback
+retention and decorated border-box media. Thirteen PNG controls improve from
+6/13 to 13/13; independent Chromium passes all 13. Author versus natural ratios,
+content/border-box decorations and the image neighbor are included. All 97
+native dynamic and 13 refreshed custom-layout cases, 206 online cases, 247
+rebuilt paint/ownership cases, 117 UI assertions (10 runner cases), 26 independent
+SVG/PDF rasters, and integer lint (89 casts, zero unmarked) pass. All 17 layout
+categories retain 5609 full passes and 295 recorded partials, zero regressions,
+skips or errors. No API/header/structure/state layout changes. Input source
+and Node ABI are unchanged; prior independent LI-001/002/012 aggregate failures
+remain recorded. Release performance and broader replaced-size conformance
+remain unqualified.
+
+The unchanged saved Pivot video/wrapper is now 619.72888px high (Chromium
+619.71875px), while the overall hero stays 984.699px. The final canonical
+full-page capture shows the large animated artwork, resolving the major
+missing-artwork annotation. The remaining shape difference reflects movie
+phase, alongside smaller background/header/spacing residue. The quick
+script-free diagnostic captures the blank initial poster/frame, while native
+wall-clock playback advances during full-page loading; D10.1.7 does not freeze
+that playback. The actual H.264/avc1 asset decodes through AVFoundation. An
+initial sandboxed Swift probe fails but the same probe outside it succeeds;
+this is not attributed to the engine or an unsupported codec. Capture clocks
+are unchanged, no diagnostic frame is substituted, and playback synchronization
+remains unqualified.
+
+Evidence: Lambda `temp/online-visual-round25/`, root
+`test/online/video_percentage_fixtures.cjs`, `render_video_percentage.test.cjs`,
+`VideoCyclicPercentageHeightRetainsNaturalAndFallbackSize`, same-source
+`pivot-media*` / `pivot-fixed*`, original poster/MP4 headers and SHA256 records,
+and independent time0/time1 decoded frames. Final pin SHA256:
+3fb7114ad21abb7a6c90ce36ee6bfb3573d94370694c7817df60d2a20643e882.
+
+
+<a id="ri-072"></a>
+
+### RI-072 — Atomic inline alignment loses enclosing relative Y offsets
+
+**Status:** FIXED, 2026-11-13. **Lambda blocker:** cleared for RI-071's inline
+control. Selected geometry **D5.5.1**, native ownership **D9.1.1v4 / D9.1.3v2**.
+
+An inline `span{position:relative;left:40px;top:40px}` containing a 100px
+inline-block marker places it at (40,0) in the preserved host; Chromium gives
+(40,40). Removing the overlapping background reproduces before RI-071. Final
+line alignment overwrites atomic Y without retaining enclosing inline offsets,
+although the existing text and BR branches already share
+`layout_applied_inline_relative_y`. The atomic branch now uses the same helper
+before applying its own relative offset. No alternate geometry path is added.
+
+The unchanged positioned-inline PNG control passes both witnesses. Native
+`InlineAtomicAlignmentPreservesRelativeAncestors` covers nested offsets and
+alternating child relative/static styles without accumulation. The joint final
+qualification below covers all 96 dynamic, 13 custom-layout, 193 online and
+247 raster/ownership tests, 117 UI assertions, 32 SVG/PDF controls and unchanged
+17-category layout inventory. Evidence: Lambda
+`temp/online-visual-round24/inline-flow*`, `inline-order*`, `inline-after.log`
+and the native regression. No expected pixel or tolerance is weakened.
+
+
+<a id="ri-071"></a>
+
+### RI-071 — Absolute and relative zero-level siblings paint in separate passes
+
+**Status:** FIXED, 2026-11-13. **Lambda blocker:** cleared for the selected
+block-owned sibling paint/hit sequence. Native ownership **D9.1.1v4 / D9.1.3v2**;
+geometry **D5.5.1**, unchanged capture frame **D10.1.7**. User authorized edits.
+
+Pivot's saved script-free hero has an early absolute background followed by a
+relative foreground container. Both prior hosts paint that background over the
+headline/actions, while Chromium shows them. A 600x400 relative parent, absolute
+navy background and later lime relative marker reproduce without network,
+scripting, fonts or media. The shared flow walk paints relative zero-level
+children before the separate absolute containing-block chain. Reverse hit
+traversal follows those split passes and also targets the background.
+
+The block-owned collector now combines its in-flow relative/sticky/containment
+children with its absolute chain and sorts equal stack levels in DOM order.
+The existing selection order helper is promoted to the shared stacking module;
+a deep-DOM control exposes its old 64-ancestor cap, now replaced by an unbounded
+ancestor walk. The render walk dispatches generic Views so inline boxes retain
+their producer. Hits consume exactly the same list in reverse. Explicit phase
+ownership on child walkers preserves standalone and inline calls; normal block
+callers defer their relative siblings to the combined sequence. Existing signed
+layers and custom-layout sequencing keep their owners. Two child-walk signatures
+extend with this flag; consumers and all four Node module targets are refreshed.
+Public structure/Node state layout is unchanged.
+
+Sixteen PNG controls improve from 7/16 before to 16/16 after. They cover both
+source orders, auto/explicit zero, positive/negative layers, sticky and inline
+foreground, absolute descendants under static/deep wrappers, overflow clipping,
+static owners and a once-only opacity group. All 16 independent Chromium
+controls and all 32 independent SVG/PDF rasters pass. The native paint/hit test
+fails before and passes after under live z-index changes; all 96 dynamic and
+13 custom-layout cases pass. Joint final qualification: 193 online cases,
+247 rebuilt raster/ownership cases, 117 UI assertions (10 runner cases), and
+integer-cast lint (89 casts, zero unmarked). All 17 layout categories retain
+5609 full passes and 295 recorded partials with zero regressions/skips/errors.
+The final layout/UI gates run against the exact restored pin after the RDT
+client target incidentally relinks the working host. Input source is unchanged;
+prior independent LI-001/002/012 aggregate failures remain recorded.
+
+The unchanged saved Missive customer page also restores its large right-card
+quotation and Canny logo. The preserved host and RI-069-only host hide both;
+the final host and Chromium show them. The final canonical capture agrees,
+resolving its manual major omission while retaining smaller font/logo-size and
+spacing residue. Same-source evidence is `missive-static-before*`,
+`missive-static-after*` and `missive-width-only*` under the round24 directory.
+
+The unchanged saved Pivot source now shows its headline, copy, actions and
+customer logos. RI-069's closer hero height remains 984.70px versus Chromium
+991.58px. Background/media/header residue remains; exact parity is not claimed.
+This finite repair does not implement zero-level descendant lifting through
+arbitrary contexts, negative inline stacking or full flex/grid isolation rules.
+Evidence: Lambda `temp/online-visual-round24/`, root
+`test/online/positioned_order_fixtures.cjs`, `render_positioned_order.test.cjs`,
+and native regressions. Final pin SHA256
+4648e3a3abaec9cd3eb443e4962ddf164bd43c37d39cdf8d65272e6dfe6a69eb.
+Release performance remains unqualified. Canonical review is recorded separately
+in online comparison round 24.
+
+
+<a id="ri-069"></a>
+
+### RI-069 — Height queries omit width expressions and constraints
+
+**Status:** FIXED, 2026-11-13. **Lambda task blocker:** cleared for the selected
+Maple static sizing defect; its independent animated-WebP title gap remains
+LI-030. Ownership **D9.1.1v4 / D9.1.3v2**, scalar query/selected geometry
+**D5.5.1**, unchanged capture frame **D10.1.7**. User authorized sibling edits.
+
+The same saved script-free Maple hero is 843.4px high instead of about 600px,
+while the title image and text have correctly sized selected boxes. A reduced
+600px column flex, a border-box card with 20px padding and a child
+`width:var(--size)` or `calc(100% - 360px)` produces a 600px card instead of
+240px. The selected image is correctly 200px square. Literal width controls
+agree, isolating the measurement path rather than final layout or media.
+
+The generic height query recognizes only literal lengths/percentages when
+resolving its root content width. It omits functions, variables and width
+constraints, and conflates the percentage containing block with the supplied
+content width and border-box edges. Descendants contribute a height at the
+outer width, which the enclosing flex retains as its basis.
+
+The repair reuses element-owned CSS resolution and size classification, existing
+content/border-box conversion and min/max clamps. Automatic/intrinsic keywords
+and unresolved cyclic percentages retain their existing policy. Assigned
+flex/grid query mode still consumes the supplied content width directly. No
+second CSS evaluator, style rewrite, page condition, capture-clock change or
+public API/structure-layout change is added.
+
+`IntrinsicHeightResolvesWidthExpressionsAndLimits` fails before and passes
+after, covering live variable/style/constraint changes, alternate available and
+assigned width queries, and preservation of selected image geometry. Sixteen
+PNG controls improve from 3/16 to 16/16; independent Chromium passes all 16.
+They cover variable fallbacks, calc/min/max/clamp, width limits, percentage and
+content/border-box edges, and measured-element font units. All 94 native dynamic
+cases, 177 online cases, 247 refreshed raster/ownership cases, 117 UI assertions
+(10 runner cases), and integer-cast lint pass. All 17 layout categories retain
+5609 full passes plus 295 recorded partials, with zero regressions/skips/errors.
+Input source was unchanged; its aggregate was not repeated and prior independent
+LI-001/002/012 failures remain recorded. Node module ABI is unchanged.
+
+The unchanged static Maple hero shrinks from 843.4px to 605.77px (Chromium about
+600px), restoring the following statistics section to the viewport. Smaller
+button/font/spacing residue remains outside the major-gap milestone. The title
+still fails because the actual response is animated WebP, which the input codec
+explicitly rejects (LI-030); no title repair or exact page parity is claimed.
+Canonical refresh/review is recorded separately in round 24's comparison.
+Evidence: Lambda `temp/online-visual-round24/`, root
+`test/online/intrinsic_width_value_fixtures.cjs` and
+`render_intrinsic_width_value.test.cjs`, plus the native regression. The host
+SHA256 is a377e8444c548c0a37be721e1967c377402f9835ec78c8e05e1439a29d37db26.
+Release performance and broader intrinsic-sizing conformance remain unqualified.
+
+
+<a id="ri-068"></a>
+
+### RI-068 — Grid row contributions reuse provisional whole-grid widths
+
+**Status:** FIXED, 2026-11-13. **Lambda task blocker:** cleared for the selected
+horizontal grid/flex sizing defect. Ownership **D9.1.1v4 / D9.1.3v2**, query
+rollback **D5.5.1**, unchanged capture frame **D10.1.7**. The user authorized
+sibling edits.
+
+Monese's saved script-free home page has a 1392px native hero versus Chromium's
+800px. Its side grid item is finally 280px wide but contributes 1136px of
+height. A reduction with a 600px three-column grid, a central 280px minimum and
+200px content, and a square image in a percentage-width side item produces a
+600px row instead of 200px, independently of scripts and external resources.
+
+Grid row contributions select the provisional given width before the solved
+144px column area. That percentage was resolved against the whole grid, and
+the height query then applies preferred width again. The generic grid-height
+estimator independently guesses equal-width columns, promotes a percentage
+minimum using the whole grid, and leaves the inflated size in the enclosing
+flex measurement. Fixing only final row contributions exposes this second path.
+
+The repair promotes the existing grid-placement border-size resolver, adding a
+read-only mode for measurement, and uses the solved area as the percentage
+containing block. Height queries receive the assigned content-width contract.
+Explicit zero preferred sizes retain zero. Horizontal grid height-at-width
+queries now reuse the existing placement and track-sizing algorithm under
+`LayoutMeasureScope`, replacing the guessed column calculation. The existing
+width-resolution block is shared by grid and ordinary-flow queries. No page
+condition, authored-style rewrite, second track algorithm or clock change is
+introduced. Public functions were added; there is no structure-layout change.
+
+The native regression fails before and passes after, including live
+600/900/600px resizing and alternate-width scalar queries that preserve selected
+grid/image/wrapper geometry. Twelve PNG reductions improve from 3/12 to 12/12;
+all independently pass Chromium. The first candidate's 11/12 result remains
+recorded and was rejected until the enclosing-query path was fixed. All 93
+native dynamic tests, 161 online cases, 247 refreshed raster/ownership cases,
+117 UI assertions (10 runner cases), and integer-cast lint pass. Four Node DSOs
+were refreshed. All 17 layout categories retain 5609 full passes plus 295
+recorded partials, with zero regressions/skips/errors. Input aggregate was not
+repeated; prior independent LI-001/002/012 failures remain recorded.
+
+The unchanged static Monese hero shrinks from 1392px to 800px; its heading moves
+from y533.90 to y237.90, agreeing with Chromium's y237.90625. Smaller grid image
+height/spacing differences remain (385.8px grid versus 324.19px). The live page's
+initial hidden-state script is a separate unresolved cause; this fix does not
+claim to clear its blank canonical capture or establish exact page parity.
+Vertical intrinsic measurement, full grid conformance and release performance
+remain outside the milestone. Evidence: Lambda `temp/online-visual-round23/`,
+`test/online/grid_row_width_fixtures.cjs`, `render_grid_row_width.test.cjs`, and
+`DynamicLayoutTest.GridRowHeightUsesTheSolvedPercentageWidth`. The qualified
+host SHA256 is d0aae7d46c8943d80bc05f1445aee9bd13d01b2c78380560297193b0b88aef2c.
+Canonical refresh/review is recorded separately in round 23's report.
+
+
+<a id="ri-067"></a>
+
+### RI-067 — Row-flex cross heights reuse the preferred width after flexing
+
+**Status:** FIXED, 2026-11-13. **Lambda task blocker:** repaired for the selected
+horizontal row-flex cross-height defect. Native ownership **D9.1.1v4 /
+D9.1.3v2**, query ownership **D5.5.1**, selected capture frame **D10.1.7**.
+The user authorized sibling edits.
+
+Panxo 481's headline/copy/actions sit below a large empty hero, pushing its
+product panel outside the viewport. Identical saved script-free HTML reproduces
+the gap: the native top row is 508px high instead of Chromium's 163.19px. The
+right item occupies its correct 405px flexed width but retains a 508px height;
+the correctly sized left item aligns to that inflated row's bottom. A reduced
+600px row with a 200px fixed neighbor assigns the other item 400px, yet uses
+124px of height measured at its preferred 100px width instead of 52px.
+
+The cross-height fallback passes the assigned content width into the generic
+height query, whose descendant branch reapplies the root's preferred CSS width.
+Intrinsic preferred cross sizes also read the earlier unflexed height cache;
+intrinsic min/max clamps can retain that value after main-axis allocation.
+Thus growing and shrinking items both wrap against the wrong width during
+cross sizing, even though final text layout uses the assigned width.
+
+Height queries now carry an explicit used-width mode, defaulting to the existing
+available-width contract. Only that query root skips preferred-width resolution;
+descendant width/percentage resolution keeps its own containing block. The mode
+is included in the immutable height-cache key. Row-flex intrinsic block sizes
+and keyword clamps resolve against the allocated main content width, and the
+ordinary cross fallback forwards the same contract. Existing sizing helpers
+perform measurement; no authored CSS rewrite or second formatter is added.
+The C++ query signatures changed and native/header consumers were rebuilt;
+no public structure layout changes were needed.
+
+The focused native RowCrossHeightUsesTheFlexedWidth test fails before and passes
+after. It covers width/style changes, shrink/restore, distinct available/used
+query results for equal numeric widths, and preservation of selected geometry.
+Twenty-two real PNG controls improve from 4/22 to 22/22 and independently pass
+Chromium: auto/min/max/fit-content cross sizes, intrinsic min/max clamps,
+padding/border, percentage descendants, growth/shrinkage, fixed/zero height and
+a row inside a column. All 92 native dynamic cases, 149 online cases, 247
+refreshed raster/ownership cases, 117 existing UI assertions (10 runner cases)
+and layout integer-cast lint pass. Four Node DSOs were refreshed. The 17 recorded
+layout categories retain 5609 full passes plus 295 recorded partials, with zero
+baseline regressions, skips or runner errors. Input's aggregate was not repeated.
+
+The same static Panxo row shrinks from 508px to 172px, restoring the headline
+and product panel to the viewport. Chromium measures 163.19px; the small residual
+text/spacing difference is outside this major-gap milestone. Live canonical
+qualification and manual-review resolution are recorded in round 22's report.
+Evidence: Lambda temp/online-visual-round22/ preserves the saved document,
+failing native/PNG controls, repaired captures, pin and gate logs. Browser
+references, URLs, admission, finite resource grace, deadline and virtual time
+remain unchanged. Vertical/orthogonal, broader intrinsic-sizing conformance and
+release performance are not qualified by this repair.
+
+
+<a id="ri-066"></a>
+
+### RI-066 — Auto flex columns measure empty wrappers and unlaid-out child boxes
+
+**Status:** FIXED, 2026-11-13. **Lambda task blocker:** repaired for the selected
+centered auto-column regression exposed during RI-065 qualification. Native
+ownership **D9.1.1v4 / D9.1.3v2**, measurement ownership **D5.5.1** and capture
+frame **D10.1.7**. The user authorized sibling edits.
+
+The first RI-065 pin restores Comand but shifts Exactly 471's heading upward
+88px inside a clipped centered flex column. Identical saved script-free HTML
+confirms the regression: Chromium and the previous pin position the headline
+at y298 with height 120; the first repair pin uses y210 with height 120. Trial
+line formatting itself returns the correct 120px. The first capture/report
+candidate was rejected during visual review and is preserved as evidence.
+
+Two auto-height approximations lose the same collected content. The multipass
+extent walk visits source display:contents wrappers rather than collected flex
+items. Its auto-basis fallback then initializes descendant boxes to zero and
+recurses over those boxes without measuring text. Exactly's heading and action
+therefore contribute zero; only 32px gap plus 80px padding gives a provisional
+112px column. Centering 176px of actual items plus 32px gap in 32px content space
+moves them upward 88px. The previous wrong heading estimate happened to trigger
+a later corrective content pass; accurate inline measurement removed that
+incidental second pass. An experimental cache-key guard did not fix the cause
+and was removed.
+
+Auto extents now reuse the existing collected-item walker. A live column's auto
+and content bases both use calculate_flex_basis, which already owns constrained
+text measurement and preferred-size rules. No page condition, alternate line
+algorithm, cache bypass or clock change is introduced. Exactly's unchanged
+static headline returns to y298, and Comand's RI-065 restoration remains intact.
+
+The new CenteredAutoColumnMeasuresFlattenedTextItemsBeforeAlignment native test
+covers center/start/center recascade, full heading height, outer auto height and
+action placement. The new centered PNG control fails on the first pin and passes
+with the companion repair; all 11 PNG controls independently pass Chromium.
+Final qualification passes 91 native dynamic cases, 127 online cases, 247 refreshed
+raster/ownership cases and layout integer-cast lint. The 17 layout categories
+retain 5609 full passes plus 295 recorded partials, with 0 baseline regressions,
+skips or runner errors. Live capture refresh and visual qualification are in
+the round 21 online report. No release performance claim is made.
+
+Evidence: Lambda temp/online-visual-round21/ keeps failing first captures,
+script-free reductions, generic traces, rejected v2/v3 experiments, final v4 pin,
+source records and gate logs. No diagnostic logs or experimental cache changes
+remain in engine source. Original browser references, authored inputs, admission,
+finite resource grace and deadlines are unchanged.
+
+
+<a id="ri-065"></a>
+
+### RI-065 — Structured inline breaks understate nested flex height
+
+**Status:** FIXED, 2026-11-13. **Lambda task blocker:** repaired for the selected
+horizontal text/BR intrinsic-height defect. Native ownership **D9.1.1v4 /
+D9.1.3v2**; selected fragment ownership **D5.5.1** and capture frame **D10.1.7**.
+The user authorized sibling edits.
+
+Comand 524 places its headline 129.6px too low and clips hero copy/action. The
+same saved script-free HTML/CSS reproduces it in native20 and agrees with the
+original discrepancy against independent Chromium. Its headline finishes at
+194.4px, but the outer flex column measures 355.6px rather than 420.4px. Replacing
+fonts, resolving typography variables, removing hidden variants and flattening
+contents wrappers do not remove the difference. A reduced monospace fixture
+with text/span + BR + text/span measures the column 298px instead of 334px.
+
+intrinsic_text_br_content_height admitted direct text/BR only (except balance).
+The complex-inline fallback maxed independently measured inline children,
+losing forced-line boundaries when a heading also contained spans. Eligible
+horizontal text/BR descendants now reuse the normal inline formatter in an
+isolated measurement scope. Counter state, caller context, selected scalar
+boxes and text fragments are restored. Mixed fonts are not flattened into one
+font and no separate line-layout algorithm is introduced. Direct text keeps
+its existing fast path; vertical/paged/atomic estimators are not expanded.
+
+The new DynamicLayoutTest.NestedColumnIntrinsicHeightRetainsInlineForcedBreaks
+fails before and passes after, including hide/show recascade, repeated 120/240px
+queries and selected text-geometry preservation. All 91 native dynamic cases
+pass. Ten root PNG cases improve 2/10 to 10/10 and independently pass Chromium:
+direct/nested breaks, normal/contents wrapper, mixed font sizes, preserved and
+nonwrapping whitespace, consecutive breaks, direct-text and hidden-break
+controls. The complete online suite passes 127 cases; layout integer-cast lint
+passes. The unchanged saved Comand hero now measures 420.4px and positions its
+headline at 333.6px, within 0.02px of Chromium. Its missing live background video
+remains a separate unresolved difference; no complete Comand repair is claimed.
+
+Evidence: Lambda temp/online-visual-round21/ retains reductions, failing tests,
+qualified host, logs and comparison refresh. Capture admission, finite resource
+grace, 150s deadline, authored pages, browser references and virtual clock stay
+unchanged. Broader gate and canonical refresh qualification is recorded with
+the round 21 online report.
+
+
+The first pin was held after Exactly visual review exposed RI-066. Its companion
+repair and the eleventh centered PNG control are required for final qualification.
+
+<a id="ri-064"></a>
+
+### RI-064 — Inline CSS image URLs never enter snapshot resource discovery
+
+**Status:** FIXED, 2026-11-13. **Lambda task blocker:** repaired for inline URL
+discovery. Native ownership **D9.1.1v4 / D9.1.3v2**, declaration scratch lifetime
+**D5.5.1**, selected-frame capture **D10.1.7**. The user authorized sibling edits.
+
+Maki222's white hero omits its authored video CSS background, leaving white
+heading/copy unreadable. The inline URL survives parsing and the image paints
+in isolated controls; literal local pixels also paint in the complete page.
+Network-managed paint reads only ready resource bytes. The loader prefetches
+stylesheet URLs before inline attributes are parsed, and document discovery
+previously queued img/use/video-poster resources but no inline CSS URLs. Thus
+all77 tracked requests could complete while the required background was never
+requested. This is distinct from RI-061's finite readiness grace.
+
+Document image discovery now walks parsed inline declarations and reuses the
+existing recursive CSS URL visitor, promoted through resource_loaders.h. CSSOM
+edits borrow their owned declaration blocks; untouched HTML attributes parse
+through the existing declaration parser in one traversal-owned scratch pool.
+The scheduler copies URL ownership before that pool retires. The shared walker
+retains custom-property/function/list behavior without rewriting consumer URL
+spelling. Requests use the existing scheduler, priorities, admission and bounded
+snapshot wait. Paint still does not start a blocking HTTP fetch.
+
+Five reduced HTTP PNG/request cases in Lambda's existing render_session.test.cjs
+fail0/5 before and pass5/5 after: div/video background, inline variable,
+image-set and script style mutation. The complete online suite passes116 cases.
+Fresh raster/paint/ownership247 cases,117 existing media/CSSOM UI assertions
+(10 runner cases), and17 layout categories pass with5609 full passes/295
+recorded partials and0 regressions/0 skips. Both unchanged saved Maki script-free
+and full-script controls regain the hero media; full external source/time
+freezing and exact sizing/video frame parity are not claimed.
+
+Evidence: Lambda temp/online-visual-round20/ retains failing controls, final
+pin, source patches, logs and the canonical comparison refresh. The existing
+1000ms optional-resource grace,150s parent deadline, original browser references,
+URLs, authored content and virtual clock are unchanged. No broader media
+readiness, mask consumer, platform decoder or SPA support is claimed.
+
+
+<a id="ri-063"></a>
+
+### RI-063 — Decoded video overwrites foreground page content
+
+**Status:** FIXED, 2026-11-13. **Lambda task blocker:** repaired for the selected
+video paint-order defect. Native ownership **D9.1.1v4 / D9.1.3v2**, immutable
+render ownership **D5.5.1**; the selected-frame contract **D10.1.7** is unchanged.
+The user granted sibling implementation updates.
+
+Bizzabo656's full saved HTML renders its primary heading/copy/action and header
+under the hero video. At capture the video is playing with a decoded1920x1080
+frame, while heading/ancestors have visible styles, opacity1 and valid geometry.
+The absolute video has z-index:-1. `render_video_frames` and its cached update
+path nevertheless blit the video over the completed page. This violates the
+existing [CSS painting order](https://www.w3.org/TR/CSS22/zindex.html#painting-order).
+
+The native `DecodedFramePreservesFollowingForegroundPaint` regression records
+a decoded video then a red foreground rectangle. Before repair the post-paint
+blit replaces the red4278190335 pixel with decoded4281808966. The repair captures
+decoded pixels and controls once in an immutable owned ImageSurface, then
+records it through the ordinary image painter in CSS paint order. Shared
+object-fit/object-position, content clips, transformations and effect scopes
+apply. The video marker retains decoder-epoch invalidation. Playback wakes
+repaint the page through the same ordered stream; the out-of-order cached blit
+and unused placement cache are removed. Worker replay cannot borrow a mutable
+decoder buffer. This does not add a decoder/backend or force a later frame.
+
+Qualification:34 native video cases,247 raster/paint/ownership cases,
+111 online CLI/PNG/capture/comparator cases and117 assertions in seven existing
+media/CSSOM UI replays pass. Seventeen layout categories retain630 JS and4979
+static passes plus295 recorded partials, with0 regressions/0 skips. The native
+regression also checks contain/cover and retained pixels after a decoder seek.
+The complete saved Bizzabo HTML restores the foreground; external resources
+remain live, so that screenshot is not a fully frozen-source or video-time
+comparison. Full-catalog canonical refresh/report evidence is recorded in
+Lambda `temp/online-visual-round19/` and `test/online/`.
+
+Limits: live video now replays ordered page content rather than the previous
+placement-only optimization. No release playback performance qualification or
+new GPU video composition claim is made. SVG/PDF video frames and platform
+backends remain separately qualified; browser references, URLs, admission,
+deadlines, comparison thresholds and virtual clocks are unchanged.
+
+
 <a id="ri-057"></a>
 
 ### RI-057 — Sizing and noscript snapshot regressions in the Lambda layout gate
@@ -2393,3 +2890,53 @@ grid-nested-before.log, grid-nested-browser.json, native-nested-before/after.log
 ui-nested-before.log, ui-final.log and stripe-grid-after PNG/geometry logs.
 Broader orthogonal, intrinsic and rare alignment combinations remain governed
 by the existing partial-support matrix; this is a bounded common-page repair.
+
+
+<a id="ri-062"></a>
+
+### RI-062 — Cyclic percentage flex children inflate the content minimum
+
+**Status:** FIXED, 2026-11-13. **Lambda blocker:** clipped text in online
+Azure cards is repaired; the page retains independent header and capture
+omissions. Native ownership **D9.1.1v4 / D9.1.3v2**; bounded substituted facts
+follow **D5.5.1**; selected capture timing **D10.1.7** is unchanged.
+
+A 270px outer flex box with 16px padding and a nested row containing a fixed
+64px icon, 16px gap and `width:100%` text area expanded the row to452.7px.
+Chromium uses236px and wraps the text in156px. The intrinsic-child loop in
+`layout_flex_measurement.cpp` overwrote the measured min-content contribution
+with max-content times the authored percentage. This made a cyclic100%
+preferred width act as a nowrap minimum. CSS Sizing3§5.2.1 and Flexbox§4.5
+require the cyclic preferred percentage to behave as auto during this query.
+
+The loop now retains the existing content-only measurement. The shared
+`layout_axis_size_is_percentage` in `intrinsic_sizing.cpp` consumes existing
+`layout_css_size_facts`, so substituted variables, math and logical dimensions
+retain their percentage dependency rather than using provisional pixels.
+Definite substituted lengths and authored nowrap minima remain effective.
+No page-specific rule or alternate intrinsic measurement is added.
+
+Thirteen real PNG controls in Lambda's
+`test/online/render_flex_percentage.test.cjs` share inputs from
+`flex_percentage_fixtures.cjs`: before8/13, repaired13/13. They cover percentages,
+math, variables, logical size, auto/zero-minimum controls, fixed and nowrap
+minima, and mutation after a layout read. Independent Chromium agrees with all
+13 pixel witnesses. Initial witnesses intersected text ink in both engines;
+final witnesses sample the background below the glyphs.
+
+The identical saved Azure HTML/CSS with scripts removed isolates the repair:
+its four media rows change from308.9/370.3/451.9/541.5px to236px each; titles
+wrap instead of clipping at card edges. A small auto cross-height discrepancy
+remains in the reduction and is not claimed repaired. The main navigation is
+separate; the page is not declared visually cleared from this control alone.
+
+Qualification at Lambda0c5c0ba0d / Radiant eb39862 / Input4d1ad20 with these
+two Radiant source edits:89 native dynamic cases,91 online CLI/capture/comparator
+cases,630 recorded JS layouts and16 static suites with4979 passes and295
+recorded partials,0 regressions and0 skips. Layout integer-cast lint passes.
+A mistakenly named focused `wpt-css-flexbox` category does not exist and is not
+counted; the subsequent17 existing-category run is the accepted baseline.
+Evidence is Lambda `temp/online-visual-round17/`, including before/final hosts,
+`flex-before-final.log`, `flex-percentage.log`, `flex-pixel-browser.json`,
+`azure-*-layout.json`, saved PNGs and `layout-results.json`. Qualified host SHA256
+`10fae5cc038c9f09a06c06b189b5f604bb648b6e30a628e9f2c52edc96c3da25`.

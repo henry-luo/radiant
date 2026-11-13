@@ -359,7 +359,8 @@ IntrinsicSizes calculate_node_intrinsic_widths(LayoutContext* lycon, DomNode* no
 float calculate_min_content_width(LayoutContext* lycon, DomNode* node);
 float calculate_max_content_width(LayoutContext* lycon, DomNode* node);
 float calculate_max_content_height(LayoutContext* lycon, DomNode* node, float width,
-                                   bool ignore_definite_block_size = false);
+                                   bool ignore_definite_block_size = false,
+                                   bool width_is_used_size = false);
 enum LayoutQueryContract : uint8_t {
     LAYOUT_QUERY_LEGACY = 0,
     LAYOUT_QUERY_ORDERED_EFFECTS = 1,
@@ -2947,7 +2948,8 @@ float flex_column_content_contribution(LayoutContext* lycon, ViewElement* contai
 CssEnum layout_flex_direction(ViewElement* container);
 void apply_anonymous_flex_text_geometry(FlexContainerLayout* flex_layout);
 float flex_measure_intrinsic_max_height(LayoutContext* lycon, DomNode* node, float width,
-                                        float percentage_containing_width = -1.0f);
+                                        float percentage_containing_width = -1.0f,
+                                        bool width_is_used_size = false);
 float flex_item_explicit_ratio_basis(ViewElement* item, bool main_is_horizontal);
 bool flex_height_is_parent_constrained(LayoutContext* context, ViewBlock* container,
                                        bool include_column_main_size,
@@ -4005,6 +4007,8 @@ void determine_grid_size(GridContainerLayout* grid_layout);
 void initialize_track_sizes(GridContainerLayout* grid_layout);
 void resolve_track_sizes_enhanced(GridContainerLayout* grid_layout, struct ViewBlock* container,
     bool columns_only = false);
+float layout_grid_item_border_box_size(LayoutContext* lycon, ViewBlock* item,
+    float track_size, bool horizontal, bool update_preferred_size);
 void position_grid_items(GridContainerLayout* grid_layout, struct ViewBlock* container, ScratchArena* sa);
 void align_grid_items(GridContainerLayout* grid_layout);
 void align_grid_item(struct ViewBlock* item, GridContainerLayout* grid_layout);
@@ -4023,6 +4027,7 @@ int resolve_grid_item_styles(LayoutContext* lycon, ViewBlock* grid_container);
 void init_grid_item_view(LayoutContext* lycon, DomNode* child);
 void measure_grid_items(LayoutContext* lycon, GridContainerLayout* grid_layout,
                         bool intrinsic_width_contribution = false);
+float measure_grid_height_at_width(LayoutContext* lycon, ViewBlock* container, float width);
 IntrinsicSizes measure_grid_intrinsic_widths(LayoutContext* lycon, ViewBlock* container);
 void layout_apply_grid_item_min_content_floor(
     LayoutContext* lycon, DomElement* item, IntrinsicSizes* sizes);

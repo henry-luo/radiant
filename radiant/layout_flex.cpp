@@ -620,7 +620,9 @@ float flex_column_item_content_extent(LayoutContext* lycon,
     if (!item || item->view_type != RDT_VIEW_BLOCK) return 0.0f;
 
     if (item->fi) {
-        if (flex_layout && flex_item_has_content_flex_basis(item)) {
+        if (flex_layout) {
+            // auto bases need the same constrained text measurement as content bases;
+            // recursing over still-zero child boxes loses an unlaid-out text column.
             return calculate_flex_basis(item, flex_layout);
         }
         float basis = flex_item_resolved_basis(item, flex_layout);
@@ -1952,6 +1954,15 @@ static bool flex_item_intrinsic_border_bounds(ViewElement* item,
                                               float* maximum) {
     if (!item || !flex_layout || !has_flex_item_prop(item) || !minimum || !maximum) {
         return false;
+    }
+    ViewBlock* block = lam::view_as_block(item);
+    float content_width = layout_content_size_from_border_box(block, item->width, true);
+    if (!horizontal && is_main_axis_horizontal(flex_layout) && content_width > 0.0f &&
+        !layout_block_inline_axis_is_vertical(block)) {
+        // block-axis intrinsic sizes depend on the flexed inline size, not the old basis.
+        *minimum = *maximum = calculate_max_content_height(
+            flex_layout->lycon, item, content_width, true, true);
+        return true;
     }
     LayoutAxisRefs selected(item, horizontal);
     if (!selected.has_intrinsic()) {
@@ -3944,6 +3955,15 @@ static void determine_hypothetical_cross_sizes(LayoutContext* lycon, FlexContain
                 item, flex_layout, cross_is_horizontal, cross_preferred_keyword);
 
             LayoutAxisRefs cross_constraints(item->fi, cross_is_horizontal);
+            if (is_horizontal && !layout_block_inline_axis_is_vertical(item_block)) {
+                // keyword clamps are width-dependent too, after the main-axis allocation.
+                float minimum = flex_item_intrinsic_border_size(item, flex_layout, false,
+                    layout_intrinsic_min_size_keyword(item_block, false));
+                float maximum = flex_item_intrinsic_border_size(item, flex_layout, false,
+                    layout_intrinsic_max_size_keyword(item_block, false));
+                if (minimum >= 0.0f) *cross_constraints.minimum = minimum;
+                if (maximum >= 0.0f) *cross_constraints.maximum = maximum;
+            }
             float min_cross = *cross_constraints.minimum;
             float max_cross = *cross_constraints.maximum > 0.0f
                 ? *cross_constraints.maximum : INFINITY;
@@ -3994,7 +4014,7 @@ static void determine_hypothetical_cross_sizes(LayoutContext* lycon, FlexContain
                     if (!flex_measure_completed_flow(lycon, item, flex_layout,
                             item_content_width, &measured_height)) {
                         measured_height = flex_measure_intrinsic_max_height(
-                            lycon, static_cast<DomNode*>(item), item_content_width);
+                            lycon, static_cast<DomNode*>(item), item_content_width, -1.0f, true);
                     }
                     flex_retained_record_cross(lycon, item, item_content_width, measured_height);
                 }

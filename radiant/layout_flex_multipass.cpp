@@ -756,21 +756,19 @@ static float flex_auto_container_content_extent(LayoutContext* lycon,
                                                 bool sum_items) {
     if (!container || !flex_layout) return 0.0f;
     float extent = 0.0f;
-    for (DomNode* child = container->first_child; child; child = child->next_sibling) {
-        if (!child->is_element()) continue;
-        ViewElement* item = lam::view_require_element(child);
-        if (!item || layout_view_is_out_of_flow_positioned(item)) continue;
+    // display:contents contributes its collected flex items, not a zero-size wrapper.
+    flex_for_each_final_content_item(container, flex_layout, [&](ViewElement* item) {
         float item_extent;
         if (axis == LAYOUT_AXIS_Y && sum_items) {
             item_extent = flex_column_item_content_extent(lycon, item, flex_layout) +
                 layout_axis_margin_start(item->bound, axis) +
                 layout_axis_margin_end(item->bound, axis);
         } else {
-            item_extent = flex_auto_item_extent(child, axis);
+            item_extent = flex_auto_item_extent(item, axis);
         }
         if (sum_items) extent += item_extent;
         else extent = max(extent, item_extent);
-    }
+    });
     if (sum_items && item_count > 1) {
         extent += flex_gap_for_axis(flex_layout, flex_main_axis(flex_layout)) *
             (item_count - 1);

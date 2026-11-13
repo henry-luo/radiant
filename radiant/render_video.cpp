@@ -1,10 +1,4 @@
-// render_video.cpp — Post-composite video frame blit + controls overlay for Radiant
-//
-// After tile compositing produces the final surface, this function scans the
-// display list for DL_VIDEO_PLACEHOLDER items and blits the latest decoded
-// video frame onto the surface at the recorded layout rect.
-// Controls overlay (play/pause, seek bar, time, volume) is drawn on top.
-// Vector graphics rendered via RdtVector (ThorVG), text via font.h glyph system.
+// decoded video and controls form an immutable image in the owner's paint order.
 
 #include "render.hpp"
 #include "render_metrics.hpp"
@@ -40,24 +34,8 @@ static void blit_video_frame(ImageSurface* surface, const RdtVideoFrame* frame,
 }
 
 // ---------------------------------------------------------------------------
-// render_video_frames — scan display list, blit all video frames post-composite
+// video visibility
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// is_video_visible — check if video rect intersects clip bounds and surface
-// ---------------------------------------------------------------------------
-
-static bool is_video_visible(float dst_x, float dst_y, float dst_w, float dst_h,
-                             float clip_l, float clip_t, float clip_r, float clip_b,
-                             int surf_w, int surf_h) {
-    // check against clip bounds (container overflow, scroll)
-    if (dst_x + dst_w <= clip_l || dst_x >= clip_r) return false;
-    if (dst_y + dst_h <= clip_t || dst_y >= clip_b) return false;
-    // check against surface bounds (viewport)
-    if (dst_x + dst_w <= 0 || dst_x >= (float)surf_w) return false;
-    if (dst_y + dst_h <= 0 || dst_y >= (float)surf_h) return false;
-    return true;
-}
 
 // ===========================================================================
 // Video controls overlay drawing (ThorVG vector graphics + font system text)
@@ -364,171 +342,39 @@ static void render_play_button_overlay(ImageSurface* surface,
     rdt_vector_destroy(&vec);
 }
 
-static void render_video_finish_placements(DocState* state, int count) {
-    if (!state) return;
-    state->video_placement_count = count;
-    doc_state_clear_video_frame_pending(state);
-}
-
-void render_video_frames(DisplayList* dl, ImageSurface* surface, DocState* rstate, UiContext* uicon) {
-    if (!dl || !surface) {
-        // an absent video stream must also retire placements from the previous frame.
-        render_video_finish_placements(rstate, 0);
-        return;
+ImageSurface* render_video_snapshot(const EmbedProp* embed, bool has_poster,
+        float width, float height, float scale, UiContext* ui) {
+    RdtVideo* video = embed ? embed->video.get() : nullptr;
+    if (!video || width <= 0.0f || height <= 0.0f) return nullptr;
+    RdtVideoState state = rdt_video_get_state(video);
+    RdtVideoFrame frame = {};
+    bool live = (state == RDT_VIDEO_STATE_PLAYING || state == RDT_VIDEO_STATE_PAUSED) &&
+        rdt_video_get_frame(video, &frame) == 0 && frame.pixels;
+    if (has_poster && !live && !embed->has_controls) return nullptr;
+    bool decoded = live || (!has_poster && state != RDT_VIDEO_STATE_ERROR &&
+        state != RDT_VIDEO_STATE_IDLE && state != RDT_VIDEO_STATE_LOADING &&
+        rdt_video_get_frame(video, &frame) == 0 && frame.pixels);
+    if (!has_poster && !decoded && state != RDT_VIDEO_STATE_ERROR &&
+        state != RDT_VIDEO_STATE_IDLE && state != RDT_VIDEO_STATE_LOADING) return nullptr;
+    MemContext* memory = ui && ui->document ? (MemContext*)ui->document->services.mem_ctx : nullptr;
+    ImageSurface* surface = render_surface_create_budgeted(memory, width, height);
+    if (!surface) return nullptr;
+    surface->alpha_mode = IMAGE_ALPHA_PREMULTIPLIED;
+    if (decoded) {
+        ImageSurface source = {};
+        source.width = frame.width; source.height = frame.height;
+        source.has_intrinsic_size = true;
+        Rect rect = render_media_object_rect(embed, &source, {0, 0, width, height}, scale);
+        blit_video_frame(surface, &frame, rect.x, rect.y, rect.width, rect.height, nullptr);
+        if (embed->has_controls) render_video_controls(surface, video, 0, 0, width, height, ui);
+        if (state == RDT_VIDEO_STATE_PAUSED || state == RDT_VIDEO_STATE_READY)
+            render_play_button_overlay(surface, 0, 0, width, height);
+    } else if (!has_poster && state == RDT_VIDEO_STATE_ERROR) {
+        render_error_state(surface, 0, 0, width, height);
+    } else {
+        render_play_button_overlay(surface, 0, 0, width, height);
     }
-
-    // cache video placements for video-only dirty optimisation
-    int cached = 0;
-
-    DisplayListCursor cursor(dl);
-    while (const DisplayItem* item = cursor.next()) {
-        RENDER_METRIC_ADD(media_command_checks, 1);
-        if (item->op != DL_VIDEO_PLACEHOLDER) continue;
-
-        const DlVideoPlaceholder* vp = &item->video_placeholder;
-        RdtVideo* video = (RdtVideo*)vp->video;
-        if (!video) continue;
-
-        // cache placement for video-only blit path
-        if (rstate && cached < MAX_CACHED_VIDEO_PLACEMENTS) {
-            auto& p = rstate->video_placements[cached];
-            p.video = vp->video;
-            p.dst_x = vp->dst_x; p.dst_y = vp->dst_y;
-            p.dst_w = vp->dst_w; p.dst_h = vp->dst_h;
-            p.clip_left = vp->clip.left; p.clip_top = vp->clip.top;
-            p.clip_right = vp->clip.right; p.clip_bottom = vp->clip.bottom;
-            p.has_controls = (vp->object_fit & 0x100) != 0;  // controls flag packed in high bits
-            p.has_poster = vp->has_poster;
-            cached++;
-        }
-
-        // skip blit for off-viewport videos
-        if (!is_video_visible(vp->dst_x, vp->dst_y, vp->dst_w, vp->dst_h,
-                              vp->clip.left, vp->clip.top, vp->clip.right, vp->clip.bottom,
-                              surface->width, surface->height)) {
-            continue;
-        }
-
-        RdtVideoState state = rdt_video_get_state(video);
-        RdtVideoFrame frame = {};
-        bool live_frame = (state == RDT_VIDEO_STATE_PLAYING || state == RDT_VIDEO_STATE_PAUSED) &&
-            rdt_video_get_frame(video, &frame) == 0 && frame.pixels;
-
-        // poster pixels use ordinary image paint so fit, clips and retained resource ownership agree.
-        if (vp->has_poster && !live_frame) {
-            if ((vp->object_fit & 0x100) != 0)
-                render_play_button_overlay(surface, vp->dst_x, vp->dst_y, vp->dst_w, vp->dst_h);
-            continue;
-        }
-
-        // error state: draw error overlay
-        if (state == RDT_VIDEO_STATE_ERROR) {
-            render_error_state(surface, vp->dst_x, vp->dst_y, vp->dst_w, vp->dst_h);
-            continue;
-        }
-
-        // idle/loading without a poster retains the existing play affordance.
-        if (state == RDT_VIDEO_STATE_IDLE || state == RDT_VIDEO_STATE_LOADING) {
-            render_play_button_overlay(surface, vp->dst_x, vp->dst_y, vp->dst_w, vp->dst_h);
-            continue;
-        }
-
-        if (!live_frame && rdt_video_get_frame(video, &frame) != 0) {
-            continue;  // no frame available yet
-        }
-
-        log_debug("[VIDEO BLIT] frame %dx%d pts=%.3f → (%.0f,%.0f) %.0fx%.0f",
-                  frame.width, frame.height, frame.pts,
-                  vp->dst_x, vp->dst_y, vp->dst_w, vp->dst_h);
-
-        blit_video_frame(surface, &frame,
-                         vp->dst_x, vp->dst_y, vp->dst_w, vp->dst_h,
-                         &vp->clip);
-
-        // draw controls overlay if attribute is present
-        bool has_controls = (vp->object_fit & 0x100) != 0;
-        if (has_controls) {
-            render_video_controls(surface, video, vp->dst_x, vp->dst_y, vp->dst_w, vp->dst_h, uicon);
-        }
-
-        // show play button for paused/ready video (when not playing)
-        if (state == RDT_VIDEO_STATE_PAUSED || state == RDT_VIDEO_STATE_READY) {
-            render_play_button_overlay(surface, vp->dst_x, vp->dst_y, vp->dst_w, vp->dst_h);
-        }
-    }
-
-    render_video_finish_placements(rstate, cached);
-}
-
-// ---------------------------------------------------------------------------
-// render_video_frames_cached — blit video frames using cached placements
-// Used for video-only dirty path: skips DL rebuild + tile replay
-// ---------------------------------------------------------------------------
-
-void render_video_frames_cached(DocState* rstate, ImageSurface* surface, UiContext* uicon) {
-    if (!rstate || !surface) return;
-    if (rstate->video_placement_count <= 0) {
-        doc_state_clear_video_frame_pending(rstate);
-        return;
-    }
-
-    for (int i = 0; i < rstate->video_placement_count; i++) {
-        auto& p = rstate->video_placements[i];
-        RdtVideo* video = (RdtVideo*)p.video;
-        if (!video) continue;
-
-        RdtVideoState state = rdt_video_get_state(video);
-        if (p.has_poster && state != RDT_VIDEO_STATE_PLAYING && state != RDT_VIDEO_STATE_PAUSED)
-            continue;
-
-        // skip blit for off-viewport videos
-        if (!is_video_visible(p.dst_x, p.dst_y, p.dst_w, p.dst_h,
-                              p.clip_left, p.clip_top, p.clip_right, p.clip_bottom,
-                              surface->width, surface->height)) {
-            continue;
-        }
-
-        // the frame and controls draw inside the destination box; the centred play button and error
-        // mark reach up to 40 px (plus stroke and antialiasing) from its centre even in a smaller box
-        float cx = p.dst_x + p.dst_w / 2, cy = p.dst_y + p.dst_h / 2;
-        Bound written = {fminf(p.dst_x, cx - 42), fminf(p.dst_y, cy - 42),
-                         fmaxf(p.dst_x + p.dst_w, cx + 42), fmaxf(p.dst_y + p.dst_h, cy + 42)};
-
-        // error state: draw error overlay
-        if (state == RDT_VIDEO_STATE_ERROR) {
-            render_error_state(surface, p.dst_x, p.dst_y, p.dst_w, p.dst_h);
-            ui_context_add_present_damage(uicon, written);
-            continue;
-        }
-
-        if (state != RDT_VIDEO_STATE_PLAYING && state != RDT_VIDEO_STATE_PAUSED &&
-            state != RDT_VIDEO_STATE_READY) {
-            continue;
-        }
-
-        RdtVideoFrame frame = {};
-        if (rdt_video_get_frame(video, &frame) != 0) continue;
-
-        log_debug("[VIDEO BLIT cached] frame %dx%d pts=%.3f → (%.0f,%.0f) %.0fx%.0f",
-                  frame.width, frame.height, frame.pts,
-                  p.dst_x, p.dst_y, p.dst_w, p.dst_h);
-
-        Bound clip = { p.clip_left, p.clip_top, p.clip_right, p.clip_bottom };
-        blit_video_frame(surface, &frame,
-                         p.dst_x, p.dst_y, p.dst_w, p.dst_h,
-                         &clip);
-
-        // draw controls overlay
-        if (p.has_controls) {
-            render_video_controls(surface, video, p.dst_x, p.dst_y, p.dst_w, p.dst_h, uicon);
-        }
-
-        // play button overlay for paused state
-        if (state == RDT_VIDEO_STATE_PAUSED || state == RDT_VIDEO_STATE_READY) {
-            render_play_button_overlay(surface, p.dst_x, p.dst_y, p.dst_w, p.dst_h);
-        }
-        ui_context_add_present_damage(uicon, written);
-    }
-
-    doc_state_clear_video_frame_pending(rstate);
+    // replay workers and retained fragments must not borrow the decoder's mutable frame buffer.
+    image_surface_snapshot_publish(surface);
+    return surface;
 }

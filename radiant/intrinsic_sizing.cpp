@@ -324,12 +324,9 @@ bool layout_axis_size_is_percentage(DomElement* element, bool horizontal) {
         ? dom_element_get_specified_value(
             element, horizontal ? CSS_PROPERTY_WIDTH : CSS_PROPERTY_HEIGHT)
         : nullptr;
-    // During intrinsic measurement, style resolution may already have converted
-    // the percentage to a provisional pixel value; preserve the authored type.
-    return (declaration && declaration->value &&
-            declaration->value->type == CSS_VALUE_TYPE_PERCENTAGE) ||
-           (authored_declaration && authored_declaration->value &&
-            authored_declaration->value->type == CSS_VALUE_TYPE_PERCENTAGE);
+    // preserve cyclic percentages through substitution and provisional pixel resolution.
+    return layout_css_size_facts(nullptr, element, declaration).percentage ||
+           layout_css_size_facts(nullptr, element, authored_declaration).percentage;
 }
 
 CssEnum layout_intrinsic_max_size_keyword(ViewBlock* block, bool horizontal) {
@@ -7196,13 +7193,57 @@ float layout_resolve_preferred_intrinsic_inline_size(LayoutContext* lycon, ViewB
     return layout_used_css_size_from_border_box(block, border_size, horizontal);
 }
 
+static float intrinsic_inline_flow_content_height(LayoutContext* context,
+                                                   DomElement* element,
+                                                   ViewBlock* block, float width) {
+    if (!context->ui_context || context->paged || layout_block_inline_axis_is_vertical(block) ||
+        context->node_count >= context->node_limit || context->depth >= MAX_LAYOUT_DEPTH)
+        return -1.0f;
+    // mixed inline fonts and forced breaks share line boxes; reuse flow rather
+    // than taking a maximum of independently measured spans (CSS 2.1 §9.4.2).
+    ScratchScope counter_scratch(&context->scratch);
+    CounterCheckpoint counters;
+    if (!counters.enter(context->counter_context, &context->scratch, &counter_scratch.mark))
+        return -1.0f;
+    radiant::LayoutFlowResult* selected = radiant::layout_flow_result_capture(context, element);
+    if (!selected) return -1.0f;
+    radiant::LayoutMeasureScope measure(context, element);
+    LayoutViewScope view_scope(context);
+    block->view_type = RDT_VIEW_BLOCK;
+    block->width = layout_border_size_from_content_box(block, width, true);
+    block->height = layout_border_size_from_content_box(block, 0.0f, false);
+    BlockContext parent = context->block;
+    layout_setup_assigned_block_context(context, block, &parent, width, -1.0f);
+    context->view = lam::up(static_cast<View*>(block));
+    context->elmt = lam::up(static_cast<DomNode*>(element));
+    setup_line_height(context, block);
+    layout_setup_block_font_metrics(context);
+    context->block.block_container_font = lam::up(context->font.style);
+    setup_inline(context, block);
+    float content_start = context->block.advance_y;
+    layout_block_inner_content(context, block);
+    float height = max(0.0f, context->block.advance_y - content_start);
+    // intrinsic queries retain the selected text fragments (D5.5.1).
+    if (!radiant::layout_flow_result_apply(context, selected)) {
+        log_error("inline height: selected flow restoration failed");
+        height = -1.0f;
+    }
+    radiant::layout_flow_result_release(context->pool, selected);
+    return height;
+}
+
 static float intrinsic_text_br_content_height(LayoutContext* lycon, DomElement* element,
                                               ViewBlock* view, float width) {
     if (!lycon || !element || !view || width <= 0.0f) return -1.0f;
-    // ordinary flex height queries retain their existing complex-flow fallback.
     StrBuf* text = layout_collect_inline_text(element,
         lycon->block.text_wrap_style == CSS_VALUE_BALANCE);
-    if (!text) return -1.0f;
+    if (!text) {
+        // qualify text/BR-only inline descendants without flattening their fonts.
+        text = layout_collect_inline_text(element, true);
+        if (!text) return -1.0f;
+        strbuf_free(text);
+        return intrinsic_inline_flow_content_height(lycon, element, view, width);
+    }
 
     float line_height = intrinsic_element_line_height(lycon, element, view);
     // nowrap can overflow the inline size, but only forced boundaries add lines.
@@ -7216,7 +7257,8 @@ static float intrinsic_text_br_content_height(LayoutContext* lycon, DomElement* 
 }
 
 static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode* node, float width,
-                                                   bool ignore_definite_block_size) {
+                                                   bool ignore_definite_block_size,
+                                                   bool width_is_used_size) {
     if (!node) return 0;
 
     // For text nodes, estimate based on line height and text width
@@ -7584,6 +7626,30 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
         }
     }
 
+    float content_w = width;
+    if (!width_is_used_size) {
+        // preferred expressions and clamps use this element's containing block;
+        // assigned flex/grid queries already supply the final content width.
+        float border_width = width >= 0.0f
+            ? layout_border_size_from_content_box(view, width, true) : -1.0f;
+        CssDeclaration* declaration = layout_specified_physical_size_declaration(element, true);
+        LayoutCssSizeFacts facts = layout_css_size_facts(lycon, element, declaration);
+        if (declaration && declaration->value && !facts.automatic &&
+            layout_intrinsic_preferred_size_keyword(view, true) == CSS_VALUE__UNDEF &&
+            !(facts.percentage && intrinsic_percentage_width_is_indefinite(lycon, element))) {
+            float preferred = resolve_element_length_value(
+                lycon, element, CSS_PROPERTY_WIDTH, declaration->value);
+            if (isfinite(preferred) && preferred >= 0.0f) {
+                border_width = layout_css_size_to_border_box(
+                    view->bound, layout_box_sizing(view), preferred, true);
+            }
+        }
+        if (border_width >= 0.0f) {
+            border_width = layout_apply_min_max_border_box_axis(view, border_width, true);
+            content_w = layout_content_size_from_border_box(view, border_width, true);
+        }
+    }
+
     // Check if this is a grid container - need to detect column count
     bool is_grid_container = intrinsic_element_display_matches(
         element, CSS_VALUE_GRID, CSS_VALUE_INLINE_GRID);
@@ -7804,6 +7870,9 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
         height = vertical_columns ? max(spanner_inline,
             flow_height * column_count + multicol_intrinsic_column_gap(view) * (column_count - 1))
             : ceilf(flow_height / (float)column_count);
+    } else if (is_grid_container && content_w > 0.0f &&
+               !layout_block_inline_axis_is_vertical(view)) {
+        height = measure_grid_height_at_width(lycon, view, content_w);
     } else if (is_grid_container && grid_column_count > 1) {
         // Collect child heights
         int child_count = 0;
@@ -7928,22 +7997,6 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
             height = inline_run_height;
         } else {
         // Calculate children's heights (original logic for non-grid or single-column)
-
-        // Determine the element's own content width for children's percentage resolution.
-        // The `width` parameter is the available width from the parent (containing block),
-        // but if this element has an explicit CSS width, children resolve percentages
-        // against this element's content width, not the grandparent's.
-        float content_w = width;
-        if (element->specified_style) {
-            CssDeclaration* w_decl = layout_specified_physical_size_declaration(element, true);
-            if (w_decl && w_decl->value) {
-                if (w_decl->value->type == CSS_VALUE_TYPE_PERCENTAGE && width > 0) {
-                    content_w = (float)(w_decl->value->data.percentage.value / 100.0) * width;
-                } else if (w_decl->value->type == CSS_VALUE_TYPE_LENGTH) {
-                    content_w = resolve_length_value(lycon, CSS_PROPERTY_WIDTH, w_decl->value);
-                }
-            }
-        }
 
         float inline_before = 0.0f, inline_after = 0.0f;
         bool has_direct_inline_text = false;
@@ -8175,6 +8228,7 @@ struct IntrinsicHeightKey {
     ViewType view_type;
     uint32_t role_flags;
     bool ignore_definite_block_size;
+    bool width_is_used_size;
 };
 
 struct IntrinsicHeightVersion {
@@ -8246,7 +8300,8 @@ static uint8_t intrinsic_height_key_changes(const IntrinsicHeightKey& a, const I
     if (a.width != b.width) changed |= 8;
     if (a.root_font_size != b.root_font_size || a.raster_scale != b.raster_scale) changed |= 16;
     if (a.text_wrap_style != b.text_wrap_style || a.view_type != b.view_type ||
-        a.role_flags != b.role_flags || a.ignore_definite_block_size != b.ignore_definite_block_size)
+        a.role_flags != b.role_flags || a.ignore_definite_block_size != b.ignore_definite_block_size ||
+        a.width_is_used_size != b.width_is_used_size)
         changed |= 32;
     return changed;
 }
@@ -8283,7 +8338,7 @@ thread_local IntrinsicHeightScope* IntrinsicHeightScope::active = nullptr;
 } // namespace radiant
 
 float calculate_max_content_height(LayoutContext* lycon, DomNode* node, float width,
-                                   bool ignore_definite_block_size) {
+                                   bool ignore_definite_block_size, bool width_is_used_size) {
     if (!lycon || !node) return 0.0f;
     // cached and uncached scalar queries preserve the active caller's sizes.
     BlockContextScope caller_block_scope(lycon);
@@ -8320,7 +8375,7 @@ float calculate_max_content_height(LayoutContext* lycon, DomNode* node, float wi
             flex_inline_basis,
             lycon->block.text_wrap_style, element->view_type,
             element->elmt_flags & (ELMT_FLAG_PARENT_ITEM_KIND_MASK | ELMT_FLAG_ROLE_KIND_MASK),
-            ignore_definite_block_size};
+            ignore_definite_block_size, width_is_used_size};
         version = radiant::intrinsic_height_version(lycon, element);
         radiant::LayoutCache* owner = radiant::layout_pass_ensure_cache(lycon, element);
         if (owner && !owner->intrinsic_heights) owner->intrinsic_heights = lam::own(
@@ -8350,7 +8405,8 @@ float calculate_max_content_height(LayoutContext* lycon, DomNode* node, float wi
         }
     }
     lycon->profiler.height_computations++;
-    float height = calculate_max_content_height_uncached(lycon, node, width, ignore_definite_block_size);
+    float height = calculate_max_content_height_uncached(
+        lycon, node, width, ignore_definite_block_size, width_is_used_size);
     if (element && !scope.cacheable) lycon->profiler.height_uncacheable++;
     if (cache && scope.cacheable && isfinite(height) &&
         radiant::intrinsic_height_version_equal(version, radiant::intrinsic_height_version(lycon, element))) {

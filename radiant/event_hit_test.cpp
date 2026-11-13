@@ -114,7 +114,7 @@ static void target_custom_layout_children(EventContext* evcon, ViewBlock* block)
     radiant_stack_free_custom_layout_paint(&paint);
 }
 
-void target_children(EventContext* evcon, View* view) {
+void target_children(EventContext* evcon, View* view, bool defer_positioned = false) {
     if (!evcon || !view) return;
     unsigned phases = evcon->paint_phase == RADIANT_PAINT_ALL ? radiant_stack_flow_phases(view) : 0;
     if (phases) {
@@ -123,14 +123,14 @@ void target_children(EventContext* evcon, View* view) {
             RadiantPaintPhase next = radiant_stack_paint_phase(2 - index);
             if (!(phases & (1u << next))) continue;
             RadiantPaintPhaseScope phase(&evcon->paint_phase, next);
-            target_children(evcon, view);
+            target_children(evcon, view, defer_positioned);
             if (evcon->target) return;
         }
         return;
     }
     View* last = view;
     for (View* child = view; child; child = child->next()) last = child;
-    if (render_paint_phase_has_content(evcon->paint_phase)) {
+    if (render_paint_phase_has_content(evcon->paint_phase) && !defer_positioned) {
         for (View* child = last; child && !evcon->target;
              child = child == view ? nullptr : static_cast<View*>(child->prev_sibling)) {
             if (!radiant_stack_is_deferred_from_normal_flow(child) &&
@@ -524,7 +524,7 @@ void target_block_view(EventContext* evcon, ViewBlock* block) {
     // target static positioned children
     view = block->custom_layout_paint_prop() ? nullptr : block->first_child;
     if (view) {
-        target_children(evcon, view);
+        target_children(evcon, view, true);
         bool rich_host_margin_hit_allowed = event_inside_block(evcon, block);
         bool rich_host = radiant_hit_rich_editable_host(static_cast<View*>(block));
         if (!rich_host_margin_hit_allowed && rich_host) {

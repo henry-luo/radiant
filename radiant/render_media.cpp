@@ -426,19 +426,21 @@ void render_video_content(RasterRenderContext* rdcon, ViewBlock* view) {
     if (!view->embedp()->video) return;
 
     float s = rdcon->raster_scale;
-    float dst_x = rdcon->block.x + view->x * s;
-    float dst_y = rdcon->block.y + view->y * s;
-    float dst_w = view->width * s;
-    float dst_h = view->height * s;
-    int object_fit_flags = (int)view->embedp()->object_fit; // INT_CAST_OK: enum packing for display-list placeholder flags
-    // pack has_controls into bit 8
-    if (view->embedp()->has_controls) object_fit_flags |= 0x100;
-
-
-    rc_video_placeholder(rdcon, view->embedp()->video,
-                         dst_x, dst_y, dst_w, dst_h,
-                         object_fit_flags, &rdcon->block.clip,
-                         rdcon->ui_context && rdcon->ui_context->document &&
-                         rdcon->ui_context->document->state ?
-                             rdcon->ui_context->document->state->video_frame_generation : 0, has_poster);
+    Rect rect = render_geometry_block_content_rect(&rdcon->block, view, s);
+    ImageSurface* snapshot = render_video_snapshot(view->embedp(), has_poster,
+        rect.width, rect.height, s, rdcon->ui_context);
+    if (snapshot) {
+        Bound clip = rdcon->has_transform ? rdcon->block.clip
+            : view_geometry_intersect_bound_rect(rdcon->block.clip, rect);
+        bool clipped = render_media_push_content_clip(rdcon, view, &rect, &rect);
+        render_painter_blit_surface_scaled(rdcon, snapshot, nullptr, rdcon->ui_context->surface,
+            &rect, &clip, SCALE_MODE_LINEAR, rdcon->clip_shapes, rdcon->clip_shape_depth, 255);
+        if (clipped) rc_pop_clip(rdcon);
+        image_surface_snapshot_release(snapshot);
+    }
+    // the marker invalidates retained media at the decoder epoch; pixels already have CSS paint order.
+    rc_video_placeholder(rdcon, view->embedp()->video, rect.x, rect.y, rect.width, rect.height,
+        0, &rdcon->block.clip, rdcon->ui_context && rdcon->ui_context->document &&
+        rdcon->ui_context->document->state ?
+            rdcon->ui_context->document->state->video_frame_generation : 0, has_poster);
 }

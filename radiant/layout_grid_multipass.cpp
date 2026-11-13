@@ -422,6 +422,31 @@ void layout_grid_content(LayoutContext* lycon, ViewBlock* grid_container) {
 
     log_leave();
 }
+float measure_grid_height_at_width(LayoutContext* lycon, ViewBlock* container, float width) {
+    if (!lycon || !container || width < 0.0f) return 0.0f;
+    // row contributions must share placement and solved columns; equal column
+    // guesses preserve provisional percentage widths and inflate enclosing flexes.
+    radiant::LayoutMeasureScope measure_scope(lycon, container);
+    LayoutViewScope view_scope(lycon);
+    lycon->view = lam::up(static_cast<View*>(container));
+    lycon->available_space = AvailableSpace::make_indefinite();
+    lycon->available_space.width = AvailableSize::make_definite(width);
+    lycon->block.given_width = lycon->block.content_width = width;
+    lycon->block.given_height = -1.0f;
+    lycon->block.content_height = 0.0f;
+    lycon->block.used_size_owner = nullptr;
+    container->view_type = RDT_VIEW_BLOCK;
+    container->width = layout_border_size_from_content_box(container, width, true);
+    container->height = container->content_height = 0.0f;
+    container->content_width = width;
+    GridLayoutScope grid_scope(lycon, container);
+    if (!lycon->grid_container) return 0.0f;
+    resolve_grid_item_styles(lycon, container);
+    measure_grid_items(lycon, lycon->grid_container);
+    layout_grid_container(lycon, container);
+    return lycon->grid_container->content_height;
+}
+
 IntrinsicSizes measure_grid_intrinsic_widths(LayoutContext* lycon, ViewBlock* container) {
     IntrinsicSizes result = {};
     if (!lycon || !container) return result;

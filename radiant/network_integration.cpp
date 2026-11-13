@@ -412,6 +412,7 @@ typedef struct CssResourcePrefetchContext {
     DomDocument* doc;
     const Url* base_url;
     int queued;
+    Pool* inline_parse_pool;
 } CssResourcePrefetchContext;
 
 static void prefetch_css_resource_url(CssValue* value, void* context) {
@@ -446,7 +447,37 @@ void radiant_prefetch_document_stylesheet_resources(DomDocument* doc) {
     }
 }
 
+static bool prefetch_inline_style_resource_urls(DomNode* node, void* context) {
+    if (!node || !node->is_element()) return true;
+    CssResourcePrefetchContext* prefetch = (CssResourcePrefetchContext*)context;
+    DomElement* element = node->as_element();
+    CssRule* rule = dom_element_inline_declaration_block(element);
+    size_t count = rule ? rule->data.style_rule.declaration_count : 0;
+    CssDeclaration** declarations = rule ? rule->data.style_rule.declarations : nullptr;
+    if (!rule) {
+        // untouched HTML attributes have no CSSOM declaration block; parse them in traversal-owned scratch.
+        const char* text = dom_element_get_inline_style(element);
+        if (!text || !*text) return true;
+        if (!prefetch->inline_parse_pool) prefetch->inline_parse_pool = pool_create();
+        if (!prefetch->inline_parse_pool) return true;
+        declarations = css_parse_declaration_list_text_mode(text, strlen(text),
+            prefetch->inline_parse_pool, &count, dom_element_uses_quirks_css(element));
+    }
+    for (size_t index = 0; index < count; index++) {
+        CssDeclaration* declaration = declarations[index];
+        if (declaration) radiant_for_each_css_value_resource_url(declaration->value,
+            prefetch_css_resource_url, context);
+    }
+    return true;
+}
+
 static void discover_document_image_resources(DomDocument* doc) {
+    // inline attributes and script edits are parsed after stylesheet prefetch; paint only consumes ready bytes.
+    CssResourcePrefetchContext inline_resources = {doc, doc->url, 0};
+    view_geometry_walk_dom_tree(doc->root, prefetch_inline_style_resource_urls, &inline_resources);
+    if (inline_resources.inline_parse_pool) pool_destroy(inline_resources.inline_parse_pool);
+    if (inline_resources.queued > 0)
+        log_info("[PREFETCH] queued %d inline CSS declaration resources", inline_resources.queued);
     find_elements_by_selector(doc->root, "img", discover_img_callback, doc);
     find_elements_by_selector(doc->root, "use", discover_use_callback, doc);
     find_elements_by_selector(doc->root, "video", [](DomElement* video, void* context) {

@@ -58,7 +58,7 @@ static bool resource_file_looks_like_svg(const char* path) {
 
 // CSS resource handler
 
-static void visit_css_value_urls(CssValue* value, RadiantCssUrlVisitor visitor,
+void radiant_for_each_css_value_resource_url(CssValue* value, RadiantCssUrlVisitor visitor,
                                  void* context) {
     if (!value || !visitor) return;
     if (value->type == CSS_VALUE_TYPE_URL && value->data.url) {
@@ -66,14 +66,14 @@ static void visit_css_value_urls(CssValue* value, RadiantCssUrlVisitor visitor,
     } else if (value->type == CSS_VALUE_TYPE_FUNCTION && value->data.function) {
         CssFunction* func = value->data.function;
         for (int i = 0; i < func->arg_count; i++) {
-            visit_css_value_urls(func->args[i], visitor, context);
+            radiant_for_each_css_value_resource_url(func->args[i], visitor, context);
         }
     } else if (value->type == CSS_VALUE_TYPE_LIST && value->data.list.values) {
         for (int i = 0; i < value->data.list.count; i++) {
-            visit_css_value_urls(value->data.list.values[i], visitor, context);
+            radiant_for_each_css_value_resource_url(value->data.list.values[i], visitor, context);
         }
     } else if (value->type == CSS_VALUE_TYPE_CUSTOM && value->data.custom_property.fallback) {
-        visit_css_value_urls(value->data.custom_property.fallback, visitor, context);
+        radiant_for_each_css_value_resource_url(value->data.custom_property.fallback, visitor, context);
     }
 }
 
@@ -85,7 +85,7 @@ typedef struct CssUrlVisitContext {
 static void visit_css_declaration_urls(CssDeclaration* declaration, void* context) {
     CssUrlVisitContext* visit = (CssUrlVisitContext*)context;
     if (!declaration || !visit) return;
-    visit_css_value_urls(declaration->value, visit->visitor, visit->context);
+    radiant_for_each_css_value_resource_url(declaration->value, visit->visitor, visit->context);
 }
 
 void radiant_for_each_stylesheet_resource_url(CssStylesheet* sheet,

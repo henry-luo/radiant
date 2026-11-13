@@ -503,24 +503,69 @@ TEST_F(RdtVideoTest, PosterRemainsUntilPlaybackAndYieldsToDecodedFrame) {
     if (!wait_for_frame(video, &frame, 2000, submix))
         GTEST_SKIP() << "Native frame decode is unavailable in this environment";
     EXPECT_EQ(render_media_image_surface(&view), nullptr);
-    uint32_t pixels[100 * 100];
-    for (auto& pixel : pixels) pixel = 0x01010101;
-    ImageSurface target = {};
-    target.width = target.height = 100;
-    target.pitch = 100 * 4;
-    target.pixels = (unsigned char*)pixels;
-    Arena* arena = arena_create_default();
-    ASSERT_NE(arena, nullptr);
-    DisplayList list = {};
-    dl_init(&list, arena);
-    // replay can retain a pre-play placeholder after the decoder has a live frame.
-    dl_video_placeholder(&list, video, 0.0f, 0.0f, 100.0f, 100.0f, 0, nullptr, 0, true);
-    render_video_frames(&list, &target, nullptr, nullptr);
-    EXPECT_EQ(pixels[50 * 100 + 50] >> 24, 255u);
-    dl_destroy(&list);
-    arena_destroy(arena);
+    ImageSurface* snapshot = render_video_snapshot(&embed, true, 100, 100, 1.0f, nullptr);
+    ASSERT_NE(snapshot, nullptr);
+    EXPECT_EQ(((uint32_t*)snapshot->pixels)[50 * 100 + 50] >> 24, 255u);
+    image_surface_snapshot_release(snapshot);
     rdt_video_pause(video);
     EXPECT_EQ(render_media_image_surface(&view), nullptr);
+}
+
+TEST_F(RdtVideoTest, DecodedFramePreservesFollowingForegroundPaint) {
+    ASSERT_TRUE(open_and_wait_ready());
+    rdt_video_set_layout_rect(video, 100, 100);
+    rdt_video_play(video);
+    ASSERT_TRUE(audio_fixture_video_wait(video, RDT_VIDEO_STATE_PLAYING, 1000));
+    RdtVideoFrame frame = {};
+    ASSERT_TRUE(wait_for_frame(video, &frame, 2000, submix));
+    rdt_engine_init(0);
+    ImageSurface* surface = image_surface_create(100, 100);
+    ASSERT_NE(surface, nullptr);
+    Arena* arena = arena_create_default();
+    ASSERT_NE(arena, nullptr);
+    DisplayList list = {}; dl_init(&list, arena);
+    PaintList paint = {}; paint_list_init(&paint, arena);
+    UiContext ui = {}; ui.surface = lam::up(surface);
+    RasterRenderContext context = {};
+    context.ui_context = lam::up(&ui); context.dl = lam::up(&list);
+    context.paint_list = lam::up(&paint); context.raster_scale = 1.0f;
+    context.block.clip = {0, 0, 100, 100};
+    ViewBlock view = {}; view.node_type = DOM_NODE_ELEMENT; view.tag_id = MARKUP_NAME_VIDEO;
+    view.width = view.height = 100.0f;
+    EmbedProp embed = {}; embed.video = lam::up(video); view.embed = lam::view_prop(&embed);
+    render_video_content(&context, &view);
+    paint_ir_lower_raster(&paint, &list);
+    Bound clip = {0, 0, 100, 100};
+    dl_fill_surface_rect(&list, 20, 20, 40, 40, 0xff0000ff, &clip, nullptr, 0);
+    RdtVector vector = {};
+    rdt_vector_init(&vector, (uint32_t*)surface->pixels, 100, 100, 100);
+    dl_replay(&list, &vector, surface, &clip, nullptr, 1.0f, nullptr);
+    EXPECT_EQ(((uint32_t*)surface->pixels)[30 * 100 + 30], 0xff0000ffu);
+    EXPECT_EQ(((uint32_t*)surface->pixels)[80 * 100 + 80] >> 24, 255u);
+    for (CssEnum fit : {CSS_VALUE_CONTAIN, CSS_VALUE_COVER}) {
+        embed.object_fit = fit;
+        ImageSurface* fitted = render_video_snapshot(&embed, false, 100, 100, 1.0f, &ui);
+        ASSERT_NE(fitted, nullptr);
+        EXPECT_EQ(((uint32_t*)fitted->pixels)[5 * 100 + 50] >> 24,
+            fit == CSS_VALUE_CONTAIN ? 0u : 255u);
+        EXPECT_EQ(((uint32_t*)fitted->pixels)[50 * 100 + 50] >> 24, 255u);
+        image_surface_snapshot_release(fitted);
+    }
+    // a subsequent decoder read cannot mutate pixels already leased by the display list.
+    const DisplayItem* image = nullptr;
+    DisplayListCursor cursor(&list);
+    while (const DisplayItem* item = cursor.next())
+        if (item->op == DL_BLIT_SURFACE_SCALED) { image = item; break; }
+    ASSERT_NE(image, nullptr);
+    ImageSurface* retained = dl_blit_source_resolve(&image->blit_surface_scaled);
+    ASSERT_NE(retained, nullptr);
+    uint32_t recorded = ((uint32_t*)retained->pixels)[80 * 100 + 80];
+    rdt_video_seek(video, 0.5);
+    ASSERT_TRUE(wait_for_frame(video, &frame, 2000, submix));
+    EXPECT_EQ(((uint32_t*)retained->pixels)[80 * 100 + 80], recorded);
+    rdt_vector_destroy(&vector);
+    paint_list_destroy(&paint); dl_destroy(&list); arena_destroy(arena);
+    ui.surface = nullptr; image_surface_destroy(surface); rdt_engine_term();
 }
 
 TEST_F(RdtVideoTest, FramePixelsNotAllZero) {

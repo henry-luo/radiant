@@ -28,6 +28,9 @@ void process_html_resource(NetworkResource* res, struct DomDocument* doc);
 void process_script_resource(NetworkResource* res, struct DomDocument* doc);
 
 // Visit authored CSS url() values without changing their consumer-relative spelling.
+void radiant_for_each_css_value_resource_url(struct CssValue* value,
+                                             RadiantCssUrlVisitor visitor,
+                                             void* context);
 void radiant_for_each_stylesheet_resource_url(struct CssStylesheet* sheet,
                                               RadiantCssUrlVisitor visitor,
                                               void* context);

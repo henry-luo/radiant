@@ -569,9 +569,9 @@ static void render_block_walk_children_phase(RasterRenderContext* rdcon, ViewBlo
     if (content_phase) render_raster_negative_z_descendants(rdcon, block);
     bool custom_painted = render_raster_custom_layout_children(rdcon, block);
     if (!custom_painted) {
-        render_children(rdcon, block->first_child);
+        render_children(rdcon, block->first_child, true);
     }
-    if (content_phase && block->position) {
+    if (content_phase) {
         render_raster_positioned_children(rdcon, block);
     }
     if (content_phase && !custom_painted) {

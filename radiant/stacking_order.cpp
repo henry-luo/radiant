@@ -6,6 +6,32 @@ extern "C" {
 #include "lib/log.h"
 }
 
+int radiant_stack_compare_tree_order(View* view_a, View* view_b) {
+    if (view_a == view_b) return 0;
+    if (!view_a) return -1;
+    if (!view_b) return 1;
+
+    int depth_a = 0, depth_b = 0;
+    for (View* view = view_a; view; view = view->parent) depth_a++;
+    for (View* view = view_b; view; view = view->parent) depth_b++;
+    View* child_a = view_a;
+    View* child_b = view_b;
+    // containing-block chains can cross arbitrary DOM depth; do not truncate their ancestry.
+    while (depth_a > depth_b) { child_a = child_a->parent; depth_a--; }
+    while (depth_b > depth_a) { child_b = child_b->parent; depth_b--; }
+    if (child_a == child_b) return child_a == view_a ? -1 : 1;
+    while (child_a->parent != child_b->parent) {
+        child_a = child_a->parent;
+        child_b = child_b->parent;
+    }
+    for (View* sib = child_a; sib; sib = static_cast<View*>(sib->next_sibling)) {
+        if (sib == child_b) {
+            return -1;
+        }
+    }
+    return 1;
+}
+
 static int radiant_stack_view_z_index(View* view) {
     ViewElement* element = lam::view_as_element(view);
     if (!element || !element->position) return 0;
@@ -215,7 +241,15 @@ bool radiant_stack_is_in_flow_positioned_step8(View* view) {
 }
 
 ArrayList* radiant_stack_collect_positioned_children(ViewBlock* block, const char* log_prefix) {
-    if (!block || !block->position || !block->positionp()->first_abs_child) return NULL;
+    if (!block) return NULL;
+    bool has_in_flow = false;
+    if (!block->custom_layout_paint_prop()) {
+        for (View* child = block->first_child; child; child = child->next()) {
+            if (!radiant_stack_is_deferred_from_normal_flow(child) &&
+                radiant_stack_is_in_flow_positioned_step8(child)) { has_in_flow = true; break; }
+        }
+    }
+    if (!has_in_flow && (!block->position || !block->positionp()->first_abs_child)) return NULL;
     if (!log_prefix) log_prefix = "[RAD_STACK]";
 
     ArrayList* views = arraylist_new(16);
@@ -224,7 +258,17 @@ ArrayList* radiant_stack_collect_positioned_children(ViewBlock* block, const cha
         return NULL;
     }
 
-    ViewBlock* child = block->positionp()->first_abs_child;
+    // CSS E.2 step 8 interleaves zero-level in-flow and absolute siblings in tree order.
+    if (has_in_flow) {
+        for (View* child = block->first_child; child; child = child->next()) {
+            if (!radiant_stack_is_deferred_from_normal_flow(child) &&
+                radiant_stack_is_in_flow_positioned_step8(child) && !arraylist_append(views, child)) {
+                log_warn("%s failed to grow positioned list", log_prefix);
+                break;
+            }
+        }
+    }
+    ViewBlock* child = block->position ? block->positionp()->first_abs_child : nullptr;
     while (child) {
         if (child->view_type != RDT_VIEW_NONE && !radiant_stack_is_negative_z_block(child) &&
             (!radiant_stack_is_positive_z_positioned(child) || block->custom_layout_paint_prop()) &&
@@ -240,8 +284,8 @@ ArrayList* radiant_stack_collect_positioned_children(ViewBlock* block, const cha
 void radiant_stack_sort_in_paint_order(ArrayList* views) {
     if (!views) return;
 
-    // Keep equal z-index entries in collection order so reverse hit-testing is
-    // exactly the top-to-bottom inverse of the render walk's paint order.
+    // containing-block chains and in-flow lists have different collection order;
+    // equal stack levels must follow the DOM tree for paint and reverse hit testing.
     for (int i = 1; i < views->length; i++) {
         View* key = (View*)views->data[i];
         int key_z = radiant_stack_view_z_index(key);
@@ -249,7 +293,8 @@ void radiant_stack_sort_in_paint_order(ArrayList* views) {
         while (j >= 0) {
             View* current = (View*)views->data[j];
             int current_z = radiant_stack_view_z_index(current);
-            if (current_z > key_z) {
+            if (current_z > key_z ||
+                (current_z == key_z && radiant_stack_compare_tree_order(current, key) > 0)) {
                 views->data[j + 1] = views->data[j];
                 j--;
             } else {

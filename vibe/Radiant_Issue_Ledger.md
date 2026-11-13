@@ -20,6 +20,106 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-073"></a>
+
+### RI-073 — Cyclic percentage invalidation discards replaced media height
+
+**Status:** FIXED, 2026-11-13. See the [repair and qualification](<Radiant_Issue_Ledger (fixed).md#ri-073>).
+
+
+<a id="ri-072"></a>
+
+### RI-072 — Atomic inline alignment loses enclosing relative Y offsets
+
+**Status:** FIXED, 2026-11-13. See the [repair and qualification](<Radiant_Issue_Ledger (fixed).md#ri-072>).
+
+
+<a id="ri-071"></a>
+
+### RI-071 — Absolute and relative zero-level siblings paint in separate passes
+
+**Status:** FIXED, 2026-11-13. See the [repair and qualification](<Radiant_Issue_Ledger (fixed).md#ri-071>).
+
+
+<a id="ri-070"></a>
+
+### RI-070 — Inherited percentage width retains the parent's used width
+
+**Status:** observed pre-existing discrepancy; source cause **unconfirmed**,
+2026-11-13. **Lambda blocker:** no for RI-069's selected online sizing repair.
+Native ownership **D9.1.1v4 / D9.1.3v2**, geometry **D5.5.1**.
+
+In a 600px column flex, a border-box card with `width:100%;padding:20px` and
+an image-bearing child `width:inherit` gives the child/image 600px and the card
+640px. Chromium gives the child 560px and the card 600px: the inherited
+computed percentage resolves against the padded card's content box. Both the
+preserved round23 binary and RI-069's round24 candidate give exactly the same
+native geometry. The stage that substitutes the parent's used size for the
+inherited computed percentage is not isolated. This is an adjacent width-
+inheritance discrepancy, outside the current major online gap milestone;
+no expected result is changed or passing claim made.
+
+Evidence: Lambda `temp/online-visual-round24/width-inherit-before*` and
+`width-inherit-first*` preserve identical HTML, both native probes, Chromium
+geometry and PNGs. No concrete selected high-severity page is attributed to it.
+
+
+<a id="ri-069"></a>
+
+### RI-069 — Height queries omit width expressions and constraints
+
+**Status:** FIXED, 2026-11-13. See the [repair and qualification](<Radiant_Issue_Ledger (fixed).md#ri-069>).
+
+
+<a id="ri-068"></a>
+
+### RI-068 — Grid row contributions reuse provisional whole-grid widths
+
+**Status:** FIXED, 2026-11-13. See the [repair and qualification](<Radiant_Issue_Ledger (fixed).md#ri-068>).
+
+
+<a id="ri-067"></a>
+
+### RI-067 — Row-flex cross heights reuse the preferred width after flexing
+
+**Status:** FIXED, 2026-11-13. See the [repair and qualification](<Radiant_Issue_Ledger (fixed).md#ri-067>).
+
+
+<a id="ri-066"></a>
+
+### RI-066 — Auto flex columns measure empty wrappers and unlaid-out child boxes
+
+**Status:** FIXED, 2026-11-13. See the [repair and qualification](<Radiant_Issue_Ledger (fixed).md#ri-066>).
+
+
+<a id="ri-065"></a>
+
+### RI-065 — Structured inline breaks understate nested flex height
+
+**Status:** FIXED, 2026-11-13. See the [repair and qualification](<Radiant_Issue_Ledger (fixed).md#ri-065>).
+
+
+<a id="ri-064"></a>
+
+### RI-064 — Inline CSS image URLs never enter snapshot resource discovery
+
+**Status:** FIXED, 2026-11-13. See the [repair and qualification](<Radiant_Issue_Ledger (fixed).md#ri-064>).
+
+
+<a id="ri-063"></a>
+
+### RI-063 — Decoded video overwrites foreground page content
+
+**Status:** FIXED, 2026-11-13. See the [repair and qualification](<Radiant_Issue_Ledger (fixed).md#ri-063>).
+
+
+<a id="ri-062"></a>
+
+### RI-062 — Cyclic percentage flex children inflate the content minimum
+
+**Status:** FIXED, 2026-11-13. See the [repair and qualification](<Radiant_Issue_Ledger (fixed).md#ri-062>).
+
+
 <a id="ri-061"></a>
 
 ### RI-061 — Bounded snapshot resource grace can leave major media unavailable

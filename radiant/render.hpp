@@ -906,8 +906,7 @@ typedef struct {
     float clip_params[RDT_CLIP_PARAM_COUNT];
 } DlOuterShadow;
 
-// Video frame placeholder: records the layout rect and clip for post-composite blit.
-// The actual video frame pixels are blitted after tile compositing in the render loop.
+// video epoch marker: decoded pixels and controls precede it in ordinary paint order.
 typedef struct {
     struct RdtVideo* video;  // borrowed; checked by video_generation when retained (handle in M6)
     uint64_t video_generation;
@@ -1258,7 +1257,7 @@ void dl_outer_shadow(DisplayList* dl,
                      int exclude_type, const float* exclude_params,
                      int clip_type, const float* clip_params);
 
-// Video placeholder (rect + clip only; actual blit is post-composite)
+// video epoch marker; ordered image commands already contain decoded pixels.
 void dl_video_placeholder(DisplayList* dl, struct RdtVideo* video,
                           float dst_x, float dst_y, float dst_w, float dst_h,
                           int object_fit, const Bound* clip,
@@ -2405,7 +2404,7 @@ Color render_document_output_background(View* root_view);
 void render_inline_view(RasterRenderContext* rdcon, ViewSpan* view_span);
 void render_bound(RasterRenderContext* rdcon, ViewBlock* view);
 void render_outline_deferred(RasterRenderContext* rdcon, ViewBlock* view);
-void render_children(RasterRenderContext* rdcon, View* view);
+void render_children(RasterRenderContext* rdcon, View* view, bool defer_positioned = false);
 void render_raster_positioned_children(RasterRenderContext* rdcon, ViewBlock* block);
 void render_raster_stacking_view(RasterRenderContext* rdcon, View* view);
 void render_raster_negative_z_descendants(RasterRenderContext* rdcon, ViewBlock* block);
@@ -2560,7 +2559,7 @@ typedef struct {
 // Traverses the View tree and dispatches through `backend` callbacks.
 void render_walk_block(RenderBackend* backend, RenderWalkState* state, ViewBlock* block);
 void render_walk_inline(RenderBackend* backend, RenderWalkState* state, ViewSpan* span);
-void render_walk_children(RenderBackend* backend, RenderWalkState* state, View* first_child);
+void render_walk_children(RenderBackend* backend, RenderWalkState* state, View* first_child, bool defer_positioned = false);
 void render_walk_positioned_children(RenderBackend* backend, RenderWalkState* state, ViewBlock* block);
 void render_walk_positive_z_descendants(RenderBackend* backend, RenderWalkState* state, View* first_child);
 void render_walk_negative_z_descendants(RenderBackend* backend, RenderWalkState* state, ViewBlock* block);
@@ -3334,6 +3333,7 @@ unsigned radiant_stack_flow_phases(View* first_child);
 bool radiant_stack_in_paint_phase(View* view, RadiantPaintPhase phase);
 RadiantPaintPhase radiant_stack_paint_phase(unsigned index);
 View* radiant_stack_path_child(View* ancestor, View* descendant);
+int radiant_stack_compare_tree_order(View* view_a, View* view_b);
 void radiant_stack_visit_negative_z_descendants(View* owner, bool reverse, void* context,
     bool (*visit)(void* context, View* owner, View* layer));
 void radiant_stack_visit_positive_z_descendants(View* owner, bool reverse, void* context,
@@ -5188,8 +5188,9 @@ struct DocState;
 struct ImageSurface;
 struct UiContext;
 
-void render_video_frames(DisplayList* dl, ImageSurface* surface, DocState* rstate, UiContext* uicon);
-void render_video_frames_cached(DocState* rstate, ImageSurface* surface, UiContext* uicon);
+// caller releases the immutable snapshot after recording its image lease (D5.5.1).
+ImageSurface* render_video_snapshot(const EmbedProp* embed, bool has_poster,
+    float width, float height, float scale, UiContext* ui);
 
 // Frame-local render and paint structs live on the Stack: their fields borrow
 // (Up) or hold scope-owned buffers (OwnArr); they may point at any Heap level.

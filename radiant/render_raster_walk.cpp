@@ -217,7 +217,7 @@ static void render_raster_walk_state_init(RenderWalkState* walk_state, RasterRen
 }
 
 void render_raster_positioned_children(RasterRenderContext* rdcon, ViewBlock* block) {
-    if (!rdcon || !block || !block->position) return;
+    if (!rdcon || !block) return;
     RenderBackend backend;
     render_raster_backend_init(&backend, rdcon);
     backend.render_block = render_raster_walk_positioned_block;
@@ -256,7 +256,7 @@ bool render_raster_custom_layout_children(RasterRenderContext* rdcon, ViewBlock*
     return true;
 }
 
-void render_children(RasterRenderContext* rdcon, View* view) {
+void render_children(RasterRenderContext* rdcon, View* view, bool defer_positioned) {
     if (!rdcon || !view) return;
     uint64_t trc_start = time_now_ns();
 
@@ -266,7 +266,7 @@ void render_children(RasterRenderContext* rdcon, View* view) {
     RenderWalkState walk_state;
     render_raster_walk_state_init(&walk_state, rdcon);
 
-    render_walk_children(&backend, &walk_state, view);
+    render_walk_children(&backend, &walk_state, view, defer_positioned);
 
     uint64_t trc_end = time_now_ns();
     render_profiler_add_time(rdcon->profiler, RENDER_PROFILE_CHILDREN,

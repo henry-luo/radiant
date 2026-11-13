@@ -1241,6 +1241,8 @@ void render(RadiantWindow* window) {
         // rerender if the document is dirty or needs repaint (e.g., caret changed)
         if (ui_context.document->state &&
             (ui_context.document->state->is_dirty ||
+             // a new video frame must replay foreground content above the media image.
+             (ui_context.document->state->has_active_video && ui_context.document->state->video_frame_pending) ||
              // a presentation frame's old bounds may be off-screen while its new ones are not
              ui_context.document->state->presentation_damage.pending ||
              (ui_context.document->state->needs_repaint &&
@@ -1251,13 +1253,6 @@ void render(RadiantWindow* window) {
         } else if (ui_context.document->state) {
             // Clear stale needs_repaint when there are no dirty regions to render
             doc_state_clear_repaint(ui_context.document->state);
-
-            // Video-only dirty path: skip full DL rebuild, just blit new video frames
-            if (ui_context.document->state->has_active_video &&
-                ui_context.document->state->video_placement_count > 0) {
-                // adds each blitted placement to the present damage
-                render_video_frames_cached(ui_context.document->state, ui_context.surface, &ui_context);
-            }
         }
     }
 
