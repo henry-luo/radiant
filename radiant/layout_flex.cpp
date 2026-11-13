@@ -2005,7 +2005,9 @@ static bool flex_item_has_explicit_size_in_axis(ViewElement* item, bool horizont
     if (layout_intrinsic_preferred_size_keyword(block, selected.horizontal()) != CSS_VALUE__UNDEF) {
         return true;
     }
-    return block->blk && layout_axis_given_size(block->block(), selected.axis) >= 0.0f;
+    if (block->blk && layout_axis_given_size(block->block(), selected.axis) >= 0.0f) return true;
+    return layout_is_svg_viewport(item->tag()) &&
+        !layout_block_has_automatic_size(block, horizontal);
 }
 
 static float flex_form_intrinsic_size(ViewElement* item,
@@ -3949,7 +3951,8 @@ static void determine_hypothetical_cross_sizes(LayoutContext* lycon, FlexContain
             float given_cross = item_block
                 ? layout_axis_given_size(item_block->block(), cross_axis) : -1.0f;
             bool has_given_cross = given_cross >= 0.0f;
-            bool has_explicit_cross_size = intrinsic_preferred_cross >= 0.0f || has_given_cross;
+            bool has_explicit_cross_size = flex_item_has_explicit_size_in_axis(
+                item, cross_is_horizontal);
 
             LayoutAxisRefs cross(item, cross_axis);
             IntrinsicSize direct_text_size = {};
@@ -3978,6 +3981,8 @@ static void determine_hypothetical_cross_sizes(LayoutContext* lycon, FlexContain
                     : cross.get_size();
                 hypothetical_cross = layout_border_size_from_content_box(
                     item_block, hypothetical_cross, true);
+                // alignment reads the used column cross size even when its hint has no numeric BlockProp slot.
+                cross.set_size(hypothetical_cross);
             } else {
                 float item_content_width = layout_content_size_from_border_box(
                     item_block, item->width, true);

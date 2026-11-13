@@ -2676,7 +2676,12 @@ static void print_display_none_json(ViewElement* elem, StrBuf* buf, int indent) 
     }
     append_zero_layout_json(buf, indent + 2);
     append_json_after_object(buf, indent + 2, "computed", "{\n");
-    append_json_string_field(buf, indent + 4, "display", "none", false);
+    // a suppressed HTML element can retain a computed display despite having no box.
+    char computed_display[64];
+    bool has_computed_display = css_prop_serialize_computed(elem, CSS_PROPERTY_DISPLAY,
+        0, computed_display, sizeof(computed_display));
+    append_json_string_field(buf, indent + 4, "display",
+        has_computed_display ? computed_display : "none", false);
     strbuf_append_char_n(buf, ' ', indent + 2);
     strbuf_append_str(buf, "}");
 

@@ -14,6 +14,54 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-057"></a>
+
+### RI-057 — Sizing and noscript snapshot regressions in the Lambda layout gate
+
+**Status:** RESOLVED, 2026-11-13. **Lambda task blocker:** repaired. Native
+ownership: D9.1.3v2. Initial reproduction: Lambda `e5d5e848e`, Radiant `ea6ec14`.
+The user explicitly approved Radiant edits and overriding the sibling boundary.
+
+The recorded `wpt-css-sizing` baseline had two regressions and `wpt-css-lists`
+had one. All reproduced individually; no fixture, reference, tolerance or scored
+baseline was changed.
+
+- `svg-intrinsic-size-001`: the 40x40 viewport with a 4:1 viewBox was measured
+  correctly, then treated as an automatic cross size because its attribute had
+  no numeric BlockProp slot. The shared automatic-size predicate now recognizes
+  SVG viewport hints when CSS does not override them. Cross sizing reuses the
+  existing explicit-size helper and publishes measured column width before
+  alignment. Late line reconciliation reuses the existing stretch predicate;
+  it no longer overwrites attribute dimensions through a second numeric check.
+- `keyword-sizes-on-abspos`: intrinsic min/max keywords did not make the parent
+  query cyclic. Descendant percentage canvas widths therefore contributed the
+  provisional containing width instead of zero/20px min/max-content values.
+  A shared preferred/min/max predicate now governs contribution measurement,
+  cyclic percentage/cache basis and ratio transfer.
+- `counter-set-002`: all geometry already matched. The unrendered snapshot
+  confused the suppressed layout role with computed `display:none`, shifting
+  comparison child paths. It now uses the existing computed-display serializer
+  while retaining zero geometry.
+
+Final qualification, debug split host at the commits above plus these changes:
+
+- `make test-radiant-baseline`: exit 0, **8,165 passed / 299 recorded partial /
+  20 skipped**, zero failures out of 8,484 cases.
+- Sizing: 776/776. Lists: 52 passing plus eight recorded partial results.
+- Selected UI baseline, including the independent Lambda-owned LR12-54 iframe
+  rooting fix: 329/329.
+- Owner `test_layout_dynamic_gtest`: 87/87, including two new regressions for
+  all six intrinsic canvas limits and independent SVG axes through row/column
+  flex, CSS auto and retained attribute mutation.
+- Layout integer-cast lint: 89 casts checked, zero unmarked exceptions.
+
+Evidence is under `../../lambda/temp/failed-radiant-tests/`, especially
+`radiant-baseline.log`, `native-dynamic-final.log`, `radiant-lint.log` and the
+original focused mismatch logs. [Implementation record](../../lambda/vibe/impl/Lambda_Impl_Radiant_Baseline_Repairs.md).
+The extra Lambda sweep remains incomplete after its missing optional WebRTC
+prerequisite; ASan host linkage is a separate Lambda LR01-25 limitation.
+
+
 <a id="ri-055"></a>
 
 ### RI-055 — Paint engine lacks the M3 wet-media kernels

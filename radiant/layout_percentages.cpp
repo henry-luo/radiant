@@ -358,10 +358,15 @@ bool layout_block_has_automatic_size(ViewBlock* block, bool horizontal) {
     LayoutAxisRefs axis(block->block_mut(), horizontal);
     float given_size = *axis.given;
     CssEnum given_size_type = *axis.given_type;
-    if (given_size < 0.0f || given_size_type == CSS_VALUE_AUTO) return true;
-
     const CssDeclaration* specified_size = block->is_element()
         ? layout_specified_physical_size_declaration(block->as_element(), horizontal) : nullptr;
+    if (!specified_size && layout_is_svg_viewport(block->tag())) {
+        // viewport attributes specify SVG axes even before BlockProp stores their used sizes.
+        ReplacedIntrinsicFacts facts = layout_replaced_intrinsic_facts(nullptr, block);
+        if (horizontal ? facts.has_natural_width : facts.has_natural_height) return false;
+    }
+    if (given_size < 0.0f || given_size_type == CSS_VALUE_AUTO) return true;
+
     if (specified_size && specified_size->value) {
         if (!horizontal && specified_size->value->type == CSS_VALUE_TYPE_PERCENTAGE) {
             if (layout_percentage_height_is_automatic(block)) return true;

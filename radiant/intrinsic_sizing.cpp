@@ -867,6 +867,12 @@ static void get_intrinsic_box_side_widths_from_css(LayoutContext* lycon, DomElem
 }
 
 static bool intrinsic_parent_has_auto_inline_width(ViewBlock* parent);
+
+static bool intrinsic_has_inline_size_keyword(ViewBlock* block) {
+    return layout_intrinsic_preferred_size_keyword(block, true) != CSS_VALUE__UNDEF ||
+        layout_intrinsic_min_size_keyword(block, true) != CSS_VALUE__UNDEF ||
+        layout_intrinsic_max_size_keyword(block, true) != CSS_VALUE__UNDEF;
+}
 static bool intrinsic_percentage_width_is_indefinite(LayoutContext* lycon, DomElement* element);
 
 struct IntrinsicHorizontalBoxEdges {
@@ -920,7 +926,8 @@ static bool intrinsic_percentage_width_is_indefinite(LayoutContext* lycon, DomEl
         layout_block_inline_axis_is_vertical(parent)) return false;
     // auto block descendants also have cyclic percentages while their intrinsic width is queried.
     return intrinsic_parent_has_auto_inline_width(parent) ||
-        layout_axis_uses_intrinsic_size(parent->blk, LAYOUT_AXIS_X) ||
+        // min/max intrinsic queries also make descendant percentages cyclic.
+        intrinsic_has_inline_size_keyword(parent) ||
         layout_block_has_automatic_size(parent, true) ||
         (layout_axis_size_is_percentage(parent, true) &&
          intrinsic_percentage_width_is_indefinite(lycon, parent->as_element()));
@@ -4060,10 +4067,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         !has_intrinsic_preferred_width;
     ViewBlock* intrinsic_parent = element->parent && element->parent->is_element()
         ? lam::unsafe_view_block_element_storage(element->parent->as_element()) : nullptr;
-    bool parent_has_intrinsic_width = intrinsic_parent && intrinsic_parent->blk &&
-        (intrinsic_parent->block()->given_width_type == CSS_VALUE_MIN_CONTENT ||
-         intrinsic_parent->block()->given_width_type == CSS_VALUE_MAX_CONTENT ||
-         intrinsic_parent->block()->given_width_type == CSS_VALUE_FIT_CONTENT);
+    bool parent_has_intrinsic_width = intrinsic_has_inline_size_keyword(intrinsic_parent);
     bool parent_has_auto_inline_width = intrinsic_parent_has_auto_inline_width(intrinsic_parent);
     // Percentage widths resolve as auto during intrinsic sizing; their temporary
     // zero base must not become a definite width in the measurement cache. An
@@ -4288,10 +4292,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         float height = -1;
         ViewBlock* aspect_parent = element->parent && element->parent->is_element()
             ? lam::unsafe_view_block_element_storage(element->parent->as_element()) : nullptr;
-        bool parent_has_intrinsic_inline_size = aspect_parent && aspect_parent->blk &&
-            (aspect_parent->block()->given_width_type == CSS_VALUE_FIT_CONTENT ||
-             aspect_parent->block()->given_width_type == CSS_VALUE_MIN_CONTENT ||
-             aspect_parent->block()->given_width_type == CSS_VALUE_MAX_CONTENT);
+        bool parent_has_intrinsic_inline_size = intrinsic_has_inline_size_keyword(aspect_parent);
         bool parent_has_abspos_auto_inline_size = aspect_parent &&
             layout_view_is_abs_or_fixed(aspect_parent) && aspect_parent->blk &&
             aspect_parent->block()->given_width < 0.0f &&

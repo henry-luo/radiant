@@ -20,6 +20,10 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-057"></a>
+
+- [RI-057 — Sizing and noscript snapshot regressions in the Lambda layout gate](<Radiant_Issue_Ledger (fixed).md#ri-057>).
+
 <a id="ri-056"></a>
 
 ### RI-056 — Native input-value test target does not link its CSS resource call

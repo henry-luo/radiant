@@ -2042,10 +2042,9 @@ void layout_final_flex_content(LayoutContext* lycon, ViewBlock* flex_container) 
         flex_for_each_original_height_item(
             flex_container, original_heights, original_height_count,
             [&](ViewElement* fi, float orig) {
-                bool has_explicit_height = fi->blk && fi->block_mut()->given_height >= 0;
-                bool is_definite_stretched = fi->fi && !has_explicit_height &&
+                bool is_definite_stretched = fi->fi &&
                     flex->has_definite_cross_size && !flex->block_size_is_provisional &&
-                    flex_item_resolved_align_self(fi, flex->align_items) == ALIGN_STRETCH;
+                    flex_item_will_stretch_cross_axis(fi, flex);
                 if (is_definite_stretched && fi->height != orig && orig > 0.5f) {
                     fi->height = orig;
                 } else if (fabsf(fi->height - orig) > FLEX_CONTENT_EPSILON) {
@@ -2127,11 +2126,8 @@ void layout_final_flex_content(LayoutContext* lycon, ViewBlock* flex_container) 
                     // every auto cross-size item to the resolved line cross size.
                     flex_for_each_final_content_item(flex_container, flex,
                         [&](ViewElement* item) {
-                            bool has_explicit_height = item->blk &&
-                                item->block_mut()->given_height >= 0;
-                            int align_type = flex_item_resolved_align_self(
-                                item, flex->align_items);
-                            if (has_explicit_height || align_type != ALIGN_STRETCH) return;
+                            // final line stretch uses the same authored-axis and margin policy as initial alignment.
+                            if (!flex_item_will_stretch_cross_axis(item, flex)) return;
                             float margins = layout_axis_margin_start(
                                 item->bound, LAYOUT_AXIS_Y) +
                                 layout_axis_margin_end(item->bound, LAYOUT_AXIS_Y);

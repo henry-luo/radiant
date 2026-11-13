@@ -1482,6 +1482,65 @@ TEST_F(DynamicLayoutTest, FlexSvgAutomaticCrossSizeUsesFlexedMainSize) {
     }
 }
 
+TEST_F(DynamicLayoutTest, PositionedIntrinsicLimitsUseCyclicCanvasContributions) {
+    const char* keywords[] = {"min-content", "fit-content", "max-content"};
+    StrBuf* source = strbuf_create("<!doctype html><style>body{margin:0}"
+        ".cb{position:relative;width:100px;height:100px}"
+        ".test{position:absolute;inset:0;margin:5px;border:3px solid;padding:2px}"
+        "canvas{display:block;width:100%}</style>");
+    for (bool minimum_limit : {true, false}) {
+        for (int index = 0; index < 3; index++) {
+            strbuf_append_format(source,
+                "<div class='cb'><div id='%s%d' class='test' style='width:%s;%s-width:%s'>"
+                "<canvas width='20' height='10'></canvas></div></div>",
+                minimum_limit ? "min" : "max", index, minimum_limit ? "0" : "500px",
+                minimum_limit ? "min" : "max", keywords[index]);
+        }
+    }
+    load(source->str);
+    strbuf_free(source);
+    ASSERT_NE(document, nullptr);
+    for (bool minimum_limit : {true, false}) {
+        for (int index = 0; index < 3; index++) {
+            char id[16];
+            snprintf(id, sizeof(id), "%s%d", minimum_limit ? "min" : "max", index);
+            SCOPED_TRACE(id);
+            DomElement* box = element(id);
+            ASSERT_NE(box, nullptr);
+            DomNode* canvas = box->first_child;
+            ASSERT_NE(canvas, nullptr);
+            bool min_content = index == 0;
+            EXPECT_NEAR(box->width, min_content ? 10.0f : 30.0f, 0.1f);
+            EXPECT_NEAR(canvas->width, min_content ? 0.0f : 20.0f, 0.1f);
+            EXPECT_NEAR(canvas->height, min_content ? 0.0f : 10.0f, 0.1f);
+        }
+    }
+}
+
+TEST_F(DynamicLayoutTest, FlexSvgDimensionHintsPreserveIndependentCrossSize) {
+    load("<!doctype html><style>body{margin:0}.row{display:flex;width:600px}"
+         ".tall{height:80px}.column{display:flex;flex-direction:column;height:200px}"
+         "svg{flex:none}</style><div class='row'><span class='tall'></span>"
+         "<svg id='natural' width='40' height='40' viewBox='0 0 4 1'></svg>"
+         "<svg id='automatic' width='40' height='40' viewBox='0 0 4 1' style='height:auto;align-self:flex-start'></svg>"
+         "</div><div class='column'>"
+         "<svg id='column' width='40' height='40' viewBox='0 0 4 1'></svg></div>");
+    ASSERT_NE(document, nullptr);
+    for (int phase = 0; phase < 2; phase++) {
+        SCOPED_TRACE(phase);
+        if (phase) {
+            ASSERT_TRUE(element("natural")->set_attribute("height", "60"));
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, false);
+        }
+        EXPECT_NEAR(element("natural")->width, 40.0f, 0.1f);
+        EXPECT_NEAR(element("natural")->height, phase ? 60.0f : 40.0f, 0.1f);
+        EXPECT_NEAR(element("automatic")->height, 10.0f, 0.1f);
+        EXPECT_NEAR(element("column")->width, 40.0f, 0.1f);
+        EXPECT_NEAR(element("column")->height, 40.0f, 0.1f);
+    }
+}
+
 TEST_F(DynamicLayoutTest, PropagatedBodyBackgroundPrecedesNegativeStackingLayers) {
     const char* backgrounds[] = {"body{background:white}",
         "body{background:linear-gradient(white,blue)}", "html{background:lime}body{background:white}"};
