@@ -2305,3 +2305,91 @@ parent-relative positions; its failure count is not used as repair evidence.
 The corrected source checks root boundary padding directly. The compatible
 integration host uses exact repaired root sources and current sibling archives;
 the independent main-checkout paint API mismatch remains outside this repair.
+
+<a id="ri-058"></a>
+
+### RI-058 — Absolute grid placement sizes contents against the whole container
+
+**Status:** FIXED, 2026-11-13. **Lambda blocker:** cleared for the selected
+absolute-grid sizing cases. Native ownership **D9.1.1v4 / D9.1.3v2**, pass
+scratch **D5.5.1**. [CSS Grid §9.1](https://www.w3.org/TR/css-grid-1/#abspos)
+requires the resolved grid area to establish the positioned containing block;
+out-of-flow placement does not create tracks.
+
+Stripe's blog hero assigns its absolute figure `grid-area:image`. Native grid
+placement only inspected numeric fields, whereas the current CSS projection
+stores named references. Numeric diagnostic placement moved the outer box to
+the right column, but its descendants had already been laid out against the
+whole card. The later grid-specific constraint equation also overwrote authored
+sizes and min/max constraints. A static grid or ordinary grid with a fixed child
+could wrongly replace the actual containing block. Empty grids did not register
+their named line/area aliases before resolving their positioned children.
+
+The existing authored-edge resolution is extracted into `grid_resolve_item_edges`
+and reused by in-flow and positioned consumers, retaining their distinct auto
+edge rules. Named aliases are registered before the empty-grid branch. The
+resolved area is borrowed through `AbsChildLayoutState` and `LayoutContextScope`
+while the ordinary positioned solver computes style, size and descendants.
+Late percentage passes reuse committed track geometry. The duplicate post-layout
+grid constraint equation is removed; the actual containing-block check preserves
+static-grid and viewport-fixed behavior. Inset-solved automatic heights now
+provide a definite percentage basis through the existing percentage helper.
+
+Nine independent Chromium geometry/pixel cases cover named/numeric placement,
+percentage insets, explicit and maximum sizes, child box edges, mixed math,
+static grids and viewport-fixed controls. Real PNG results change from 0/9 to
+9/9. The live track/area/size fixture changes from 3/9 to 9/9 pixels. The native
+case loads the same nine fresh inputs and repeats forced recascades; it passes.
+No existing assertion, reference, admission cap or capture time is weakened.
+
+The exact saved Stripe original now restores its 524px-wide image beside the
+heading, author, copy and action; RI-059 separately repairs the card height.
+Combined qualification: 89 native dynamic cases, 64 real CLI cases, eleven
+DOM UI fixtures/81 assertions, 574 AST cases, 3851 static layout cases (six
+skips), 630 JS layout cases, five comparator tests and integer-cast lint pass.
+Native aggregate:1083 passes, one device skip and the existing RI-035 voice
+failure. The current main host builds successfully; the older paint API build
+mismatch no longer applies to this revision.
+
+Evidence: Lambda `temp/online-visual-round14/` contains immutable before,
+absolute-only and combined hosts; grid-absolute-before/after.log,
+grid-absolute-browser.json, native-after-inset-basis.log, ui-before/final.log,
+the identical stripe-frozen.html and before/after PNGs. An early native test
+mutation sequence and a pre-link stale-binary invocation are explicitly marked
+diagnostic/invalid in the checkpoint and are not final before/after counts.
+
+<a id="ri-059"></a>
+
+### RI-059 — Nested grid publication replaces formatted height with a flow cursor
+
+**Status:** FIXED, 2026-11-13. **Lambda blocker:** cleared for the selected
+Stripe card and nested-grid sizing cases. Native ownership
+**D9.1.1v4 / D9.1.3v2**, formatter scratch **D5.5.1**.
+
+After RI-058 restores the image column, Stripe's white card still has only its
+64px vertical padding while its text extends beneath it. In
+`layout_grid_item_final_content_multipass`, the nested grid formatter computes
+its own geometry, then the common footer overwrites its content height using
+the parent's unadvanced flow cursor. Non-stretch alignment subsequently uses
+that padding-only height. Independently, every nested grid is marked as having
+an assigned block size, even when start/center alignment requires natural size;
+this also stretches the card's automatic rows incorrectly.
+
+The nested grid now keeps its formatter-owned dimensions and baselines. The
+existing detailed self-alignment resolver is promoted through the module header,
+not copied, to distinguish an authored or stretched block extent from natural
+layout. The native card height becomes460px and its rows24/96/48/140/24px; the
+image becomes524×428px. These sizes match Chromium for the same saved HTML/CSS;
+the remaining9px global vertical offset belongs to other page geometry. Live
+capture also restores the full card. No site CSS or input document is changed.
+
+Five independent Chromium geometry/pixel cases cover automatic parent size,
+start/center alignment, stretch and authored height. Real PNG cases change
+from2/5 to5/5; the focused native case changes from10 assertion failures to a
+pass across repeated recascades. The live alignment/size fixture changes from
+6/8 to8/8 pixels. Combined native/CLI/UI/layout qualification and known failure
+are recorded in RI-058. Evidence: Lambda `temp/online-visual-round14/`
+grid-nested-before.log, grid-nested-browser.json, native-nested-before/after.log,
+ui-nested-before.log, ui-final.log and stripe-grid-after PNG/geometry logs.
+Broader orthogonal, intrinsic and rare alignment combinations remain governed
+by the existing partial-support matrix; this is a bounded common-page repair.

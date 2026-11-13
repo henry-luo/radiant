@@ -14,7 +14,7 @@ extern "C" {
 
 static bool grid_item_ignores_percentage_max_width(ViewBlock* item,
                                                     GridContainerLayout* grid_layout);
-static CssSelfAlignment resolve_grid_item_self_alignment_detail(
+CssSelfAlignment resolve_grid_item_self_alignment_detail(
     ViewBlock* item, const GridItemProp* grid_item, ViewBlock* container,
     int container_alignment, bool horizontal);
 
@@ -527,7 +527,7 @@ static int resolve_grid_item_self_alignment(const ViewBlock* item,
     return resolved;
 }
 
-static CssSelfAlignment resolve_grid_item_self_alignment_detail(
+CssSelfAlignment resolve_grid_item_self_alignment_detail(
         ViewBlock* item, const GridItemProp* grid_item,
         ViewBlock* container, int container_alignment, bool horizontal) {
     CssSelfAlignment result = {};

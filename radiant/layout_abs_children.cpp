@@ -85,6 +85,8 @@ void layout_absolute_children_in_context(LayoutContext* lycon, ViewBlock* contai
             ctx->prepare_child(lycon, container, ctx, &state);
         }
 
+        // grid placement must constrain the contents, not resize the outer box afterward.
+        lycon->abspos_grid_area = state.has_grid_area ? lam::up(&state) : nullptr;
         layout_abs_block(lycon, child, child_block, &state.parent_block, &state.parent_line);
 
         if (ctx->after_child) {

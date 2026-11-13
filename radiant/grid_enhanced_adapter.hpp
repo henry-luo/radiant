@@ -130,49 +130,16 @@ inline int resolve_negative_line(int negative_line, int total_track_count) {
     return resolved;
 }
 
-// resolve numeric/named edges and spans locally; authored references survive every pass.
-inline GridPlacement grid_axis_placement(GridContainerLayout* grid, bool is_row, int tracks,
-                                                int start, int end,
-                                                const char* start_name, const char* end_name,
-                                                int start_occurrence, int end_occurrence,
-                                                bool start_span, bool end_span,
-                                                bool has_start, bool has_end) {
-    int64_t resolved_start = start;
-    int64_t resolved_end = end;
-    bool definite_start = has_start && !start_span;
-    bool definite_end = has_end && !end_span;
-    if (definite_start) resolved_start = start_name
-        ? find_grid_line_by_name(grid, start_name, is_row, start_occurrence)
-        : start < 0 ? (int64_t)tracks + 2 + start : start;
-    if (definite_end) resolved_end = end_name
-        ? find_grid_line_by_name(grid, end_name, is_row, end_occurrence, true)
-        : end < 0 ? (int64_t)tracks + 2 + end : end;
-    if (start_span && definite_end) {
-        resolved_start = start_name ? find_grid_line_by_name(grid, start_name, is_row,
-            start_occurrence, false, static_cast<int>(resolved_end), -1) // INT_CAST_OK: definite authored edge or bounded named line fits int.
-            : resolved_end + start;
-        definite_start = true;
-    }
-    if (end_span && definite_start) {
-        resolved_end = end_name ? find_grid_line_by_name(grid, end_name, is_row,
-            end_occurrence, true, static_cast<int>(resolved_start), 1) // INT_CAST_OK: definite authored edge or bounded named line fits int.
-            : resolved_start - end;
-        definite_end = true;
-    }
-    if (!definite_start && !definite_end) {
-        // an unanchored named span becomes one; named occurrences need a definite opposite edge.
-        int64_t span = start_span ? (start_name ? 1 : -(int64_t)start)
-            : end_span && !end_name ? -(int64_t)end : 1;
-        if (span < 1) span = 1;
-        if (span > GRID_MAX_EXPLICIT_TRACKS) span = GRID_MAX_EXPLICIT_TRACKS;
-        return GridPlacement::Auto(static_cast<uint16_t>(span));
-    }
-    if (!definite_start) resolved_start = resolved_end - 1;
-    if (!definite_end) resolved_end = resolved_start + 1;
-    LineSpan bounded = grid_clamp_line_span(resolved_start - 1, resolved_end - 1);
+// in-flow placement supplies a one-track opposite edge; abspos keeps auto padding edges.
+inline GridPlacement grid_axis_placement(GridContainerLayout* grid, GridItemProp* item,
+                                          bool rows, int tracks) {
+    GridResolvedEdges edges = grid_resolve_item_edges(grid, item, rows, tracks);
+    if (!edges.has_start && !edges.has_end) return GridPlacement::Auto(edges.span);
+    if (!edges.has_start) edges.start = edges.end - 1;
+    if (!edges.has_end) edges.end = edges.start + 1;
+    LineSpan bounded = grid_clamp_line_span(edges.start - 1, edges.end - 1);
     GridPlacement placement = GridPlacement::FromStartSpan(
         bounded.start.value + 1, bounded.span());
-    // line zero is definite before the explicit grid; negative lines are already resolved.
     placement.is_definite = true;
     placement.has_negative_start = false;
     return placement;
@@ -199,20 +166,8 @@ inline GridItemInfo extract_grid_item_info(ViewBlock* item, int item_index,
         return info;
     }
 
-    info.column = grid_axis_placement(grid, false, explicit_col_count,
-        gi->grid_column_start, gi->grid_column_end,
-        gi->grid_column_start_name, gi->grid_column_end_name,
-        gi->grid_column_start_occurrence, gi->grid_column_end_occurrence,
-        gi->grid_column_start_is_span, gi->grid_column_end_is_span,
-        gi->has_explicit_grid_column_start || gi->grid_column_start != 0,
-        gi->has_explicit_grid_column_end || gi->grid_column_end != 0);
-    info.row = grid_axis_placement(grid, true, explicit_row_count,
-        gi->grid_row_start, gi->grid_row_end,
-        gi->grid_row_start_name, gi->grid_row_end_name,
-        gi->grid_row_start_occurrence, gi->grid_row_end_occurrence,
-        gi->grid_row_start_is_span, gi->grid_row_end_is_span,
-        gi->has_explicit_grid_row_start || gi->grid_row_start != 0,
-        gi->has_explicit_grid_row_end || gi->grid_row_end != 0);
+    info.column = grid_axis_placement(grid, gi, false, explicit_col_count);
+    info.row = grid_axis_placement(grid, gi, true, explicit_row_count);
 
     return info;
 }

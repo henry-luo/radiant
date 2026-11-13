@@ -370,16 +370,6 @@ void layout_grid_container(LayoutContext* lycon, ViewBlock* container, bool intr
     expand_auto_repeat_tracks(grid_layout);
     if (grid_layout->storage_failed) return;
 
-    if (item_count == 0) {
-        // Even with no items, we need to resolve explicit track sizes so that:
-        // 1. Absolutely positioned children can use grid-line positions for their containing block.
-        // 2. The container gets the correct height from explicit grid-template-rows + padding.
-        determine_grid_size(grid_layout);
-        resolve_track_sizes_enhanced(grid_layout, container, intrinsic_width_only);
-        if (grid_layout->storage_failed) return;
-        layout_grid_resolve_container_size(grid_layout);
-        return;
-    }
     // Phase 2: Resolve grid template areas
     // Phase 2.5: Register named grid lines from track lists and template areas
     LayoutAxisPair<GridTrackList*> template_tracks = {
@@ -412,6 +402,16 @@ void layout_grid_container(LayoutContext* lycon, ViewBlock* container, bool intr
         }
     }
     if (grid_layout->storage_failed) return;
+    if (item_count == 0) {
+        // Even with no items, we need to resolve explicit track sizes so that:
+        // 1. Absolutely positioned children can use grid-line positions for their containing block.
+        // 2. The container gets the correct height from explicit grid-template-rows + padding.
+        determine_grid_size(grid_layout);
+        resolve_track_sizes_enhanced(grid_layout, container, intrinsic_width_only);
+        if (grid_layout->storage_failed) return;
+        layout_grid_resolve_container_size(grid_layout);
+        return;
+    }
     // Phase 3: Determine initial grid size from templates (before placement)
     determine_grid_size(grid_layout);
     // Phase 4: Place grid items (using enhanced CellOccupancyMatrix algorithm)

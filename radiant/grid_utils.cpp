@@ -317,6 +317,53 @@ int find_grid_line_by_name(GridContainerLayout* grid, const char* name, bool is_
     return static_cast<int>(result); // INT_CAST_OK: bounded grid line sentinel.
 }
 
+GridResolvedEdges grid_resolve_item_edges(GridContainerLayout* grid,
+        const GridItemProp* item, bool rows, int tracks) {
+    GridResolvedEdges edges = {};
+    edges.span = 1;
+    if (!item) return edges;
+    int start = rows ? item->grid_row_start : item->grid_column_start;
+    int end = rows ? item->grid_row_end : item->grid_column_end;
+    const char* start_name = rows ? item->grid_row_start_name : item->grid_column_start_name;
+    const char* end_name = rows ? item->grid_row_end_name : item->grid_column_end_name;
+    int start_occurrence = rows ? item->grid_row_start_occurrence : item->grid_column_start_occurrence;
+    int end_occurrence = rows ? item->grid_row_end_occurrence : item->grid_column_end_occurrence;
+    bool start_span = rows ? item->grid_row_start_is_span : item->grid_column_start_is_span;
+    bool end_span = rows ? item->grid_row_end_is_span : item->grid_column_end_is_span;
+    bool has_start = rows ? item->has_explicit_grid_row_start : item->has_explicit_grid_column_start;
+    bool has_end = rows ? item->has_explicit_grid_row_end : item->has_explicit_grid_column_end;
+    edges.start = start;
+    edges.end = end;
+    edges.has_start = (has_start || start != 0) && !start_span;
+    edges.has_end = (has_end || end != 0) && !end_span;
+    if (edges.has_start) edges.start = start_name
+        ? find_grid_line_by_name(grid, start_name, rows, start_occurrence)
+        : start < 0 ? (int64_t)tracks + 2 + start : start;
+    if (edges.has_end) edges.end = end_name
+        ? find_grid_line_by_name(grid, end_name, rows, end_occurrence, true)
+        : end < 0 ? (int64_t)tracks + 2 + end : end;
+    if (start_span && edges.has_end) {
+        edges.start = start_name ? find_grid_line_by_name(grid, start_name, rows,
+            start_occurrence, false, static_cast<int>(edges.end), -1) // INT_CAST_OK: bounded named line or authored int edge.
+            : edges.end + start;
+        edges.has_start = true;
+    }
+    if (end_span && edges.has_start) {
+        edges.end = end_name ? find_grid_line_by_name(grid, end_name, rows,
+            end_occurrence, true, static_cast<int>(edges.start), 1) // INT_CAST_OK: bounded named line or authored int edge.
+            : edges.start - end;
+        edges.has_end = true;
+    }
+    if (!edges.has_start && !edges.has_end) {
+        int64_t span = start_span ? (start_name ? 1 : -(int64_t)start)
+            : end_span && !end_name ? -(int64_t)end : 1;
+        if (span < 1) span = 1;
+        if (span > radiant::grid::GRID_MAX_EXPLICIT_TRACKS) span = radiant::grid::GRID_MAX_EXPLICIT_TRACKS;
+        edges.span = static_cast<uint16_t>(span); // INT_CAST_OK: bounded grid track count.
+    }
+    return edges;
+}
+
 // Enhanced grid template areas parser
 void clear_grid_template_areas(Pool* pool, GridProp* grid) {
     if (!grid) return;

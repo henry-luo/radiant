@@ -20,6 +20,73 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-061"></a>
+
+### RI-061 — Bounded snapshot resource grace can leave major media unavailable
+
+**Status:** OPEN capture qualification limitation, 2026-11-13. **Lambda
+blocker:** no for the selected grid repairs; limits interpretation of some
+fresh media differences. Native ownership **D9.1.1v4 / D9.1.3v2**, finite
+capture frame contract **D10.1.7**. The resource scheduler/priority contribution
+beyond the observed grace expiry remains **unconfirmed**.
+
+The first round14 captures omit large images on Cofounder505, Banky121,
+Amperos565 and Pelago234. Their resource summaries respectively report71/85,
+33/37,63/81 and37/39 completed at about1000ms, with no resource failures.
+`snapshot_resource_wait_timeout_ms` in `network_integration.cpp` defaults to
+1000ms; snapshot preparation then flushes updates and proceeds even with
+outstanding optional resources. This observation does not identify every pending
+request or establish one missing-image cause for all pages.
+
+Alternating current-head before/repaired hosts under identical capture settings
+later report85/85 for Cofounder,37/37 for Banky and81/81 for Amperos. Both hosts
+restore those images. Pelago remains38/39 at the same grace. Thus a shared
+regression from RI-058/RI-059 is not established by the initial score movement;
+cache/network readiness remains a plausible contributor. These diagnostics do
+not replace the canonical captures or claim stable initial readiness.
+
+No grace, parent deadline, admission rule or virtual time is changed, and no
+later media frame is substituted. Further work must isolate the required
+dependency/priority or capture-readiness policy before changing behavior;
+raising a per-site timeout is not a root-cause repair. Evidence: Lambda
+`temp/online-visual-round14/media-readiness-controls.json/log`, alternating
+before/final PNGs, and canonical `test/online/snapshots/` logs for these labels.
+
+<a id="ri-060"></a>
+
+### RI-060 — Native style replacement retains removed padding in a grid child
+
+**Status:** OPEN, cause unconfirmed, 2026-11-13. **Lambda blocker:** no for
+Stripe initial rendering or the selected grid-area repair. Ownership
+**D9.1.1v4 / D9.1.3v2**; this is a native mutation observation, not proof of a
+general script/CSSOM failure.
+
+In the first native grid-area investigation, replace the subject's inline style
+`grid-area:photo;padding:5px;border:2px solid` with
+`grid-area:photo;width:calc(100% - 20px);height:50%`, using
+`DomElement::set_attribute`, `radiant_recascade_document` and forced layout.
+Its old5px padding remains after the border resets. Later variants also retain
+that padding. Chromium's fresh equivalent input has zero padding; the current
+fresh native cases agree with it. Style removal/reset ownership and the exact
+cache/projection cause remain unisolated. No reset is added merely to hide it.
+
+The selected area tests now load separate fresh inputs, matching the real PNG
+and independent Chromium contracts, while each input still repeats forced
+recascades. Live tests separately change tracks, area, alignment and explicit
+size, without claiming padding-removal coverage. The mutation discrepancy is
+retained here rather than assigned to grid placement. Evidence: Lambda
+`temp/online-visual-round14/native-after.log` and
+`padding-removal-reproducer.cppfrag`; see the checkpoint's distinction between
+the initial mutation probe and final fresh-input acceptance cases.
+
+<a id="ri-059"></a>
+
+- [RI-059 — Nested grid publication replaces formatted height with a flow cursor](<Radiant_Issue_Ledger (fixed).md#ri-059>).
+
+<a id="ri-058"></a>
+
+- [RI-058 — Absolute grid placement sizes contents against the whole container](<Radiant_Issue_Ledger (fixed).md#ri-058>).
+
 <a id="ri-057"></a>
 
 - [RI-057 — Sizing and noscript snapshot regressions in the Lambda layout gate](<Radiant_Issue_Ledger (fixed).md#ri-057>).
@@ -282,6 +349,10 @@ also times out at 150s. The failure therefore also exists without these changes;
 current document complexity, layout repetition and origin-dependent input
 still need isolation. This is a capture correctness observation, not a release
 performance benchmark. No deadline was raised or prior PNG accepted as fresh.
+The round-fourteen current-main host with RI-058/RI-059 also times out at
+the unchanged150s deadline (2026-11-13T07:00:39.276Z); see Lambda
+`temp/online-visual-round14/dock-result.json`. No timing or layout-cost repair
+is inferred from the other pages' visual improvements.
 The round-thirteen root-font repair retry also times out at the unchanged
 150s deadline (2026-11-12T13:34:03.960Z); see Lambda
 `temp/online-visual-round13/dock-result.json`. The round-twelve result is

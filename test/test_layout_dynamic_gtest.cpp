@@ -1992,3 +1992,102 @@ TEST_F(DynamicLayoutTest, RootRelativeFontSizesPublishTheComputedRemBasis) {
         }
     }
 }
+
+TEST_F(DynamicLayoutTest, AbsoluteGridAreasSizeTheChildBeforeItsContents) {
+    const char* source = "<!doctype html><style>body{margin:0}"
+         "#outer{position:relative;width:600px;height:400px}"
+         "#grid{display:grid;position:relative;width:300px;height:200px;"
+         "padding:10px 20px;border:2px solid;grid-template-columns:100px 200px;"
+         "grid-template-rows:80px 120px;grid-template-areas:'copy photo' 'copy photo'}"
+         "#subject{position:absolute;inset:0}#inner{width:100%;height:100%}</style>"
+         "<div id='outer'><div id='grid'><div id='subject'><div id='inner'></div>"
+         "</div></div></div>";
+    struct Case {
+        const char* style;
+        const char* grid_style;
+        float x, y, width, height, decoration;
+    };
+    const Case cases[] = {
+        {"grid-area:photo", "", 122.0f, 12.0f, 200.0f, 200.0f, 0.0f},
+        {"grid-column:2/3;grid-row:1/3", "", 122.0f, 12.0f, 200.0f, 200.0f, 0.0f},
+        {"grid-area:photo;inset:10%", "", 142.0f, 32.0f, 160.0f, 160.0f, 0.0f},
+        {"grid-area:photo;width:80px;height:50px", "", 122.0f, 12.0f, 80.0f, 50.0f, 0.0f},
+        {"grid-area:photo;max-width:150px;max-height:100px", "", 122.0f, 12.0f, 150.0f, 100.0f, 0.0f},
+        {"grid-area:photo;padding:5px;border:2px solid", "", 122.0f, 12.0f, 200.0f, 200.0f, 7.0f},
+        {"grid-area:photo;width:calc(100% - 20px);height:50%", "", 122.0f, 12.0f, 180.0f, 100.0f, 0.0f},
+        {"grid-column:2/3;grid-row:1/3", "position:static", 0.0f, 0.0f, 600.0f, 400.0f, 0.0f},
+        {"position:fixed;grid-column:2/3;grid-row:1/3", "", 0.0f, 0.0f, 1200.0f, 800.0f, 0.0f}
+    };
+    for (const Case& test : cases) {
+        if (document) {
+            ui.document = nullptr;
+            free_document(document);
+            document = nullptr;
+        }
+        load(source);
+        ASSERT_NE(document, nullptr);
+        SCOPED_TRACE(test.style);
+        ASSERT_TRUE(element("grid")->set_attribute("style", test.grid_style));
+        ASSERT_TRUE(element("subject")->set_attribute("style", test.style));
+        for (int pass = 0; pass < 2; pass++) {
+            SCOPED_TRACE(pass);
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, true);
+            DomElement* subject = element("subject");
+            DomElement* inner = element("inner");
+            ASSERT_NE(subject, nullptr);
+            ASSERT_NE(inner, nullptr);
+            EXPECT_FLOAT_EQ(subject->x, test.x);
+            EXPECT_FLOAT_EQ(subject->y, test.y);
+            EXPECT_FLOAT_EQ(subject->width, test.width);
+            EXPECT_FLOAT_EQ(subject->height, test.height);
+            // native child positions are relative to the parent's border box.
+            EXPECT_FLOAT_EQ(inner->x, test.decoration);
+            EXPECT_FLOAT_EQ(inner->y, test.decoration);
+            EXPECT_FLOAT_EQ(inner->width, test.width - test.decoration * 2.0f);
+            EXPECT_FLOAT_EQ(inner->height, test.height - test.decoration * 2.0f);
+        }
+    }
+}
+
+TEST_F(DynamicLayoutTest, NestedGridContentRetainsItsFormattedBorderHeight) {
+    const char* source = "<!doctype html><style>body{margin:0}"
+        "#outer{display:grid;width:300px;align-items:start;grid-template-columns:1fr}"
+        "#inner{display:grid;grid-template-columns:1fr;grid-template-rows:40px 60px;"
+        "gap:10px;padding:10px 20px;border:2px solid}</style>"
+        "<div id='outer'><div id='inner'><div id='first'></div><div id='second'></div></div></div>";
+    const struct {
+        const char* parent;
+        const char* child;
+        float height, parent_height, y;
+    } cases[] = {
+        {"", "", 134.0f, 134.0f, 0.0f},
+        {"height:300px", "", 134.0f, 300.0f, 0.0f},
+        {"height:300px;align-items:center", "", 134.0f, 300.0f, 83.0f},
+        {"height:300px;align-items:stretch", "", 300.0f, 300.0f, 0.0f},
+        {"height:300px", "height:180px", 204.0f, 300.0f, 0.0f}
+    };
+    for (const auto& test : cases) {
+        if (document) {
+            ui.document = nullptr;
+            free_document(document);
+            document = nullptr;
+        }
+        load(source);
+        ASSERT_NE(document, nullptr);
+        ASSERT_TRUE(element("outer")->set_attribute("style", test.parent));
+        ASSERT_TRUE(element("inner")->set_attribute("style", test.child));
+        for (int pass = 0; pass < 2; pass++) {
+            SCOPED_TRACE(test.parent);
+            SCOPED_TRACE(test.child);
+            SCOPED_TRACE(pass);
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, true);
+            EXPECT_FLOAT_EQ(element("inner")->height, test.height);
+            EXPECT_FLOAT_EQ(element("outer")->height, test.parent_height);
+            EXPECT_FLOAT_EQ(element("inner")->y, test.y);
+            EXPECT_FLOAT_EQ(element("first")->y, 12.0f);
+            EXPECT_FLOAT_EQ(element("second")->y, 62.0f);
+        }
+    }
+}

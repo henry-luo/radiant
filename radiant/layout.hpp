@@ -3989,6 +3989,14 @@ bool grid_append_track_line_names(StringBuf* output, const GridLineNames* names,
 int find_grid_line_by_name(GridContainerLayout* grid, const char* name, bool is_row,
                            int occurrence = 0, bool is_end = false,
                            int anchor = 0, int direction = 0);
+// resolved authored edges precede the in-flow/positioned consumers' auto-edge rules.
+struct GridResolvedEdges {
+    int64_t start, end;
+    bool has_start, has_end;
+    uint16_t span;
+};
+GridResolvedEdges grid_resolve_item_edges(GridContainerLayout* grid, const GridItemProp* item,
+                                         bool rows, int explicit_tracks);
 int collect_grid_item_nodes(LayoutContext* lycon, struct ViewBlock* container,
                             DomNode* first_child, DomNode** nodes, int capacity,
                             bool initialize_contents);
@@ -4000,6 +4008,9 @@ void resolve_track_sizes_enhanced(GridContainerLayout* grid_layout, struct ViewB
 void position_grid_items(GridContainerLayout* grid_layout, struct ViewBlock* container, ScratchArena* sa);
 void align_grid_items(GridContainerLayout* grid_layout);
 void align_grid_item(struct ViewBlock* item, GridContainerLayout* grid_layout);
+CssSelfAlignment resolve_grid_item_self_alignment_detail(
+    ViewBlock* item, const GridItemProp* grid_item, ViewBlock* container,
+    int container_alignment, bool horizontal);
 void clear_grid_template_areas(Pool* pool, GridProp* grid_layout);
 void parse_grid_template_areas(Pool* pool, GridProp* grid_layout, const CssValue* value);
 bool copy_grid_template_areas(Pool* pool, GridProp* target, const GridProp* source);
@@ -4113,6 +4124,8 @@ typedef struct LayoutContext {
     // the flex static-position rectangle before the child is laid out.
     bool abspos_static_size_override_x;
     bool abspos_static_size_override_y;
+    // borrowed stack state only for the positioned child currently being formatted.
+    lam::Up<struct AbsChildLayoutState> abspos_grid_area;
     // CSS Position 3 sticky constraints require final scrollport and containing-block geometry.
     bool defer_sticky_positioning;
     // Final sticky resolution touches only candidates seen during this layout pass.
@@ -5995,11 +6008,13 @@ struct LayoutContextScope {
     bool saved_table_cell_first_row_layout;
     bool saved_abspos_static_size_override_x;
     bool saved_abspos_static_size_override_y;
+    lam::Up<AbsChildLayoutState> saved_abspos_grid_area;
     explicit LayoutContextScope(LayoutContext* l)
         : lycon(l), saved_block(l->block), saved_line(l->line), saved_font(l->font),
           saved_table_cell_first_row_layout(l->table_cell_first_row_layout),
           saved_abspos_static_size_override_x(l->abspos_static_size_override_x),
-          saved_abspos_static_size_override_y(l->abspos_static_size_override_y) {}
+          saved_abspos_static_size_override_y(l->abspos_static_size_override_y),
+          saved_abspos_grid_area(l->abspos_grid_area) {}
     ~LayoutContextScope() {
         lycon->block = saved_block;
         lycon->line  = saved_line;
@@ -6007,6 +6022,7 @@ struct LayoutContextScope {
         lycon->table_cell_first_row_layout = saved_table_cell_first_row_layout;
         lycon->abspos_static_size_override_x = saved_abspos_static_size_override_x;
         lycon->abspos_static_size_override_y = saved_abspos_static_size_override_y;
+        lycon->abspos_grid_area = saved_abspos_grid_area;
     }
     LayoutContextScope(const LayoutContextScope&) = delete;
     LayoutContextScope& operator=(const LayoutContextScope&) = delete;

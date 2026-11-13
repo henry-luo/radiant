@@ -728,10 +728,19 @@ static void layout_grid_item_final_content_multipass(LayoutContext* lycon, ViewB
         {
             LayoutContainingBlockScope item_parent_scope(
                 lycon, LAYOUT_AXIS_X, grid_item_percentage_base);
-            // Final placement supplies a used block size even when CSS height
-            // remains auto; nested fr tracks distribute within that size.
-            lycon->block.used_size_owner = lam::up(grid_item);
+            GridContainerLayout* parent_grid = lycon->grid_container;
+            bool horizontal_rows = layout_block_inline_axis_is_vertical(grid_item);
+            LayoutAxis row_axis = horizontal_rows ? LAYOUT_AXIS_X : LAYOUT_AXIS_Y;
+            bool parent_inline = layout_axis_is_inline_for_block(parent_grid->container, row_axis);
+            CssSelfAlignment alignment = resolve_grid_item_self_alignment_detail(grid_item,
+                grid_item_prop(grid_item), parent_grid->container,
+                parent_inline ? parent_grid->justify_items : parent_grid->align_items, horizontal_rows);
+            // only stretch or an authored size assigns the nested grid's block extent.
+            bool assigned = layout_axis_has_given_size(grid_item, horizontal_rows) ||
+                alignment.value == CSS_VALUE_STRETCH;
+            lycon->block.used_size_owner = assigned ? lam::up(grid_item) : nullptr;
             layout_grid_content(lycon, grid_item);
+            grid_item->content_height = grid_item->height;
         }
 
     } else if (grid_item->display.inner == CSS_VALUE_FLEX) {
@@ -785,22 +794,25 @@ static void layout_grid_item_final_content_multipass(LayoutContext* lycon, ViewB
         log_leave();
         return;
     }
-    // Update grid item content dimensions
-    // Note: max_width and advance_y are relative to the content box
-    // We need to add padding for the full content dimensions
-    layout_reresolve_percentage_box(grid_item, grid_item_percentage_base);
-    grid_item->content_width = lycon->block.max_width;
-    if (grid_item->display.inner != CSS_VALUE_FLEX) {
-        grid_item->content_width += layout_axis_padding_end(grid_item->boundary(), LAYOUT_AXIS_X);
-        grid_item->content_height = lycon->block.advance_y +
-            layout_axis_padding_end(grid_item->boundary(), LAYOUT_AXIS_Y);
-    }
+    // nested grid dimensions/baselines belong to its formatter, not the parent's flow cursor.
+    if (grid_item->display.inner != CSS_VALUE_GRID) {
+        // Update grid item content dimensions
+        // Note: max_width and advance_y are relative to the content box
+        // We need to add padding for the full content dimensions
+        layout_reresolve_percentage_box(grid_item, grid_item_percentage_base);
+        grid_item->content_width = lycon->block.max_width;
+        if (grid_item->display.inner != CSS_VALUE_FLEX) {
+            grid_item->content_width += layout_axis_padding_end(grid_item->boundary(), LAYOUT_AXIS_X);
+            grid_item->content_height = lycon->block.advance_y +
+                layout_axis_padding_end(grid_item->boundary(), LAYOUT_AXIS_Y);
+        }
 
-    if (grid_item->blk) {
-        // Grid item layout bypasses finalize_block_flow, so retain both
-        // in-flow baseline sets for the inline-grid container.
-        grid_item->blk->first_line_baseline = lycon->block.first_line_ascender;
-        grid_item->blk->last_line_baseline = lycon->block.last_line_ascender;
+        if (grid_item->blk) {
+            // Grid item layout bypasses finalize_block_flow, so retain both
+            // in-flow baseline sets for the inline-grid container.
+            grid_item->blk->first_line_baseline = lycon->block.first_line_ascender;
+            grid_item->blk->last_line_baseline = lycon->block.last_line_ascender;
+        }
     }
     log_info("Grid item content layout complete: %s, content=%.0fx%.0f",
              grid_item->node_name(), grid_item->content_width, grid_item->content_height);
@@ -837,17 +849,12 @@ static bool compute_grid_area_for_absolute(
     float* out_x, float* out_y, float* out_width, float* out_height
 ) {
     if (!grid_layout || !container || !item) return false;
-    // Get grid item properties (if any)
-    GridItemProp* gi = grid_item_prop(item);
-    // Check if item has any grid placement
-    bool has_col_start = gi && gi->has_explicit_grid_column_start && gi->grid_column_start != 0;
-    bool has_col_end = gi && gi->has_explicit_grid_column_end && gi->grid_column_end != 0;
-    bool has_row_start = gi && gi->has_explicit_grid_row_start && gi->grid_row_start != 0;
-    bool has_row_end = gi && gi->has_explicit_grid_row_end && gi->grid_row_end != 0;
-    // If no explicit grid placement, use normal containing block (whole grid padding box)
-    if (!has_col_start && !has_col_end && !has_row_start && !has_row_end) {
+    // placement applies only when this grid establishes the child's containing block.
+    if (!item->position || find_containing_block(item, item->positionp()->position) != container)
         return false;
-    }
+    GridItemProp* gi = grid_item_prop(item);
+    if (!gi || (!gi->has_explicit_grid_column_start && !gi->has_explicit_grid_column_end &&
+                !gi->has_explicit_grid_row_start && !gi->has_explicit_grid_row_end)) return false;
 
     LayoutAxisPair<float> offsets = {};
     LayoutAxisPair<int> line_counts = {};
@@ -876,32 +883,19 @@ static bool compute_grid_area_for_absolute(
         auto_end[track_axis] = (columns ? grid_layout->content_width : grid_layout->content_height) +
             (forward ? end_padding : start_padding);
     }
-    // Resolve explicit grid lines (1-based CSS to 0-based index into positions array)
-    // Handle negative line numbers (count from end)
-    LayoutAxisPair<bool> has_start = {has_col_start, has_row_start};
-    LayoutAxisPair<bool> has_end = {has_col_end, has_row_end};
-    LayoutAxisPair<int> authored_start = {
-        has_col_start ? gi->grid_column_start : 0,
-        has_row_start ? gi->grid_row_start : 0
-    };
-    LayoutAxisPair<int> authored_end = {
-        has_col_end ? gi->grid_column_end : 0,
-        has_row_end ? gi->grid_row_end : 0
-    };
-    LayoutAxisPair<float> start = {};
-    LayoutAxisPair<float> end = {};
-    for (int i = LAYOUT_AXIS_X; i <= LAYOUT_AXIS_Y; i++) {
-        LayoutAxis axis = (LayoutAxis)i;
-        int start_line = authored_start[axis];
-        int end_line = authored_end[axis];
-        if (start_line < 0) start_line = line_counts[axis] + start_line + 1;
-        if (end_line < 0) end_line = line_counts[axis] + end_line + 1;
-        start[axis] = has_start[axis]
-            ? positions[axis][start_line >= 1 && start_line <= line_counts[axis]
-                ? start_line - 1 : 0] : auto_start[axis];
-        end[axis] = has_end[axis]
-            ? positions[axis][end_line >= 1 && end_line <= line_counts[axis]
-                ? end_line - 1 : line_counts[axis] - 1] : auto_end[axis];
+    LayoutAxisPair<float> start = {}, end = {};
+    for (LayoutAxis axis : layout_axes()) {
+        bool rows = axis == LAYOUT_AXIS_Y;
+        int tracks = rows ? grid_layout->explicit_row_count : grid_layout->explicit_column_count;
+        int negative = rows ? grid_layout->negative_implicit_row_count : grid_layout->negative_implicit_column_count;
+        GridResolvedEdges edges = grid_resolve_item_edges(grid_layout, gi, rows, tracks);
+        edges.start += negative;
+        edges.end += negative;
+        // out-of-flow references never create tracks; missing edges use the padding box.
+        bool has_start = edges.has_start && edges.start >= 1 && edges.start <= line_counts[axis];
+        bool has_end = edges.has_end && edges.end >= 1 && edges.end <= line_counts[axis];
+        start[axis] = has_start ? positions[axis][edges.start - 1] : auto_start[axis];
+        end[axis] = has_end ? positions[axis][edges.end - 1] : auto_end[axis];
         if (start[axis] > end[axis]) {
             float swap = start[axis];
             start[axis] = end[axis];
@@ -928,24 +922,6 @@ static void layout_grid_abs_prepare_child(LayoutContext* lycon, ViewBlock* conta
     state->parent_block.advance_y = state->containing_block.padding_y;
 }
 
-static float grid_abs_axis_position(float area_start, float area_size, float child_size,
-                                    LayoutAxisRefs& refs, float* used_size) {
-    if (refs.has_start() && refs.has_end()) {
-        *used_size = area_size - *refs.insets.start.value - *refs.insets.end.value -
-            refs.margin_start() - refs.margin_end();
-        return area_start + *refs.insets.start.value + refs.margin_start();
-    }
-    if (refs.has_start()) {
-        return area_start + *refs.insets.start.value +
-            (refs.margin_start() > 0.0f ? refs.margin_start() : 0.0f);
-    }
-    if (refs.has_end()) {
-        return area_start + area_size - *refs.insets.end.value - child_size -
-            (refs.margin_end() > 0.0f ? refs.margin_end() : 0.0f);
-    }
-    return area_start;
-}
-
 static void layout_grid_abs_after_child(LayoutContext* lycon, ViewBlock* container,
     AbsStaticContext* ctx, AbsChildLayoutState* state) {
     (void)lycon;  (void)container;
@@ -964,16 +940,7 @@ static void layout_grid_abs_after_child(LayoutContext* lycon, ViewBlock* contain
             gi->track_area_width = state->grid_area_width;
             gi->track_area_height = state->grid_area_height;
         }
-        LayoutAxisPair<float> area_start =
-            layout_axis_pair(state->grid_area_x, state->grid_area_y);
-        LayoutAxisPair<float> area_size =
-            layout_axis_pair(state->grid_area_width, state->grid_area_height);
-        for (int i = LAYOUT_AXIS_X; i <= LAYOUT_AXIS_Y; i++) {
-            LayoutAxis axis = (LayoutAxis)i;
-            LayoutAxisRefs refs(child_block, axis);
-            refs.set_position(grid_abs_axis_position(
-                area_start[axis], area_size[axis], refs.get_size(), refs, refs.size_slot));
-        }
+        // the shared positioned solver already used this area's constraints and offsets.
         return;
     }
 

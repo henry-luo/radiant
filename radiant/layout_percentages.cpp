@@ -253,6 +253,13 @@ bool layout_percentage_height_basis_is_algorithmically_definite(ViewBlock* conta
             : flex->main_axis_available_size_is_definite;
         if (definite) return true;
     }
+    if (layout_view_is_abs_or_fixed(containing_block) && containing_block->position &&
+        containing_block->positionp()->has_top && containing_block->positionp()->has_bottom &&
+        containing_block->blk && containing_block->block()->given_height >= 0.0f &&
+        !layout_axis_uses_intrinsic_size(containing_block->blk, LAYOUT_AXIS_Y)) {
+        // opposing insets solve an auto height before its percentage descendants run.
+        return true;
+    }
     // a ratio-transferred block height supplies a definite percentage basis
     // while its final auto height may still grow around its content.
     if (containing_block->blk && containing_block->block()->aspect_ratio_auto_height) return true;

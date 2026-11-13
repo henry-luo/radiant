@@ -1646,12 +1646,36 @@ static void recalculate_right_positioned_x(ViewBlock* block, ViewBlock* cb) {
     block->x = border_left + padding_width - block->positionp()->right -
         margin_right - block->width;
 }
+static LayoutContainingBlock positioned_child_used_containing_block(
+        LayoutContext* lycon, ViewBlock* parent, ViewBlock* child, LayoutContainingBlock cb) {
+    GridItemProp* gi = grid_item_prop(child);
+    if (!parent || parent->display.inner != CSS_VALUE_GRID || !gi) return cb;
+    AbsChildLayoutState* area = lycon ? lycon->abspos_grid_area.get() : nullptr;
+    if (area && area->child_block.get() == child && area->has_grid_area &&
+            area->containing_block.view.get() == parent) {
+        // the stack area is valid through style, initial sizing and descendant layout.
+        cb.padding_x = area->grid_area_x;
+        cb.padding_y = area->grid_area_y;
+        cb.padding_width = area->grid_area_width;
+        cb.padding_height = area->grid_area_height;
+    } else if (gi->has_explicit_grid_column_start || gi->has_explicit_grid_column_end ||
+               gi->has_explicit_grid_row_start || gi->has_explicit_grid_row_end) {
+        // late percentage passes reuse the area published by the grid's committed pass.
+        cb.padding_x = gi->track_base_x;
+        cb.padding_y = gi->track_base_y;
+        cb.padding_width = gi->track_area_width;
+        cb.padding_height = gi->track_area_height;
+    }
+    return cb;
+}
+
 // Implements CSS 2.1 §10.3.7 (horizontal) and §10.6.4 (vertical) constraint equations
 void calculate_absolute_position(LayoutContext* lycon, ViewBlock* block, ViewBlock* containing_block,
     BlockContext* pa_block, Linebox* pa_line) {
 
-    LayoutContainingBlock cb = layout_absolute_containing_block(
-        lycon, containing_block, block->positionp()->position);
+    LayoutContainingBlock cb = positioned_child_used_containing_block(lycon,
+        containing_block, block, layout_absolute_containing_block(
+            lycon, containing_block, block->positionp()->position));
     float cb_width = cb.padding_width;
     float cb_height = cb.padding_height;
     float border_offset_x = 0.0f;
@@ -2102,23 +2126,6 @@ static void layout_reflow_abs_child_content_after_height_change(
     child->height = used_border_height;
 }
 
-static LayoutContainingBlock positioned_child_used_containing_block(
-        ViewBlock* parent, ViewBlock* child) {
-    LayoutContainingBlock cb = layout_containing_block_for_view(parent);
-    GridItemProp* gi = grid_item_prop(child);
-    if (parent->display.inner == CSS_VALUE_GRID && gi &&
-        ((gi->has_explicit_grid_column_start && gi->grid_column_start != 0) ||
-         (gi->has_explicit_grid_column_end && gi->grid_column_end != 0) ||
-         (gi->has_explicit_grid_row_start && gi->grid_row_start != 0) ||
-         (gi->has_explicit_grid_row_end && gi->grid_row_end != 0))) {
-        cb.padding_x = gi->track_base_x;
-        cb.padding_y = gi->track_base_y;
-        cb.padding_width = gi->track_area_width;
-        cb.padding_height = gi->track_area_height;
-    }
-    return cb;
-}
-
 // CSS 2.1 §10.5: For absolutely positioned elements, percentage heights resolve
 void re_resolve_abs_children_vertical(LayoutContext* lycon,
                                       ViewBlock* containing_block) {
@@ -2127,7 +2134,8 @@ void re_resolve_abs_children_vertical(LayoutContext* lycon,
     // Compute containing block's padding box height (CSS 2.1 §10.1)
     ViewBlock* child = containing_block->positionp()->first_abs_child;
     while (child) {
-        LayoutContainingBlock cb = positioned_child_used_containing_block(containing_block, child);
+        LayoutContainingBlock cb = positioned_child_used_containing_block(lycon,
+            containing_block, child, layout_containing_block_for_view(containing_block));
         float cb_height = cb.padding_height;
         float old_height = child->height;
         if (child->blk && !isnan(child->block()->given_height_percent)) {
@@ -2233,7 +2241,8 @@ static void re_resolve_abs_children_horizontal(ViewBlock* containing_block) {
     for (ViewBlock* child = containing_block->positionp()->first_abs_child; child;
          child = child->position ? child->positionp()->next_abs_sibling : nullptr) {
         if (!child->blk || isnan(child->block()->given_width_percent)) continue;
-        LayoutContainingBlock cb = positioned_child_used_containing_block(containing_block, child);
+        LayoutContainingBlock cb = positioned_child_used_containing_block(nullptr,
+            containing_block, child, layout_containing_block_for_view(containing_block));
         float cb_width = cb.padding_width;
         if (cb_width <= 0.0f) continue;
 
@@ -2293,8 +2302,8 @@ static void layout_abs_block_internal(LayoutContext* lycon, DomNode *elmt,
 
     ViewBlock* cb = find_containing_block(block, block->positionp()->position);
     if (!cb) { log_error("Missing containing block");  lycon->depth--;  log_leave();  return; }
-    LayoutContainingBlock used_cb = layout_absolute_containing_block(
-        lycon, cb, block->positionp()->position);
+    LayoutContainingBlock used_cb = positioned_child_used_containing_block(lycon,
+        cb, block, layout_absolute_containing_block(lycon, cb, block->positionp()->position));
     LayoutContainingBlockScope percentage_scope(lycon,
         used_cb.padding_width, used_cb.padding_height, used_cb.has_definite_height);
     percentage_scope.containing_block.flow_box = used_cb.view;
@@ -2674,8 +2683,8 @@ static void layout_abs_block_internal(LayoutContext* lycon, DomNode *elmt,
         block->positionp()->has_right) {
         // CSS 2.1 §10.3.7: a table's intrinsic width is known only after its
         // grid layout, so opposing auto margins must be resolved afterward.
-        LayoutContainingBlock used_cb = layout_absolute_containing_block(
-            lycon, cb, block->positionp()->position);
+        LayoutContainingBlock used_cb = positioned_child_used_containing_block(lycon,
+            cb, block, layout_absolute_containing_block(lycon, cb, block->positionp()->position));
         float used_content_width = layout_used_css_size_from_border_box(
             block, block->width, true);
         resolve_abs_auto_margins_axis(
@@ -2819,8 +2828,8 @@ static void layout_abs_block_internal(LayoutContext* lycon, DomNode *elmt,
                 // child layout, so auto margins must be resolved again here.
                 float used_content_height = layout_used_css_size_from_border_box(
                     block, block->height, false);
-                LayoutContainingBlock used_cb = layout_absolute_containing_block(
-                    lycon, cb, block->positionp()->position);
+                LayoutContainingBlock used_cb = positioned_child_used_containing_block(lycon,
+                    cb, block, layout_absolute_containing_block(lycon, cb, block->positionp()->position));
                 resolve_abs_auto_margins_axis(
                     block, used_cb.padding_height, used_content_height, LAYOUT_AXIS_Y, TD_LTR);
                 block->y = used_cb.padding_y + block->positionp()->top +
@@ -2852,8 +2861,8 @@ static void layout_abs_block_internal(LayoutContext* lycon, DomNode *elmt,
         // its used height from in-flow content; both used the provisional zero.
         re_resolve_abs_children_vertical(lycon, block);
     }
-    LayoutContainingBlock final_cb = layout_absolute_containing_block(
-        lycon, cb, block->positionp()->position);
+    LayoutContainingBlock final_cb = positioned_child_used_containing_block(lycon,
+        cb, block, layout_absolute_containing_block(lycon, cb, block->positionp()->position));
     float final_offset_x = 0.0f;
     float final_offset_y = 0.0f;
     positioned_containing_block_offsets(lycon, block, cb, final_cb,
