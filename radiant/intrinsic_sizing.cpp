@@ -4076,12 +4076,12 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     ViewBlock* resolved_width_view = lam::unsafe_view_block_element_storage(element);
     bool physical_width_is_vertical_block_axis =
         layout_block_inline_axis_is_vertical(resolved_width_view);
-    bool has_intrinsic_min_width = layout_intrinsic_min_size_keyword(
-        resolved_width_view, true) != CSS_VALUE__UNDEF;
+    CssEnum min_width_keyword = layout_intrinsic_min_size_keyword(resolved_width_view, true);
+    bool has_intrinsic_min_width = min_width_keyword != CSS_VALUE__UNDEF;
     bool has_intrinsic_preferred_width = layout_intrinsic_preferred_size_keyword(
         resolved_width_view, true) != CSS_VALUE__UNDEF;
-    bool has_intrinsic_max_width = layout_intrinsic_max_size_keyword(
-        resolved_width_view, true) != CSS_VALUE__UNDEF;
+    CssEnum max_width_keyword = layout_intrinsic_max_size_keyword(resolved_width_view, true);
+    bool has_intrinsic_max_width = max_width_keyword != CSS_VALUE__UNDEF;
     bool has_definite_width = resolved_width_view->blk &&
         resolved_width_view->block()->given_width >= 0.0f &&
         resolved_width_view->block()->given_width_type != CSS_VALUE_AUTO &&
@@ -4246,13 +4246,16 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         sizes = {intrinsic_width, intrinsic_width};
         return sizes;
     }
-    bool can_use_definite_width = !content_only && !has_intrinsic_min_width &&
-        !has_intrinsic_preferred_width && !has_intrinsic_max_width &&
+    float definite_border_width = -1.0f;
+    // fit-content limits negotiate available space rather than a fixed natural-content bound.
+    bool can_resolve_definite_width = !content_only && !has_intrinsic_preferred_width &&
+        min_width_keyword != CSS_VALUE_FIT_CONTENT &&
+        (!has_intrinsic_max_width || max_width_keyword != CSS_VALUE_FIT_CONTENT) &&
         !(percentage_width_is_intrinsic_auto || percentage_replaced_size_is_intrinsic_auto) &&
         !percentage_size_resolves_to_zero &&
         !is_table_display && !is_inline_non_replaced &&
         !physical_width_is_vertical_block_axis;
-    if (can_use_definite_width) {
+    if (can_resolve_definite_width) {
         float explicit_width = authored_width;
         // A prior layout pass can leave a font-relative given width on an
         // unresolved view. Recompute authored sizes from the current cascade
@@ -4281,12 +4284,15 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
                 // border-box widths cannot make the content box negative, including before bounds exist.
                 explicit_width = pad_border_width;
             }
-            explicit_width = intrinsic_apply_definite_width_constraints(explicit_width);
-            // cyclic percentage maxima suppress the content minimum even on this definite-width shortcut (CSS Sizing 3 §5.2.1).
-            sizes.min_content = percentage_width_min_content_zero
-                ? intrinsic_apply_definite_width_constraints(pad_border_width) : explicit_width;
-            sizes.max_content = explicit_width;
-            return sizes;
+            definite_border_width = explicit_width;
+            if (!has_intrinsic_min_width && !has_intrinsic_max_width) {
+                explicit_width = intrinsic_apply_definite_width_constraints(explicit_width);
+                // cyclic percentage maxima suppress the content minimum even on this definite-width shortcut (CSS Sizing 3 §5.2.1).
+                sizes.min_content = percentage_width_min_content_zero
+                    ? intrinsic_apply_definite_width_constraints(pad_border_width) : explicit_width;
+                sizes.max_content = explicit_width;
+                return sizes;
+            }
         }
     }
 
@@ -6505,6 +6511,14 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     ViewBlock* view_for_minmax = lam::unsafe_view_block_element_storage(element);
     bool view_is_border_box = intrinsic_view_uses_border_box(view_for_minmax, element);
     bool width_is_inline_axis = !layout_block_inline_axis_is_vertical(view_for_minmax);
+    float intrinsic_min_width = sizes.min_content;
+    float intrinsic_max_width = max(sizes.max_content, sizes.min_content);
+    if (definite_border_width >= 0.0f) {
+        // intrinsic limits need natural content sizes, but a definite preferred width still owns the contribution.
+        sizes.min_content = percentage_width_min_content_zero
+            ? horiz_padding + horiz_border : definite_border_width;
+        sizes.max_content = definite_border_width;
+    }
 
     // Apply min-width: floor the intrinsic sizes to ensure they're at least min-width
     float given_min_width = -1;
@@ -6534,30 +6548,16 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         // For content-box: min-width is content width, so add padding+border for border-box comparison
         min_border_box = view_is_border_box ? given_min_width
                                             : (given_min_width + horiz_padding + horiz_border);
+    }
+    if (width_is_inline_axis && min_width_keyword == CSS_VALUE_MIN_CONTENT) {
+        min_border_box = max(min_border_box, intrinsic_min_width);
+    } else if (width_is_inline_axis && min_width_keyword == CSS_VALUE_MAX_CONTENT) {
+        min_border_box = max(min_border_box, intrinsic_max_width);
+    }
+    if (min_border_box >= 0.0f) {
         min_border_box = layout_floor_border_box_axis(view_for_minmax, min_border_box, true);
-        if (sizes.min_content < min_border_box) {
-            sizes.min_content = min_border_box;
-        }
-        if (sizes.max_content < min_border_box) {
-            sizes.max_content = min_border_box;
-        }
-    }
-    if (width_is_inline_axis &&
-        layout_intrinsic_min_size_keyword(view_for_minmax, true) == CSS_VALUE_MAX_CONTENT) {
-        // A max-content minimum floors the min-content contribution at max-content.
-        sizes.min_content = sizes.max_content;
-    }
-    // min-width:min-content leaves the larger max-content contribution intact.
-    CssEnum max_width_keyword = layout_intrinsic_max_size_keyword(view_for_minmax, true);
-    if (width_is_inline_axis && max_width_keyword == CSS_VALUE_MIN_CONTENT) {
-        // max-width:min-content limits shrink-to-fit contributions before
-        // float sizing; deferring this keyword to block layout leaks the
-        // unconstrained max-content width into the containing float.
-        sizes.max_content = sizes.min_content;
-    } else if (width_is_inline_axis && max_width_keyword == CSS_VALUE_MAX_CONTENT) {
-        // max-width:max-content clamps a wider specified width to the
-        // preferred contribution, which also becomes the minimum here.
-        sizes.min_content = sizes.max_content;
+        sizes.min_content = max(sizes.min_content, min_border_box);
+        sizes.max_content = max(sizes.max_content, min_border_box);
     }
     float given_max_width = -1;
     if (view_for_minmax->blk) {
@@ -6572,16 +6572,21 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         given_max_width = resolve_length_value(
             lycon, CSS_PROPERTY_MAX_WIDTH, max_width_declaration->value);
     }
-    if (given_max_width >= 0 &&
+    float max_border_box = given_max_width < 0.0f ? -1.0f
+        : view_is_border_box ? given_max_width : given_max_width + horiz_padding + horiz_border;
+    if (width_is_inline_axis && max_width_keyword == CSS_VALUE_MIN_CONTENT) {
+        max_border_box = intrinsic_min_width;
+    } else if (width_is_inline_axis && max_width_keyword == CSS_VALUE_MAX_CONTENT) {
+        max_border_box = intrinsic_max_width;
+    }
+    if (max_border_box >= 0.0f &&
         (!view_for_minmax->blk || view_for_minmax->block()->given_max_width_type != CSS_VALUE_STRETCH) &&
         max_width_keyword != CSS_VALUE_FIT_CONTENT &&
         !(max_width_is_percentage && percentage_size_is_intrinsic_auto)) {
         // CSS Sizing 3 §§5.1–5.2 measure intrinsic sizes with an auto-sized
         // hypothetical float, so max-width:fit-content() constrains used
         // sizing but must not cap this intrinsic contribution.
-        // For content-box: max-width is content width, so add padding+border for comparison.
-        float max_border_box = view_is_border_box ? given_max_width
-                                                  : (given_max_width + horiz_padding + horiz_border);
+        // keyword and definite limits share the same border-box clamp and minimum precedence.
         // min/max values cannot make a border box smaller than its padding and border.
         max_border_box = layout_floor_border_box_axis(view_for_minmax, max_border_box, true);
         // an overlapping minimum raises the effective maximum; it does not discard the cap.

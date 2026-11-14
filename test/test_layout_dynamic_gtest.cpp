@@ -2405,6 +2405,64 @@ TEST_F(DynamicLayoutTest, MinContentMinimumPreservesPreferredInlineWidth) {
     EXPECT_NEAR(element("host")->width, 220.0f, 0.1f);
 }
 
+TEST_F(DynamicLayoutTest, IntrinsicKeywordsClampDefiniteFloatContributions) {
+    StrBuf* html = strbuf_create("<!doctype html><style>body{margin:0}"
+        ".wrapper{display:inline-block;vertical-align:top}"
+        ".float{float:left;border:3px solid;padding:2px;font-size:0}"
+        "span{display:inline-block;height:10px}.first{width:30px}.second{width:70px}</style>");
+    ASSERT_NE(html, nullptr);
+    const float widths[] = {0.0f, 90.0f, 200.0f};
+    for (unsigned i = 0; i < sizeof(widths) / sizeof(*widths); i++)
+        strbuf_append_format(html,
+            "<div class='wrapper' style='width:%gpx'><div class='float' id='float%u'>"
+            "<div id='child%u'><span class='first'></span><span class='second'></span></div></div></div>",
+            widths[i], i, i);
+    load(html->str);
+    strbuf_free(html);
+    const struct { const char* style; float width; } cases[] = {
+        {"width:0;min-width:min-content", 70.0f},
+        {"width:50px;min-width:min-content", 70.0f},
+        {"width:160px;min-width:min-content", 160.0f},
+        {"width:0;min-width:max-content", 100.0f},
+        {"width:160px;min-width:max-content", 160.0f},
+        {"width:160px;max-width:min-content", 70.0f},
+        {"width:160px;max-width:max-content", 100.0f},
+        {"width:160px;min-width:min-content;max-width:50px", 70.0f},
+        {"width:160px;min-width:90px;max-width:min-content", 90.0f},
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(test.style);
+        for (const char* id : {"child0", "child1", "child2"})
+            ASSERT_TRUE(element(id)->set_attribute("style", test.style));
+        for (unsigned pass = 0; pass < 2; pass++) {
+            SCOPED_TRACE(pass);
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, false);
+            for (const char* id : {"child0", "child1", "child2"}) {
+                SCOPED_TRACE(id);
+                EXPECT_NEAR(element(id)->width, test.width, 0.1f);
+            }
+            for (const char* id : {"float0", "float1", "float2"}) {
+                SCOPED_TRACE(id);
+                EXPECT_NEAR(element(id)->width, test.width + 10.0f, 0.1f);
+            }
+        }
+    }
+}
+
+TEST_F(DynamicLayoutTest, FitContentLimitsRetainNaturalContributions) {
+    load("<!doctype html><style>body{margin:0}.host{width:fit-content}"
+         "span{display:inline-block;width:50px}</style>"
+         "<div class='host' id='minimum'><div id='min-child' style='width:10px;min-width:fit-content'>"
+         "<span></span><span></span></div></div>"
+         "<div class='host' id='maximum'><div id='max-child' style='width:200px;max-width:fit-content'>"
+         "<span></span><span></span></div></div>");
+    for (const char* id : {"minimum", "min-child", "maximum", "max-child"}) {
+        SCOPED_TRACE(id);
+        EXPECT_FLOAT_EQ(element(id)->width, 100.0f);
+    }
+}
+
 TEST_F(DynamicLayoutTest, InheritedAxisSizesKeepComputedPercentagesAndLengths) {
     struct Case {const char* width; const char* extra; const char* child;
                  float parent_width; float child_width;};

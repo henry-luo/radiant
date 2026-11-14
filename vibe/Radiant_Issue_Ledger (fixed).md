@@ -14,6 +14,50 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-089"></a>
+
+### RI-089 — Min-content minimum widens floated intrinsic contribution boxes
+
+**Status:** FIXED, 2026-11-14. **Lambda blocker:** cleared. Native ownership
+is D9.1.1v4 / D9.1.3v2; measured layout state retains D5.5.1 ownership. The user
+explicitly authorized the Radiant source update from the Lambda task.
+
+The unchanged `keyword-sizes-for-intrinsic-contributions` case had two floated
+`.test.min-width` boxes at 90px/150px instead of 70px. Their children used
+`width:0;min-width:min-content` and correctly laid out at 60px, but contributed
+the larger natural max-content width to the containing float. A definite
+preferred width skipped the early shortcut when intrinsic limits required
+content measurement and was never restored after that measurement.
+
+Intrinsic measurement now retains the definite border-box preferred width
+separately from the natural min/max-content bounds. Shared minimum and maximum
+clamps constrain its contribution, with a minimum taking precedence over a
+smaller maximum. `width:auto` retains the RI-074 repair. `fit-content` limits
+keep negotiating available space through their existing contribution path;
+the first candidate's fit-content regressions were repaired before delivery.
+
+The new native definite-contribution regression fails before and passes after
+repair. It checks nine min/max combinations in three containing widths with
+repeated recascade/layout; the additional fit-content control checks both
+minimum and maximum limits. Independent Chromium agrees with all nine width
+combinations and all four fit-content box measurements. The complete owner
+dynamic suite passes **110/110**; layout lint checks **89 casts, zero unmarked**.
+
+The refreshed debug Lambda host passes sizing **776/776**. The standard
+`make test-radiant-baseline` exits 0 with **8,170 passed / zero failed /
+297 partial / 20 skipped**. The previously repaired Lambda-owned paint and
+cascade integration executables remain green at **250/250** and **186/186**.
+No external fixture, reference, tolerance or scored baseline was changed.
+
+Source identity: Lambda `09a40dfe2`, Radiant `4ec1e8c` plus this implementation
+and test, Input `3e14a05`. Original and final integration evidence is in
+`../../Lambda-opus/temp/radiant-three-failures/`, especially
+`ri089-radiant-baseline.log`, `sizing-final-results.json`,
+`browser-control-final.json` and `ri089-verification-identity.json`.
+Owner evidence is in `../temp/ri-089-before.log`,
+`../temp/ri-089-dynamic-final.log` and `../temp/ri-089-lint-final.log`.
+
+
 <a id="ri-087"></a>
 
 ### RI-087 — Propagated body overflow clips its own zero-height box

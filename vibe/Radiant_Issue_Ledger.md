@@ -20,6 +20,14 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-089"></a>
+
+### RI-089 — Min-content minimum widens floated intrinsic contribution boxes
+
+**Status:** FIXED, 2026-11-14. The sizing baseline passes 776/776 and the full
+Lambda Radiant baseline has zero failures. See the
+[contribution repair](<Radiant_Issue_Ledger (fixed).md#ri-089>).
+
 <a id="ri-088"></a>
 
 ### RI-088 — Inline intrinsic measurements report failed selected-flow restoration
