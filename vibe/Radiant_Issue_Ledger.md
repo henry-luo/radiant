@@ -20,6 +20,38 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-091"></a>
+
+### RI-091 — Native state-store and custom-layout test links collide with full archive providers
+
+**Status:** OPEN, reproduced 2026-11-15 from Lambda `e55450ec8` plus test-workflow
+changes. **Lambda task blocker:** yes for the `build-test` prerequisite of
+`make test-js-parity`; the nine selected runtime/DOM contracts independently
+pass 27/27 mode runs. Radiant owns the native sources and test stubs under
+D9.1.1v4/D9.1.3v2; the Lambda consumer build graph is governed by D9.1.5.
+The exact defective dependency or missing stub remains unconfirmed.
+
+From the Lambda checkout, reproduce with:
+
+```sh
+make -C build/premake config=debug_native test_state_store_gtest test_layout_custom_gtest
+```
+
+The state-store target links its `test_state_store_stubs.o` (compiled from
+`../radiant/test/test_state_store_stubs.cpp`) together with the full
+`../radiant/build/lib/debug/libradiant.a`. The linker reports 58 duplicate
+symbols, including `tc_set_selection_range`, `rdt_picture_is_text`,
+`editing_mode_name` and `radiant_platform_get_clipboard`. The custom-layout
+target reports nine duplicates, including `layout_init`, `layout_cleanup`,
+`layout_effective_zoom` and `render_clip_css_value`, between its test objects
+and full archive providers. Neither target links successfully.
+
+Determine which newly required symbol or dependency closure admits the real
+providers into these stubbed native tests, then repair the owner test boundary
+or consumer build dependency at the root. No stubs, vendor files, Radiant
+implementation or generated Makefiles were changed to bypass this failure.
+Evidence: `Lambda-opus/temp/js-parity-work/targeted-make-fixed.log`.
+
 <a id="ri-089"></a>
 
 ### RI-089 — Min-content minimum widens floated intrinsic contribution boxes
