@@ -52,6 +52,40 @@ or consumer build dependency at the root. No stubs, vendor files, Radiant
 implementation or generated Makefiles were changed to bypass this failure.
 Evidence: `Lambda-opus/temp/js-parity-work/targeted-make-fixed.log`.
 
+<a id="ri-090"></a>
+
+### RI-090 — Home and End stop at text fragments beside inline atoms
+
+**Status:** OPEN, reproduced 2026-11-15 against Lambda `e55450ec8` plus
+editor work and Radiant `4ec1e8c` plus the owner's worktree. **Lambda task
+blocker:** yes for reliable keyboard navigation at retained inline content in
+`lambda edit`. Radiant ownership is D9.1.1v4 / D9.1.3v2; editor selection and
+document editing are D10.2.1 / D9.3.4.
+
+From the Lambda checkout run:
+
+```
+./lambda.exe view temp/edit-viewer/caret-edge-repro.html --headless --event-file temp/edit-viewer/caret-edge-repro.json
+```
+
+The plain contenteditable page has a non-editable inline `REF` before the
+first text run of one paragraph and after the last text run of another. After
+clicking `begins.`, Home then typing `Start ` yields `REFStart  begins.`
+instead of `Start REF begins.`. After clicking `Ends`, End then typing
+` tail` yields `Ends  tailREF` instead of `Ends REF tail`. Both assertions
+fail independently of `lambda.editor`; see `caret-edge-repro.log` in the same
+directory. The editor regression `test/ui/edit/edit_md_footnote_edges.json`
+reproduces the same placement around retained Markdown footnote references.
+
+`state_store_caret_move_to_boundary` in `radiant/state_store.cpp` handles
+line start/end using only the current `ViewText`'s `TextRect` offsets. This
+explains why an adjacent inline element and other text views on the same
+visual line are not reached. Resolve the boundary across the laid-out visual
+line while respecting non-editable content and wrapped lines; retain the
+normal selection-extension semantics. No Radiant implementation or reference
+was changed by this report.
+
+
 <a id="ri-089"></a>
 
 ### RI-089 — Min-content minimum widens floated intrinsic contribution boxes
@@ -758,6 +792,21 @@ Evidence in Lambda: `test/online/snapshots/saas_landing_046-lambda-output.log`,
 After RI-017, both selected finite snapshots load/export successfully. This
 does not repair focus invalidation during later interactive reflow. The assertion
 remains enabled; no focus-state workaround was added.
+
+
+**Eden follow-up, 2026-11-15:** the staged Eden compatibility repair at
+`Lambda/temp/eden-load/eden` reaches the `ecosystem` native replay with Lambda
+`c2b705a98` (`lambda.exe` SHA-256
+`1603697a7eac9ab6a75c8491ae3e5ed8da358ebc36b982bc230f76407d0e3483`).
+With macOS graphics access, run `EDEN_LAMBDA_EXE=../../../lambda.exe ./eden smoke
+--suite ecosystem` from that staged Eden directory (or select the equivalent
+absolute executable). The process aborts after initial rendering with
+`state_machine: assertion failed after hover_transition: focused target is not
+focusable`, at the same `radiant_state_assert_valid` invariant. The action that
+invalidates focus and whether it shares RI-019's cause are unconfirmed. This
+does not block Eden's initial terrain startup, but blocks the ecosystem replay.
+Evidence: `Lambda/temp/eden-load/smoke-all-final.log` near the first
+`hover_transition` failure. No assertion or fixture was changed.
 
 <a id="ri-018"></a>
 
