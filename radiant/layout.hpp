@@ -3619,6 +3619,7 @@ void layout_flex_content(LayoutContext* lycon, ViewBlock* flex_container);
 bool has_auto_margins(ViewBlock* item);
 void apply_auto_margin_centering(LayoutContext* lycon, ViewBlock* flex_container);
 float calculate_flex_basis(ViewElement* item, FlexContainerLayout* flex_layout);
+float calculate_hypothetical_main_size(ViewElement* item, FlexContainerLayout* flex_layout);
 void resolve_flex_item_constraints(ViewElement* item, FlexContainerLayout* flex_layout);
 void apply_constraints_to_flex_items(FlexContainerLayout* flex_layout);
 float apply_flex_constraint(ViewElement* item, float computed_size, bool is_main_axis,

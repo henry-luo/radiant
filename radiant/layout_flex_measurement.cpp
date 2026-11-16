@@ -1273,6 +1273,20 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
                                     c, lycon, item, child_view, flex_layout, is_row_flex_container);
                             }
                         }
+                        if (!width_only && !is_row_flex_container &&
+                            !layout_block_inline_axis_is_vertical(lam::view_as_block(item)) &&
+                            child_view->fi && child_view->fi->flex_basis >= 0.0f &&
+                            !child_view->fi->flex_basis_is_percent) {
+                            // a column's natural main size includes definite flex bases, not only CSS heights.
+                            FlexContainerLayout column = {};
+                            column.lycon = lam::up(lycon);
+                            column.container = lam::up(lam::view_as_block(item));
+                            column.direction = layout_flex_direction(item);
+                            column.main_axis_is_indefinite = true;
+                            column.cross_axis_size = flex_child_height_fallback_available_width(
+                                lycon, item, child_view, flex_layout, false, true);
+                            child_height = calculate_hypothetical_main_size(child_view, &column);
+                        }
                         // CSS Flexbox §9.9.1: Each flex item's contribution to the container's
                         // intrinsic size is its outer size (content + padding + border + margin).
                         // Add child margins to width/height for proper intrinsic sizing.

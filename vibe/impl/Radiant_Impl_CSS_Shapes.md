@@ -1,7 +1,7 @@
 # CSS Shapes implementation
 
 Status: core implementation complete, 2026-11-16; aggregate qualification
-retains unrelated native link and flex fixture failures. This record describes
+passes after the RI-091/RI-092 repairs on 2026-11-17. This record describes
 a bounded implementation, not complete CSS Shapes conformance.
 Authority: native ownership D9.1.1v4 / D9.1.3v2,
 selected-view lifetime D5.5.1 and name identity D5.6.1.
@@ -47,7 +47,7 @@ property mapping and CSS declaration attributes. Existing NameIds are unchanged.
 See [LI-065](../../../lambda-input/vibe/Lib_Input_Issue_Ledger.md#li-065).
 No second CSS parser or custom-property alias bypasses the shared registry.
 
-## Qualification
+## Initial qualification (2026-11-16)
 
 - `test/test_css_shapes_gtest.cpp`: 14/14 geometry/image-alpha cases pass.
   Covers full bands, analytic ellipse offsets, sloped polygon margins,
@@ -201,8 +201,8 @@ Final qualification in `../Lambda-opus/temp/wpt-css-shapes/`:
   across 109 executables (`input-baseline-continuation.log`).
 - Configured Lambda layout baseline: 5,631 passes, 293 accepted partials,
   12 skips and no failures (`completed-layout-baseline-results.txt`).
-- Owner aggregate retains RI-091's duplicate-provider test link failure and
-  RI-092's existing static flex mismatch. The static corpus has 3,850 passes,
+- At the 2026-11-16 checkpoint, the owner aggregate retained RI-091's
+  duplicate-provider test link failure and RI-092's existing static flex mismatch. The static corpus has 3,850 passes,
   one failure and six skips; scripted layout passes 630/630
   (`completed-owner-baseline.log`, `completed-static-baseline.log`). These
   unrelated failures remain visible.
@@ -212,3 +212,18 @@ current debug runtime/adapters and this checkout's debug archive. Source,
 archive, reference and executable hashes are in `completion-provenance.json`.
 The earlier pinned host in `temp/css-shapes/current-host/` describes the initial
 bounded implementation and does not include these follow-up changes.
+
+## Aggregate completion (2026-11-17)
+
+The separately requested RI-091 and RI-092 repairs resolve the two recorded
+aggregate blockers under D9.1.1v4 / D9.1.3v2, without changing formal rulings.
+The full owner baseline now exits zero: native 1,154 passed and one skipped
+across 53 executables; static layout 3,851 passed with six skips; scripted
+layout 630/630. The original Lambda StateStore/custom-layout/retained-list
+consumer links and all 118 associated tests pass. Configured Lambda layout
+remains 5,631 passed, 293 accepted partials, 12 skips and zero failures; Shapes
+remains 294/294. No reference, fixture, tolerance or baseline was changed.
+Evidence: `../Lambda-opus/temp/radiant-aggregate-repairs/owner-baseline.log`,
+`consumer-links.log`, `layout-baseline-results.txt`, `shapes-regression.log`
+and `provenance.json`. See the [fixed issue records](<../Radiant_Issue_Ledger (fixed).md#ri-091>)
+for the linker boundary and nested flex intrinsic-height causes.

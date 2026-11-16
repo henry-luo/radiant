@@ -36,98 +36,18 @@ See the [repair and independent browser evidence](<Radiant_Issue_Ledger (fixed).
 
 <a id="ri-092"></a>
 
-### RI-092 — Minimized flex fixture differs from its saved browser geometry
+### RI-092 — FIXED
 
-**Status:** OPEN, cause unconfirmed, reproduced 2026-11-16. **CSS Shapes
-implementation blocker:** no; it prevents a green static layout aggregate.
-Native layout ownership is D9.1.1v4 / D9.1.3v2. No design ruling changes.
-
-Run `test/layout/test_radiant_layout.js -c baseline -t
-flex_grow_root_minimized.html --exe <host> --host-cwd ../Lambda` with either
-the existing Lambda executable or the isolated current-source Radiant host
-in `temp/css-shapes/current-host/radiant.exe`. Both report elements 2/6
-(33.3%): the root and its inner flex column are 100px high against 300px in
-the saved browser reference; descendants are 66.7/33.3px against 200/100px.
-The fixture contains no floats or Shapes declarations. The exact layout,
-fixture or reference cause has not been established; no reference or tolerance
-was changed to make it pass.
-
-Evidence: `temp/css-shapes/flex-original-host.log`, `flex-current-host.log`
-and `layout-current-host-baseline.log`. The current-source host reports
-3,850 static successes, this one failure and six skips; the scripted category
-passes 630/630. Initial comparisons using shared benchmark-snapshot host
-objects are not used as current-source conformance evidence.
+Nested auto flex columns now include definite grandchild flex bases in their
+natural height. See the [repair and browser evidence](<Radiant_Issue_Ledger (fixed).md#ri-092>).
 
 <a id="ri-091"></a>
 
-### RI-091 — Native state-store and custom-layout test links collide with full archive providers
+### RI-091 — FIXED
 
-**Status:** OPEN, reproduced 2026-11-15 from Lambda `e55450ec8` plus test-workflow
-changes. **Lambda task blocker:** yes for the `build-test` prerequisite of
-`make test-js-parity`; the nine selected runtime/DOM contracts independently
-pass 27/27 mode runs. Radiant owns the native sources and test stubs under
-D9.1.1v4/D9.1.3v2; the Lambda consumer build graph is governed by D9.1.5.
-The exact defective dependency or missing stub remains unconfirmed.
-
-From the Lambda checkout, reproduce with:
-
-```sh
-make -C build/premake config=debug_native test_state_store_gtest test_layout_custom_gtest
-```
-
-The state-store target links its `test_state_store_stubs.o` (compiled from
-`../radiant/test/test_state_store_stubs.cpp`) together with the full
-`../radiant/build/lib/debug/libradiant.a`. The linker reports 58 duplicate
-symbols, including `tc_set_selection_range`, `rdt_picture_is_text`,
-`editing_mode_name` and `radiant_platform_get_clipboard`. The custom-layout
-target reports nine duplicates, including `layout_init`, `layout_cleanup`,
-`layout_effective_zoom` and `render_clip_css_value`, between its test objects
-and full archive providers. Neither target links successfully.
-
-Determine which newly required symbol or dependency closure admits the real
-providers into these stubbed native tests, then repair the owner test boundary
-or consumer build dependency at the root. No stubs, vendor files, Radiant
-implementation or generated Makefiles were changed to bypass this failure.
-Evidence: `Lambda-opus/temp/js-parity-work/targeted-make-fixed.log`.
-
-**Partial repair, 2026-11-15:** the missing overflow and view-node-state
-services admitted full CSSOM/GUI providers into the isolated StateStore link.
-The test host now declares fail-fast stubs for those absent services; unexpected
-use still aborts rather than producing a fake result. The unchanged-source link
-comparison reproduces the old failure (`Lambda-opus/temp/edit-viewer/ri090/baseline-link.log`).
-The owner StateStore target now links and all 39 tests pass
-(`ri090/native-final.log`). The custom-layout target remains outside this
-repair, so RI-091 stays open until that separate boundary is qualified.
-
-**Reproduced during CSS Shapes qualification, 2026-11-16:** standalone
-`make -j8 run-radiant-baseline` fails to link
-`build/test/test_layout_custom_gtest` with the same nine duplicate providers
-listed above, including `render_clip_css_value`, `layout_init`,
-`layout_cleanup`, `layout_effective_zoom`, `form_control_get_value` and
-`radiant_input_peek_live_value`. This blocks the aggregate native test recipe;
-the build log is `temp/css-shapes/radiant-baseline.log`. The exact dependency
-root remains unconfirmed. The new Shapes geometry and native layout suites
-independently pass 14/14 and 16/16. The custom-layout test, its stubs and its
-build rule were not changed to bypass the failure. Static layout smoke passes;
-the independent browser comparison and remaining native suites are tracked in
-`vibe/impl/Radiant_Impl_CSS_Shapes.md`. This is a qualification blocker, not a
-change to D9.1.1v4 / D9.1.3v2 ownership.
-
-The independent native continuation also cannot link
-`test_retained_display_list_gtest`: twelve duplicate path, picture, form and
-layout providers collide with its isolated test stubs. Replacing only the
-archive's block-context member with the HEAD implementation (signature-only
-adaptation to the current header, no Shapes calls) reproduces the same twelve
-duplicates. Both link outputs and the comparison recipe are in
-`temp/css-shapes/link-comparison/`. This retains the new Shapes implementation
-as a controlled variable rather than attributing the collision to it without
-evidence. After the visual-page follow-up, the other 51 native executables
-pass 1,063 tests with one skip;
-the two failed links remain unqualified in
-`temp/css-shapes/native-suites/results.json`. The full force-loaded native
-archive closure succeeds without a Lambda runtime
-(`temp/css-shapes/native-closure.log`).
-
+The isolated custom-layout and retained display-list test hosts now resolve
+their service boundaries without importing conflicting production providers.
+See the [link trace and aggregate qualification](<Radiant_Issue_Ledger (fixed).md#ri-091>).
 
 <a id="ri-090"></a>
 
