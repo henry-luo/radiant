@@ -1253,6 +1253,24 @@ TEST_F(DynamicLayoutTest, ColumnFlexMinimumHeightDoesNotShrinkNaturalContents) {
     EXPECT_FLOAT_EQ(element("grow")->height, 700.0f);
 }
 
+TEST_F(DynamicLayoutTest, NestedAutoColumnIncludesGrandchildFlexBasis) {
+    load("<!doctype html><style>body{margin:0}div{display:flex;flex-direction:column;box-sizing:border-box}"
+         "#root{position:absolute;width:100px;min-height:100px;max-height:500px}"
+         "#inner{min-height:100px;max-height:500px;flex-grow:1}"
+         "#basis{flex-basis:200px;flex-grow:1}#fixed{height:100px}</style>"
+         "<div id='root'><div id='inner'><div id='basis'></div><div id='fixed'></div></div></div>");
+    ASSERT_NE(document, nullptr);
+    for (int pass = 0; pass < 2; pass++) {
+        SCOPED_TRACE(pass);
+        EXPECT_FLOAT_EQ(element("root")->height, 300.0f);
+        EXPECT_FLOAT_EQ(element("inner")->height, 300.0f);
+        EXPECT_FLOAT_EQ(element("basis")->height, 200.0f);
+        EXPECT_FLOAT_EQ(element("fixed")->height, 100.0f);
+        EXPECT_FLOAT_EQ(element("fixed")->y, 200.0f);
+        layout_html_doc(&ui, document, false);
+    }
+}
+
 TEST_F(DynamicLayoutTest, ColumnFlexShrinksWithinAutomaticMaxHeight) {
     load("<!doctype html><style>div{display:flex;flex-direction:column}"
          "#parent{max-height:100px;width:100px}</style>"

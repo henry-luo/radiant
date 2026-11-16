@@ -29,3 +29,12 @@ const char* form_control_get_value(DocState*, View*, uint32_t*) {
 extern "C" const char* radiant_input_peek_live_value(DomElement*) {
     unexpected_host_query("radiant_input_peek_live_value");
 }
+
+// stacking and geometry objects also reference services outside this isolated host.
+ViewBlock* find_containing_block(ViewBlock*, CssEnum) {
+    unexpected_host_query("find_containing_block");
+}
+
+bool css_prop_compute_declared_overflow(DomElement*, CssEnum*, CssEnum*) {
+    unexpected_host_query("css_prop_compute_declared_overflow");
+}

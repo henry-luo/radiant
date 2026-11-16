@@ -457,6 +457,52 @@ static bool render_clip_resolve_radius(DomElement* owner, const CssValue* value,
     return *radius >= 0.0f;
 }
 
+bool css_basic_shape_inset_geometry(DomElement* owner, const CssValue* value,
+        float elem_w, float elem_h, float abs_x, float abs_y, float unit_scale,
+        Rect* rect, Corner* radius) {
+    if (!value || !rect || !radius || value->type != CSS_VALUE_TYPE_FUNCTION ||
+        !value->data.function || !value->data.function->name ||
+        strcmp(value->data.function->name, "inset") != 0 || value->data.function->arg_count != 1) return false;
+    ClipComponents components = {value->data.function->args[0]};
+    int count = 0;
+    while (count < components.count() && !render_clip_word(components.at(count), "round")) count++;
+    if (count < 1 || count > 4) return false;
+    float edges[4] = {};
+    for (int side = 0; side < 4; side++) {
+        if (!render_clip_resolve_length(owner, components.at(layout_four_value_index(count, side)),
+                side % 2 ? elem_w : elem_h, unit_scale, &edges[side])) return false;
+    }
+    *rect = {abs_x + edges[3], abs_y + edges[0],
+        fmaxf(0.0f, elem_w - edges[1] - edges[3]), fmaxf(0.0f, elem_h - edges[0] - edges[2])};
+    *radius = {};
+    if (count == components.count()) return true;
+    const CssValue* values[2][4] = {};
+    int counts[2] = {}, axis = 0;
+    for (int index = count + 1; index < components.count(); index++) {
+        const CssValue* part = components.at(index);
+        if (css_value_is_slash(part)) {
+            if (axis || !counts[0]) return false;
+            axis = 1;
+        } else {
+            if (counts[axis] == 4) return false;
+            values[axis][counts[axis]++] = part;
+        }
+    }
+    if (!counts[0] || (axis && !counts[1])) return false;
+    for (int component = 0; component < 2; component++) {
+        int source_axis = component && counts[1] ? 1 : 0;
+        float* target = component ? radius->vertical : radius->horizontal;
+        for (int corner = 0; corner < 4; corner++) {
+            if (!render_clip_resolve_length(owner,
+                    values[source_axis][layout_four_value_index(counts[source_axis], corner)],
+                    component ? rect->height : rect->width, unit_scale, &target[corner]) || target[corner] < 0.0f)
+                return false;
+        }
+    }
+    constrain_corner_radii(radius, rect->width, rect->height);
+    return true;
+}
+
 ClipShape* css_basic_shape_resolve(ScratchArena* scratch, ScratchMark* mem,
         DomElement* owner, const CssValue* value, float elem_w, float elem_h,
         float abs_x, float abs_y, float unit_scale) {
@@ -464,34 +510,22 @@ ClipShape* css_basic_shape_resolve(ScratchArena* scratch, ScratchMark* mem,
     const CssFunction* function = value->data.function;
     if (!function->name) return nullptr;
     ClipComponents components = {function->arg_count == 1 ? function->args[0] : nullptr};
-    if (strcmp(function->name, "inset") == 0 && function->arg_count == 1) {
-        int count = 0;
-        while (count < components.count() && !render_clip_word(components.at(count), "round")) count++;
-        if (count < 1 || count > 4) return nullptr;
-        float edges[4] = {};
-        for (int side = 0; side < 4; side++) {
-            int index = side < count ? side : side == 3 && count > 1 ? 1 : 0;
-            // expand syntax before resolving percentages against each physical axis.
-            if (!render_clip_resolve_length(owner, components.at(index), side % 2 ? elem_w : elem_h,
-                    unit_scale, &edges[side])) return nullptr;
-        }
-        float radius = 0.0f;
-        if (count < components.count() && (!render_clip_resolve_length(owner, components.at(count + 1),
-                elem_w, unit_scale, &radius) || radius < 0.0f)) return nullptr;
+    if (strcmp(function->name, "inset") == 0) {
+        Rect rect;
+        Corner radius;
+        if (!css_basic_shape_inset_geometry(owner, value, elem_w, elem_h, abs_x, abs_y,
+                unit_scale, &rect, &radius)) return nullptr;
         ClipShape* shape = render_clip_alloc_shape(scratch, mem);
         if (!shape) return nullptr;
-        float width = fmaxf(0.0f, elem_w - edges[1] - edges[3]);
-        float height = fmaxf(0.0f, elem_h - edges[0] - edges[2]);
-        if (radius > 0.0f) {
+        bool rounded = false;
+        for (int corner = 0; corner < 4; corner++) rounded |= radius.horizontal[corner] > 0.0f;
+        if (rounded) {
             shape->type = CLIP_SHAPE_ROUNDED_RECT;
-            // normalize once so glyph scanlines and native hits use the same used radii as the vector path.
-            Corner corners = render_path_uniform_corner(radius, radius, radius, radius);
-            constrain_corner_radii(&corners, width, height);
-            shape->rounded_rect = {abs_x + edges[3], abs_y + edges[0], width, height,
-                corners.top_left, corners.top_right, corners.bottom_right, corners.bottom_left};
+            shape->rounded_rect = {rect.x, rect.y, rect.width, rect.height,
+                radius.top_left, radius.top_right, radius.bottom_right, radius.bottom_left};
         } else {
             shape->type = CLIP_SHAPE_INSET;
-            shape->inset = {abs_x + edges[3], abs_y + edges[0], width, height, 0, 0};
+            shape->inset = {rect.x, rect.y, rect.width, rect.height, 0, 0};
         }
         return shape;
     }

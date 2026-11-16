@@ -2033,15 +2033,18 @@ void update_line_for_bfc_floats(LayoutContext* lycon, float query_height) {
 
     float current_y_local = lycon->block.advance_y;
     float current_y_bfc = current_y_local + offset_y;
+    bool previous_float_intrusion = lycon->line.has_float_intrusion;
     // CSS 2.1 §9.5.1: For inline-blocks, query using the element's full height
+    // an explicit zero strut must not enlarge a short atomic inline's shape band.
     float effective_height = query_height > 0 ? query_height :
-        (lycon->block.line_height > 0 ? lycon->block.line_height : 16.0f);
+        max(lycon->block.line_height, kTextLayoutSubpixelEpsilon);
     // nested wrappers cannot narrow a band already selected for a taller pending inline.
     effective_height = max(effective_height, lycon->line.float_query_height);
     lycon->line.float_query_height = effective_height;
 
+    // use the local origin, as float prescan does, including negatively offset blocks.
     FloatAvailableSpace space = block_context_space_at_y(bfc, current_y_bfc, effective_height,
-        query_height <= 0.0f, false, 0.0f, true);
+        query_height <= 0.0f, false, offset_x, true);
 
     float local_space_left = space.left - offset_x;
     float local_space_right = space.right - offset_x;
@@ -2063,10 +2066,11 @@ void update_line_for_bfc_floats(LayoutContext* lycon, float query_height) {
     // float refresh must retain the initial-letter exclusion selected for
     // this line without consuming another exclusion line.
     apply_line_initial_letter_exclusions(lycon, bfc, false);
-    if (has_actual_float && lycon->line.is_line_start) {
-        lycon->line.effective_left += lycon->line.text_indent_advance;
+    if ((has_actual_float || previous_float_intrusion) && lycon->line.is_line_start) {
+        // a narrower pending band can release an earlier provisional float intrusion.
+        if (has_actual_float) lycon->line.effective_left += lycon->line.text_indent_advance;
         lycon->line.advance_x = lycon->line.effective_left +
-            lycon->line.inline_start_edge_pending;
+            (has_actual_float ? 0.0f : lycon->line.text_indent_advance) + lycon->line.inline_start_edge_pending;
     } else if (has_actual_float &&
                lycon->line.advance_x < lycon->line.effective_left &&
                lycon->line.advance_x >= lycon->line.left) {
@@ -2630,11 +2634,16 @@ static void fixup_collapsed_inline_spans(LayoutContext* lycon, ViewSpan* span) {
     };
     auto finish = [&](View* view) {
         ViewSpan* current = lam::view_require<RDT_VIEW_INLINE>(view);
+        // a zero-height float-only strut still leaves a font box beside visible siblings.
+        bool empty_font_box = layout_span_children_have_no_line_content(current) &&
+            layout_view_tree_any(current->first_child, [](View* descendant) {
+                return layout_view_is_out_of_flow(descendant);
+            });
         if (current->height == 0.0f) {
-            if (current->content_height > 0.0f) {
+            if (current->content_height > 0.0f || empty_font_box) {
                 current->height = fixup_inline_dom_rect_height(lycon, current);
             }
-        } else if (current->content_height > 0.0f &&
+        } else if ((current->content_height > 0.0f || empty_font_box) &&
                    layout_span_children_have_no_line_content(current)) {
             float target_height = fixup_inline_dom_rect_height(lycon, current);
             if (current->height < target_height) current->height = target_height;

@@ -7478,26 +7478,61 @@ static bool same_line_float_needs_next_line(BlockContext* pa_block, Linebox* pa_
     return needs_next_line;
 }
 
+static float line_float_available_width(BlockContext* bfc, BlockContext* block_ctx,
+        Linebox* line, float y, float height) {
+    FloatAvailableSpace space = block_context_space_at_y(bfc, y, height, false, false, 0.0f, true);
+    float left = max(space.left - block_ctx->bfc_offset_x, line->left);
+    float right = min(space.right - block_ctx->bfc_offset_x, line->right);
+    float indent = block_ctx->direction == CSS_VALUE_RTL
+        ? line->text_indent_offset : line->text_indent_advance;
+    return max(right - left - indent, 0.0f);
+}
+
+static bool find_shape_line_fit(BlockContext* bfc, BlockContext* block_ctx, Linebox* line,
+        float required_width, float low, float high, float height, float* result) {
+    if (line_float_available_width(bfc, block_ctx, line, low, height) >= required_width) {
+        *result = low;
+        return true;
+    }
+    // every candidate band contains [high, low + height]; its exclusion bounds
+    // bound the best available width, so impossible intervals can be discarded.
+    float common_height = low + height - high;
+    if (common_height > 0.0f &&
+        line_float_available_width(bfc, block_ctx, line, high, common_height) < required_width) return false;
+    float middle = low + (high - low) * 0.5f;
+    if (high - low <= kTextLayoutSubpixelEpsilon || middle <= low || middle >= high) {
+        if (line_float_available_width(bfc, block_ctx, line, high, height) < required_width) return false;
+        *result = high;
+        return true;
+    }
+    // search in flow order: concave contours can open and close before the midpoint.
+    return find_shape_line_fit(bfc, block_ctx, line, required_width, low, middle, height, result) ||
+        find_shape_line_fit(bfc, block_ctx, line, required_width, middle, high, height, result);
+}
+
 float find_line_y_for_width_with_floats(BlockContext* bfc, BlockContext* block_ctx,
                                                Linebox* line, float required_width,
                                                float min_local_y, float query_height) {
     if (!bfc || !block_ctx || !line) return min_local_y;
     if (bfc->left_float_count == 0 && bfc->right_float_count == 0) return min_local_y;
     float y_bfc = block_ctx->bfc_offset_y + min_local_y;
+    query_height = max(query_height, kTextLayoutSubpixelEpsilon);
+    bool shaped = false;
+    FloatBox* lists[] = {bfc->left_floats, bfc->right_floats};
+    for (FloatBox* first : lists) {
+        for (FloatBox* box = first; box; box = box->next) shaped |= box->shape_contour != nullptr;
+    }
     int max_iterations = 100;
     while (max_iterations-- > 0) {
-        FloatAvailableSpace space = block_context_space_at_y(bfc, y_bfc, query_height, false, false, 0.0f, true);
-        float local_left = max(space.left - block_ctx->bfc_offset_x, line->left);
-        float local_right = min(space.right - block_ctx->bfc_offset_x, line->right);
-        // text-indent occupies the shortened line after the float edge.
-        float indent = block_ctx->direction == CSS_VALUE_RTL
-            ? line->text_indent_offset : line->text_indent_advance;
-        float available_width = max(local_right - local_left - indent, 0.0f);
+        float available_width = line_float_available_width(bfc, block_ctx, line, y_bfc, query_height);
         if (available_width >= required_width) {
             return y_bfc - block_ctx->bfc_offset_y;
         }
         float next_y = block_context_next_float_boundary(bfc, y_bfc);
         if (next_y <= y_bfc || isinf(next_y) || next_y == FLT_MAX) break;
+        float fit_y;
+        if (shaped && find_shape_line_fit(bfc, block_ctx, line, required_width,
+                y_bfc, next_y, query_height, &fit_y)) return fit_y - block_ctx->bfc_offset_y;
         y_bfc = next_y;
     }
     if (max_iterations < 0) {
@@ -7776,7 +7811,9 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
     bool block_justify_self_stretches = block_justify_self_applies &&
         block_justify_self.value == CSS_VALUE_STRETCH &&
         !layout_block_justify_self_has_auto_margin(block, block_justify_self_axis);
-    bool should_avoid_floats = (establishes_bfc || is_block_level_replaced) && is_normal_flow;
+    // atomic inlines wrap float contours during line placement, not block-level margin-box avoidance.
+    bool should_avoid_floats = (establishes_bfc || is_block_level_replaced) &&
+        is_normal_flow && is_block_level_for_clear;
     bool vertical_float_flow = layout_block_inline_axis_is_vertical(justify_self_containing_block);
     float bfc_float_offset_x = 0;
     float bfc_available_width_reduction = 0;
@@ -10011,7 +10048,9 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
                 block->position->inline_relative_x = block->position->inline_relative_y = 0.0f;
             if (!lycon->line.start_view) lycon->line.start_view = lam::up(static_cast<View*>(block));
             // CSS 2.1 §9.5.1: inline-blocks must account for floats across their
-            float inline_block_height = block->height;
+            // float bands use the parent's block axis, including for vertical atomic inlines.
+            float inline_block_height = layout_inline_atomic_extent(lycon, block);
+            Linebox previous_float_band = lycon->line;
             update_line_for_bfc_floats(lycon, inline_block_height);
             float effective_left = lycon->line.has_float_intrusion ?
                 lycon->line.effective_left : lycon->line.left;
@@ -10048,7 +10087,8 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
             // that opportunity, then line_break() removes the separator.
             if (lycon->line.advance_x + margin_box_width > effective_right && boundary_allows_wrap) {
                 if (!lycon->line.is_line_start && has_prior_flow_content) {
-                    // CSS 2.1 §9.4.2: Break to next line if there's prior content
+                    // a wrapped pending box must not alter the preceding line's shape band or alignment.
+                    lycon->line = previous_float_band;
                     line_break(lycon);
                     update_line_for_bfc_floats(lycon, inline_block_height);
                     effective_left = lycon->line.has_float_intrusion ?

@@ -14,6 +14,62 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-105"></a>
+
+### RI-105 — CSS Shapes WPT contour and inline wrapping failures
+
+**Status:** FIXED, 2026-11-16. **Task blocker:** resolved for
+`make layout suite=wpt-css-shapes`. Native ownership is D9.1.1v4 /
+D9.1.3v2; copied image rows retain D5.5.1 pass-local ownership. No formal
+ruling changes.
+
+**Reproduction and repair:** the current-source control passed 194/294.
+Atomic inlines incorrectly entered block-level float avoidance; taller pending
+boxes contaminated the preceding line band; explicitly zero struts became
+16px; SVG resources lacked alpha rasterization; and line searches skipped
+interior contour openings. Fixing these causes reached 242/294. The user then
+requested saving those 242 passing names in the suite's `baseline.txt` and
+continuing the remaining 52.
+
+The continuation maps physical contours and alpha rows into vertical/sideways
+flow axes, uses the parent's block-axis atomic extent, preserves all four
+elliptical inset corners, rasterizes generated gradients through shared image
+resolution and sampling, releases stale provisional line advances, and restores
+the font box of float-only inline wrappers beside visible atomic content.
+Input's independent gradient admission repair is
+[LI-066](../../lambda-input/vibe/Lib_Input_Issue_Ledger.md#li-066).
+Float refresh now uses the same local query origin as prescan; the negative
+origin regression covers ordinary rectangular floats as well. Font-box repair
+requires out-of-flow descendants, preserving empty WBR span positions.
+
+**Reference evidence and approval:** 47 of the remaining cases were repaired
+in the engine. The user separately approved replacing only gradient references
+010 and 016 after independent Chromium captures proved stale float positions
+and overlapping text in the saved captures. The user also approved three
+`.standards.json` controls for border/padding/content-box-003; their ordinary
+captures remain intact. Chromium's `ExcludedSegment` clamps a 20px query to the
+10px reference height. Analytic full-band geometry and equivalent inset-outline
+browser captures establish the standards expectations. Each control records its
+stylesheet, CSS specification, reason, source hash and browser. Comparisons and
+tolerances are unchanged.
+
+**Verification:** the exact Shapes command passes 294/294 and the original
+242 baseline entries pass. Geometry passes 16/16; integration/query tests pass
+30/30. Shared unscored-gate tests pass 6/6; reference-control tests and layout
+integer-cast lint pass. The 18 configured Lambda layout suites pass 5,631 cases
+plus 293 accepted partials, with 12 skips and no failures. The separate static
+corpus has 3,850 passes, six skips and only RI-092's existing flex mismatch.
+The owner aggregate retains RI-091's duplicate-provider test link failure;
+scripted layout passes 630/630.
+
+Evidence: `../Lambda-opus/temp/wpt-css-shapes/completed-suite-final.log`,
+`completed-layout-baseline-results.txt`, `completed-static-baseline.log`,
+`completed-owner-baseline.log`, `native-integration-final.log`,
+`native-geometry-final.log`, `reference-repair-provenance.json`,
+`reference-repair-proof.json`, `margin-control-proof.json`, the independent
+capture directories and `completion-provenance.json`. See the
+[implementation qualification](impl/Radiant_Impl_CSS_Shapes.md#wpt-follow-up-2026-11-16).
+
 <a id="ri-104"></a>
 
 ### RI-104 — Intrinsic margins use the measuring parent's variable and font scope
@@ -320,6 +376,88 @@ Evidence under `temp/css-shapes/`: `visual-before-offset-fix.png`, `visual.png`,
 `flex-offset-final.log`, `browser-offset/offset-grid.json`,
 `browser-offset-flex/offset-flex.json`, `native-suites/results.json` and
 `layout-final-visual-baseline.log`. No reference or tolerance was changed.
+
+### RI-092 — Earlier independent repair and qualification
+
+**Status:** FIXED, 2026-11-17. **Aggregate blocker:** resolved. Native layout
+ownership is D9.1.1v4 / D9.1.3v2; no formal ruling changes.
+
+**Reproduction and cause:** `flex_grow_root_minimized.html` produced root and
+inner heights of 100px instead of 300px, with children 66.7/33.3px instead of
+200/100px. An independent headless Chromium capture confirms the original
+reference. The fixture has no floats or Shapes declarations. The manual
+intrinsic-height accumulation in `calculate_item_intrinsic_sizes` read child
+CSS heights/content but omitted a definite `flex-basis`. The enclosing auto
+column therefore received an undersized 100px contribution and shrank the
+200px-basis child together with the 100px-height child.
+
+**Repair:** horizontal-writing column contributions with a definite,
+non-percentage flex basis reuse `calculate_hypothetical_main_size` in an
+indefinite column query context. This shares the existing basis and min/max
+constraint logic. Indefinite percentages retain their content fallback. The
+native regression covers both initial layout and retained relayout; existing
+max-height shrinking, zero-basis overflow, aspect-ratio and minimum-height
+controls remain green. The focused fixture now matches 100% of elements.
+
+**Verification:** eight focused flex controls pass. Owner native tests pass
+1,154 cases across 53 executables, with one skip. The complete owner baseline
+exits zero: static 3,851/3,851 plus six skips; scripted 630/630. The 18 configured
+Lambda layout suites pass 5,631 cases and 293 accepted partials, with 12 skips
+and no failures. Shapes remains 294/294 and the layout integer-cast lint passes.
+No fixture, reference, baseline or tolerance changed.
+
+Evidence under `../Lambda-opus/temp/radiant-aggregate-repairs/`:
+`flex-before.log`, `browser/flex_grow_root_minimized.json`,
+`flex-regression-before.log`, `flex-regression-after.log`, `flex-after.log`,
+`owner-baseline.log`, `layout-baseline-results.txt`, `shapes-regression.log`
+and `provenance.json`. CSS authority: [Flexbox §9.9](https://www.w3.org/TR/css-flexbox-1/#intrinsic-sizes).
+
+<a id="ri-091"></a>
+
+### RI-091 — Isolated native test links import conflicting full-host providers
+
+**Status:** FIXED, 2026-11-17. **Aggregate blocker:** resolved for the owner
+native baseline and the three original Lambda consumer test links. Native
+ownership is D9.1.1v4 / D9.1.3v2; consumer build ownership is D9.1.5. No formal
+ruling or dependency direction changes.
+
+**Reproduction and cause:** custom-layout reported nine duplicate definitions;
+retained display-list reported twelve. The linker `-why_load` trace establishes
+two missing isolated services. `stacking_order.cpp` referenced
+`find_containing_block`, admitting `layout_positioned.cpp` and then the full
+layout host. `view_geometry.cpp` referenced
+`css_prop_compute_declared_overflow`, admitting CSSOM/state-store services and
+then the renderer and layout host. Their real implementations collided with
+the isolated tests' existing layout, form, path and picture providers.
+
+**Repair:** the shared `test_unlinked_layout_stubs.cpp` declares exactly these
+two absent host services through its existing fail-fast logger/abort helper.
+Unexpected service use remains observable; no production implementation,
+assertion, library selection or linker duplicate-symbol policy was weakened.
+The trace now shows zero collisions and no full layout, positioned-layout,
+state-store or ThorVG renderer providers entering either isolated link.
+
+The earlier StateStore repair remains in place: overflow and view-node-state
+queries are fail-fast services in its own host. StateStore passes 39 tests,
+custom layout 13 and retained display-list 66 in the Lambda consumer binaries.
+The exact consumer build command succeeds:
+
+```sh
+make -C build/premake config=debug_native -j8 test_state_store_gtest test_layout_custom_gtest test_retained_display_list_gtest
+```
+
+**Verification:** the full owner `make -j8 run-radiant-baseline`, using the
+current Lambda-opus host, exits zero. All 53 native executables pass 1,154 tests
+with one skip; the static corpus passes 3,851 cases with six skips and scripted
+layout passes 630/630. RI-092 supplies the separate flex layout repair.
+
+Evidence under `../Lambda-opus/temp/radiant-aggregate-repairs/`:
+`link-before.log`, `link-why-load.log`, `link-boundary-final.log`,
+`link-proof.json`, `custom-final.log`, `retained-final.log`,
+`consumer-links.log`, the three `*-consumer.log` files and `owner-baseline.log`.
+The original investigation remains in `temp/css-shapes/link-comparison/` and
+Lambda-opus `temp/js-parity-work/targeted-make-fixed.log`; the earlier StateStore
+before/after proof is under Lambda-opus `temp/edit-viewer/ri090/`.
 
 <a id="ri-090"></a>
 

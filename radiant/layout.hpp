@@ -3624,6 +3624,7 @@ void layout_flex_content(LayoutContext* lycon, ViewBlock* flex_container);
 bool has_auto_margins(ViewBlock* item);
 void apply_auto_margin_centering(LayoutContext* lycon, ViewBlock* flex_container);
 float calculate_flex_basis(ViewElement* item, FlexContainerLayout* flex_layout);
+float calculate_hypothetical_main_size(ViewElement* item, FlexContainerLayout* flex_layout);
 void resolve_flex_item_constraints(ViewElement* item, FlexContainerLayout* flex_layout);
 void apply_constraints_to_flex_items(FlexContainerLayout* flex_layout);
 float apply_flex_constraint(ViewElement* item, float computed_size, bool is_main_axis,
@@ -4172,6 +4173,13 @@ inline bool layout_context_is_measuring(LayoutContext* lycon) {
 /**
  * Check if layout should perform full positioning
  */
+// map a validated one-to-four component shorthand to a physical side or corner.
+inline int layout_four_value_index(int count, int side) {
+    return side < count ? side : side == 3 && count > 1 ? 1 : 0;
+}
+
+bool css_value_is_slash(const CssValue* value);
+bool layout_resolve_gradient_image(LayoutContext* context, const CssValue* value, ListStyleImage* result);
 // Percentage Resolution
 
 bool layout_resolve_percentage_value(const CssValue* value, float percentage_base, float* out);
