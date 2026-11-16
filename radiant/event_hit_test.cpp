@@ -118,7 +118,8 @@ void target_children(EventContext* evcon, View* view, bool defer_positioned = fa
         for (View* child = last; child && !evcon->target;
              child = child == view ? nullptr : static_cast<View*>(child->prev_sibling)) {
             if (!radiant_stack_is_deferred_from_normal_flow(child) &&
-                radiant_stack_is_in_flow_positioned_step8(child)) target_stacking_view(evcon, child);
+                radiant_stack_is_in_flow_positioned_step8(child) &&
+                !radiant_stack_zero_layer_is_lifted(child)) target_stacking_view(evcon, child);
         }
     }
     for (View* child = last; child && !evcon->target;

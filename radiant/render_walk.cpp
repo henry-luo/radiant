@@ -575,7 +575,7 @@ void render_walk_children(RenderBackend* backend, RenderWalkState* state, View* 
     for (View* child = view; child; child = child->next()) {
         if (render_walk_aborted(backend)) break;
         if (!radiant_stack_is_deferred_from_normal_flow(child) &&
-            radiant_stack_is_in_flow_positioned_step8(child)) {
+            radiant_stack_is_in_flow_positioned_step8(child) && !radiant_stack_zero_layer_is_lifted(child)) {
             render_walk_view(backend, state, child);
         }
     }

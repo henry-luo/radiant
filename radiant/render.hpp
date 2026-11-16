@@ -3344,6 +3344,7 @@ void radiant_stack_visit_positive_z_descendants(View* owner, bool reverse, void*
 bool radiant_stack_is_out_of_flow_positioned(View* view);
 bool radiant_stack_is_deferred_from_normal_flow(View* view);
 // zero-level positioned/containment contexts paint after ordinary siblings (CSS 2.1 E step 8).
+bool radiant_stack_zero_layer_is_lifted(View* view);
 bool radiant_stack_is_in_flow_positioned_step8(View* view);
 
 ArrayList* radiant_stack_collect_positive_z_descendants(View* first_child, const char* log_prefix);

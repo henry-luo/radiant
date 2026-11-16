@@ -303,6 +303,18 @@ static const CssValue* transform_translate_axis_value(const CssFunction* functio
     return axis < function->arg_count ? function->args[axis] : nullptr;
 }
 
+struct TransformMathLengthContext {
+    TransformLengthResolver resolve;
+    void* context;
+};
+
+static bool transform_math_length_leaf(void* data, const CssValue* value, double* result) {
+    auto* context = (TransformMathLengthContext*)data;
+    if (!context->resolve || value->type != CSS_VALUE_TYPE_LENGTH) return false;
+    *result = context->resolve(context->context, value);
+    return isfinite(*result);
+}
+
 static void resolve_transform_translate_arg(TransformLengthResolver resolve_length, void* context,
                                             const CssValue* value, float* length,
                                             float* percent) {
@@ -311,6 +323,17 @@ static void resolve_transform_translate_arg(TransformLengthResolver resolve_leng
         *percent = (float)value->data.percentage.value;
         *length = 0.0f;
     } else {
+        if (value->type == CSS_VALUE_TYPE_FUNCTION && layout_css_value_has_percentage(value)) {
+            // retain affine percentages against the eventual reference box, including individual translate.
+            TransformMathLengthContext leaves = {resolve_length, context};
+            CssMathEvaluationContext math = {transform_math_length_leaf, &leaves, 1.0, true};
+            CssMathResult result = css_math_evaluate(value, &math);
+            if (result.resolved && isfinite(result.value) && isfinite(result.percentage)) {
+                *length = (float)result.value;
+                *percent = (float)result.percentage;
+                return;
+            }
+        }
         *length = resolve_length ? resolve_length(context, value) : 0.0f;
     }
 }
@@ -552,8 +575,8 @@ static TransformFunction* resolve_transform_function(LayoutContext* lycon,
     Pool* pool = document_pool ? document_pool : layout_prop_pool(lycon);
     for (int axis = 0; axis < 2; axis++) {
         const CssValue* argument = transform_translate_axis_value(value->data.function, function.type, axis);
-        if (!argument || argument->type == CSS_VALUE_TYPE_PERCENTAGE ||
-            !layout_css_value_has_percentage(argument)) continue;
+        float percent = axis == 0 ? function.translate_x_percent : function.translate_y_percent;
+        if (!argument || !isnan(percent) || !layout_css_value_has_percentage(argument)) continue;
         TransformLengthTerm* term = (TransformLengthTerm*)pool_calloc(pool, sizeof(TransformLengthTerm));
         if (!term) { radiant::destroy_transform_function_payload(pool, &function); return nullptr; }
         function.translate_math[axis] = lam::own(term);

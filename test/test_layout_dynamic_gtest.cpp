@@ -84,6 +84,17 @@ protected:
         return dom_find_element_by_id(document->root, id);
     }
 
+    DomNode* hit_at(float x, float y) {
+        EventContext context = {};
+        context.ui_context = &ui;
+        context.target_document = document;
+        context.event.type = RDT_EVENT_MOUSE_MOVE;
+        context.event.mouse_position.x = context.viewport_pointer_x = x;
+        context.event.mouse_position.y = context.viewport_pointer_y = y;
+        target_html_doc(&context, document->view_tree);
+        return context.target;
+    }
+
     void check_alignment(bool flipped) {
         for (int i = 0; i < 16; i++) {
             char id[24];
@@ -430,14 +441,7 @@ TEST_F(DynamicLayoutTest, LegacyClipBoundsOwnPaintDescendantsAndNativeHits) {
                 ((size_t)points[i][1] * (size_t)width + (size_t)points[i][0]) * 4;
             EXPECT_EQ(pixel[1], visible[phase][i] ? 0 : 255);
             // the clip rectangle covers both the owner's border box and lifted descendants.
-            EventContext context = {};
-            context.ui_context = &ui;
-            context.target_document = document;
-            context.event.type = RDT_EVENT_MOUSE_MOVE;
-            context.event.mouse_position.x = context.viewport_pointer_x = points[i][0];
-            context.event.mouse_position.y = context.viewport_pointer_y = points[i][1];
-            target_html_doc(&context, document->view_tree);
-            DomNode* hit = context.target;
+            DomNode* hit = hit_at(points[i][0],points[i][1]);
             bool hit_box = hit == box || (hit && hit->parent == box);
             // clip-path hit testing is a separate existing conformance limit.
             if (phase != 5) EXPECT_EQ(hit_box, visible[phase][i]);
@@ -1629,14 +1633,7 @@ TEST_F(DynamicLayoutTest, ZeroPositionedSiblingsSharePaintAndHitOrder) {
         EXPECT_EQ(pixel[1], index == 2 ? 0 : 255);
         EXPECT_EQ(pixel[2], index == 2 ? 128 : 0);
         image_free(pixels);
-        EventContext context = {};
-        context.ui_context = &ui;
-        context.target_document = document;
-        context.event.type = RDT_EVENT_MOUSE_MOVE;
-        context.event.mouse_position.x = context.viewport_pointer_x = 60.0f;
-        context.event.mouse_position.y = context.viewport_pointer_y = 60.0f;
-        target_html_doc(&context, document->view_tree);
-        EXPECT_EQ(context.target, element(index == 2 ? "background" : "foreground"));
+        EXPECT_EQ(hit_at(60.0f,60.0f), element(index == 2 ? "background" : "foreground"));
     }
 }
 
@@ -1710,6 +1707,49 @@ TEST_F(DynamicLayoutTest, NestedColumnIntrinsicHeightIncludesMainAxisGaps) {
         EXPECT_NEAR(element("page")->height, 40.0f + 736.0f + gap + 6000.0f, 0.1f);
         EXPECT_NEAR(element("main")->height, element("page")->height, 0.1f);
     }
+}
+
+TEST_F(DynamicLayoutTest, UnknownCustomLayoutNamesKeepOrderedGeneratedEffects) {
+    load("<!doctype html><style>a::before{content:'A'}</style>"
+         "<a>Label</a><section data-radiant-layout='unit-effect-probe'></section>");
+    LayoutContext context = {};
+    layout_init(&context, document, &ui);
+    ASSERT_TRUE(layout_prepare_generated_effects(&context, document->root));
+    EXPECT_TRUE(context.generated_effects_prepared);
+    ASSERT_TRUE(custom_layout_register("unit-effect-probe",
+        [](const CustomLayoutContext*, CustomLayoutResult*) -> bool { return false; }));
+    context.generated_effects_prepared = false;
+    EXPECT_TRUE(layout_prepare_generated_effects(&context, document->root));
+    EXPECT_FALSE(context.generated_effects_prepared);
+    custom_layout_registry_clear();
+    layout_cleanup(&context);
+}
+
+TEST_F(DynamicLayoutTest, GeneratedStyleRefreshLeavesAuthoredHostInputsUnchanged) {
+    load("<!doctype html><style>ul{display:flex;flex-wrap:wrap;align-items:center}"
+         "a{position:relative}a::before{content:'';position:absolute;width:6px;height:6px}"
+         "#other::before{background:red}</style><ul><li id='item'><a id='link'>What</a></li>"
+         "<li><a id='other'>Why</a></li></ul><section data-layout='grid'></section>");
+    DomElement* item = element("item");
+    DomElement* link = element("link");
+    ASSERT_NE(link->pseudo, nullptr);
+    DomElement* pseudo = link->pseudo->before;
+    ASSERT_NE(pseudo, nullptr);
+    uint32_t revision = item->intrinsic_input_revision;
+    StyleTree* original = link->pseudo_style(PSEUDO_STYLE_BEFORE);
+    StyleTree* replacement = element("other")->pseudo_style(PSEUDO_STYLE_BEFORE);
+    ASSERT_NE(original, nullptr);
+    ASSERT_NE(replacement, nullptr);
+    for (StyleTree* style : {original, replacement, original}) {
+        uint32_t pseudo_revision = pseudo->intrinsic_input_revision;
+        dom_element_borrow_specified_style(pseudo, style);
+        EXPECT_EQ(item->intrinsic_input_revision, revision);
+        EXPECT_GT(pseudo->intrinsic_input_revision, pseudo_revision);
+        EXPECT_TRUE(pseudo->needs_style_recompute());
+        EXPECT_FALSE(pseudo->styles_resolved());
+    }
+    ASSERT_TRUE(link->set_attribute("style", "font-size:24px"));
+    EXPECT_NE(item->intrinsic_input_revision, revision);
 }
 
 TEST_F(DynamicLayoutTest, NestedColumnIntrinsicHeightRetainsInlineForcedBreaks) {
@@ -2787,8 +2827,12 @@ TEST_F(DynamicLayoutTest, StaticOpacityContextOwnsEscapingAbsolutePaint) {
         ArrayList* local = radiant_stack_collect_positioned_children(lam::view_as_block(element("relative")), nullptr);
         EXPECT_EQ(contains(fade, element("child")), grouped);
         EXPECT_EQ(contains(outer, element("child")), !grouped);
-        EXPECT_FALSE(contains(outer, element("local")));
-        EXPECT_TRUE(contains(local, element("local")));
+        // paint ownership follows the real context; positioning still uses the relative containing block.
+        EXPECT_TRUE(contains(outer, element("local")));
+        EXPECT_FALSE(contains(local, element("local")));
+        EXPECT_EQ(find_containing_block(lam::view_as_block(element("local")), CSS_VALUE_ABSOLUTE),
+            lam::view_as_block(element("relative")));
+        EXPECT_EQ(hit_at(5.0f,element("relative")->y + 5.0f),element("local"));
         EXPECT_NEAR(element("child")->x, 0.0f, 0.02f);
         EXPECT_NEAR(element("child")->y, 0.0f, 0.02f);
         if (fade) arraylist_free(fade);
@@ -2857,5 +2901,199 @@ TEST_F(DynamicLayoutTest, BodyViewportOverflowDoesNotClipItsOwnBox) {
         layout_viewport_overflow(document,&x,&y);
         EXPECT_EQ(x,state.viewport); EXPECT_EQ(y,state.viewport);
         EXPECT_FLOAT_EQ(body->height,0.0f);
+    }
+}
+
+TEST_F(DynamicLayoutTest, FlexAssignedGridHeightRetainsTracksAndPercentageChildren) {
+    load("<!doctype html><style>html,body{margin:0}"
+         "#outer{display:flex;flex-direction:column;width:300px;height:400px}"
+         "#grid{display:grid;flex:1;min-height:0;grid-template-columns:1fr 1fr;align-items:center}"
+         "#tile{height:80px}#percent{height:50%}#footer{height:40px;flex:none}"
+         "</style><div id='outer'><div id='grid'><div id='tile'></div>"
+         "<div id='percent'></div></div><div id='footer'></div></div>");
+    struct State { const char* height; float grid_height; };
+    const State states[] = {{"height:400px",360.0f},{"height:600px",560.0f},
+                            {"height:auto",80.0f},{"height:auto;min-height:400px",360.0f},
+                            {"height:400px",360.0f}};
+    for (const State& state : states) {
+        SCOPED_TRACE(state.height);
+        ASSERT_TRUE(element("outer")->set_attribute("style",state.height));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui,document,false);
+        EXPECT_FLOAT_EQ(element("grid")->height,state.grid_height);
+        EXPECT_FLOAT_EQ(element("tile")->y,(state.grid_height - 80.0f) / 2.0f);
+        EXPECT_FLOAT_EQ(element("percent")->height,state.grid_height / 2.0f);
+        EXPECT_FLOAT_EQ(element("percent")->y,state.grid_height / 4.0f);
+        EXPECT_FLOAT_EQ(element("footer")->y,state.grid_height);
+    }
+}
+
+TEST_F(DynamicLayoutTest, StaticItemZIndexKeepsNativeHitOrderAcrossFormattingChanges) {
+    load("<!doctype html><style>body{margin:0}"
+         "#stage{position:relative;isolation:isolate;width:160px;height:100px}"
+         "#back,#front{width:80px;height:80px;flex:none}"
+         "#back{position:relative;z-index:1}#front{z-index:2}"
+         "#stage.flex{display:flex}#stage.flex #front{margin-left:-80px}"
+         "#stage.grid{display:grid}#stage.grid>div{grid-area:1/1}"
+         "#stage.block #front{margin-top:-80px}"
+         "</style><div id='stage' class='flex'><div id='back'></div><div id='front'></div></div>");
+    for (const char* mode : {"flex","grid","block","flex"}) {
+        SCOPED_TRACE(mode);
+        ASSERT_TRUE(element("stage")->set_attribute("class",mode));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui,document,false);
+        EXPECT_EQ(hit_at(40.0f,40.0f),
+            element(strcmp(mode,"block") == 0 ? "back" : "front"));
+        EXPECT_EQ(element("front")->positionp()->position,CSS_VALUE_STATIC);
+    }
+}
+
+TEST_F(DynamicLayoutTest, NestedZeroLayersRetainReverseHitsAndAncestorClips) {
+    load("<!doctype html><style>body{margin:0}#stage{position:relative;width:160px;height:120px}"
+         "#wallpaper{position:absolute;inset:0}"
+         "#front{position:relative;width:100px;height:80px}"
+         "</style><div id='stage'><div id='wrap'><span><div id='wallpaper'></div></span>"
+         "<div id='front'></div></div></div>");
+    for (const char* style : {"","overflow:hidden;height:40px","opacity:.5",""}) {
+        SCOPED_TRACE(style);
+        ASSERT_TRUE(element("wrap")->set_attribute("style",style));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui,document,false);
+        EXPECT_EQ(hit_at(40.0f,20.0f),element("front"));
+        EXPECT_EQ(hit_at(40.0f,60.0f),element(strstr(style,"overflow") ? "wallpaper" : "front"));
+    }
+}
+
+TEST_F(DynamicLayoutTest, OversizedRoundedInsetKeepsLabelHitsBeforeAndAfterTransforms) {
+    load("<!doctype html><style>body{margin:0}"
+         "#button{position:absolute;left:80px;top:60px;width:180px;height:40px;"
+         "display:flex;align-items:center;justify-content:center;font:20px Arial;"
+         "background:black;color:white;clip-path:inset(0 -1% 0 0 round 500px)}"
+         "</style><div id='button'><span id='label'>MMMM</span></div>");
+    struct State { const char* style; float x,y; };
+    const State states[] = {
+        {"clip-path:inset(0 -1% 0 0 round 500px)",170.0f,80.0f},
+        {"clip-path:inset(0 -1% 0 0 round 20px)",170.0f,80.0f},
+        {"clip-path:inset(0 -1% 0 0 round 500px);transform-origin:0 0;"
+         "transform:translate(25px,30px) scale(1.25)",217.5f,115.0f},
+        {"clip-path:inset(0 -1% 0 0 round 500px)",170.0f,80.0f}
+    };
+    for (const State& state : states) {
+        SCOPED_TRACE(state.style);
+        ASSERT_TRUE(element("button")->set_attribute("style",state.style));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui,document,false);
+        DomNode* hit = hit_at(state.x,state.y);
+        EXPECT_TRUE(hit == element("label") || (hit && hit->parent == element("label")));
+    }
+}
+
+TEST_F(DynamicLayoutTest, OmittedFlexBasisRetainsContentAcrossLiveShorthandChanges) {
+    load("<!doctype html><style>body{margin:0}#column{display:flex;flex-direction:column;width:200px}"
+         "#item{display:flex;flex-direction:column;overflow:hidden;padding:20px;flex:1}"
+         "#content{height:300px}#after{height:40px}</style>"
+         "<div id='column'><div id='item'><div id='content'></div></div></div><div id='after'></div>");
+    struct State { const char* style; float height; bool percent; };
+    const State states[] = {{"flex:1",340.0f,true},{"flex:1 1 0px",40.0f,false},
+        {"flex:var(--f);--f:1 1",340.0f,true},{"flex:0 0",340.0f,true},
+        {"flex:1 1 0",40.0f,false},{"flex:1 1 0%",340.0f,true}};
+    for (const State& state : states) {
+        SCOPED_TRACE(state.style);
+        ASSERT_TRUE(element("item")->set_attribute("style",state.style));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui,document,false);
+        EXPECT_FLOAT_EQ(element("item")->height,state.height);
+        EXPECT_FLOAT_EQ(element("after")->y,state.height);
+        ASSERT_NE(element("item")->flex_item(),nullptr);
+        EXPECT_EQ(element("item")->flex_item()->flex_basis_is_percent,state.percent);
+    }
+}
+
+TEST_F(DynamicLayoutTest, InlineButtonWhitespaceStaysInsideItsAtomicContext) {
+    load("<!doctype html><style>body{margin:0}#host{display:inline-block;font:16px/16px Arial;"
+         "padding:5.6px 3.2px 4.8px;border-right:1px solid;box-sizing:border-box}"
+         "span,input,button{display:inline-block;box-sizing:border-box}"
+         "#icon{width:38.5px;height:28px;margin-right:8px;vertical-align:middle}"
+         "input{font:inherit;line-height:26px;width:224px;margin:2px 8px 2px 0;"
+         "padding:6.4px 8px 4.8px;border:0;vertical-align:middle}"
+         "button{font:inherit;line-height:26px;white-space:nowrap;padding:6.4px 12px 5.6px;"
+         "border:1px solid;margin:0 3.2px 7px 0;vertical-align:baseline}"
+         "#plain{display:inline}</style><div id='host'><div id='row'>"
+         "<span id='icon'></span>\n<input id='field'>\n<button id='button'>\n GO\n </button>"
+         "<span id='plain'></span></div></div>");
+    for (const char* display : {"display:inline", "display:inline-block", "display:inline-flex", "display:inline"}) {
+        SCOPED_TRACE(display);
+        ASSERT_TRUE(element("button")->set_attribute("style",display));
+        radiant_recascade_document(document);
+        EXPECT_TRUE(layout_intrinsic_element_is_atomic_inline(element("button")));
+        EXPECT_FALSE(layout_intrinsic_element_is_atomic_inline(element("plain")));
+        layout_html_doc(&ui,document,false);
+        EXPECT_NEAR(element("button")->y,0.0f,0.01f);
+        EXPECT_NEAR(element("row")->height,47.0f,0.01f);
+        EXPECT_GT(element("button")->x,element("field")->x);
+    }
+}
+
+TEST_F(DynamicLayoutTest, GridAssignedFlexHeightRemainsTheAbsoluteChildPercentageBasis) {
+    load("<!doctype html><style>*{box-sizing:border-box}body{margin:0}"
+         "#grid{display:grid;width:800px;grid-template-columns:1fr 1fr;gap:8px}"
+         "#card{position:relative;display:flex;aspect-ratio:16/9;padding:24px;overflow:hidden}"
+         "#image{position:absolute;left:0;top:0;width:100%;height:100%}"
+         "#content{position:relative;font:18px/18px Arial}</style>"
+         "<div id='grid'><div id='card'><div id='image'></div><div id='content'>card</div></div></div>");
+    for (const char* alignment : {"flex-start", "center", "flex-end", "stretch", "flex-start"}) {
+        SCOPED_TRACE(alignment);
+        StrBuf* style = strbuf_new();
+        strbuf_append_str(style, "align-items:");
+        strbuf_append_str(style, alignment);
+        ASSERT_TRUE(element("card")->set_attribute("style", style->str));
+        strbuf_free(style);
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        EXPECT_NEAR(element("card")->width, 396.0f, 0.01f);
+        EXPECT_NEAR(element("card")->height, 222.75f, 0.01f);
+        EXPECT_NEAR(element("image")->width, element("card")->width, 0.01f);
+        EXPECT_NEAR(element("image")->height, element("card")->height, 0.01f);
+        EXPECT_FLOAT_EQ(element("image")->y, 0.0f);
+    }
+}
+
+TEST_F(DynamicLayoutTest, AutomaticColumnMinimumPreservesNestedFlexBases) {
+    load("<!doctype html><style>body{margin:0}"
+         "div{display:flex;position:relative;box-sizing:border-box}"
+         "#root{position:absolute;width:100px;min-height:100px;max-height:500px;flex-direction:column}"
+         "#column{min-height:100px;max-height:500px;flex-grow:1;flex-direction:column}"
+         "#basis{flex-basis:200px;flex-grow:1}#fixed{height:100px}</style>"
+         "<div id='root'><div id='column'><div id='basis'><div id='content'></div></div>"
+         "<div id='fixed'></div></div></div>");
+    struct State { const char* root_style; const char* item_style; bool content; float height, basis, fixed; };
+    const State states[] = {
+        {"","",false,300.0f,200.0f,100.0f},
+        {"height:400px","",false,400.0f,300.0f,100.0f},
+        {"min-height:400px","",false,400.0f,300.0f,100.0f},
+        {"max-height:250px","",false,250.0f,166.6667f,83.3333f},
+        {"min-height:0;max-height:none","",false,300.0f,200.0f,100.0f},
+        {"","",false,300.0f,200.0f,100.0f},
+        {"","",true,500.0f,400.0f,100.0f},
+        {"","min-height:0",true,300.0f,200.0f,100.0f},
+        {"","flex-grow:0;min-height:0",true,300.0f,200.0f,100.0f},
+        {"","overflow:hidden",true,300.0f,200.0f,100.0f},
+        {"","min-height:0;flex-basis:0px",true,100.0f,0.0f,100.0f},
+        {"","min-height:0;flex-basis:0%",true,500.0f,400.0f,100.0f},
+        {"","min-height:0;box-sizing:content-box;padding:10px;border:2px solid",true,324.0f,224.0f,100.0f}
+    };
+    for (const State& state : states) {
+        SCOPED_TRACE(state.root_style);
+        SCOPED_TRACE(state.item_style);
+        SCOPED_TRACE(state.content);
+        ASSERT_TRUE(element("root")->set_attribute("style",state.root_style));
+        ASSERT_TRUE(element("basis")->set_attribute("style",state.item_style));
+        ASSERT_TRUE(element("content")->set_attribute("style",state.content ? "height:400px" : "height:0"));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui,document,false);
+        EXPECT_NEAR(element("root")->height,state.height,0.01f);
+        EXPECT_NEAR(element("column")->height,state.height,0.01f);
+        EXPECT_NEAR(element("basis")->height,state.basis,0.01f);
+        EXPECT_NEAR(element("fixed")->height,state.fixed,0.01f);
     }
 }

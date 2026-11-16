@@ -358,6 +358,8 @@ struct IntrinsicFontScope {
 IntrinsicSizes calculate_node_intrinsic_widths(LayoutContext* lycon, DomNode* node);
 float calculate_min_content_width(LayoutContext* lycon, DomNode* node);
 float calculate_max_content_width(LayoutContext* lycon, DomNode* node);
+float layout_child_intrinsic_height_contribution(LayoutContext* lycon,
+    DomElement* element, float height, float containing_width, bool flex_main_axis = false);
 float calculate_max_content_height(LayoutContext* lycon, DomNode* node, float width,
                                    bool ignore_definite_block_size = false,
                                    bool width_is_used_size = false);
@@ -2985,6 +2987,9 @@ typedef enum LayoutAxis {
     LAYOUT_AXIS_X,
     LAYOUT_AXIS_Y,
 } LayoutAxis;
+
+bool flex_container_axis_is_fixed(FlexContainerLayout* flex,
+                                   ViewBlock* container, LayoutAxis axis);
 
 float layout_in_flow_content_extent(ViewElement* elem, LayoutAxis axis,
                                     bool include_out_of_flow = false);
@@ -6106,8 +6111,13 @@ struct LayoutViewScope {
     lam::Up<LayoutContext> lycon;
     lam::Up<DomNode> saved_elmt;
     lam::Up<View> saved_view;
-    explicit LayoutViewScope(LayoutContext* l)
-        : lycon(l), saved_elmt(l ? l->elmt : nullptr), saved_view(l ? l->view : nullptr) {}
+    explicit LayoutViewScope(LayoutContext* l, DomNode* selected = nullptr)
+        : lycon(l), saved_elmt(l ? l->elmt : nullptr), saved_view(l ? l->view : nullptr) {
+        if (l && selected) {
+            l->view = lam::up(selected);
+            l->elmt = lam::up(selected);
+        }
+    }
     ~LayoutViewScope() {
         if (!lycon) return;
         lycon->elmt = saved_elmt;
@@ -6123,12 +6133,8 @@ struct IntrinsicMeasureScope {
     LayoutViewScope view_scope;
 
     IntrinsicMeasureScope(LayoutContext* l, DomElement* e)
-        : lycon(l), element(e), view_scope(l) {
+        : lycon(l), element(e), view_scope(l, e) {
         if (element) element->set_measuring_intrinsic_width(true);
-        if (lycon && element) {
-            lycon->view = lam::up(static_cast<View*>(element));
-            lycon->elmt = lam::up(static_cast<DomNode*>(element));
-        }
     }
     ~IntrinsicMeasureScope() {
         if (element) element->set_measuring_intrinsic_width(false);

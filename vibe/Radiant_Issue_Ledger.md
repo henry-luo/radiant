@@ -20,6 +20,83 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-104"></a>
+
+### RI-104 — FIXED
+
+Intrinsic margins resolved custom properties and font units on the measuring parent, collapsing a hero grid after NaN propagation.
+See the [owner-context repair](<Radiant_Issue_Ledger (fixed).md#ri-104>).
+
+<a id="ri-103"></a>
+
+### RI-103 — FIXED
+
+Final flex content shrank a grid-assigned height before positioned percentages resolved.
+See the [assigned-height repair](<Radiant_Issue_Ledger (fixed).md#ri-103>).
+
+<a id="ri-102"></a>
+
+### RI-102 — FIXED
+
+Downloaded stylesheets never completed their DOM load/error events.
+See the [stylesheet completion repair](<Radiant_Issue_Ledger (fixed).md#ri-102>).
+
+<a id="ri-101"></a>
+
+### RI-101 — FIXED
+
+Unregistered custom-layout names disabled ordered generated content globally.
+See the [registered-callback preparation repair](<Radiant_Issue_Ledger (fixed).md#ri-101>).
+
+<a id="ri-100"></a>
+
+### RI-100 — FIXED
+
+Inline buttons exposed internal label spaces to outer line-fill lookahead.
+See the [atomic-context repair](<Radiant_Issue_Ledger (fixed).md#ri-100>).
+
+<a id="ri-099"></a>
+
+### RI-099 — FIXED
+
+Oversized inline background radii generated inverted paths outside the fragment.
+See the [shared constrained-path repair](<Radiant_Issue_Ledger (fixed).md#ri-099>).
+
+<a id="ri-098"></a>
+
+### RI-098 — FIXED
+
+Oversized rounded inset radii discarded glyphs and native hits.
+See the [shared used-radius repair](<Radiant_Issue_Ledger (fixed).md#ri-098>).
+
+<a id="ri-097"></a>
+
+### RI-097 — FIXED
+
+Nested zero-level foreground painted below a lifted absolute background.
+See the [context-owned layer repair](<Radiant_Issue_Ledger (fixed).md#ri-097>).
+
+<a id="ri-096"></a>
+
+### RI-096 — FIXED
+
+Static flex/grid items ignored authored stack levels.
+See the [stacking eligibility repair](<Radiant_Issue_Ledger (fixed).md#ri-096>).
+
+<a id="ri-095"></a>
+
+### RI-095 — FIXED
+
+Flex-assigned grids lost their allocated height during content layout.
+See the [assigned-context repair](<Radiant_Issue_Ledger (fixed).md#ri-095>).
+
+<a id="ri-094"></a>
+
+### RI-094 — FIXED
+
+Individual translation discarded percentage calculations.
+See the [affine-math repair](<Radiant_Issue_Ledger (fixed).md#ri-094>).
+
 <a id="ri-093"></a>
 
 ### RI-093 — FIXED
@@ -29,27 +106,10 @@ See the [repair and independent browser evidence](<Radiant_Issue_Ledger (fixed).
 
 <a id="ri-092"></a>
 
-### RI-092 — Minimized flex fixture differs from its saved browser geometry
+### RI-092 — FIXED
 
-**Status:** OPEN, cause unconfirmed, reproduced 2026-11-16. **CSS Shapes
-implementation blocker:** no; it prevents a green static layout aggregate.
-Native layout ownership is D9.1.1v4 / D9.1.3v2. No design ruling changes.
-
-Run `test/layout/test_radiant_layout.js -c baseline -t
-flex_grow_root_minimized.html --exe <host> --host-cwd ../Lambda` with either
-the existing Lambda executable or the isolated current-source Radiant host
-in `temp/css-shapes/current-host/radiant.exe`. Both report elements 2/6
-(33.3%): the root and its inner flex column are 100px high against 300px in
-the saved browser reference; descendants are 66.7/33.3px against 200/100px.
-The fixture contains no floats or Shapes declarations. The exact layout,
-fixture or reference cause has not been established; no reference or tolerance
-was changed to make it pass.
-
-Evidence: `temp/css-shapes/flex-original-host.log`, `flex-current-host.log`
-and `layout-current-host-baseline.log`. The current-source host reports
-3,850 static successes, this one failure and six skips; the scripted category
-passes 630/630. Initial comparisons using shared benchmark-snapshot host
-objects are not used as current-source conformance evidence.
+Intrinsic column measurement omitted definite flex bases, with two later size handoff errors.
+See the [basis-contribution repair](<Radiant_Issue_Ledger (fixed).md#ri-092>).
 
 <a id="ri-091"></a>
 
@@ -139,19 +199,16 @@ Lambda Radiant baseline has zero failures. See the
 
 <a id="ri-088"></a>
 
-### RI-088 — Inline intrinsic measurements report failed selected-flow restoration
+### RI-088 — FIXED for selected-flow restoration
 
-**Status:** OPEN, cause unconfirmed, 2026-11-14. **Lambda blocker:** no;
-Mymind's main content renders after the independent RI-087 clipping repair.
-Snapshot/query ownership follows D5.5.1; native implementation D9.1.1v4 / D9.1.3v2.
-The saved hydrated Mymind source in Lambda
-`temp/online-visual-round38/saas_landing_202-static.html` reports three
-`inline height: selected flow restoration failed` errors during `layout` and
-`render`. It also produces malformed CoreText font-name requests; a shared
-cause is unconfirmed. The temporary opt-in INFO trace provided no provenance
-in this release configuration and was removed. No stale-result guard is
-weakened. The existing mixed-inline preservation regression still passes.
-Evidence: that directory's mymind-before/mymind-propagation-final native logs.
+The three saved Mymind restoration failures are traced to derived pseudo
+cascade refreshes invalidating authored ancestor inputs (Input LI-069).
+Unregistered custom-layout markup also disabled ordered preparation (RI-101).
+Both repairs are qualified; see the [follow-up record](<Radiant_Issue_Ledger (fixed).md#ri-088>).
+The live page remains blank and is not cleared. Malformed CoreText-name
+messages are a separate observation; an independently decoded Stellar font
+contains those control bytes in its original name table, so those messages
+alone do not establish an ownership defect.
 
 <a id="ri-087"></a>
 
@@ -636,6 +693,15 @@ temp/online-visual-round5/craft-static.html, round-six live capture
 temp/online-visual-round6/craft-live.png, and the unchanged browser reference
 test/online/snapshots/saas_landing_436-browser.png. This observation does not
 assign other pages' blank content to masking without their own evidence.
+
+**Additional evidence, 2026-11-16:** Draftbit's border overlay uses two linear
+mask layers, `content-box` and `mask-composite:exclude` (prefixed `xor`). The
+radial-only consumer leaves its full gradient rectangle painted over the hero.
+After RI-094/RI-095, navigation, heading and phone preview render, while this
+large tint remains. Saved unchanged source and before/after PNGs are in Lambda
+`temp/online-visual-round39/`; no mask layer was hidden or replaced. Linear,
+multilayer and composite mask implementation remains outside this bug milestone.
+
 
 <a id="ri-035"></a>
 

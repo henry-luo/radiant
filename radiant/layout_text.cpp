@@ -3373,7 +3373,9 @@ LineFillStatus node_has_line_filled(LayoutContext* lycon, DomNode* node,
                 lycon->line.advance_x = saved_advance_x;
                 return RDT_LINE_NOT_FILLED;
             }
-            else if (outer_display == CSS_VALUE_INLINE) {
+            else if (outer_display == CSS_VALUE_INLINE &&
+                     !layout_intrinsic_element_is_atomic_inline(node->as_element())) {
+                // an atomic box owns its edge-space trimming; outer lookahead must not enter its label.
                 result = span_has_line_filled(lycon, node, probe, &node_width);
             }
         }

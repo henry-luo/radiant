@@ -789,9 +789,7 @@ static void get_intrinsic_box_side_widths_from_css(LayoutContext* lycon, DomElem
                    : (border ? CSS_PROPERTY_BORDER_BOTTOM_WIDTH : CSS_PROPERTY_PADDING_BOTTOM)};
     if (!border) {
         // cell box probes may run with the table active; substitution belongs to the measured owner (D5.5.1).
-        LayoutViewScope owner_scope(lycon);
-        lycon->view = lam::up(static_cast<View*>(element));
-        lycon->elmt = lam::up(element);
+        LayoutViewScope owner_scope(lycon, element);
         for (int side = 0; side < 2; side++) {
             CssDeclaration* declaration = layout_cascaded_physical_declaration(element, side_property[side]);
             if (!declaration || !declaration->value) continue;
@@ -1203,6 +1201,10 @@ static void intrinsic_resolve_vertical_margins(LayoutContext* lycon, DomElement*
     *mt = 0.0f;
     *mb = 0.0f;
     if (!element) return;
+    // intrinsic child margins resolve variables and font units on their owner, not the measuring parent.
+    LayoutViewScope owner_scope(lycon, element);
+    LayoutFontScope font_scope(lycon, element->font);
+    LayoutContainingBlockScope percentage_base(lycon, LAYOUT_AXIS_X, inline_base);
     bool resolved = false;
     if (element->specified_style && inline_base > 0.0f) {
         LayoutCssBoxCandidates candidates = {};
@@ -1250,6 +1252,8 @@ float layout_resolve_intrinsic_margin_side(LayoutContext* lycon,
                                            float inline_base,
                                            bool include_bound) {
     if (!element) return 0.0f;
+    LayoutViewScope owner_scope(lycon, element);
+    LayoutFontScope font_scope(lycon, element->font);
     auto resolve = [&](const CssValue* value) -> bool {
         if (!value) return false;
         if (value->type == CSS_VALUE_TYPE_PERCENTAGE) {
@@ -2585,16 +2589,15 @@ bool layout_intrinsic_element_is_atomic_inline(DomElement* element) {
     if (!element || !is_inline_level_element(element)) return false;
     if (layout_element_is_replaced(element)) return true;
 
-    ViewBlock* view = lam::unsafe_view_block_element_storage(element);
-    if ((element->display.inner == CSS_VALUE_FLOW_ROOT ||
-         element->display.inner == CSS_VALUE_TABLE) &&
-        (element->display.outer == CSS_VALUE_INLINE ||
-         element->display.outer == CSS_VALUE_INLINE_BLOCK)) {
+    // retain generated box roles while normalizing the button formatting context.
+    DisplayValue used = layout_button_used_display(element, element->display);
+    if ((used.inner == CSS_VALUE_FLOW_ROOT || used.inner == CSS_VALUE_TABLE) &&
+        (used.outer == CSS_VALUE_INLINE || used.outer == CSS_VALUE_INLINE_BLOCK)) {
         // CSS Display 3: flow-root and table contents belong to the atomic
         // inline's own context, including anonymous inline-table fixups.
         return true;
     }
-    if (intrinsic_display_is_atomic_inline(view->display.outer)) {
+    if (intrinsic_display_is_atomic_inline(used.outer)) {
         return true;
     }
 
@@ -3121,12 +3124,27 @@ static float intrinsic_resolved_height_limit_or(LayoutContext* lycon,
                    : layout_explicit_max_axis_or(view, false, -1.0f);
 }
 
-static float intrinsic_child_height_with_minimum(LayoutContext* lycon,
-        DomElement* element, float height, float containing_width) {
+float layout_child_intrinsic_height_contribution(LayoutContext* lycon,
+        DomElement* element, float height, float containing_width, bool flex_main_axis) {
     ViewBlock* view = lam::view_as_block(element);
     // a content query omits the child's own minimum; its outer contribution
     // must include that floor before a parent sizes or wraps its flex lines.
     float minimum = intrinsic_resolved_height_limit_or(lycon, element, view, true);
+    CssFlexBasisValue basis = {};
+    if (flex_main_axis && css_prop_compute_declared_flex_basis(element, &basis) &&
+        basis.value >= 0.0f && !basis.is_percent && !basis.is_content && !basis.is_stretch) {
+        // empty items still contribute their definite flex basis to an auto column's natural size.
+        float decoration = intrinsic_view_uses_border_box(view, element) ? 0.0f :
+            layout_intrinsic_padding_border_axis(lycon, element, false, containing_width);
+        float contribution = basis.value + decoration;
+        CssEnum overflow_x = CSS_VALUE_VISIBLE, overflow_y = CSS_VALUE_VISIBLE;
+        css_prop_compute_declared_overflow(element, &overflow_x, &overflow_y);
+        if (minimum < 0.0f && (overflow_y == CSS_VALUE_VISIBLE || overflow_y == CSS_VALUE_CLIP)) {
+            contribution = max(contribution, height);
+        }
+        float maximum = intrinsic_resolved_height_limit_or(lycon, element, view, false);
+        height = maximum >= 0.0f ? min(contribution, maximum + decoration) : contribution;
+    }
     if (minimum >= 0.0f) {
         if (!intrinsic_view_uses_border_box(view, element)) {
             minimum += layout_intrinsic_padding_border_axis(
@@ -3343,6 +3361,8 @@ void layout_resolve_intrinsic_horizontal_margins(
         LayoutContext* lycon, DomElement* element, bool include_logical,
         float* margin_left, float* margin_right, bool include_shorthand) {
     if (!element || !element->specified_style || !margin_left || !margin_right) return;
+    LayoutViewScope owner_scope(lycon, element);
+    LayoutFontScope font_scope(lycon, element->font);
     StyleTree* style = element->specified_style;
     Margin computed_margin = {};
     const Margin* resolved = intrinsic_margin_baseline(lycon, element, &computed_margin);
@@ -7987,7 +8007,7 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
             // nested rows wrap at their hypothetical content width, while percentages retain the parent basis.
             float child_content_width = layout_content_size_from_border_box(child_view, child_width, true);
             float child_height = calculate_max_content_height(lycon, child, child_content_width);
-            child_height = intrinsic_child_height_with_minimum(
+            child_height = layout_child_intrinsic_height_contribution(
                 lycon, child_elem, child_height, width);
             // flex lines consume outer cross sizes; omitted margins under-allocate nested stretch.
             float margin_top = 0.0f, margin_bottom = 0.0f;
@@ -8125,8 +8145,9 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
                 }
             }
             if (child->is_element()) {
-                child_height = intrinsic_child_height_with_minimum(
-                    lycon, child->as_element(), child_height, content_w);
+                child_height = layout_child_intrinsic_height_contribution(
+                    lycon, child->as_element(), child_height, content_w,
+                    is_flex_container && !is_flex_row);
             }
 
             // Resolve child's vertical margins for height estimation

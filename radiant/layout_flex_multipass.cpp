@@ -1372,8 +1372,16 @@ static void layout_flex_item_content_pass(LayoutContext* lycon, ViewBlock* flex_
         (flex_item->display.inner == CSS_VALUE_FLOW || flex_item->display.inner == CSS_VALUE_FLOW_ROOT);
     bool canonical_horizontal_flow = !flex_item_vertical && !use_multicol_flex_path &&
         (flex_item->display.inner == CSS_VALUE_FLOW || flex_item->display.inner == CSS_VALUE_FLOW_ROOT);
-    if (canonical_vertical_flow || canonical_horizontal_flow) {
-        // ordinary flex items own an independent formatting context, including their float exclusions.
+    FlexContainerLayout* parent_flex = saved_context.flex_container;
+    bool parent_block_is_definite = parent_flex && (is_main_axis_horizontal(parent_flex)
+        ? parent_flex->has_definite_cross_size
+        : parent_flex->main_axis_available_size_is_definite ||
+            (flex_item->fi && flex_item->fi->main_size_from_flex));
+    // flex-grow alone does not make an auto-height parent's provisional allocation definite.
+    bool assigned_grid_flow = flex_item->display.inner == CSS_VALUE_GRID &&
+        parent_block_is_definite && flex_height_is_parent_constrained(lycon, flex_item, true, true);
+    if (canonical_vertical_flow || canonical_horizontal_flow || assigned_grid_flow) {
+        // assigned grids need their own size owner for row tracks and percentage children, as ordinary flow does.
         layout_setup_assigned_block_context(lycon, flex_item, &saved_context.block, content_width, content_height);
     } else if (flex_item_vertical && flex_item->display.inner != CSS_VALUE_FLEX) {
         // nested flex resolves physical axes itself; only surrogate flow needs the content-axis swap.
@@ -1572,7 +1580,6 @@ static void layout_flex_item_content_pass(LayoutContext* lycon, ViewBlock* flex_
         flex_item->blk->last_line_baseline = lycon->block.last_line_ascender;
     }
     // CRITICAL FIX: For column flex items without explicit height,
-    FlexContainerLayout* parent_flex = saved_context.flex_container;
     if (!canonical_vertical_flow)
         flex_apply_content_height_after_layout(lycon, flex_item, parent_flex);
     // flex items bypass block finalization; center native labels after their used height settles.
@@ -2056,7 +2063,9 @@ void layout_final_flex_content(LayoutContext* lycon, ViewBlock* flex_container) 
                 }
             });
         if (any_height_changed) {
-            bool has_explicit_cross = layout_axis_has_given_size(flex_container, false);
+            // grid and flex assignments constrain this pass even when the authored size is auto.
+            bool has_explicit_cross = flex_container_axis_is_fixed(
+                flex, flex_container, LAYOUT_AXIS_Y);
             if (!has_explicit_cross) {
                 for (int li = 0; li < flex->line_count; li++) {
                     FlexLineInfo* line = &flex->lines[li];
@@ -2099,7 +2108,7 @@ void layout_final_flex_content(LayoutContext* lycon, ViewBlock* flex_container) 
     // CRITICAL FIX: For row flex containers with auto height, recalculate container
     if (flex && is_main_axis_horizontal(flex)) {
         bool has_explicit_height = layout_axis_has_given_size(flex_container, false) ||
-            flex_height_is_parent_constrained(lycon, flex_container, false, true);
+            flex_height_is_parent_constrained(lycon, flex_container, true, true);
         if (!has_explicit_height && lycon->natural_flex_height_root != flex_container && flex_container->fi) {
             float fg = get_item_flex_grow(flex_container);
             if (fg > 0) {

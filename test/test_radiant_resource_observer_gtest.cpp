@@ -14,6 +14,7 @@ static void image_complete(void* element, bool loaded) {
 TEST(RadiantResourceObserverTest, NativeFallbackAndHostPublication) {
     int element = 0;
     radiant_resource_image_complete(&element, true);
+    radiant_resource_complete(&element, false);
     EXPECT_EQ(notifications, 0);
     static const RadiantResourceObserverOps incomplete = {};
     static const RadiantResourceObserverOps host = {image_complete};
@@ -26,5 +27,12 @@ TEST(RadiantResourceObserverTest, NativeFallbackAndHostPublication) {
     EXPECT_TRUE(notified_loaded);
     radiant_resource_image_complete(&element, false);
     EXPECT_EQ(notifications, 2);
+    EXPECT_FALSE(notified_loaded);
+    radiant_resource_complete(&element, true);
+    EXPECT_EQ(notifications, 3);
+    EXPECT_EQ(notified_element, &element);
+    EXPECT_TRUE(notified_loaded);
+    radiant_resource_complete(&element, false);
+    EXPECT_EQ(notifications, 4);
     EXPECT_FALSE(notified_loaded);
 }

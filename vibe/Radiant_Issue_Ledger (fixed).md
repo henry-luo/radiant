@@ -14,6 +14,279 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-104"></a>
+
+### RI-104 — Intrinsic margins use the measuring parent's variable and font scope
+
+**Status:** FIXED, 2026-11-17. Layout ownership follows **D9.1.1v4 /
+D9.1.3v2** and query-local state **D5.5.1**. Capture time is unchanged
+(**D10.1.7**); no formal ruling changes.
+
+Astra269's hero grid collapses to height zero even in script-free replay.
+Its left item has a NaN height although its visible heading and children have
+finite boxes. CSS reduction retains just grid display and Tailwind-style
+sibling margins using calc(1rem * calc(1 - var(--reverse))). Intrinsic vertical
+margin measurement calls the length resolver with its measuring parent still
+selected. The child's own variable is consequently missing; NaN poisons the
+height contribution. An independent finite reduction measures a row at70px
+instead of80px because the same path reads the parent's10px font rather than
+the child's20px font.
+
+The margin queries now select the owning child and its font through existing
+view/font scopes; vertical percentage math uses the supplied containing inline
+basis. Horizontal intrinsic margin queries use the same owner context. The
+existing LayoutViewScope accepts an optional target, also reused by padding and
+IntrinsicMeasureScope, preserving automatic restoration without duplicate owner
+selection sequences. No NaN clamp, site condition or CSS override is added.
+
+Five focused native cases pass, including the two new live variable/font/
+percentage and shrink-to-fit cases plus three adjacent margin regressions.
+Chromium independently confirms all seven new geometry states. The original
+minimal grid changes from0px/NaN to finite79.88px, and Astra's live heading,
+copy, actions and payment illustration reappear. Integer-cast lint passes.
+No broad baseline is rerun: the user cleared the active goal during the build,
+and this already-built repair is wrapped up with focused qualification only.
+
+Evidence: sibling Lambda temp/online-visual-round56/ holds the original saved
+page, valid reduced DOM/CSS, before/after geometry logs, browser controls,
+qualified release pin and selected capture/report. The first diagnostic DOM
+reducer used Unicode splitlines offsets inconsistent with HTMLParser and was
+corrected to LF-only offsets before the retained valid reduction. That temporary
+artifact was never used as a production fix or final control.
+
+<a id="ri-092"></a>
+
+### RI-092 — Intrinsic column height omits definite child flex bases
+
+**Status:** FIXED, 2026-11-17. The milestone release Radiant baseline passes:
+8,169 passed, zero unexpected failures, 299 partial and 20 skipped (8,488 total). Native layout ownership follows **D9.1.1v4 /
+D9.1.3v2**; **D10.1.7** frame selection is unchanged. No design ruling changes.
+
+The existing flex_grow_root_minimized fixture and a standalone reduction shrink
+a nested automatic column to its 100px minimum, with children 66.7px/33.3px.
+Its empty first child has flex-basis:200px; the second has height:100px.
+Chromium uses 300px for both columns and 200px/100px for the children.
+The previously unconfirmed observation affected the CSS Shapes aggregate even
+though this fixture contains no Shapes or floats. Original evidence remains in
+Lambda temp/css-shapes/{flex-original-host.log,flex-current-host.log,
+layout-current-host-baseline.log}.
+
+Both generic height traversal and specialized flex-item intrinsic measurement
+used an empty child's zero content height instead of its definite basis. They
+now share one promoted contribution helper, consuming computed flex-basis and
+retaining automatic/explicit minima, maxima, scroll behavior and box sizing.
+Indefinite percentage bases remain content based. Tracing two additional states
+showed that final row refinement discarded a non-growing column-item basis,
+and initialization treated an allocated zero basis as unassigned. Both size
+handoffs now respect the existing parent-basis constraint protocol. The flag
+that records actual flex redistribution keeps its original meaning.
+
+All thirteen new states match independently sampled Chromium geometry: natural,
+explicit/min/max height, restored and unconstrained cases; content minima and
+min-height:0; non-growing and scroll containers; 0px versus 0%; content-box
+padding/borders. All 36 focused grid/flex/absolute-height native tests pass,
+and layout integer lint passes. The unchanged original fixture now reports
+100% element and text agreement. No references or tolerances are modified.
+Temporary trace logging and an ineffective min-height flag hypothesis were
+removed before final build. Evidence: Lambda temp/online-visual-round51;
+release pin a0f10c812c027d0ba021726df6d1491c1bcd5a08107fe61d2afad88cabd616e4.
+
+<a id="ri-103"></a>
+
+### RI-103 — Final flex content discards its grid-assigned cross size
+
+**Status:** FIXED, 2026-11-17. **Lambda blocker:** no.
+Native ownership follows **D9.1.1v4 / D9.1.3v2**; capture time stays at the
+selected virtual frame under **D10.1.7**. No design ruling changes.
+
+Bonsai reviews uses a two-column grid whose cards are padded, start-aligned
+flex containers with aspect-ratio:16/9. Each absolute portrait has height:100%.
+A 396px-wide reduced card finishes at 222.75px, but its child receives only
+66px (18px text plus 48px padding). Stretch alignment masks the defect.
+The final-content cross-axis recalculation checked only authored height,
+shrinking the grid-assigned card to its text. Positioned layout then consumed
+that provisional box; subsequent grid alignment restored only the card.
+
+The recalculation now uses the existing flex_container_axis_is_fixed helper,
+promoted through layout.hpp rather than copied. The flex algorithm and final
+content therefore agree about parent-owned sizes. No site condition, new sizing
+policy, repeated child layout or image-specific adjustment is introduced.
+
+The new native regression fails before repair for start, center, end and restored
+start, with stretch as a passing control. All 35 focused grid/flex/absolute-height
+tests pass after repair; layout integer lint passes. The local raster reproducer
+fills both cards. The unchanged saved hydrated Bonsai source, served over HTTP,
+improves from 12.7% to 0.7% image error and restores both full-height portraits.
+Its live capture independently omits the main content and remains high severity
+by explicit review despite falling below the coarse threshold. No visual clearance
+or root cause for that live omission is claimed. No broad baseline is repeated
+after the round47 milestone. Evidence: Lambda temp/online-visual-round49;
+release pin f3c85566115f811ea97ff7d74981978da855adb690aece3ec4c7ccad9a015247.
+
+<a id="ri-098"></a>
+
+### RI-098 — Rounded inset glyph and hit clips use unnormalized radii
+
+**Status:** FIXED for admitted uniform circular inset radii, 2026-11-17.
+**Lambda blocker:** no. Native ownership D9.1.1v4 / D9.1.3v2; scratch-owned
+computed shape geometry follows D5.5.1. No design ruling changes.
+
+AndOpen's saved hydrated navigation buttons use `clip-path:inset(0% -1% 0% 0%
+round 500px)`. Their text geometry, opacity and color are visible, but glyphs
+are absent. A 180x40 flex button with white MMMM reproduces this: round20px
+shows 336 white samples; round500px shows none, while a vector green child
+survives. The vector path clamps the radius, but `css_basic_shape_resolve`
+published raw500px values to CPU glyph scanlines and native point containment.
+
+The producer now creates a Corner with `render_path_uniform_corner` and applies
+existing `constrain_corner_radii` before publishing shape radii. Vector painting,
+glyph clipping and hits therefore consume the same used geometry. No new
+normalizer, site condition, hidden content or capture-clock adjustment.
+
+Two exact PNG equivalence controls fail before repair and pass afterward,
+including a translated/scaled label. Eighteen existing clipping controls also
+pass. Three native tests pass; the new test covers large/small/transform/restored
+radius hit states. Chromium independently confirms both equivalences; integer
+lint passes. This fixes labels in the unchanged saved hydrated AndOpen source.
+Its live canonical capture still contains independent initial hidden content
+and is not cleared or attributed to this clipping defect. No broad baseline
+was repeated: the substantial round41 milestone already ran that gate.
+Evidence: Lambda `temp/online-visual-round42/`; qualified release pin
+`f3858f73a3402185fefe9ab0cd5375b4330c1e8b09e06082666945946e59f436`.
+
+<a id="ri-097"></a>
+
+### RI-097 — Nested zero-level foreground paints below lifted absolute background
+
+**Status:** FIXED, 2026-11-16.
+**Lambda blocker:** no. Native ownership D9.1.1v4 / D9.1.3v2; borrowed view
+paths follow D5.5.1. No design ruling changes.
+
+In a relative container, place an absolute red background under an ordinary
+wrapper and a later relative green foreground under that same wrapper. Native
+paints red over green; Chromium paints green over red. The absolute layer was
+painted by its containing block after the wrapper's local relative layer.
+PostHog's entire main window was hidden by that same wallpaper ordering.
+
+The candidate collects zero-level descendants at their real block stacking
+context, preserving ancestry scopes, tree order and reverse hits. Normal local
+collections defer to that owner; custom-layout and existing inline-effect paths
+retain their separate traversal. New controls distinguish explicit zero from
+auto for positive descendants and detect duplicated opacity painting. Four of
+seven controls failed before; all seven plus fifteen related PNG tests now pass.
+Four native tests and seven Chromium colors pass. The former internal local-list
+assertion now checks real-context paint ownership while retaining the relative
+positioning containing block and adding an actual local hit witness.
+
+The unchanged saved PostHog source restores its full main window, heading,
+signup panel and tabs. Saved Primer, Opus and Armadillo are not assigned this
+cause. The standard Lambda Radiant baseline ran 8,488 cases: 8,167 passed,
+299 partial, 20 skipped and two CSS 3D pixel tests failed. The broader collection
+exposed a missing context boundary: computed `preserve-3d` creates a context even
+without a transform list. Reusing `transform_establishes_containing_block` keeps
+those planes in their depth compositor and includes participating hidden backfaces.
+Both failed tests pass with the final candidate; they also pass with the prior
+qualified host, confirming the regression boundary. No expected pixels or
+reference baselines changed. All22 focused PNG and four native tests still pass.
+The full baseline was not repeated after that correction.
+
+Final pin `35dc8bf8b95d952a6732c5fd293d89804ee6d5876108a29270b997d38b594a7f`.
+Evidence: Lambda `temp/online-visual-round41/`, including initial baseline summary,
+focused post-fix results, immutable pre-fix hosts and source state. No capture
+clock, admission, watchdog or feature-budget change (D10.1.7). Painting order:
+https://www.w3.org/TR/CSS22/zindex.html#painting-order .
+
+
+<a id="ri-096"></a>
+
+### RI-096 — Static flex/grid items ignore z-index
+
+**Status:** FIXED, 2026-11-16. **Lambda blocker:** no; PostHog's primary
+navigation disappeared behind its wallpaper. Native ownership D9.1.1v4 /
+D9.1.3v2; view/style ownership D5.5.1. No formal ruling changes.
+
+The positive/negative layer predicates and context predicate restricted stack
+levels to non-static positioned boxes. CSS Flexbox §4.3 and Grid item painting
+also apply z-index to static items. All four initial positive/negative PNG
+controls failed; the saved PostHog header is a static flex item with z-index50.
+
+The shared predicates now admit actual flex/grid items, including explicit zero
+in the positioned paint phase. Item-style storage alone is insufficient:
+`flex:none` allocates such storage on ordinary blocks. The existing membership
+helper now checks the formatting parent across display:contents and excludes
+out-of-flow boxes. This preserves ordinary static blocks' ignored stack levels.
+The first intermediate failed that safeguard and was held. No CSS position is
+rewritten. Raster/export and native hit testing reuse these predicates.
+
+Seven PNG controls and eight related opacity/positioned regressions pass;
+Chromium independently confirms all seven expected colors. Three native tests
+pass, including hit order through flex/grid/block/flex restyles and unchanged
+static positioning. The two previous native hit setups now share one fixture
+helper. Integer lint passes. The saved PostHog header reappears; its missing main
+window remains a separate unisolated defect. Primer's saved hero is also still
+absent and is not attributed to this repair. Evidence in Lambda
+`temp/online-visual-round40/`; no broad baseline or capture-clock change.
+Reference: https://www.w3.org/TR/css-flexbox-1/#painting .
+
+<a id="ri-095"></a>
+
+### RI-095 — Flex-assigned grid height is replaced by intrinsic row height
+
+**Status:** FIXED, 2026-11-16. **Lambda blocker:** no; Draftbit's hero copy
+was under its header and its phone preview was absent. Native ownership
+D9.1.1v4 / D9.1.3v2; pass-local size ownership D5.5.1.
+
+A 400px column flex container with a 40px footer assigns 360px to its growing
+grid. The native grid instead ended at 200px, with the centered 80px child at
+60px instead of 140px and its 50% child at 100px instead of 180px. The flex
+content dispatch established `used_size_owner` for ordinary flow only; grid
+initialization read an ancestor context and treated its own height as auto.
+
+Assigned grids now use `layout_setup_assigned_block_context`, guarded by the
+parent's definite block axis or actual column redistribution and the existing
+`flex_height_is_parent_constrained` predicate. Flex-grow alone does not make
+an auto-height provisional allocation definite. The existing parent-flex local
+is reused. No authored height is changed.
+
+`DynamicLayoutTest.FlexAssignedGridHeightRetainsTracksAndPercentageChildren`
+passes five live states: 400px, 600px, auto, min-height400px and restoration;
+Chromium independently confirms all expected geometry. Three neighboring grid,
+ratio and deferred-gap tests pass. Before, 15 geometry assertions failed in the
+fixed-height states. The first intermediate fix broke the auto control and was
+held; the refined fix preserves it. The unchanged saved Draftbit source now
+shows centered hero content and its phone preview. RI-041 retains the separate
+unsupported composite-mask tint. Evidence: Lambda `temp/online-visual-round39/`.
+
+<a id="ri-094"></a>
+
+### RI-094 — Individual translate loses affine percentage calculations
+
+**Status:** FIXED for affine length/percentage calculations, 2026-11-16.
+**Lambda blocker:** no. Native ownership D9.1.1v4 / D9.1.3v2. No new allocation
+or lifetime model is introduced; D5.5.1 remains unchanged.
+
+Draftbit's fixed 980px navigation uses nested `calc()` to translate -50%.
+After LI-066 admits that syntax, the transform decoder still returned zero for
+calculations containing percentages; only transform lists retained deferred
+expressions. `resolve_transform_translate_arg` now uses the existing typed math
+evaluator with percentage preservation to retain affine pixel and percentage
+coefficients against the eventual reference box. Transform-list resolution
+retains its expression only when those coefficients could not be resolved, so
+a resolved calculation is not applied twice. Reference-dependent non-affine
+expressions keep the existing transform-list fallback; broader individual math
+support remains partial.
+
+Seven exact PNG controls pass: nested arithmetic, font-relative mixed units,
+variable substitution with script-driven resizing, composition, equivalent
+transform-list single application, nonlinear list fallback and invalid third-axis
+rejection. Four existing transform animation/snapshot tests and two input
+validation tests pass; Chromium confirms all seven fixture positions. Integer
+lint passes. Saved Draftbit header x changes from 600px to 110px, restoring all
+navigation/login/signup actions. Evidence: Lambda `temp/online-visual-round39/`.
+The initial direct host link used stale runtime archives and aborted during
+script compilation; refreshing its dependency chain resolved that build issue.
+No vendor, capture clock, admission or watchdog change was made (D10.1.7).
+
 <a id="ri-093"></a>
 
 ### RI-093 — Assigned grid/flex float contexts misplaced or omitted exclusions
@@ -3647,3 +3920,155 @@ Evidence is Lambda `temp/online-visual-round17/`, including before/final hosts,
 `flex-before-final.log`, `flex-percentage.log`, `flex-pixel-browser.json`,
 `azure-*-layout.json`, saved PNGs and `layout-results.json`. Qualified host SHA256
 `10fae5cc038c9f09a06c06b189b5f604bb648b6e30a628e9f2c52edc96c3da25`.
+
+<a id="ri-099"></a>
+
+## RI-099 — Inline background curves exceeded their fragment bounds
+
+**Status:** FIXED, 2026-11-17. Native paint ownership is D9.1.1v4/D9.1.3v2;
+this is an implementation repair, without a formal ruling change.
+`render_text_inline_background` generated a separate cubic path from the raw
+top-left radius treated as uniform. A150px-wide text fragment with100px radius
+already formed inverted curves; Tailwind's9999px pills generated huge paths
+that covered unrelated viewport content. Cleanup.pictures' saved hydrated
+hero had lime highlights covering its page, and raster differed from the
+existing constrained SVG/PDF boundary path. LI-067 independently fixes its
+collapsed auto-column geometry. Live client initialization is a separate issue.
+
+The native inline fill now uses existing `render_path_uniform_corner`,
+`constrain_corner_radii` and `render_path_create_rounded_rect` instead of the
+handwritten curve. It preserves the existing current-transform recording and
+inline-border pass. No new CSS radius grammar, per-corner/elliptical inline
+support, site condition, capture policy or replacement content is introduced.
+The common used-radius rule is [CSS Backgrounds3 §4.5](https://www.w3.org/TR/css-backgrounds-3/#corner-overlap).
+
+Lambda `test/online/render_inline_rounded_background.test.cjs` checks exact
+1000px/9999px equivalence, bounded painted area, transforms, and an offscreen
+control. Before repair2of3cases fail; Chromium independently confirms all3
+radius equivalences. Final focused checks and the saved/live page outcomes
+are in Lambda `temp/online-visual-round43/checkpoint.md` and the comparison
+report; no live clearance follows from saved-source evidence alone.
+
+<a id="ri-100"></a>
+
+## RI-100 — Line-fill lookahead entered inline button labels
+
+**Status:** FIXED, 2026-11-17. Native layout ownership is D9.1.1v4/D9.1.3v2;
+no formal ruling changes. Python.org's search form had the correct341.9px
+intrinsic width, but its GO button wrapped, making the form98.6px instead
+of57.4px high and moving the navigation/hero down. Trimming only the button's
+internal indentation prevented the wrap; its width was unchanged.
+
+An independent Arial fixture reproduced the fault with `display:inline` and
+an indented button label; `inline-block` and `inline-flex` controls passed.
+`layout_button_used_display` already converted authored inline buttons into
+atomic boxes at layout. Intrinsic boundary classification still saw the raw
+display, and `node_has_line_filled` independently entered raw inline children.
+The outer source probe retained spaces from inside the button's own context,
+reported overflow, and prematurely broke the preceding line. A temporary
+geometry probe confirmed that the actual atomic margin box fit the row; the
+probe was removed. No width, margin or wrapping tolerance was changed.
+
+`layout_intrinsic_element_is_atomic_inline` now shares the existing button
+used-display normalizer, and line-fill lookahead stops at the shared atomic
+predicate. This implements [HTML Rendering §15.5.3](https://html.spec.whatwg.org/multipage/rendering.html#button-layout)
+without changing ordinary inline whitespace propagation or flex/grid routing.
+
+Evidence: Lambda `temp/online-visual-round44`, including minimal sources,
+`png-before.log` (2genuine failures/2controls), four independent Chromium
+compact/indented equivalences, and `native-final.log` (5passed). Native
+`InlineButtonWhitespaceStaysInsideItsAtomicContext` checks four live display
+transitions, row placement, height and an ordinary inline negative control.
+Final PNG and saved/live page evidence are in the round44 checkpoint/report.
+Capture admission, reference pixels, clocks and thresholds are unchanged.
+
+Round45 milestone follow-up: the existing text-overflow atomic fixture exposed
+a regression when the predicate re-resolved a constructed inline-block as its
+synthetic tag's inline default. The button normalizer now consumes the retained
+`element->display` role, as the previous atomic classifier did. The existing
+projection test stays unchanged; live button transitions and PNG controls are
+rechecked alongside it. This retains generated box roles without changing
+ellipsis tolerances or source geometry (D9.1.1v4/D9.1.3v2).
+
+<a id="ri-101"></a>
+
+## RI-101 — Unknown custom-layout names disabled ordered generated effects
+
+**Status:** FIXED, 2026-11-17. Native ownership is D9.1.1v4/D9.1.3v2;
+selected-flow preservation is D5.5.1. No design ruling changes.
+`layout_prepare_generated_effects` rejected an entire document when any node
+had a custom-layout name, including unregistered generic `data-layout` values.
+Those nodes already fall back to ordinary flow and have no callback that
+could generate deferred effects. Mymind's unrelated `data-layout="grid"`
+therefore sent its navigation through the legacy generated-content path.
+
+Preparation now checks the existing callback registry. Only a registered
+callback requires that custom-layout deferral; shadow/relevance deferrals
+remain intact. Native controls distinguish missing and registered callbacks.
+Three exact generated-content pixel controls compare an empty unregistered
+layout sibling with an ordinary empty sibling. All fail before the combined
+repair; after Input LI-069 and this change they pass, including text and both
+pseudo sides. A local-invalidation-only candidate exposed the separate
+pixel difference and was held rather than promoted.
+
+Evidence: Lambda `temp/online-visual-round46`. Seven PNG and four focused
+native tests, three independent Chromium equivalences and integer lint pass.
+Two existing flow/pseudo-font ownership controls pass during implementation.
+The saved Mymind source no longer emits its three restoration failures;
+its live capture remains blank. No page clearance, exact live image match or
+clean new full baseline is claimed. No URL condition, budget, admission or
+renderer clock changed. The final replay guard is byte-identical to its
+pre-investigation source.
+
+<a id="ri-088"></a>
+
+## RI-088 — Selected navigation flow failed restoration during measurement
+
+**Status:** FIXED for the reported restoration failures, 2026-11-17.
+D5.5.1 governs preservation; D9.1.1v4/D9.1.3v2 govern owner boundaries.
+A release-visible rejection trace isolates host input revision changes with
+unchanged style/mutation epochs. Input LI-069 repairs local derived-cascade
+invalidation; RI-101 restores ordered generation for unregistered layout
+aliases. The original saved source changes from three errors to zero.
+The live Mymind page remains blank for a separate unisolated cause.
+
+The earlier malformed CoreText-name observation is not used as evidence of
+a dangling pointer. In Stellar's independent reproduction, LLDB finds those
+same bytes in the font's name table; extracting the original WOFF2 name
+stream independently through Node Brotli matches all982bytes exactly.
+That confirms authored metadata for that reproduction. It does not prove
+Mymind's separate font source or explain its live blank state.
+
+<a id="ri-102"></a>
+
+## RI-102 — Downloaded stylesheet completion never reached DOM listeners
+
+**Status:** FIXED for network-managed stylesheets, 2026-11-17.
+Ownership follows D9.1.1v4 / D9.1.3v2; precise callback pins and execution
+ownership follow D5.5.1 / D6.4.1. No design ruling changes.
+
+Vite's CSS preload promises remained pending although Radiant downloaded and
+parsed their links. `process_css_resource` never published load/error through
+the existing resource observer. Empty CSS also returned before publication.
+CSS now uses the same pinned completion queue as images, retaining the old
+image API and one-pointer observer ABI. Empty stylesheets publish an empty
+sheet; read/parse/download failures publish error.
+
+Lambda's load-readiness loop now drains completion and promise jobs before
+window.load and discovers resources added by those callbacks. Its existing
+250ms bound and renderer clock are unchanged. The callback drain shares the
+bootstrap RuntimeExecutionScope: entering a fresh synthetic-event turn here
+cleared pending bootstrap mutation records and lost the post-script cascade.
+
+Evidence: Lambda `temp/online-visual-round47`. Five HTTP completion cases
+cover listeners before/after insertion, empty/error CSS, and chained sheets;
+they check exactly-once events, receiver/target, CSSOM, load order and pixels.
+The original five resource-discovery controls remain unchanged. All ten pass;
+the native observer compatibility test passes. The combined candidate also
+passes ten DOM comment/insertion controls and three Input tests. The milestone release baseline initially reports 10 failures. Restoring owned
+fragment-text occurrences in Lambda clears all nine persistent cases in focused
+checks, and the initial jQuery failure passes directly. The full gate was not
+repeated; the round47 report records that qualification limit.
+Local files without a network manager are outside this reproduction. No URL
+condition, admission-budget change or unsupported large feature is added.
+The event requirement is [HTML linked stylesheets](https://html.spec.whatwg.org/multipage/semantics.html#link-type-stylesheet).

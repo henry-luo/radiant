@@ -100,7 +100,7 @@ static bool flex_apply_container_axis_constraint(FlexContainerLayout* flex,
     return main_axis && !minimum_constraint;
 }
 
-static bool flex_container_axis_is_fixed(FlexContainerLayout* flex,
+bool flex_container_axis_is_fixed(FlexContainerLayout* flex,
                                          ViewBlock* container, LayoutAxis axis) {
     if (!flex || !container) return false;
     bool main_axis = axis == flex_main_axis(flex);
@@ -809,7 +809,11 @@ void init_flex_container(LayoutContext* lycon, ViewBlock* container) {
     // normal-flow stretch is owned before flex layout; flex items use their assignment protocol below.
     bool height_assigned_by_parent = container->parent_item_kind() != DomElement::PARENT_ITEM_FLEX &&
         flex_height_is_parent_constrained(lycon, container, true, true);
-    if (container->height > 0 && lycon->natural_flex_height_root != container) {
+    // a resolved parent basis owns zero as well as positive heights during final content layout.
+    bool parent_basis_assigns_height = parent_layout && !is_main_axis_horizontal(parent_layout) &&
+        parent_layout->container == container->parent && flex_item_resolved_basis(container, parent_layout) >= 0.0f;
+    if ((container->height > 0.0f || parent_basis_assigns_height) &&
+        lycon->natural_flex_height_root != container) {
         bool is_grid_item_col = (container->parent_item_kind() == DomElement::PARENT_ITEM_GRID) &&
                                 container->gi && container->gi->computed_grid_row_start > 0;
         if (is_grid_item_col) {

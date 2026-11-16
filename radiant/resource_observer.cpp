@@ -8,7 +8,11 @@ bool radiant_resource_observer_register(const RadiantResourceObserverOps* operat
                                     &RadiantResourceObserverOps::image_complete);
 }
 
-void radiant_resource_image_complete(void* element, bool loaded) {
+void radiant_resource_complete(void* element, bool loaded) {
     const RadiantResourceObserverOps* operations = lambda_provider_load(&resource_observer_ops);
     if (operations) operations->image_complete(element, loaded);
+}
+
+void radiant_resource_image_complete(void* element, bool loaded) {
+    radiant_resource_complete(element, loaded);
 }

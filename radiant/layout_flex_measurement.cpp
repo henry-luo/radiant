@@ -1281,6 +1281,10 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
                         float child_v_margin = get_child_axis_margins(
                             lycon, child_view, false, child_margin_inline_base);
 
+                        if (!width_only && lycon && is_flex_container && !is_row_flex_container) {
+                            child_height = layout_child_intrinsic_height_contribution(
+                                lycon, c->as_element(), child_height, child_margin_inline_base, true);
+                        }
                         children.add_width(child_min_width, child_max_width, child_h_margin);
                         children.add_height(child_height, child_v_margin);
 

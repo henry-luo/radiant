@@ -364,7 +364,8 @@ void register_font_face(UiContext* uicon, FontFaceDescriptor* descriptor, bool h
     // Also register with FontContext so that font_resolve() can find @font-face
     // descriptors directly, without going through load_font_with_descriptors().
     if (uicon->font_ctx && descriptor->family_name) {
-        FontWeight fw = radiant_font_weight_from_css(descriptor->font_weight);
+        FontWeight fw = descriptor->font_weight == CSS_VALUE_AUTO
+            ? FONT_WEIGHT_AUTO : radiant_font_weight_from_css(descriptor->font_weight);
         FontSlant fs = radiant_font_slant_from_css(descriptor->font_style);
 
         // build sources array from descriptor's src_entries + src_local_path

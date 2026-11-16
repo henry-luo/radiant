@@ -39,6 +39,29 @@ static int radiant_stack_view_z_index(View* view) {
         element->positionp()->custom_layout_z_index : element->positionp()->z_index;
 }
 
+static bool radiant_stack_is_flex_grid_item(View* view) {
+    ViewElement* element = lam::view_as_element(view);
+    if (!element) return false;
+    DomElement::ParentItemKind kind = element->parent_item_kind();
+    if (kind != DomElement::PARENT_ITEM_FLEX && kind != DomElement::PARENT_ITEM_GRID) return false;
+    // authored item properties allocate storage even outside a flex/grid formatting context.
+    for (View* parent = view->parent; parent; parent = parent->parent) {
+        ViewElement* owner = lam::view_as_element(parent);
+        if (!owner || owner->display.outer == CSS_VALUE_CONTENTS) continue;
+        return !layout_view_is_out_of_flow_positioned(view) &&
+            (owner->display.inner == CSS_VALUE_FLEX || owner->display.inner == CSS_VALUE_GRID);
+    }
+    return false;
+}
+
+
+static bool radiant_stack_z_index_applies(View* view) {
+    ViewElement* element = lam::view_as_element(view);
+    // flex and grid items honor z-index without changing their authored positioning mode.
+    return element && element->position && (element->positionp()->position != CSS_VALUE_STATIC ||
+        radiant_stack_is_flex_grid_item(view));
+}
+
 bool radiant_stack_is_positive_z_positioned(View* view) {
     ViewElement* element = lam::view_as_element(view);
     if (element && element->position && element->positionp()->has_custom_layout_z_index) {
@@ -48,7 +71,7 @@ bool radiant_stack_is_positive_z_positioned(View* view) {
     }
     return element && element->position &&
         element->positionp()->z_index > 0 &&
-        element->positionp()->position != CSS_VALUE_STATIC;
+        radiant_stack_z_index_applies(view);
 }
 
 bool radiant_stack_is_out_of_flow_positioned(View* view) {
@@ -64,7 +87,7 @@ bool radiant_stack_is_deferred_from_normal_flow(View* view) {
 bool radiant_stack_is_negative_z_block(View* view) {
     ViewBlock* block = lam::view_as_block(view);
     return block && block->position && block->positionp()->z_index < 0 &&
-        block->positionp()->position != CSS_VALUE_STATIC;
+        radiant_stack_z_index_applies(view);
 }
 
 bool radiant_stack_is_context(View* view) {
@@ -83,10 +106,10 @@ bool radiant_stack_is_context(View* view) {
     if (clip && strncmp(clip, "none", 4) != 0) return true;
     const PositionProp* position = element->positionp();
     if (position->has_custom_layout_z_index ||
-        (position->position != CSS_VALUE_STATIC && (position->has_z_index || position->z_index != 0)) ||
+        (radiant_stack_z_index_applies(view) && (position->has_z_index || position->z_index != 0)) ||
         position->position == CSS_VALUE_FIXED || position->position == CSS_VALUE_STICKY) return true;
-    if (transform_has_functions(element->transform) ||
-        (element->transform && element->transformp()->perspective > 0.0f) ||
+    // preserve-3d and participating hidden backfaces establish the same context boundary as their containing block.
+    if (radiant::transform_establishes_containing_block(element) ||
         (element->in_line && (element->inl()->isolation == CSS_VALUE_ISOLATE || element->inl()->opacity < 0.9995f ||
             (element->inl()->mix_blend_mode && element->inl()->mix_blend_mode != CSS_VALUE_NORMAL))) ||
         element->filter_prop() || element->backdrop_filter_prop() ||
@@ -95,13 +118,6 @@ bool radiant_stack_is_context(View* view) {
     return block && ((block->blk && block->block()->contain_positioning) || block->custom_layout_paint_prop());
 }
 
-static bool radiant_stack_is_flex_grid_item(View* view) {
-    ViewElement* element = lam::view_as_element(view);
-    if (!element) return false;
-    // committed item membership already accounts for display:contents ancestry.
-    DomElement::ParentItemKind kind = element->parent_item_kind();
-    return kind == DomElement::PARENT_ITEM_FLEX || kind == DomElement::PARENT_ITEM_GRID;
-}
 
 bool radiant_stack_is_float(View* view) {
     ViewElement* element = lam::view_as_element(view);
@@ -258,8 +274,32 @@ bool radiant_stack_is_in_flow_positioned_step8(View* view) {
     // a custom layout sequences its own children (radiant_stack_collect_custom_layout_paint)
     if (position->has_custom_layout_z_index) return false;
     return (position->position == CSS_VALUE_RELATIVE ||
-            position->position == CSS_VALUE_STICKY) &&
+            position->position == CSS_VALUE_STICKY ||
+            (radiant_stack_is_flex_grid_item(view) && position->has_z_index)) &&
         position->z_index == 0;
+}
+
+bool radiant_stack_zero_layer_is_lifted(View* view) {
+    for (View* ancestor = view ? view->parent : nullptr; ancestor; ancestor = ancestor->parent) {
+        if (radiant_stack_is_context(ancestor)) return lam::view_as_block(ancestor) != nullptr;
+    }
+    return false;
+}
+
+static void radiant_stack_collect_zero_layers(View* first, ArrayList* out) {
+    for (View* view = first; view; view = view->next()) {
+        if (view->view_type == RDT_VIEW_NONE || radiant_stack_is_positive_z_positioned(view) ||
+            radiant_stack_is_negative_z_block(view)) continue;
+        if (radiant_stack_is_out_of_flow_positioned(view) || radiant_stack_is_in_flow_positioned_step8(view)) {
+            if (!arraylist_append(out, view)) {
+                log_warn("[RAD_STACK_ZERO] failed to grow context paint list");
+                return;
+            }
+        }
+        ViewElement* element = lam::view_as_element(view);
+        if (element && !view_contents_are_skipped(view) && !radiant_stack_is_context(view))
+            radiant_stack_collect_zero_layers(element->first_child, out);
+    }
 }
 
 static ViewBlock* radiant_stack_positioned_paint_owner(ViewBlock* child,
@@ -301,6 +341,18 @@ static void radiant_stack_collect_escaping_positioned(View* first, ViewBlock* ow
 
 ArrayList* radiant_stack_collect_positioned_children(ViewBlock* block, const char* log_prefix) {
     if (!block) return NULL;
+    if (!block->custom_layout_paint_prop()) {
+        if (radiant_stack_is_context(block)) {
+            // zero-level descendants share their real context even across ordinary wrappers (CSS E.2 step 8).
+            ArrayList* layers = arraylist_new(16);
+            if (!layers) return nullptr;
+            if (!view_contents_are_skipped(block)) radiant_stack_collect_zero_layers(block->first_child, layers);
+            if (!layers->length) { arraylist_free(layers); return nullptr; }
+            return layers;
+        }
+        // inline effect contexts retain their existing local traversal until they own block-layer collection.
+        if (radiant_stack_zero_layer_is_lifted(block)) return nullptr;
+    }
     bool has_in_flow = false;
     if (!block->custom_layout_paint_prop()) {
         for (View* child = block->first_child; child; child = child->next()) {

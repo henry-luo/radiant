@@ -4,6 +4,7 @@
 // Integrates with CSS parser, image loader, native font system, and SVG parser
 
 #include "resource_loaders.h"
+#include "resource_observer.hpp"
 #include "stylesheet_sync.hpp"
 #include "network_integration.h"
 #include "lambda/network/network_resource_manager.h"
@@ -96,8 +97,18 @@ void radiant_for_each_stylesheet_resource_url(CssStylesheet* sheet,
     radiant_for_each_css_declaration(sheet, visit_css_declaration_urls, &visit);
 }
 
+struct CssResourceCompletion {
+    NetworkResource* resource;
+    bool loaded = false;
+    ~CssResourceCompletion() {
+        // completion follows stylesheet publication and runs through the host's pinned task queue.
+        radiant_resource_complete(resource->owner_element, loaded);
+    }
+};
+
 void process_css_resource(NetworkResource* res, struct DomDocument* doc) {
     if (!res || (res->state != STATE_COMPLETED && res->state != STATE_CACHED) || !doc) return;
+    CssResourceCompletion completion{res};
 
     log_debug("network: processing CSS resource %s from %s", res->url, res->local_path);
 
@@ -106,12 +117,6 @@ void process_css_resource(NetworkResource* res, struct DomDocument* doc) {
     lam::Temp<char> css_content(read_file_to_string(res->local_path, &css_size));
     if (!css_content) {
         log_error("network: failed to read CSS file: %s", res->local_path);
-        return;
-    }
-    if (css_size == 0) {
-        // Empty stylesheets are valid CSS; treat them as no-op resources so
-        // zero-byte downloads do not surface as parser/read failures.
-        log_debug("network: skipping empty CSS resource: %s", res->url);
         return;
     }
 
@@ -166,6 +171,7 @@ void process_css_resource(NetworkResource* res, struct DomDocument* doc) {
         resource_manager_schedule_reflow(res->manager, doc->root);
     }
 
+    completion.loaded = true;
     log_debug("network: CSS resource processed successfully: %s", res->url);
 }
 
@@ -538,6 +544,7 @@ void handle_resource_failure(NetworkResource* res, struct DomDocument* doc) {
 
         case RESOURCE_CSS:
             log_warn("network: CSS load failed: %s (continuing without stylesheet)", res->url);
+            radiant_resource_complete(res->owner_element, false);
             // document continues rendering without this stylesheet
             // styles will use defaults or other available stylesheets
             break;

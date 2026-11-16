@@ -1226,26 +1226,10 @@ static void render_text_inline_background(RasterRenderContext* rdcon, ViewText* 
 
     if (bg_color && bg_color->a > 0) {
         if (bg_radius > 0) {
-            float r_left = bg_radius;
-            float r_right = bg_radius;
-            RdtPath* p = rdt_path_new();
-            float fx = bg_rect.x;
-            float fy = bg_rect.y;
-            float fw = bg_rect.width;
-            float fh = bg_rect.height;
-            rdt_path_move_to(p, fx + r_left, fy);
-            rdt_path_line_to(p, fx + fw - r_right, fy);
-            if (r_right > 0) rdt_path_cubic_to(p, fx + fw - r_right * 0.45f, fy, fx + fw, fy + r_right * 0.45f, fx + fw, fy + r_right);
-            else rdt_path_line_to(p, fx + fw, fy);
-            rdt_path_line_to(p, fx + fw, fy + fh - r_right);
-            if (r_right > 0) rdt_path_cubic_to(p, fx + fw, fy + fh - r_right * 0.45f, fx + fw - r_right * 0.45f, fy + fh, fx + fw - r_right, fy + fh);
-            else rdt_path_line_to(p, fx + fw, fy + fh);
-            rdt_path_line_to(p, fx + r_left, fy + fh);
-            if (r_left > 0) rdt_path_cubic_to(p, fx + r_left * 0.45f, fy + fh, fx, fy + fh - r_left * 0.45f, fx, fy + fh - r_left);
-            else rdt_path_line_to(p, fx, fy + fh);
-            rdt_path_line_to(p, fx, fy + r_left);
-            if (r_left > 0) rdt_path_cubic_to(p, fx, fy + r_left * 0.45f, fx + r_left * 0.45f, fy, fx + r_left, fy);
-            rdt_path_close(p);
+            // inline fragments need the same used-radius constraint as block backgrounds.
+            Corner corners = render_path_uniform_corner(bg_radius,bg_radius,bg_radius,bg_radius);
+            constrain_corner_radii(&corners,bg_rect.width,bg_rect.height);
+            RdtPath* p = render_path_create_rounded_rect(bg_rect,&corners);
             // the path is in the same local space as the glyphs; under a CSS transform an
             // identity fill drew the background away from its text (e.g. during fly-ins).
             rc_fill_path(rdcon, p, *bg_color, RDT_FILL_WINDING, render_state_current_transform(rdcon));

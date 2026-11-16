@@ -484,8 +484,11 @@ ClipShape* css_basic_shape_resolve(ScratchArena* scratch, ScratchMark* mem,
         float height = fmaxf(0.0f, elem_h - edges[0] - edges[2]);
         if (radius > 0.0f) {
             shape->type = CLIP_SHAPE_ROUNDED_RECT;
+            // normalize once so glyph scanlines and native hits use the same used radii as the vector path.
+            Corner corners = render_path_uniform_corner(radius, radius, radius, radius);
+            constrain_corner_radii(&corners, width, height);
             shape->rounded_rect = {abs_x + edges[3], abs_y + edges[0], width, height,
-                radius, radius, radius, radius};
+                corners.top_left, corners.top_right, corners.bottom_right, corners.bottom_left};
         } else {
             shape->type = CLIP_SHAPE_INSET;
             shape->inset = {abs_x + edges[3], abs_y + edges[0], width, height, 0, 0};

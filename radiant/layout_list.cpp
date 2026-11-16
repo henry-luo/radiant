@@ -960,7 +960,8 @@ bool layout_prepare_generated_effects(LayoutContext* context, DomNode* root) {
         if (!node->is_element()) return true;
         DomElement* element = node->as_element();
         const char* custom = custom_layout_name_for_element(element);
-        if (element->shadow_root_element() || (custom && custom[0])) return false;
+        // unknown markup aliases use ordinary flow; only an actual callback needs deferred effects.
+        if (element->shadow_root_element() || (custom && custom_layout_lookup(custom))) return false;
         // these producers materialize content on demand across relevance/containment passes.
         static const CssPropertyCode deferred[] = {CSS_PROPERTY_CONTENT_VISIBILITY,
             CSS_PROPERTY_CONTAIN_INTRINSIC_SIZE, CSS_PROPERTY_CONTAIN_INTRINSIC_WIDTH,
