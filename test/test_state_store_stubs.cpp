@@ -12,6 +12,9 @@ UiContext ui_context{};
 
 // This slice has no style resolver or layout view pool; unexpected use must fail.
 DisplayValue resolve_display_value(void*) { abort(); }
+bool css_prop_compute_declared_overflow(DomElement*, CssEnum*, CssEnum*) { abort(); }
+struct ViewNodeState;
+ViewNodeState* view_tree_node_state(ViewTree*, View*, bool) { abort(); }
 void view_tree_release_retired_subtree(ViewTree*, DomNode*) { abort(); }
 
 void radiant_event_host_sync_pseudo_state(View*, uint32_t, bool) {

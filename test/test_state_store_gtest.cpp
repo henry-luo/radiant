@@ -1349,3 +1349,106 @@ TEST_F(StateStoreDomMutationTest, PointerSelectionUsesNormalizedDragAnchor) {
     EXPECT_EQ(state()->editing.drag_anchor_offset, 0);
     state()->transition_depth--;
 }
+
+TEST(NativeEditingWithoutScriptHost, LineBoundariesIncludeAtomsAndStayOnTheWrappedLine) {
+    NativeInputDocument fixture;
+    DomDocument* document = fixture.document;
+    ASSERT_NE(document, nullptr);
+    DomElement* host = dom_create_backed_element_identity(document, "div", nullptr, false);
+    DomElement* paragraph = dom_create_backed_element_identity(document, "p", nullptr, false);
+    DomElement* leading = dom_create_backed_element_identity(document, "sup", nullptr, false);
+    DomElement* trailing = dom_create_backed_element_identity(document, "span", nullptr, false);
+    DomElement* other = dom_create_backed_element_identity(document, "p", nullptr, false);
+    ASSERT_TRUE(host && paragraph && leading && trailing && other);
+    document->root = lam::up(host);
+    host->view_type = paragraph->view_type = other->view_type = RDT_VIEW_BLOCK;
+    leading->view_type = trailing->view_type = RDT_VIEW_INLINE;
+    ASSERT_TRUE(host->set_attribute("contenteditable", "true"));
+    ASSERT_TRUE(leading->set_attribute("contenteditable", "false"));
+    ASSERT_TRUE(trailing->set_attribute("contenteditable", "false"));
+    ASSERT_TRUE(radiant_dom_insert_before_child(host, paragraph, nullptr, nullptr));
+    ASSERT_TRUE(radiant_dom_insert_before_child(host, other, nullptr, nullptr));
+    ASSERT_TRUE(radiant_dom_insert_before_child(paragraph, leading, nullptr, nullptr));
+    DomText* reference = leading->append_text("REF");
+    DomText* body = paragraph->append_text(" abcdef");
+    ASSERT_TRUE(radiant_dom_insert_before_child(paragraph, trailing, nullptr, nullptr));
+    DomText* tail = trailing->append_text("END");
+    DomText* elsewhere = other->append_text("Other block");
+    ASSERT_TRUE(reference && body && tail && elsewhere);
+    reference->view_type = body->view_type = tail->view_type = elsewhere->view_type = RDT_VIEW_TEXT;
+    TextRect ref_rect = {}, first = {}, second = {}, tail_rect = {}, other_rect = {};
+    ref_rect.height = first.height = second.height = tail_rect.height = other_rect.height = 12.0f;
+    ref_rect.width = first.width = second.width = tail_rect.width = other_rect.width = 30.0f;
+    ref_rect.y = -8.0f;  // superscript geometry differs while the line identity stays the same.
+    ref_rect.length = 3;
+    first.length = 4;
+    second.start_index = 4;
+    second.length = 3;
+    second.line_number = tail_rect.line_number = 1;
+    second.y = tail_rect.y = 20.0f;
+    tail_rect.length = 3;
+    other_rect.length = 11;
+    first.next = lam::own(&second);
+    reference->rect = lam::view_prop(&ref_rect);
+    body->rect = lam::view_prop(&first);
+    tail->rect = lam::view_prop(&tail_rect);
+    elsewhere->rect = lam::view_prop(&other_rect);
+    // an inline's opening cursor can precede the wrap of all its actual text.
+    leading->inline_line_number = trailing->inline_line_number = 0;
+
+    auto expect_edge = [&](DomBoundary from, bool end, DomNode* node, uint32_t offset) {
+        DomBoundary edge = {};
+        EXPECT_TRUE(dom_range_visual_line_boundary(from, end, &edge));
+        EXPECT_EQ(edge.node, node);
+        EXPECT_EQ(edge.offset, offset);
+    };
+    expect_edge({body, 2}, false, paragraph, 0);
+    expect_edge({body, 2}, true, body, 4);
+    expect_edge({body, 5}, false, body, 4);
+    expect_edge({body, 5}, true, paragraph, 3);
+    expect_edge({paragraph, 3}, false, body, 4);
+    expect_edge({paragraph, 3}, true, paragraph, 3);
+
+    StateStore* store = state_store_create(document);
+    ASSERT_NE(store, nullptr);
+    DocState* state = state_store_doc_state(store);
+    const char* exception = nullptr;
+    DomBoundary anchor = {body, 2};
+    ASSERT_TRUE(state_store_set_selection(state, &anchor, &anchor, &exception));
+    state->editing.selection_extending = true;
+    state_store_caret_move_to_boundary(state, 0);
+    DomBoundary focus = dom_selection_focus_boundary(state->dom_selection);
+    EXPECT_EQ(focus.node, paragraph);
+    EXPECT_EQ(focus.offset, 0u);
+    DomBoundary kept_anchor = dom_selection_anchor_boundary(state->dom_selection);
+    EXPECT_EQ(kept_anchor.node, body);
+    EXPECT_EQ(kept_anchor.offset, 2u);
+    state_store_caret_move_to_boundary(state, 1);
+    focus = dom_selection_focus_boundary(state->dom_selection);
+    EXPECT_EQ(focus.node, body);
+    EXPECT_EQ(focus.offset, 4u);
+    kept_anchor = dom_selection_anchor_boundary(state->dom_selection);
+    EXPECT_EQ(kept_anchor.node, body);
+    EXPECT_EQ(kept_anchor.offset, 2u);
+    DomElement* image_island = dom_create_backed_element_identity(document, "span", nullptr, false);
+    DomElement* image = dom_create_backed_element_identity(document, "img", nullptr, false);
+    ASSERT_TRUE(image_island && image);
+    ASSERT_TRUE(image_island->set_attribute("contenteditable", "false"));
+    ASSERT_TRUE(radiant_dom_insert_before_child(paragraph, image_island, nullptr, nullptr));
+    ASSERT_TRUE(radiant_dom_insert_before_child(image_island, image, nullptr, nullptr));
+    image_island->view_type = RDT_VIEW_INLINE;
+    image_island->inline_line_number = 0;
+    image->view_type = RDT_VIEW_INLINE_BLOCK;
+    image->inline_line_number = 1;
+    expect_edge({body, 5}, true, paragraph, 4);
+    expect_edge({paragraph, 4}, false, body, 4);
+    expect_edge({paragraph, 4}, true, paragraph, 4);
+
+    // a non-editable inline block's internal lines are not its parent's line numbers.
+    trailing->view_type = RDT_VIEW_INLINE_BLOCK;
+    trailing->inline_line_number = 1;
+    tail_rect.line_number = 0;
+    expect_edge({paragraph, 2}, false, body, 4);
+    expect_edge({paragraph, 2}, true, paragraph, 4);
+    state_store_destroy(document);
+}

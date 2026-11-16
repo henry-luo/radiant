@@ -6611,6 +6611,24 @@ static void state_store_show_caret(DocState* state) {
     }
 }
 
+static bool state_store_commit_caret_boundary(DocState* state,
+        DomBoundary boundary, const char* source) {
+    if (!state || !boundary.node) return false;
+    const char* exception = nullptr;
+    bool committed = state->editing.selection_extending
+        ? selection_extend_dom_to_focus(sync_ensure_selection(state), &boundary, &exception)
+        : state_store_set_selection(state, &boundary, &boundary, &exception);
+    if (!committed) {
+        log_debug("%s: canonical boundary rejected: %s", source, exception ? exception : "?");
+        return false;
+    }
+    if (!state->editing.selection_extending) state->editing.pointer_selecting = false;
+    state_store_show_caret(state);
+    state->selection_layout_dirty = true;
+    state->needs_repaint = true;
+    return true;
+}
+
 static bool state_store_commit_collapsed_caret(DocState* state,
                                                View* view,
                                                int char_offset,
@@ -6641,19 +6659,9 @@ static bool state_store_commit_collapsed_caret(DocState* state,
         state->needs_repaint = true;
         return true;
     }
-    DomBoundary boundary = boundary_from_view_offset(view, char_offset);
-    if (!boundary.node) return false;
-    const char* exc = NULL;
-    if (!state_store_set_selection(state, &boundary, &boundary, &exc)) {
-        log_debug("%s: canonical collapse rejected: %s",
-            source ? source : "state_store_commit_collapsed_caret",
-            exc ? exc : "?");
-        return false;
-    }
-    state->editing.pointer_selecting = false;
-    state_store_show_caret(state);
-    state->needs_repaint = true;
-    return true;
+    return state_store_commit_caret_boundary(state,
+        boundary_from_view_offset(view, char_offset),
+        source ? source : "state_store_commit_collapsed_caret");
 }
 
 typedef struct CaretNavigationPosition {
@@ -6843,6 +6851,15 @@ void state_store_caret_move_to_boundary(DocState* state, int where) {
     if (!state || !caret_get_position(state, &position.view, &position.char_offset)) return;
     CaretNavigationPosition* caret = &position;
     View* view = caret->view;
+    if ((where == 0 || where == 1) && !selection_is_text_control_view(view)) {
+        DomBoundary focus = dom_selection_focus_boundary(state->dom_selection);
+        DomBoundary edge = {};
+        if (dom_range_visual_line_boundary(focus, where == 1, &edge)) {
+            // keep parent/child boundaries around atoms instead of projecting them into their text.
+            state_store_commit_caret_boundary(state, edge, "caret_move_to");
+            return;
+        }
+    }
 
     // Handle text views with proper line/offset calculation
     if (view->is_text()) {

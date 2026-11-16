@@ -1782,6 +1782,12 @@ extern "C" {
 // that mutate the DOM should call `dom_range_invalidate_layout(range)` to
 // force a re-resolve.
 bool dom_range_resolve_layout(DomRange* range);
+// resolve a canonical boundary without discarding its text byte offset.
+bool dom_range_resolve_boundary(const DomBoundary* boundary, View** view,
+    int* byte_offset, float* x, float* y, float* height);
+// start/end of the current laid-out inline line, confined to its block/host.
+bool dom_range_visual_line_boundary(DomBoundary focus, bool end, DomBoundary* out);
+
 DomText* dom_range_next_text_after_any(DomNode* node);
 
 // Convenience: resolve the layout for the first range of `selection`.

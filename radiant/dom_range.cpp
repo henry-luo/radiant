@@ -3732,6 +3732,79 @@ static DomText* editing_host_line_edge_text(DomText* start,
     return best;
 }
 
+// line numbers, unlike text-box y positions, also cover superscripts and wrapped spans.
+static bool visual_line_edge_in_subtree(DomNode* node, ViewBlock* owner,
+        int line, bool end, DomNode* atom, DomBoundary* out, int* found_line = nullptr) {
+    if (!node || !node->view_type) return false;
+    bool found = false;
+    if (!atom && node_is_atomic_caret_stop(node)) atom = node;
+    // ordinary inline spans derive their lines from descendant fragments, not their opening cursor.
+    if (atom && node->is_block() &&
+            layout_nearest_block_ancestor(node->parent) == owner &&
+            node->inline_line_number >= 0 && (line < 0 || node->inline_line_number == line)) {
+        *out = end ? boundary_after_node(atom) : boundary_before_node(atom);
+        if (found_line) *found_line = node->inline_line_number;
+        found = true;
+        if (!end) return true;
+    }
+    if (node->is_text()) {
+        DomText* text = node->as_text();
+        if (layout_nearest_block_ancestor(node) != owner) return found;
+        for (TextRect* rect = text->rect; rect; rect = rect->next) {
+            if (rect->line_number < 0 || (line >= 0 && rect->line_number != line) || rect->height <= 0.0f) continue;
+            if (atom) *out = end ? boundary_after_node(atom) : boundary_before_node(atom);
+            else {
+                int byte = rect->start_index + (end ? rect->length : 0);
+                *out = {node, dom_text_utf8_to_utf16(text, byte)};
+            }
+            if (found_line) *found_line = rect->line_number;
+            found = true;
+            if (!end) return true;
+        }
+        return found;
+    }
+    if (!node->is_element()) return found;
+    for (DomNode* child = node->as_element()->first_child; child; child = child->next_sibling) {
+        bool child_found = visual_line_edge_in_subtree(child, owner, line, end, atom, out, found_line);
+        found = found || child_found;
+        if (child_found && !end) return true;
+    }
+    return found;
+}
+
+extern "C" bool dom_range_visual_line_boundary(DomBoundary focus,
+        bool end, DomBoundary* out) {
+    if (!out || !focus.node) return false;
+    View* view = nullptr;
+    int byte = 0;
+    if (!dom_range_resolve_boundary(&focus, &view, &byte, nullptr, nullptr, nullptr) || !view)
+        return false;
+    ViewBlock* owner = layout_nearest_block_ancestor(view->is_text() ? view : view->parent);
+    if (!owner) return false;
+    int line = view->inline_line_number;
+    if (view->is_text()) {
+        TextRect* rect = view_geometry_text_rect_for_offset(view->as_text(), byte, nullptr, false);
+        if (!rect) return false;
+        line = rect->line_number;
+    }
+    DomElement* host = editing_host_of(focus.node);
+    DomNode* atom = nullptr;
+    for (DomNode* current = view; current && current != host; current = current->parent)
+        if (node_is_atomic_caret_stop(current)) atom = current;
+    if (atom) {
+        // atomic inline contents can use another formatting context, or have no text at all.
+        owner = layout_nearest_block_ancestor(atom->parent);
+        DomBoundary after = boundary_after_node(atom), ignored = {};
+        DomBoundaryOrder order = dom_boundary_compare(&focus, &after);
+        bool trailing = order == DOM_BOUNDARY_EQUAL || order == DOM_BOUNDARY_AFTER;
+        if (!owner || !visual_line_edge_in_subtree(atom, owner, -1, trailing, atom, &ignored, &line))
+            return false;
+    }
+    if (line < 0) return false;
+    DomNode* scope = host && node_is_descendant_of(host, owner) ? host : owner;
+    return visual_line_edge_in_subtree(scope, owner, line, end, nullptr, out);
+}
+
 static DomBoundary editing_host_line_boundary(DomBoundary focus,
                                               DomElement* host,
                                               int edge_dir) {

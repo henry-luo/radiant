@@ -52,38 +52,21 @@ or consumer build dependency at the root. No stubs, vendor files, Radiant
 implementation or generated Makefiles were changed to bypass this failure.
 Evidence: `Lambda-opus/temp/js-parity-work/targeted-make-fixed.log`.
 
+**Partial repair, 2026-11-15:** the missing overflow and view-node-state
+services admitted full CSSOM/GUI providers into the isolated StateStore link.
+The test host now declares fail-fast stubs for those absent services; unexpected
+use still aborts rather than producing a fake result. The unchanged-source link
+comparison reproduces the old failure (`Lambda-opus/temp/edit-viewer/ri090/baseline-link.log`).
+The owner StateStore target now links and all 39 tests pass
+(`ri090/native-final.log`). The custom-layout target remains outside this
+repair, so RI-091 stays open until that separate boundary is qualified.
+
+
 <a id="ri-090"></a>
 
-### RI-090 — Home and End stop at text fragments beside inline atoms
+### RI-090 — FIXED
 
-**Status:** OPEN, reproduced 2026-11-15 against Lambda `e55450ec8` plus
-editor work and Radiant `4ec1e8c` plus the owner's worktree. **Lambda task
-blocker:** yes for reliable keyboard navigation at retained inline content in
-`lambda edit`. Radiant ownership is D9.1.1v4 / D9.1.3v2; editor selection and
-document editing are D10.2.1 / D9.3.4.
-
-From the Lambda checkout run:
-
-```
-./lambda.exe view temp/edit-viewer/caret-edge-repro.html --headless --event-file temp/edit-viewer/caret-edge-repro.json
-```
-
-The plain contenteditable page has a non-editable inline `REF` before the
-first text run of one paragraph and after the last text run of another. After
-clicking `begins.`, Home then typing `Start ` yields `REFStart  begins.`
-instead of `Start REF begins.`. After clicking `Ends`, End then typing
-` tail` yields `Ends  tailREF` instead of `Ends REF tail`. Both assertions
-fail independently of `lambda.editor`; see `caret-edge-repro.log` in the same
-directory. The editor regression `test/ui/edit/edit_md_footnote_edges.json`
-reproduces the same placement around retained Markdown footnote references.
-
-`state_store_caret_move_to_boundary` in `radiant/state_store.cpp` handles
-line start/end using only the current `ViewText`'s `TextRect` offsets. This
-explains why an adjacent inline element and other text views on the same
-visual line are not reached. Resolve the boundary across the laid-out visual
-line while respecting non-editable content and wrapped lines; retain the
-normal selection-extension semantics. No Radiant implementation or reference
-was changed by this report.
+See the [fixed record](<Radiant_Issue_Ledger (fixed).md#ri-090>).
 
 
 <a id="ri-089"></a>

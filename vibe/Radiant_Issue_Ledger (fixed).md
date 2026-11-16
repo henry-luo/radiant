@@ -14,6 +14,65 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-090"></a>
+
+### RI-090 — Home and End stop at text fragments beside inline atoms
+
+**Status:** FIXED, 2026-11-15. The user explicitly authorized the owner-side
+repairs from the Lambda editing task.
+
+**Repair and verification:** Home/End now resolves the full laid-out line
+using block-local line numbers, including superscripts, wrapped inline spans,
+retained images and inline blocks. Ordinary spans use descendant fragments
+rather than their opening cursor. Atomic formatting contexts use the parent's
+line identity and retain canonical parent/child boundaries outside the atom.
+StateStore extends the canonical selection while preserving its anchor; the
+Lambda controller no longer repeats that extension through a text projection
+(D10.2.1).
+
+The original footnote replay fails 1/3 assertions before repair and passes
+afterward. New native image/inline-block controls also fail before their repair
+and pass afterward; all 39 StateStore tests pass. Evidence under
+`Lambda-opus/temp/edit-viewer/ri090/`: `before.log`, `box-before.log`,
+`native-final.log` and `focused.log`. The complete Lambda editor selection
+passes 209/209 UI fixtures, including Shift+Home/End around retained references.
+Three existing fixtures assumed fragment-local navigation; their setup now
+uses character movement to reach the same intended edit positions, retaining
+their formatting/delete/undo assertions. No layout reference or tolerance was
+changed. Final aggregate gates are recorded in the Lambda implementation plan.
+
+**Original report:**
+
+**Original status:** OPEN, reproduced 2026-11-15 against Lambda `e55450ec8` plus
+editor work and Radiant `4ec1e8c` plus the owner's worktree. **Lambda task
+blocker:** yes for reliable keyboard navigation at retained inline content in
+`lambda edit`. Radiant ownership is D9.1.1v4 / D9.1.3v2; editor selection and
+document editing are D10.2.1 / D9.3.4.
+
+From the Lambda checkout run:
+
+```
+./lambda.exe view temp/edit-viewer/caret-edge-repro.html --headless --event-file temp/edit-viewer/caret-edge-repro.json
+```
+
+The plain contenteditable page has a non-editable inline `REF` before the
+first text run of one paragraph and after the last text run of another. After
+clicking `begins.`, Home then typing `Start ` yields `REFStart  begins.`
+instead of `Start REF begins.`. After clicking `Ends`, End then typing
+` tail` yields `Ends  tailREF` instead of `Ends REF tail`. Both assertions
+fail independently of `lambda.editor`; see `caret-edge-repro.log` in the same
+directory. The editor regression `test/ui/edit/edit_md_footnote_edges.json`
+reproduces the same placement around retained Markdown footnote references.
+
+`state_store_caret_move_to_boundary` in `radiant/state_store.cpp` handles
+line start/end using only the current `ViewText`'s `TextRect` offsets. This
+explains why an adjacent inline element and other text views on the same
+visual line are not reached. Resolve the boundary across the laid-out visual
+line while respecting non-editable content and wrapped lines; retain the
+normal selection-extension semantics. No Radiant implementation or reference
+was changed by this report.
+
+
 <a id="ri-089"></a>
 
 ### RI-089 — Min-content minimum widens floated intrinsic contribution boxes

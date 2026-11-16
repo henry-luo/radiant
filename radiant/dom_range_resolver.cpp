@@ -384,7 +384,7 @@ static bool resolve_next_inline_neighbor_edge(DomNode* node,
 // Map a (DomNode, UTF-16 offset) boundary to (View*, byte_offset, x, y, h)
 // in absolute CSS coordinates. Returns false if the boundary cannot be
 // resolved (no layout, non-text element with no children, etc.).
-static bool resolve_boundary(const DomBoundary* b,
+extern "C" bool dom_range_resolve_boundary(const DomBoundary* b,
                              View** out_view, int* out_byte,
                              float* out_x, float* out_y, float* out_h) {
     if (!b || !b->node) return false;
@@ -456,8 +456,8 @@ extern "C" bool dom_range_resolve_layout(DomRange* range) {
     int sb = 0, eb = 0;
     float sx = 0, sy = 0, sh = 0, ex = 0, ey = 0, eh = 0;
 
-    bool ok_s = resolve_boundary(&range->start, &sv, &sb, &sx, &sy, &sh);
-    bool ok_e = resolve_boundary(&range->end,   &ev, &eb, &ex, &ey, &eh);
+    bool ok_s = dom_range_resolve_boundary(&range->start, &sv, &sb, &sx, &sy, &sh);
+    bool ok_e = dom_range_resolve_boundary(&range->end,   &ev, &eb, &ex, &ey, &eh);
     if (!ok_s || !ok_e) {
         log_debug("[DOM-RESOLVE] range %u: resolve failed (start=%d, end=%d)",
                   range->id, ok_s, ok_e);
