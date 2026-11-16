@@ -14,6 +14,40 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-093"></a>
+
+### RI-093 — Assigned grid/flex float contexts misplaced or omitted exclusions
+
+**Status:** FIXED, 2026-11-16. **Task blocker:** blocked delivery of the CSS
+Shapes visual page until corrected. Native layout ownership is D9.1.1v4 /
+D9.1.3v2; pass-local contours retain D5.5.1 lifetime. No design ruling changes.
+
+**Reproduction and cause:** render `test/html/css_shapes_visual.html` at
+1120 by 1500 pixels. Shaped floats overlapped text inside offset grid cards.
+In the reduced grid case, first text x was 98.2804 instead of Chromium's 153.
+`block_context_offset_to_bfc` already returned BFC-border-relative positions;
+`block_context_update_float_geometry` subtracted the assigned context's
+parent-space origin again. Rectangular floats shared the incorrect frame.
+A corresponding horizontal flex item produced x=63 rather than 153 because
+its ordinary flow content inherited a float context instead of initializing
+the item's independent formatting context.
+
+**Repair and verification:** float margin boxes now retain the BFC border
+frame used by exclusion queries. Ordinary horizontal flex items initialize
+the existing assigned block context, as vertical items already did. Five
+native regressions cover offset ordinary flow, grid and flex plus rectangular
+controls. The test's text-position helper uses the existing canonical
+block-document conversion; Chromium captures independently confirm the grid
+and flex expectations. All 21 integration cases and 14 geometry cases pass.
+All 51 runnable native suites pass 1,063 tests with one skip; RI-091's two
+failed test links and RI-092's existing static layout mismatch remain visible.
+
+Evidence under `temp/css-shapes/`: `visual-before-offset-fix.png`, `visual.png`,
+`offset-before.log`, `offset-diag.log`, `offset-after.log`,
+`flex-offset-final.log`, `browser-offset/offset-grid.json`,
+`browser-offset-flex/offset-flex.json`, `native-suites/results.json` and
+`layout-final-visual-baseline.log`. No reference or tolerance was changed.
+
 <a id="ri-090"></a>
 
 ### RI-090 — Home and End stop at text fragments beside inline atoms

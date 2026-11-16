@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Radiant CSS Shapes visual test</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body { background: #eef2f5; color: #243344; font: 15px/1.5 Arial, sans-serif; }
+    main { width: 1040px; margin: 0 auto; padding: 36px 0; }
+    .eyebrow { color: #147d78; font-size: 12px; font-weight: bold; letter-spacing: 2px; }
+    h1 { margin: 8px 0; font-size: 32px; line-height: 1.2; }
+    .intro { margin: 0 0 24px; color: #526171; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    article { padding: 22px; border: 1px solid #d8e1e7; border-radius: 12px; background: white; }
+    h2 { margin: 0 0 5px; font-size: 18px; line-height: 1.3; }
+    code { display: block; color: #526171; font: 12px/18px monospace; }
+    .sample { display: flow-root; margin-top: 16px; font: 16px/24px Georgia, serif; }
+    .float { float: left; width: 110px; height: 110px; margin: 0 16px 12px 0; background: #43aaa0; shape-margin: 8px; }
+    .round { border-radius: 50%; }
+    .circle { shape-outside: circle(50%) border-box; }
+    .ellipse { width: 130px; height: 100px; border-radius: 50%; background: #8b84c4; shape-outside: ellipse(50% 50%) border-box; }
+    .triangle { width: 120px; height: 130px; background: #e7a354; clip-path: polygon(0 0, 100% 50%, 0 100%); shape-outside: polygon(0 0, 100% 50%, 0 100%) border-box; }
+    .inset { background: #d88090; clip-path: inset(8px round 24px); shape-outside: inset(8px round 24px) border-box; }
+    .wide-margin { margin-right: 30px; margin-bottom: 28px; shape-margin: 24px; }
+    .alpha { width: 120px; height: 120px; background: transparent; shape-outside: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAABCAYAAAD5PA/NAAAAFUlEQVR4nGNwXrXgPxAvA2IfIGYAAEq2CCaTdBH3AAAAAElFTkSuQmCC'); }
+    .low { shape-image-threshold: 0.2; }
+    .high { shape-image-threshold: 0.8; }
+    footer { margin-top: 22px; color: #526171; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">RADIANT / VISUAL TEST</div>
+    <h1>Text around CSS shapes</h1>
+    <p class="intro">Compare each text contour. The colored floats keep their dimensions; the wrapping boundary changes. Examples use an 8px shape margin unless noted.</p>
+    <div class="grid">
+      <article>
+        <h2>1. Rectangular wrapping</h2>
+        <code>shape-outside: none</code>
+        <div class="sample"><div class="float round"></div>The circle is painted inside a rectangular float. Every line beside it begins at the same edge. Compare this with the next example: the visible circle is the same size, while the shape used for wrapping follows its curved boundary. More words continue below the float when the paragraph is long enough.</div>
+      </article>
+      <article>
+        <h2>2. Circle</h2>
+        <code>shape-outside: circle(50%) border-box</code>
+        <div class="sample"><div class="float round circle"></div>The text follows the circular boundary. Lines near the top and bottom move closer to the center, while lines across the middle leave more room for the circle. The shape margin adds a small gap between the contour and the text. More words continue below the float when the paragraph is long enough.</div>
+      </article>
+      <article>
+        <h2>3. Ellipse</h2>
+        <code>shape-outside: ellipse(50% 50%) border-box</code>
+        <div class="sample"><div class="float ellipse"></div>An ellipse has different horizontal and vertical radii. The available line width follows that oval over the full height of each line. Look for the gradual change in the left edge of this paragraph. The text returns to the full column width once the float and its margin have ended.</div>
+      </article>
+      <article>
+        <h2>4. Polygon</h2>
+        <code>shape-outside: polygon(0 0, 100% 50%, 0 100%) border-box</code>
+        <div class="sample"><div class="float triangle"></div>This triangular contour points into the paragraph. Lines become shorter toward the middle and become longer again below the point. Its painted outline uses the same polygon coordinates, so the relationship between the shape and the text is easy to inspect. The final lines use the full width.</div>
+      </article>
+      <article>
+        <h2>5. Rounded inset</h2>
+        <code>shape-outside: inset(8px round 24px) border-box</code>
+        <div class="sample"><div class="float inset"></div>The inset moves the contour inward from the float's border box, and rounding softens its corners. The text follows that smaller rounded rectangle. The painted shape uses the same inset and radius. Observe the first line near the rounded corner and the later lines along the straight edge.</div>
+      </article>
+      <article>
+        <h2>6. Larger shape margin</h2>
+        <code>shape-outside: circle(50%) border-box; shape-margin: 24px</code>
+        <div class="sample"><div class="float round circle wide-margin"></div>The circle is the same size as example two, with a larger shape margin. The paragraph should keep a wider curved gap around it. Ordinary margins provide room for that expansion because a shape contour is clipped to the float's margin box. The text continues below the expanded contour.</div>
+      </article>
+      <article>
+        <h2>7. Image alpha: low threshold</h2>
+        <code>shape-outside: url(...); shape-image-threshold: 0.2</code>
+        <div class="sample"><img class="float alpha low" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAABCAYAAAD5PA/NAAAAFUlEQVR4nGNwXrXgPxAvA2IfIGYAAEq2CCaTdBH3AAAAAElFTkSuQmCC" alt="Three bands with decreasing opacity">The image contains three bands with decreasing opacity, followed by a transparent band. At this low threshold, all three visible bands contribute to the wrapping boundary. The text leaves room for most of the image. Compare its starting edge with the higher threshold in the next example.</div>
+      </article>
+      <article>
+        <h2>8. Image alpha: high threshold</h2>
+        <code>shape-outside: url(...); shape-image-threshold: 0.8</code>
+        <div class="sample"><img class="float alpha high" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAABCAYAAAD5PA/NAAAAFUlEQVR4nGNwXrXgPxAvA2IfIGYAAEq2CCaTdBH3AAAAAElFTkSuQmCC" alt="Three bands with decreasing opacity">Only the opaque band exceeds this threshold. The text can move into the space occupied by the faint bands, which remain visible underneath it. The image itself has the same size and pixels as example seven. This demonstrates how the threshold changes wrapping without changing the painted image.</div>
+      </article>
+    </div>
+    <footer>Open this file in Radiant and a browser to compare. This page is self-contained and needs no scripts or network resources.</footer>
+  </main>
+</body>
+</html>

@@ -4110,6 +4110,9 @@ typedef struct RenderClipScope {
 } RenderClipScope;
 
 const char* render_clip_css_value(ViewElement* view);
+ClipShape* css_basic_shape_resolve(ScratchArena* scratch, ScratchMark* mem,
+    DomElement* owner, const CssValue* value, float width, float height,
+    float x, float y, float unit_scale);
 bool render_clip_legacy_geometry(ViewBlock* block, Bound* clip);
 RenderClipScope render_clip_push_legacy_scope(RasterRenderContext* context, ViewBlock* block,
     float parent_x, float parent_y, float scale);

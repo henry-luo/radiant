@@ -457,7 +457,7 @@ static bool render_clip_resolve_radius(DomElement* owner, const CssValue* value,
     return *radius >= 0.0f;
 }
 
-static ClipShape* render_clip_parse_resolved_shape(ScratchArena* scratch, ScratchMark* mem,
+ClipShape* css_basic_shape_resolve(ScratchArena* scratch, ScratchMark* mem,
         DomElement* owner, const CssValue* value, float elem_w, float elem_h,
         float abs_x, float abs_y, float unit_scale) {
     if (!value || value->type != CSS_VALUE_TYPE_FUNCTION || !value->data.function) return nullptr;
@@ -515,12 +515,15 @@ static ClipShape* render_clip_parse_resolved_shape(ScratchArena* scratch, Scratc
         return shape;
     }
     if (strcmp(function->name, "polygon") == 0 && function->arg_count >= 3) {
-        int count = function->arg_count;
+        int first = render_clip_word(function->args[0], "evenodd") ||
+            render_clip_word(function->args[0], "nonzero") ? 1 : 0;
+        int count = function->arg_count - first;
+        if (count < 3) return nullptr;
         float* x = (float*)scratch_scope_alloc(scratch, mem, (size_t)count * sizeof(float));
         float* y = (float*)scratch_scope_alloc(scratch, mem, (size_t)count * sizeof(float));
         if (!x || !y) return nullptr;
         for (int i = 0; i < count; i++) {
-            ClipComponents point = {function->args[i]};
+            ClipComponents point = {function->args[i + first]};
             if (point.count() != 2 || !render_clip_resolve_length(owner, point.at(0), elem_w, unit_scale, &x[i]) ||
                 !render_clip_resolve_length(owner, point.at(1), elem_h, unit_scale, &y[i])) return nullptr;
             x[i] += abs_x; y[i] += abs_y;
@@ -542,7 +545,7 @@ static ClipShape* render_clip_parse_css_shape(ScratchArena* scratch, ScratchMark
     if (!pool) return nullptr;
     // keep substituted syntax temporary; only resolved coordinates enter the clip scope.
     const CssValue* value = css_resolve_element_var_value(pool, owner, declaration->value, CSS_PROPERTY_CLIP_PATH);
-    ClipShape* shape = render_clip_parse_resolved_shape(scratch, mem, owner, value,
+    ClipShape* shape = css_basic_shape_resolve(scratch, mem, owner, value,
         elem_w, elem_h, abs_x, abs_y, scale * layout_effective_zoom(owner));
     pool_destroy(pool);
     return shape;

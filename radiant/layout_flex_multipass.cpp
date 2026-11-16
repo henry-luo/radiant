@@ -1370,7 +1370,10 @@ static void layout_flex_item_content_pass(LayoutContext* lycon, ViewBlock* flex_
         flex_item_writing_mode == WM_VERTICAL_RL;
     bool canonical_vertical_flow = flex_item_vertical && !use_multicol_flex_path &&
         (flex_item->display.inner == CSS_VALUE_FLOW || flex_item->display.inner == CSS_VALUE_FLOW_ROOT);
-    if (canonical_vertical_flow) {
+    bool canonical_horizontal_flow = !flex_item_vertical && !use_multicol_flex_path &&
+        (flex_item->display.inner == CSS_VALUE_FLOW || flex_item->display.inner == CSS_VALUE_FLOW_ROOT);
+    if (canonical_vertical_flow || canonical_horizontal_flow) {
+        // ordinary flex items own an independent formatting context, including their float exclusions.
         layout_setup_assigned_block_context(lycon, flex_item, &saved_context.block, content_width, content_height);
     } else if (flex_item_vertical && flex_item->display.inner != CSS_VALUE_FLEX) {
         // nested flex resolves physical axes itself; only surrogate flow needs the content-axis swap.

@@ -2041,7 +2041,7 @@ void update_line_for_bfc_floats(LayoutContext* lycon, float query_height) {
     lycon->line.float_query_height = effective_height;
 
     FloatAvailableSpace space = block_context_space_at_y(bfc, current_y_bfc, effective_height,
-        query_height <= 0.0f);
+        query_height <= 0.0f, false, 0.0f, true);
 
     float local_space_left = space.left - offset_x;
     float local_space_right = space.right - offset_x;

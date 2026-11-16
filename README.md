@@ -31,6 +31,24 @@ On macOS, `make test-native-closure` force-loads the complete Radiant and input 
 `make test-navigation-cli LAMBDA_HOST=../Lambda/lambda.exe` checks startup fragment navigation and timer retention. Its layout cases use `radiant.exe`; its view cases use the selected Lambda host because the standalone executable does not provide `view`. The native build and baseline do not require the external executable. Replay inputs, results and logs stay under `temp/navigation-cli/`.
 
 
+## CSS Shapes
+
+Horizontal floats support `shape-outside` basic shapes and rounded reference
+boxes, `shape-margin` and alpha contours from local/data raster images using
+`shape-image-threshold`. Retained style changes rebuild the contours. Float
+placement, `clear` and independent block avoidance retain margin-box geometry.
+Remote CORS admission, vertical/fragmented contours, gradient images and broader
+shape grammar remain extensions. See the [implementation and qualification
+record](vibe/impl/Radiant_Impl_CSS_Shapes.md) for the admitted scope and limits.
+
+The self-contained [visual test page](test/html/css_shapes_visual.html) compares
+rectangular wrapping, circles, ellipses, polygons, rounded insets, shape margins
+and two image-alpha thresholds. Render it with:
+
+```sh
+./radiant.exe render test/html/css_shapes_visual.html -o temp/css-shapes/visual.png --viewport-width 1120 --viewport-height 1500
+```
+
 ## Paged fragmentation qualification
 
 `make build/test/test_paged_fragmentation_gtest` builds owner-local paging

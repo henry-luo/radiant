@@ -121,6 +121,9 @@ bool css_prop_compute_numeric_value(DomElement* element, const CssValue* value, 
 // used shape/geometry consumers supply their own percentage reference.
 bool css_prop_compute_numeric_value(DomElement* element, const CssValue* value,
     CssMathResult* result, float percentage_base);
+// native consumers finish their borrow before temporary substituted values are released.
+bool css_prop_consume_cascaded_value(DomElement* element, CssPropertyCode id,
+    bool (*consume)(DomElement*, const CssValue*, int, void*), void* result);
 // declaration computation supplies factors when the applied item record is absent.
 bool css_prop_compute_declared_flex_factor(DomElement* element, CssPropertyCode id, float* result);
 bool css_prop_compute_declared_flex_basis(DomElement* element, CssFlexBasisValue* result);

@@ -5835,7 +5835,7 @@ void prescan_and_layout_floats(LayoutContext* lycon, DomNode* first_child, ViewB
         // CSS 2.1 §9.5: a line inside a negatively offset run-in uses its
         // local inline origin when testing the shared BFC's float intrusion.
         FloatAvailableSpace space = block_context_space_at_y(
-            bfc, query_y, line_height, false, false, bfc_x_offset);
+            bfc, query_y, line_height, false, false, bfc_x_offset, true);
         if (space.has_left_float) {
             float local_left = space.left - bfc_x_offset;
             if (local_left > lycon->line.effective_left) {
@@ -6194,7 +6194,7 @@ void layout_block_inner_content(LayoutContext* lycon, ViewBlock* block,
                         if (bfc && (bfc->left_float_count > 0 || bfc->right_float_count > 0)) {
                             float bfc_y = lycon->block.bfc_offset_y + lycon->block.advance_y;
                             float line_h = lycon->block.line_height > 0 ? lycon->block.line_height : 16.0f;
-                            FloatAvailableSpace space = block_context_space_at_y(bfc, bfc_y, line_h);
+                            FloatAvailableSpace space = block_context_space_at_y(bfc, bfc_y, line_h, false, false, 0.0f, true);
                             if (space.has_left_float) {
                                 float float_left = space.left - lycon->block.bfc_offset_x;
                                 float target = float_left + lycon->block.text_indent;
@@ -7428,7 +7428,7 @@ static void adjust_current_line_after_same_line_float(BlockContext* pa_block, Li
     if (float_side != CSS_VALUE_LEFT && float_side != CSS_VALUE_RIGHT) return;
     float line_height = pa_block->line_height > 0 ? pa_block->line_height : 16.0f;
     float query_y = pa_block->bfc_offset_y + pa_block->advance_y;
-    FloatAvailableSpace space = block_context_space_at_y(bfc, query_y, line_height);
+    FloatAvailableSpace space = block_context_space_at_y(bfc, query_y, line_height, false, false, 0.0f, true);
     if (float_side == CSS_VALUE_LEFT && !space.has_left_float) return;
     if (float_side == CSS_VALUE_RIGHT && !space.has_right_float) return;
     float local_left = space.has_left_float
@@ -7486,7 +7486,7 @@ float find_line_y_for_width_with_floats(BlockContext* bfc, BlockContext* block_c
     float y_bfc = block_ctx->bfc_offset_y + min_local_y;
     int max_iterations = 100;
     while (max_iterations-- > 0) {
-        FloatAvailableSpace space = block_context_space_at_y(bfc, y_bfc, query_height);
+        FloatAvailableSpace space = block_context_space_at_y(bfc, y_bfc, query_height, false, false, 0.0f, true);
         float local_left = max(space.left - block_ctx->bfc_offset_x, line->left);
         float local_right = min(space.right - block_ctx->bfc_offset_x, line->right);
         // text-indent occupies the shortened line after the float edge.
@@ -9671,10 +9671,10 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
         layout_float_element(lycon, block, minimum_margin_block_start);
         BlockContext* bfc = block_context_find_bfc(pa_block);
         if (bfc) {
-            block_context_add_float(bfc, block);
+            block_context_add_float(bfc, block, lycon);
             adjust_current_line_after_same_line_float(pa_block, pa_line, bfc, block);
         } else {
-            block_context_add_float(pa_block, block);
+            block_context_add_float(pa_block, block, lycon);
             adjust_current_line_after_same_line_float(pa_block, pa_line, pa_block, block);
         }
     }

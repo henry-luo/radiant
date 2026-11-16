@@ -1,0 +1,14 @@
+<!doctype html><html><head><style>html,body{margin:0}#flow{width:300px;font:20px/20px monospace}#float{float:left;width:100px;height:100px;shape-outside:circle(50%)}</style></head><body><div id='flow'><div id='float'></div><span id='text'>abc</span></div><p id='result'>SHAPES_JS_NOT_RUN</p><script>
+const f = document.getElementById('float');
+const text = document.getElementById('text');
+const before = text.getBoundingClientRect().left;
+f.style.shapeOutside = 'inset(0 50% 0 0)';
+f.style.shapeMargin = '10px';
+f.style.shapeImageThreshold = '75%';
+const after = text.getBoundingClientRect().left;
+const style = getComputedStyle(f);
+const gap = style.shapeMargin;
+const threshold = style.shapeImageThreshold;
+const pass = Math.abs(before - 90) < .05 && Math.abs(after - 60) < .05 && gap === '10px' && threshold === '0.75';
+document.getElementById('result').textContent = pass ? 'SHAPES_JS_PASS' : 'SHAPES_JS_FAIL:' + JSON.stringify([before, after, gap, threshold]);
+</script></body></html>

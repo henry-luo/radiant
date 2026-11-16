@@ -11,6 +11,7 @@
  */
 
 #include "layout.hpp"
+#include "shape_exclusion.hpp"
 #include "lambda/core/well_known_markup_names.h"
 #include "lib/log.h"
 #include "lib/memtrack.h"
@@ -425,6 +426,7 @@ FloatBox* block_context_alloc_float_box(BlockContext* ctx) {
 static void block_context_update_float_geometry(BlockContext* ctx, FloatBox* box) {
     if (!ctx || !box || !box->element) return;
 
+    float previous_left = box->margin_box_left, previous_top = box->margin_box_top;
     ViewBlock* float_elem = box->element;
     ViewBlock* flow = layout_nearest_block_ancestor(float_elem->parent_view());
     LayoutFloatMetrics metrics = layout_float_metrics(float_elem, flow);
@@ -441,13 +443,16 @@ static void block_context_update_float_geometry(BlockContext* ctx, FloatBox* box
     float bfc_x = bfc_offset.x;
     float bfc_y = bfc_offset.y;
 
-    box->margin_box_left = bfc_x - margin.left - ctx->origin_x;
-    box->margin_box_top = bfc_y - margin.top - ctx->origin_y;
-    box->margin_box_right = bfc_x + metrics.inline_size + margin.right - ctx->origin_x;
-    box->margin_box_bottom = bfc_y + metrics.block_size + margin.bottom - ctx->origin_y;
+    // offset_to_bfc already uses the border frame shared by line and placement queries;
+    // assigned grid/flex contexts also carry a parent-space origin, which must not be subtracted.
+    box->margin_box_left = bfc_x - margin.left;
+    box->margin_box_top = bfc_y - margin.top;
+    box->margin_box_right = bfc_x + metrics.inline_size + margin.right;
+    box->margin_box_bottom = bfc_y + metrics.block_size + margin.bottom;
+    shape_float_offset(box, box->margin_box_left - previous_left, box->margin_box_top - previous_top);
 }
 
-void block_context_add_float(BlockContext* ctx, ViewBlock* float_elem) {
+void block_context_add_float(BlockContext* ctx, ViewBlock* float_elem, LayoutContext* layout) {
     if (!float_elem || !float_elem->position) return;
 
     CssEnum side = float_elem->positionp()->float_prop;
@@ -463,6 +468,7 @@ void block_context_add_float(BlockContext* ctx, ViewBlock* float_elem) {
     box->next = nullptr;
 
     block_context_update_float_geometry(ctx, box);
+    shape_float_build(layout, ctx, box);
 
     log_debug("[BlockContext] Add float: margin_box=(%.1f,%.1f,%.1f,%.1f)",
               box->margin_box_left, box->margin_box_top,
@@ -521,7 +527,8 @@ void block_context_refresh_descendant_float_geometry(BlockContext* ctx,
 FloatAvailableSpace block_context_space_at_y(BlockContext* ctx, float y, float height,
                                               bool line_query,
                                               bool float_placement_query,
-                                              float horizontal_offset) {
+                                              float horizontal_offset,
+                                              bool shape_query) {
     FloatAvailableSpace space;
     space.left = ctx->float_left_edge + horizontal_offset;
     space.right = ctx->float_right_edge + horizontal_offset;
@@ -544,8 +551,10 @@ FloatAvailableSpace block_context_space_at_y(BlockContext* ctx, float y, float h
         bool intersects = float_intersects_y_range(fb, y_top, y_bottom, float_placement_query) &&
             !(line_query && fb->initial_letter_clearance && fb->margin_box_top > y_top);
         if (intersects) {
-            if (fb->margin_box_right > space.left) {
-                space.left = fb->margin_box_right;
+            float left = fb->margin_box_left, right = fb->margin_box_right;
+            if ((line_query || shape_query) && fb->shape_contour && !shape_float_band(fb, y_top, y_bottom, &left, &right)) continue;
+            if (right > space.left) {
+                space.left = right;
                 space.has_left_float = true;
             }
         }
@@ -556,8 +565,10 @@ FloatAvailableSpace block_context_space_at_y(BlockContext* ctx, float y, float h
         bool intersects = float_intersects_y_range(fb, y_top, y_bottom, float_placement_query) &&
             !(line_query && fb->initial_letter_clearance && fb->margin_box_top > y_top);
         if (intersects) {
-            if (fb->margin_box_left < space.right) {
-                space.right = fb->margin_box_left;
+            float left = fb->margin_box_left, right = fb->margin_box_right;
+            if ((line_query || shape_query) && fb->shape_contour && !shape_float_band(fb, y_top, y_bottom, &left, &right)) continue;
+            if (left < space.right) {
+                space.right = left;
                 space.has_right_float = true;
             }
         }

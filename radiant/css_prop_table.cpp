@@ -472,8 +472,10 @@ static bool format_css_value(DomElement* element, CssPropertyCode id,
         const char* keywords[] = {"normal", "size", "inline-size", "scroll-state"};
         return format_keyword_set(value, out, keywords, sizeof(keywords) / sizeof(*keywords));
     }
-    if (id == CSS_PROPERTY_OPACITY)
+    if (id == CSS_PROPERTY_OPACITY || id == CSS_PROPERTY_SHAPE_IMAGE_THRESHOLD)
         return format_cssom_scalar_value(element, value, out, pseudo_type, css_compute_opacity_result);
+    if (id == CSS_PROPERTY_SHAPE_MARGIN)
+        return format_cssom_length_value(element, value, out, pseudo_type);
     if (id == CSS_PROPERTY_FLEX_GROW || id == CSS_PROPERTY_FLEX_SHRINK)
         return format_cssom_scalar_value(element, value, out, pseudo_type, css_compute_nonnegative_number_result);
     if (id == CSS_PROPERTY_FLEX_BASIS && value->type != CSS_VALUE_TYPE_KEYWORD)
@@ -711,6 +713,13 @@ static bool consume_cascaded_value(DomElement* element, CssPropertyCode id,
 bool css_prop_serialize_cascaded_value(DomElement* element, CssPropertyCode id,
         int pseudo_type, StringBuf* out, bool preserve_color_model) {
     return consume_cascaded_value(element, id, pseudo_type, out, preserve_color_model, nullptr);
+}
+
+bool css_prop_consume_cascaded_value(DomElement* element, CssPropertyCode id,
+        bool (*consume)(DomElement*, const CssValue*, int, void*), void* result) {
+    if (!consume) return false;
+    CssomValueTarget target = {consume, result};
+    return consume_cascaded_value(element, id, 0, nullptr, false, &target);
 }
 
 static bool cssom_consume_keyword(DomElement*, const CssValue* value, int, void* result) {
@@ -2198,6 +2207,9 @@ static bool serialize_contain_intrinsic(const CssPropAccessor* accessor, DomElem
 #define DECL_ROW(prop_id) DERIVED_ROW(prop_id, serialize_decl, 0)
 
 static const CssPropAccessor CSS_PROP_ROWS[] = {
+    DECL_ROW(CSS_PROPERTY_SHAPE_OUTSIDE),
+    DECL_ROW(CSS_PROPERTY_SHAPE_MARGIN),
+    DECL_ROW(CSS_PROPERTY_SHAPE_IMAGE_THRESHOLD),
     DERIVED_ROW(CSS_PROPERTY_CONTAIN_INTRINSIC_SIZE, serialize_contain_intrinsic, CSS_PROP_ACCESSOR_CASCADE_RESOLVED | CSS_PROP_ACCESSOR_PSEUDO_RESOLVED),
     DERIVED_ROW(CSS_PROPERTY_CONTAIN_INTRINSIC_WIDTH, serialize_contain_intrinsic, CSS_PROP_ACCESSOR_CASCADE_RESOLVED | CSS_PROP_ACCESSOR_PSEUDO_RESOLVED),
     DERIVED_ROW(CSS_PROPERTY_CONTAIN_INTRINSIC_HEIGHT, serialize_contain_intrinsic, CSS_PROP_ACCESSOR_CASCADE_RESOLVED | CSS_PROP_ACCESSOR_PSEUDO_RESOLVED),

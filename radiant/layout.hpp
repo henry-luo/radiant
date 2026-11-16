@@ -2426,6 +2426,7 @@ void layout_multicol_content(LayoutContext* lycon, ViewBlock* block);
 // tier-3: layout-transient, valid within pass
 typedef struct FloatBox {
     lam::Up<ViewBlock> element;
+    lam::Up<struct ShapeFloatContour> shape_contour;
     float margin_box_top;
     float margin_box_bottom;
     float margin_box_left;
@@ -4641,7 +4642,7 @@ bool layout_block_is_viewport_body(ViewBlock* block);
 /**
  * Add a positioned float to the BlockContext
  */
-void block_context_add_float(BlockContext* ctx, ViewBlock* float_elem);
+void block_context_add_float(BlockContext* ctx, ViewBlock* float_elem, LayoutContext* layout = nullptr);
 void block_context_refresh_descendant_float_geometry(BlockContext* ctx,
                                                      ViewElement* ancestor);
 // recompute the cached lowest edge after existing float boxes are translated.
@@ -4662,12 +4663,15 @@ void block_context_recompute_lowest_float_bottom(BlockContext* ctx);
  *                              candidate top even for a zero-height float.
  * @param horizontal_offset Translate returned bounds into a caller-local
  *                          inline coordinate system whose origin is in BFC space.
+ * @param shape_query Apply shape contours without changing the initial-letter
+ *                    policy selected by line_query for a tall pending inline.
  * @return Available space bounds adjusted for floats
  */
 FloatAvailableSpace block_context_space_at_y(BlockContext* ctx, float y, float height,
                                               bool line_query = false,
                                               bool float_placement_query = false,
-                                              float horizontal_offset = 0.0f);
+                                              float horizontal_offset = 0.0f,
+                                              bool shape_query = false);
 // Return the next lower edge of any float strictly below the candidate Y.
 // Float-avoidance and positioned static placement share this boundary rule.
 float block_context_next_float_boundary(BlockContext* ctx, float y);
