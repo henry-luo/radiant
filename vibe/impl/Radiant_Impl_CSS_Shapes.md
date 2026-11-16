@@ -15,14 +15,14 @@ uses the existing declaration-owner walk. Invalid declarations cannot displace
 an earlier valid declaration. Thresholds accept numbers and percentages and
 clamp to [0,1]; pixels must exceed the threshold to contribute to the contour.
 
-Horizontal left/right floats support circles, ellipses, insets, polygons and
+Left/right floats in horizontal, vertical and sideways flow support circles, ellipses, insets, polygons and
 margin/border/padding/content reference boxes. Box shapes include border-radius
 curvature, including asymmetric elliptical corners. Basic shapes reuse the
 parsed/substituted geometry resolver used by clip-path. Shape margins expand
 contours by Euclidean distance; percentages use the containing block's
-established content width, before its measured content_width is published.
+established inline size, before its measured content dimensions are published.
 
-Local and data URL raster images produce alpha-derived outer row bounds at
+Local and data URL raster/SVG images and generated gradients produce alpha-derived outer row bounds at
 their used content-box size. The layout pass copies these rows; no borrowed
 pixel pointer escapes image decoding. A retained style change rebuilds the
 contour, including threshold and margin changes. Image-set selection uses the
@@ -130,14 +130,85 @@ consume the shared configuration again; select the pinned host for this evidence
 
 ## Remaining coverage
 
-Vertical/sideways float contours, initial-letter shapes, fragmented and paged
-contour continuation, geometry animation, generated/gradient image contours,
-SVG/animated image semantics and remote image CORS admission are not qualified
-by this increment. HTTP(S) alpha extraction is refused until the resource
-provider supplies CORS admission. Basic inset rounding retains the shared
-clip resolver's uniform-radius profile; complete four-corner/slash rounding,
-path()/shape()/rect()/xywh() grammars and fully computed basic-shape CSSOM
-serialization remain extensions. Complex concave polygons crossing the margin
-box and exhaustive negative-margin/degenerate cases require further comparison.
+Initial-letter shapes, fragmented and paged contour continuation, geometry
+animation, animated-image semantics and remote image CORS admission remain
+unqualified. HTTP(S) alpha extraction is refused until the resource provider
+supplies CORS admission. Inset float contours preserve four-corner elliptical
+slash radii; the shared ClipShape paint representation still uses circular
+per-corner radii. Extended path()/shape()/rect()/xywh() grammar and fully
+computed basic-shape CSSOM serialization remain extensions. The 294-case WPT
+result does not establish exhaustive coverage of complex concave polygons,
+negative margins or degenerate shapes.
 
 Specification: https://www.w3.org/TR/css-shapes-1/.
+
+
+## WPT follow-up (2026-11-16)
+
+The complete `wpt-css-shapes` corpus passes 294/294. RI-094 is resolved.
+Ownership remains D9.1.1v4 / D9.1.3v2; copied contour rows retain D5.5.1
+pass-local lifetime. This follow-up changes no formal ruling.
+
+The current-source control ran 194/294. Repairs keep atomic inlines out of
+block-level margin-box avoidance, retain an explicitly zero line strut, and
+restore the old line's float band before a taller pending atomic wraps.
+SVG resources use the existing shared rasterizer before copying alpha rows.
+Line-fit search checks interior contour openings in flow order. The common
+part of candidate line bands bounds the best available width, allowing
+impossible intervals to be pruned without assuming monotone concave contours.
+Rectangular float placement and independent BFC avoidance retain margin boxes.
+
+At 242/294, the user requested recording the 242 perfect passes in
+`../lambda-test/layout/data/wpt-css-shapes/baseline.txt` before continuing.
+The continuation maps physical shapes, corners and alpha rows into vertical
+and sideways flow coordinates, measures atomic bands along the parent's block
+axis, preserves four-corner elliptical inset geometry, and uses shared gradient
+resolution and pixel sampling for generated contours. Input's validator now
+admits these images through its existing supported-image predicate (LI-066).
+An empty line can release its previous provisional float advance when its
+actual band does not intersect the contour. Refresh and prescan use the same
+local query origin, including negative block offsets. Float-only inline
+wrappers retain their font box beside visible siblings; empty WBR spans retain
+their prior geometry.
+
+The Lambda consumer selects its own executable explicitly; its stale check
+includes sibling source and the exact linked debug archives. The shared runner
+propagates unscored suite failures in normal mode. A missing local Radiant
+executable previously produced 294 spawn errors while returning success. The
+old Lambda executable also predated Shapes, producing 81/294 passes; that stale
+binary is not the control for the native repairs.
+
+Of the final 52 cases, 47 required engine repairs. Two stale gradient references
+(010 and 016) were replaced only after independent Chromium capture and explicit
+user approval. Three border/padding/content-box-003 standards controls were
+added with separate explicit approval, preserving their ordinary captures.
+Chromium clamps a 20px shape-margin line query to the 10px reference-box height;
+analytic full-band tests and equivalent inset-outline captures establish the
+expected geometry. The controls carry source hashes and capture provenance.
+No tolerance, comparison or scored baseline threshold was weakened.
+
+Final qualification in `../Lambda-opus/temp/wpt-css-shapes/`:
+
+- `make layout suite=wpt-css-shapes`: 294/294, including all 242 originally
+  recorded baseline entries (`completed-suite-final.log`).
+- Native geometry: 16/16 (`native-geometry-final.log`); integration and float
+  queries: 30/30 (`native-integration-final.log`). Before logs retain the
+  reproduced atomic, line-band, SVG, interval-search and phantom-span failures.
+- Shared unscored gate: 6/6 (`gate-final.log`). Reference-control provenance,
+  invalidation, precedence and strict comparison tests pass
+  (`reference-tests-final.log`). Layout integer-cast lint passes.
+- Input CSS parser: 117/117. Input full baseline: 5,312 passes and three skips
+  across 109 executables (`input-baseline-continuation.log`).
+- Configured Lambda layout baseline: 5,631 passes, 293 accepted partials,
+  12 skips and no failures (`completed-layout-baseline-results.txt`).
+- Owner aggregate retains RI-091's duplicate-provider test link failure and
+  RI-092's existing static flex mismatch. The static corpus has 3,850 passes,
+  one failure and six skips; scripted layout passes 630/630
+  (`completed-owner-baseline.log`, `completed-static-baseline.log`). These
+  unrelated failures remain visible.
+
+The repaired host is `../Lambda-opus/lambda.exe`, linked from that checkout's
+current debug runtime/adapters and this checkout's debug archive. Source,
+archive, reference and executable hashes are in `completion-provenance.json`.
+The earlier pinned host in `temp/css-shapes/current-host/` describes the initial
+bounded implementation and does not include these follow-up changes.

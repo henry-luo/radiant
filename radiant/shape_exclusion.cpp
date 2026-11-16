@@ -195,29 +195,32 @@ bool shape_exclusion_box_band(const Rect& rect, const Corner* radius,
 }
 
 bool shape_exclusion_alpha_rows(const ImagePixelView* image, float threshold,
-        ShapeImageRow* rows, size_t capacity) {
+        ShapeImageRow* rows, size_t capacity, bool transpose, bool reverse_x, bool reverse_y) {
     if (!image || !rows || !image->pixels || !image->width || !image->height ||
-        capacity < image->height || !isfinite(threshold) ||
+        capacity < (transpose ? image->width : image->height) || !isfinite(threshold) ||
         (image->channels != 1 && image->channels != 3 && image->channels != 4) ||
         image->width > SIZE_MAX / image->channels) return false;
     size_t row_bytes = (size_t)image->width * image->channels;
     if (image->stride < row_bytes || image->capacity < row_bytes ||
         image->height - 1 > (image->capacity - row_bytes) / image->stride) return false;
     threshold = fminf(fmaxf(threshold, 0.0f), 1.0f);
-    float width = (float)image->width;
-    for (size_t source_y = 0; source_y < image->height; source_y++) {
-        const uint8_t* source = image->pixels + source_y * image->stride;
+    uint32_t width = transpose ? image->height : image->width;
+    uint32_t height = transpose ? image->width : image->height;
+    for (uint32_t y = 0; y < height; y++) {
         ShapeImageRow row = {1.0f, 0.0f};
-        for (uint32_t source_x = 0; source_x < image->width; source_x++) {
+        for (uint32_t x = 0; x < width; x++) {
+            uint32_t u = reverse_x ? width - x - 1 : x, v = reverse_y ? height - y - 1 : y;
+            uint32_t source_x = transpose ? v : u, source_y = transpose ? u : v;
+            const uint8_t* source = image->pixels + (size_t)source_y * image->stride;
             float alpha = image->channels == 4
                 ? source[(size_t)source_x * 4 + 3] / 255.0f : 1.0f;
             if (!(alpha > threshold)) continue;
-            float start = (float)source_x / width;
-            float end = (float)(source_x + 1) / width;
+            float start = (float)x / (float)width;
+            float end = (float)(x + 1) / (float)width;
             row.left = fminf(row.left, start);
             row.right = fmaxf(row.right, end);
         }
-        rows[source_y] = row;
+        rows[y] = row;
     }
     return true;
 }

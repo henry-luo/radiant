@@ -250,7 +250,8 @@ static lam::Temp<RdtGradientStop> background_repeat_linear_stops(
 
 static void gradient_image_sample_pixels(uint32_t* pixels, int width, int height, int stride,
         float density, float cx, float cy, float rx, float ry, float from,
-        bool conic, bool repeating, const RdtGradientStop* stops, int count) {
+        bool conic, bool repeating, const RdtGradientStop* stops, int count,
+        const RadiantGradientLine* linear = nullptr) {
     // radial repeats wrap in used length space, avoiding cancellation around coincident px stops.
     float stop_scale = conic ? 1.0f : rx;
     float first = stops[0].offset * stop_scale, period = stops[count - 1].offset * stop_scale - first;
@@ -259,8 +260,10 @@ static void gradient_image_sample_pixels(uint32_t* pixels, int width, int height
         for (int column = 0; column < width; column++) {
             float dx = (float)column / density - cx;
             float dy = (float)row / density - cy;
-            float position = conic
-                ? math_wrap_positive_f(atan2f(dy, dx) - from, math_tau_f()) / math_tau_f()
+            float position = linear && rx > 0.0f
+                ? (((float)column / density - linear->x1) * (linear->x2 - linear->x1) +
+                   ((float)row / density - linear->y1) * (linear->y2 - linear->y1)) / rx
+                : conic ? math_wrap_positive_f(atan2f(dy, dx) - from, math_tau_f()) / math_tau_f()
                 : rx > 0.0f && ry > 0.0f ? hypotf(dx, dy * (rx / ry)) : rx;
             if (repeating && period > 0.0f)
                 position = first + math_wrap_positive_f(position - first, period);
@@ -272,28 +275,39 @@ static void gradient_image_sample_pixels(uint32_t* pixels, int width, int height
     }
 }
 
-static bool gradient_image_record_pixels(PaintList* paint, const ListStyleImage* image,
-        Rect rect, float density, const RdtGradientStop* stops, int count,
-        const RdtMatrix* transform) {
+static ImageSurface* gradient_image_create_surface(const ListStyleImage* image,
+        Rect rect, float density, const RdtGradientStop* stops, int count) {
     float pixel_width = ceilf(rect.width * density);
     float pixel_height = ceilf(rect.height * density);
     size_t bytes;
-    if (!render_surface_allocation_size(pixel_width, pixel_height, &bytes)) return false;
+    if (!render_surface_allocation_size(pixel_width, pixel_height, &bytes)) return nullptr;
     // INT_CAST_OK: the checked sample extents index a raster image buffer.
     int width = (int)pixel_width, height = (int)pixel_height;
     ImageSurface* surface = image_surface_create(width, height);
-    if (!surface) return false;
+    if (!surface) return nullptr;
+    const LinearGradient* linear = image->linear_gradient;
     const ConicGradient* conic = image->conic_gradient;
     const RadialGradient* radial = image->radial_gradient;
+    RadiantGradientLine line = linear ? radiant_linear_gradient_line({0, 0, rect.width, rect.height},
+        radiant_linear_gradient_used_angle(linear, rect)) : RadiantGradientLine{};
     RadiantRadialGeometry geometry = radial ? radiant_radial_gradient_geometry(radial, rect)
         : RadiantRadialGeometry{};
     RadiantGradientCenter center = conic ? radiant_gradient_center(conic, rect)
         : RadiantGradientCenter{geometry.cx, geometry.cy};
     float cx = center.x - rect.x, cy = center.y - rect.y;
     float from = conic ? math_degrees_to_radians(conic->from_angle - 90.0f) : 0.0f;
-    bool repeating = conic ? conic->is_repeating : radial->is_repeating;
+    bool repeating = linear ? linear->is_repeating : conic ? conic->is_repeating : radial->is_repeating;
     gradient_image_sample_pixels((uint32_t*)surface->pixels, width, height, surface->pitch / 4,
-        density, cx, cy, geometry.rx, geometry.ry, from, conic != nullptr, repeating, stops, count);
+        density, cx, cy, linear ? hypotf(line.x2 - line.x1, line.y2 - line.y1) : geometry.rx,
+        geometry.ry, from, conic != nullptr, repeating, stops, count, linear ? &line : nullptr);
+    return surface;
+}
+
+static bool gradient_image_record_pixels(PaintList* paint, const ListStyleImage* image,
+        Rect rect, float density, const RdtGradientStop* stops, int count,
+        const RdtMatrix* transform) {
+    ImageSurface* surface = gradient_image_create_surface(image, rect, density, stops, count);
+    if (!surface) return false;
     int index = paint_list_count(paint);
     // semantic commands own generated pixels until every deferred lowerer has consumed them.
     paint_draw_image_resource(paint, surface, rect.x, rect.y, rect.width, rect.height,
@@ -330,6 +344,28 @@ static GradientImageParts gradient_image_parts(const ListStyleImage* image) {
     parts.count = parts.linear ? parts.linear->stop_count : parts.radial ? parts.radial->stop_count : parts.conic ? parts.conic->stop_count : 0;
     return parts;
 }
+
+static float gradient_image_used_length(const GradientImageParts& parts, Rect rect) {
+    if (parts.linear) {
+        RadiantGradientLine line = radiant_linear_gradient_line(rect,
+            radiant_linear_gradient_used_angle(parts.linear, rect));
+        return hypotf(line.x2 - line.x1, line.y2 - line.y1);
+    }
+    return parts.radial ? radiant_radial_gradient_geometry(parts.radial, rect).rx : 1.0f;
+}
+
+ImageSurface* render_gradient_image_rasterize(const ListStyleImage* image, Rect rect, float density) {
+    if (!image || !(density > 0.0f) || !isfinite(density) ||
+        !(rect.width > 0.0f) || !(rect.height > 0.0f)) return nullptr;
+    GradientImageParts parts = gradient_image_parts(image);
+    if (!parts.stops || parts.count < 2) return nullptr;
+    float length = gradient_image_used_length(parts, rect);
+    lam::Temp<RdtGradientStop> stops = lam::temp_array<RdtGradientStop>((size_t)parts.count, MEM_CAT_RENDER);
+    if (!stops || !render_copy_gradient_stops(parts.stops, parts.count, length,
+            stops.get(), parts.count, nullptr)) return nullptr;
+    return gradient_image_create_surface(image, rect, density, stops.get(), parts.count);
+}
+
 
 static bool gradient_interval_is_uniform(const RdtGradientStop* stops, int count,
         float first, float last, Color* color) {
@@ -443,7 +479,7 @@ static bool gradient_image_record_shape(PaintList* paint, const ListStyleImage* 
         radiant_linear_gradient_used_angle(linear, rect)) : RadiantGradientLine{};
     RadiantRadialGeometry geometry = radial ? radiant_radial_gradient_geometry(radial, rect)
         : RadiantRadialGeometry{};
-    float length = linear ? hypotf(line.x2 - line.x1, line.y2 - line.y1) : radial ? geometry.rx : 1.0f;
+    float length = gradient_image_used_length(parts, rect);
     lam::Temp<RdtGradientStop> stops = lam::temp_array<RdtGradientStop>((size_t)count, MEM_CAT_RENDER);
     if (!stops || !render_copy_gradient_stops(source, count, length, stops.get(), count, nullptr)) return false;
     if (conic || (radial && radial->is_repeating)) {

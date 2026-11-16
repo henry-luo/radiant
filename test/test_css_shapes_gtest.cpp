@@ -201,3 +201,30 @@ TEST(CssShapes, RoundedInsetDegenerateHeightStillExpandsWithMargin) {
     EXPECT_NEAR(left, -sqrtf(75.0f), 0.0001f);
     EXPECT_NEAR(right, 100.0f + sqrtf(75.0f), 0.0001f);
 }
+
+TEST(CssShapes, AlphaRowsMapPhysicalPixelsToReversedVerticalAxes) {
+    uint8_t bytes[] = {
+        0,0,0,255, 0,0,0,0,
+        0,0,0,0, 0,0,0,255,
+        0,0,0,0, 0,0,0,0
+    };
+    ImagePixelView image = {bytes, sizeof(bytes), 8, 2, 3, 4, false};
+    ShapeImageRow rows[2];
+    EXPECT_FALSE(shape_exclusion_alpha_rows(&image, 0.0f, rows, 1, true, true, true));
+    ASSERT_TRUE(shape_exclusion_alpha_rows(&image, 0.0f, rows, 2, true, true, true));
+    EXPECT_FLOAT_EQ(rows[0].left, 1.0f / 3.0f);
+    EXPECT_FLOAT_EQ(rows[0].right, 2.0f / 3.0f);
+    EXPECT_FLOAT_EQ(rows[1].left, 2.0f / 3.0f);
+    EXPECT_FLOAT_EQ(rows[1].right, 1.0f);
+}
+
+TEST(CssShapes, ShapeMarginQueriesTheWholeLineEvenWhenTheReferenceBoxIsShorter) {
+    Rect rect = {150.0f, 95.0f, 15.0f, 10.0f};
+    Corner radius = {};
+    float left, right;
+    ASSERT_TRUE(shape_exclusion_box_band(rect, &radius, 20.0f, 40.0f, 70.0f, &left, &right));
+    // the line bottom is 55px above the rectangle, so its distance offset reaches sqrt(70^2-55^2).
+    EXPECT_NEAR(left, 150.0f - sqrtf(70.0f * 70.0f - 55.0f * 55.0f), 0.0001f);
+    ASSERT_TRUE(shape_exclusion_box_band(rect, &radius, 20.0f, 30.0f, 70.0f, &left, &right));
+    EXPECT_NEAR(left, 150.0f - sqrtf(70.0f * 70.0f - 65.0f * 65.0f), 0.0001f);
+}

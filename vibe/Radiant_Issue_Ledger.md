@@ -20,6 +20,13 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-094"></a>
+
+### RI-094 — FIXED
+
+CSS Shapes WPT coverage now passes all 294 cases. See the
+[repair and scoped reference approvals](<Radiant_Issue_Ledger (fixed).md#ri-094>).
+
 <a id="ri-093"></a>
 
 ### RI-093 — FIXED

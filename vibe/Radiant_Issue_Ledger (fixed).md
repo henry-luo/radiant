@@ -14,6 +14,62 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-094"></a>
+
+### RI-094 — CSS Shapes WPT contour and inline wrapping failures
+
+**Status:** FIXED, 2026-11-16. **Task blocker:** resolved for
+`make layout suite=wpt-css-shapes`. Native ownership is D9.1.1v4 /
+D9.1.3v2; copied image rows retain D5.5.1 pass-local ownership. No formal
+ruling changes.
+
+**Reproduction and repair:** the current-source control passed 194/294.
+Atomic inlines incorrectly entered block-level float avoidance; taller pending
+boxes contaminated the preceding line band; explicitly zero struts became
+16px; SVG resources lacked alpha rasterization; and line searches skipped
+interior contour openings. Fixing these causes reached 242/294. The user then
+requested saving those 242 passing names in the suite's `baseline.txt` and
+continuing the remaining 52.
+
+The continuation maps physical contours and alpha rows into vertical/sideways
+flow axes, uses the parent's block-axis atomic extent, preserves all four
+elliptical inset corners, rasterizes generated gradients through shared image
+resolution and sampling, releases stale provisional line advances, and restores
+the font box of float-only inline wrappers beside visible atomic content.
+Input's independent gradient admission repair is
+[LI-066](../../lambda-input/vibe/Lib_Input_Issue_Ledger.md#li-066).
+Float refresh now uses the same local query origin as prescan; the negative
+origin regression covers ordinary rectangular floats as well. Font-box repair
+requires out-of-flow descendants, preserving empty WBR span positions.
+
+**Reference evidence and approval:** 47 of the remaining cases were repaired
+in the engine. The user separately approved replacing only gradient references
+010 and 016 after independent Chromium captures proved stale float positions
+and overlapping text in the saved captures. The user also approved three
+`.standards.json` controls for border/padding/content-box-003; their ordinary
+captures remain intact. Chromium's `ExcludedSegment` clamps a 20px query to the
+10px reference height. Analytic full-band geometry and equivalent inset-outline
+browser captures establish the standards expectations. Each control records its
+stylesheet, CSS specification, reason, source hash and browser. Comparisons and
+tolerances are unchanged.
+
+**Verification:** the exact Shapes command passes 294/294 and the original
+242 baseline entries pass. Geometry passes 16/16; integration/query tests pass
+30/30. Shared unscored-gate tests pass 6/6; reference-control tests and layout
+integer-cast lint pass. The 18 configured Lambda layout suites pass 5,631 cases
+plus 293 accepted partials, with 12 skips and no failures. The separate static
+corpus has 3,850 passes, six skips and only RI-092's existing flex mismatch.
+The owner aggregate retains RI-091's duplicate-provider test link failure;
+scripted layout passes 630/630.
+
+Evidence: `../Lambda-opus/temp/wpt-css-shapes/completed-suite-final.log`,
+`completed-layout-baseline-results.txt`, `completed-static-baseline.log`,
+`completed-owner-baseline.log`, `native-integration-final.log`,
+`native-geometry-final.log`, `reference-repair-provenance.json`,
+`reference-repair-proof.json`, `margin-control-proof.json`, the independent
+capture directories and `completion-provenance.json`. See the
+[implementation qualification](impl/Radiant_Impl_CSS_Shapes.md#wpt-follow-up-2026-11-16).
+
 <a id="ri-093"></a>
 
 ### RI-093 — Assigned grid/flex float contexts misplaced or omitted exclusions

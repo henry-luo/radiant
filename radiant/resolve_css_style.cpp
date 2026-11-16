@@ -1511,7 +1511,7 @@ const char* css_select_font_shorthand_family(LayoutContext* lycon,
     return combined ? combined : first;
 }
 
-static bool css_value_is_slash(const CssValue* value) {
+bool css_value_is_slash(const CssValue* value) {
     return value && value->type == CSS_VALUE_TYPE_CUSTOM && value->data.custom_property.name &&
            strcmp(value->data.custom_property.name, "/") == 0;
 }
@@ -2250,14 +2250,8 @@ static bool expand_border_radius_values(LayoutContext* lycon, int prop_id, CssVa
             return false;
         }
     }
-    static const uint8_t expansion[4][4] = {
-        {0, 0, 0, 0},
-        {0, 1, 0, 1},
-        {0, 1, 2, 1},
-        {0, 1, 2, 3},
-    };
     for (int corner = 0; corner < 4; corner++) {
-        uint8_t source = expansion[count - 1][corner];
+        int source = layout_four_value_index(count, corner);
         out_radius[corner] = parsed[source];
         out_percent[corner] = parsed_percent[source];
         out_expression[corner] = parsed_expression[source];
@@ -6296,6 +6290,29 @@ const CssValue* layout_list_style_longhand(const CssValue* value, CssPropertyCod
     return image ? image : css_value_create_keyword(pool, "none");
 }
 
+bool layout_resolve_gradient_image(LayoutContext* lycon, const CssValue* value, ListStyleImage* result) {
+    if (!result) return false;
+    GradientType gradient_type = css_background_gradient_type(value);
+    if (gradient_type == GRADIENT_NONE) return false;
+
+    LinearGradient* linear = nullptr;
+    RadialGradient* radial = nullptr;
+    ConicGradient* conic = nullptr;
+    bool resolved = gradient_type == GRADIENT_LINEAR
+        ? resolve_linear_gradient_value(lycon, value, &linear)
+        : gradient_type == GRADIENT_RADIAL
+            ? resolve_radial_gradient_value(lycon, value, &radial)
+            : resolve_conic_gradient_value(lycon, value, &conic);
+    if (!resolved) return false;
+    ListStyleImage image = {};
+    image.gradient_type = gradient_type;
+    image.linear_gradient = lam::shared(linear);
+    image.radial_gradient = lam::shared(radial);
+    image.conic_gradient = lam::shared(conic);
+    *result = image;
+    return true;
+}
+
 static bool css_store_list_style_image(LayoutContext* lycon, ViewSpan* span,
                                        const CssDeclaration* decl, const CssValue* value) {
     CssImageChoice choice = {};
@@ -6316,25 +6333,8 @@ static bool css_store_list_style_image(LayoutContext* lycon, ViewSpan* span,
         return true;
     }
 
-    GradientType gradient_type = css_background_gradient_type(value);
-    if (gradient_type == GRADIENT_NONE) return false;
-
-    LinearGradient* linear = nullptr;
-    RadialGradient* radial = nullptr;
-    ConicGradient* conic = nullptr;
-    bool resolved = gradient_type == GRADIENT_LINEAR
-        ? resolve_linear_gradient_value(lycon, value, &linear)
-        : gradient_type == GRADIENT_RADIAL
-            ? resolve_radial_gradient_value(lycon, value, &radial)
-            : resolve_conic_gradient_value(lycon, value, &conic);
-    if (!resolved) return false;
     ListStyleImage image = {};
-    image.gradient_type = gradient_type;
-    image.linear_gradient = lam::shared(linear);
-    image.radial_gradient = lam::shared(radial);
-    image.conic_gradient = lam::shared(conic);
-    // CSS Images gradients have no intrinsic dimensions; retain the resolved
-    // image so list markers can apply the image-marker default object size.
+    if (!layout_resolve_gradient_image(lycon, value, &image)) return false;
     span->blk->list_style_image = image;
     return true;
 }

@@ -4110,6 +4110,8 @@ typedef struct RenderClipScope {
 } RenderClipScope;
 
 const char* render_clip_css_value(ViewElement* view);
+bool css_basic_shape_inset_geometry(DomElement* owner, const CssValue* value,
+    float width, float height, float x, float y, float unit_scale, Rect* rect, Corner* radius);
 ClipShape* css_basic_shape_resolve(ScratchArena* scratch, ScratchMark* mem,
     DomElement* owner, const CssValue* value, float width, float height,
     float x, float y, float unit_scale);
@@ -4357,6 +4359,7 @@ void render_background(RasterRenderContext* rdcon, ViewBlock* view, Rect rect, b
 bool render_paint_background(PaintList* paint, UiContext* ui, ViewBlock* view, Rect rect,
                              RenderExportTargetKind target);
 bool render_paint_background_requires_composite(const BackgroundProp* background, RenderExportTargetKind target);
+ImageSurface* render_gradient_image_rasterize(const ListStyleImage* image, Rect rect, float density);
 bool render_paint_gradient_image(PaintList* paint, const ListStyleImage* image, Rect rect,
                                 float pixel_ratio, const RdtMatrix* transform = nullptr,
                                 bool image_sampling = false);
