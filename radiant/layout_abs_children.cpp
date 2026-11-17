@@ -41,12 +41,11 @@ void layout_absolute_children_in_context(LayoutContext* lycon, ViewBlock* contai
     AbsStaticContext* ctx) {
     if (!lycon || !container || !ctx) return;
 
-    // positioned children follow the same box-tree flattening as flex/grid items.
-    ScratchScope scope(&lycon->scratch);
+    // the scope owns the flattened list through recursive child layout.
     int capacity = layout_count_flattened_item_nodes(container, false);
     if (capacity <= 0) return;
-    DomNode** nodes = (DomNode**)scratch_calloc(&lycon->scratch,
-        (size_t)capacity * sizeof(DomNode*));
+    ScratchScope scope(&lycon->scratch);
+    DomNode** nodes = scope.array_zero<DomNode*>((size_t)capacity);
     if (!nodes) {
         log_error("[LAYOUT_ABS] unable to collect positioned child boxes");
         return;

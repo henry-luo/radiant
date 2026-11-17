@@ -14,6 +14,32 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-125"></a>
+
+### RI-125 — Absolute-child layout unwinds a foreign scratch allocation
+
+**Status:** FIXED, 2026-11-18. Scratch lifetime follows **D5.1.4 / D5.5.1**
+and native ownership follows **D9.1.1v4 / D9.1.3v2**.
+
+The flattened child list in `layout_absolute_children_in_context` was
+allocated with plain `scratch_calloc` inside an active `ScratchScope`.
+The buffer survived until scope exit, where the scope detected a foreign
+allocation and asserted. Allocate the list through the scope's
+overflow-checked `array_zero` so it remains live through child layout and
+is reclaimed by its owner.
+
+The rebuilt debug host passes `flex_grid_placement_ignored`,
+`chart_timeline_export`, `mermaid_state_diagram`, `proc_timeline_export`,
+and `archive_pkg_render`. The first four aborted before producing test
+results. In the archive case the export worker aborted, so its parent
+reported failed PDF and thumbnail checks. The original
+`Scene3dTest.OutdoorGardenFogWindWaterAndCascades` replay also passes, as
+does the Radiant integer-cast lint.
+
+The before/after logs are in the Lambda checkout under
+`temp/failed-tests-20261118/`. The original outdoor backtrace is in
+`temp/outdoor-lldb.log`.
+
 <a id="ri-124"></a>
 
 ### RI-124 — Float roundoff falsely wraps an exactly fitting atomic inline
