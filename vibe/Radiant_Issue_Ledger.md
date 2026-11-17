@@ -20,6 +20,32 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-107"></a>
+
+### RI-107 — HTML base replacement mutates the loader's URL identity
+
+**Status:** OPEN, reproduced 2026-11-17 in Lambda's required Radiant baseline.
+**Authority:** D5.5, D9.1.1v4, D9.1.3v2. **Lambda task blocker:** no for sync
+memory; prevents a fully green Radiant baseline.
+
+`RadiantDocumentTest.BaseReplacementPreservesTheLoadersUrlCarrier` fails at
+Lambda `test/test_radiant_document_gtest.cpp:8481`: the loader's original
+`file:///.../layout_base_url_lifetime.html` carrier becomes `file:///`.
+`radiant/cmd_layout.cpp:2518` extracts `<base href>` and calls
+`url_replace_contents(html_url, base_url)` before publishing the document.
+The failing assertion precedes any call to the restored Input-owned
+`dom_document_resolve_url`, so the mutation is in the existing Radiant loader.
+Document identity and resource-base resolution need distinct carriers; the
+Input resolver already returns an owned resource-base URL without rewriting
+`document->url`.
+
+No Radiant source/test/reference was changed for this report. Reproduce from
+Lambda with `./test/test_radiant_document_gtest.exe
+--gtest_filter=RadiantDocumentTest.BaseReplacementPreservesTheLoadersUrlCarrier`.
+Evidence: `temp/sync-memory-impl/radiant-baseline.log` and
+`test_output/test_radiant_document_gtest.log` in the Lambda checkout. Baseline:
+8,170 passing, 297 partial, 20 skipped, this one failure (8,488 total).
+
 <a id="ri-106"></a>
 
 ### RI-106 — FIXED
