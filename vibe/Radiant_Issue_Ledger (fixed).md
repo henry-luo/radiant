@@ -14,6 +14,41 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-106"></a>
+
+### RI-106 — Lifted positioned children overpaint exported ancestor outlines
+
+**Status:** FIXED, 2026-11-17. **Task blocker:** resolved for Lambda's
+`PdfFileOutput.LambdaPdfOffsetsAndImageStreamsAreValidInBothTiers`.
+Radiant owns the shared paint walk under D9.1.1v4 / D9.1.3v2; the Lambda
+PDF adapter consumes it through D9.5.6v2. No formal ruling changes.
+
+**Reproduction and root cause:** exporting Lambda's
+`test/html/pdf_lambda_phase6.html` moved the blue `#outlineorder` child
+after its parent's red outline in both interpreter and JIT execution.
+The stacking collector correctly lifted zero-level positioned descendants,
+but the shared vector walk finished the parent's outline before visiting
+those lifted descendants. The PDF stream differed from its accepted golden
+only in this rectangle/outline ordering.
+
+**Repair:** the shared positioned walk defers an outlined ancestor's final
+paint until its contiguous lifted descendants finish, then replays only the
+outline under the original box and ancestry scopes. Content and semantic
+visits are not repeated. Stacking collection, z-index ownership and raster
+dispatch retain their existing behavior.
+
+**Verification:** the unchanged PDF goldens pass in both tiers. All 122 native
+dynamic-layout tests pass, including a new order/coordinate/visit-count/hit
+regression and the existing zero-layer ownership and clipping cases. Logs:
+`../../lambda/temp/failed_tests_fix/pdf_walker.log` and
+`../../lambda/temp/failed_tests_fix/native_dynamic.log`.
+The full Lambda baseline passes 7,571/7,571. The full Radiant baseline exits
+0 with 8,169 passed, 299 partial and 20 skipped, with no failures. Independent
+Poppler rendering passes all 16 phase-6 pixel checks, including the red outline
+over its blue descendant. Aggregate logs are `lambda_baseline.log` and
+`radiant_baseline.log` in the same evidence directory. These runs use Lambda
+`c5c8d95cf` and Radiant `f6a2cef` with this repair and its regression uncommitted.
+
 <a id="ri-105"></a>
 
 ### RI-105 — CSS Shapes WPT contour and inline wrapping failures

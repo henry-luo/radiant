@@ -2553,6 +2553,7 @@ typedef struct {
     FontBox font;          // inherited font
     Color color;           // inherited color
     lam::Up<UiContext> ui_context;
+    ViewBlock* deferred_outline;
 } RenderWalkState;
 
 // ── Shared tree walker API ────────────────────────────────────────────

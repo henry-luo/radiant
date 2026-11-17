@@ -323,7 +323,8 @@ static void render_walk_block_finish(RenderPaintBlockDriver* ctx, ViewBlock* blo
     }
 
     if (render_paint_phase_has_content(backend->ctx->paint_phase) &&
-        !render_walk_aborted(backend) && backend->render_outline && !view_visibility_is_hidden(block) && !view_backface_is_hidden(block))
+        state->deferred_outline != block && !render_walk_aborted(backend) &&
+        backend->render_outline && !view_visibility_is_hidden(block) && !view_backface_is_hidden(block))
         backend->render_outline(backend->ctx, block, state->x, state->y);
 
     if (p->opened_effect_group) {
@@ -486,14 +487,27 @@ void render_walk_view_one(RenderBackend* backend, RenderWalkState* state, View* 
 
 // replay only the ancestry scopes, so lifted layers keep their local geometry and clipping.
 static void render_walk_stacking_path(RenderBackend* backend, RenderWalkState* state,
-                                      View* owner, View* target) {
+                                      View* owner, View* target, bool outline_only = false) {
     View* child = radiant_stack_path_child(owner, target);
     if (!child) return;
     if (child == target) {
         RenderWalkState saved = *state;
         RdtLogicalPoint offset = layout_positioned_parent_offset(child);
         state->x -= offset.x; state->y -= offset.y;
-        render_walk_view(backend, state, child);
+        if (outline_only) {
+            // replay the original box scopes without repeating its content or semantic visit.
+            RenderBackend outline_backend = *backend;
+            outline_backend.visit_element = nullptr;
+            RenderWalkBlockDriver driver = {};
+            driver.backend = &outline_backend;
+            driver.state = state;
+            void* phase = nullptr;
+            ViewBlock* block = lam::view_require_block(child);
+            if (render_walk_block_begin(&driver, block, &phase)) {
+                driver.phase.stop_after_self = true;
+                render_walk_block_finish(&driver, block, phase);
+            }
+        } else render_walk_view(backend, state, child);
         *state = saved;
         return;
     }
@@ -506,7 +520,7 @@ static void render_walk_stacking_path(RenderBackend* backend, RenderWalkState* s
             if (backend->on_font_change) backend->on_font_change(backend->ctx, span->font);
         }
         if (span && span->in_line && span->inl()->has_color) state->color = span->inl()->color;
-        render_walk_stacking_path(backend, state, child, target);
+        render_walk_stacking_path(backend, state, child, target, outline_only);
         *state = saved;
         return;
     }
@@ -525,7 +539,7 @@ static void render_walk_stacking_path(RenderBackend* backend, RenderWalkState* s
     bool content_clip = overflow_applies && backend->begin_clip && backend->end_clip &&
         backend->begin_clip(backend->ctx, block, state->x, state->y, RENDER_CLIP_CONTENTS);
     if (overflow_applies && backend->begin_block_children) backend->begin_block_children(backend->ctx, block);
-    render_walk_stacking_path(backend, state, child, target);
+    render_walk_stacking_path(backend, state, child, target, outline_only);
     if (overflow_applies && backend->end_block_children) backend->end_block_children(backend->ctx, block);
     if (content_clip) backend->end_clip(backend->ctx);
     if (legacy_clip) backend->end_clip(backend->ctx);
@@ -589,10 +603,34 @@ void render_walk_positive_z_descendants(RenderBackend* backend, RenderWalkState*
     radiant_stack_visit_positive_z_descendants(view->parent, false, &driver, render_walk_stacking_layer);
 }
 
+static void render_walk_positioned_layer(RenderBackend* backend, RenderWalkState* state,
+        ViewBlock* owner, ArrayList* layers, int* index) {
+    View* layer = (View*)layers->data[(*index)++];
+    ViewBlock* block = lam::view_as_block(layer);
+    bool defer = !backend->render_block && backend->render_outline && block &&
+        block->bound && block->boundary()->outline && !radiant_stack_is_context(layer) &&
+        *index < layers->length && radiant_stack_path_child(layer, (View*)layers->data[*index]);
+    ViewBlock* saved_outline = state->deferred_outline;
+    if (defer) state->deferred_outline = block;
+    render_walk_stacking_path(backend, state, owner, layer);
+    state->deferred_outline = saved_outline;
+    if (!defer || render_walk_aborted(backend)) return;
+    // lifted zero-level descendants paint in tree order before their ancestor's outline.
+    while (*index < layers->length && !render_walk_aborted(backend) &&
+            radiant_stack_path_child(layer, (View*)layers->data[*index]))
+        render_walk_positioned_layer(backend, state, owner, layers, index);
+    if (!render_walk_aborted(backend))
+        render_walk_stacking_path(backend, state, owner, layer, true);
+}
+
 void render_walk_positioned_children(RenderBackend* backend, RenderWalkState* state, ViewBlock* block) {
     if (!backend || !state || !block) return;
     RadiantPaintPhaseScope phase(&backend->ctx->paint_phase, RADIANT_PAINT_ALL);
-    RenderWalkBlockDriver driver = {};
-    driver.backend = backend; driver.state = state;
-    radiant_stack_visit_positioned_children(block, false, &driver, render_walk_stacking_layer);
+    ArrayList* layers = radiant_stack_collect_positioned_children(block, "[RAD_STACK_POSITIONED]");
+    if (!layers) return;
+    radiant_stack_sort_in_paint_order(layers);
+    int index = 0;
+    while (index < layers->length && !render_walk_aborted(backend))
+        render_walk_positioned_layer(backend, state, block, layers, &index);
+    arraylist_free(layers);
 }

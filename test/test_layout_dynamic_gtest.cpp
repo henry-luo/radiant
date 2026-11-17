@@ -3115,3 +3115,56 @@ TEST_F(DynamicLayoutTest, AutomaticColumnMinimumPreservesNestedFlexBases) {
         EXPECT_NEAR(element("fixed")->height,state.fixed,0.01f);
     }
 }
+
+TEST_F(DynamicLayoutTest, LiftedPositionedChildrenPaintBeforeTheirAncestorOutline) {
+    load("<!doctype html><style>body{margin:0}"
+         "#wrapper{position:relative;left:20px;top:30px;width:200px;height:200px;overflow:hidden}"
+         "#parent{position:absolute;left:40px;top:40px;width:60px;height:35px;outline:4px solid red}"
+         "#child{position:absolute;left:-5px;top:-5px;width:70px;height:45px;background:blue}"
+         "#negative{position:absolute;z-index:-1;width:10px;height:10px;background:green}"
+         "#positive{position:absolute;z-index:1;width:10px;height:10px;background:black}"
+         "</style><div id='wrapper'><div id='parent'><div id='negative'></div><div id='child'></div>"
+         "<div id='positive'></div></div></div>");
+    struct Order : RenderContext {
+        ViewBlock* parent;
+        ViewBlock* child;
+        ViewBlock* negative;
+        ViewBlock* positive;
+        int sequence = 0, child_paint = 0, outline_paint = 0;
+        int negative_paint = 0, positive_paint = 0, parent_visits = 0;
+    } order = {};
+    order.parent = lam::view_as_block(element("parent"));
+    order.child = lam::view_as_block(element("child"));
+    order.negative = lam::view_as_block(element("negative"));
+    order.positive = lam::view_as_block(element("positive"));
+    RenderBackend backend = {};
+    backend.ctx = lam::up(&order);
+    backend.render_bound = [](RenderContext* base, ViewBlock* view, float, float) {
+        Order* order = static_cast<Order*>(base);
+        int step = ++order->sequence;
+        if (view == order->child) order->child_paint = step;
+        if (view == order->negative) order->negative_paint = step;
+        if (view == order->positive) order->positive_paint = step;
+    };
+    backend.render_outline = [](RenderContext* base, ViewBlock* view, float x, float y) {
+        Order* order = static_cast<Order*>(base);
+        if (view != order->parent) return;
+        EXPECT_FLOAT_EQ(x, 60.0f);
+        EXPECT_FLOAT_EQ(y, 70.0f);
+        EXPECT_EQ(order->outline_paint, 0);
+        order->outline_paint = ++order->sequence;
+    };
+    backend.visit_element = [](RenderContext* base, ViewElement* view, float, float) {
+        Order* order = static_cast<Order*>(base);
+        if (view == order->parent) order->parent_visits++;
+    };
+    RenderWalkState state = {};
+    state.ui_context = lam::up(&ui);
+    render_walk_view_one(&backend, &state, document->view_tree->root);
+    EXPECT_GT(order.negative_paint, 0);
+    EXPECT_LT(order.negative_paint, order.child_paint);
+    EXPECT_LT(order.child_paint, order.outline_paint);
+    EXPECT_LT(order.outline_paint, order.positive_paint);
+    EXPECT_EQ(order.parent_visits, 1);
+    EXPECT_EQ(hit_at(80.0f,90.0f), element("child"));
+}

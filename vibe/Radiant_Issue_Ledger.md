@@ -20,6 +20,13 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-106"></a>
+
+### RI-106 — FIXED
+
+Lifted positioned children painted over their ancestor's exported outline.
+See the [shared walker repair](<Radiant_Issue_Ledger (fixed).md#ri-106>).
+
 <a id="ri-105"></a>
 
 ### RI-105 — FIXED
