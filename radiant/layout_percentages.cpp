@@ -328,8 +328,8 @@ bool layout_percentage_height_is_automatic(ViewBlock* block, LayoutContext* cont
     // orthogonal inline size; the cyclic block-height rule does not erase it.
     if (layout_orthogonal_inline_percentage_applies(block, LAYOUT_AXIS_Y)) return false;
     if (block->block()->percentage_height_resolved_late) {
-        // A positioned percentage can become definite after its containing
-        // block finishes; retain that used-value definiteness for descendants.
+        // positioned/grid percentages become definite after their containing size finishes;
+        // retain that used-value definiteness for descendants.
         return false;
     }
     // A percentage block size is automatic while its containing block is auto;

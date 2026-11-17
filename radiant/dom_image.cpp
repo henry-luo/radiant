@@ -85,7 +85,7 @@ extern "C" bool dom_engine_set_image_source(DomElement* element,const char* name
         return true;
     }
     if (element->doc->resource_manager && document_dependency_admits(element->doc, name)) {
-        Url* absolute = parse_url(element->doc->url, name);
+        Url* absolute = dom_document_resolve_url(element->doc, name);
         if (absolute && radiant_url_is_http(absolute)) {
             NetworkResource* resource = resource_manager_load(element->doc->resource_manager,
                 url_get_href(absolute), RESOURCE_IMAGE, PRIORITY_NORMAL, nullptr);

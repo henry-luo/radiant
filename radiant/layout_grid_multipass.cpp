@@ -620,6 +620,8 @@ void measure_grid_items(LayoutContext* lycon, GridContainerLayout* grid_layout,
             // Skip absolute positioned and display:none items
             bool is_absolute = layout_view_is_abs_or_fixed(item);
             if (!is_absolute && !layout_block_is_display_none(item)) {
+                // the next intrinsic pass must not reuse the previous final grid area's percentage basis.
+                if (item->blk) item->blk->percentage_height_resolved_late = false;
                 // row contributions need final column widths; measure only widths in this pass.
                 GridItemProp* gi = grid_item_prop(item);
                 if (gi) {

@@ -57,7 +57,12 @@ float layout_grid_item_border_box_size(LayoutContext* lycon, ViewBlock* item,
         }
     }
     if (resolved_percentage || preferred >= 0.0f) {
-        if (update_preferred_size) *axis.given = preferred;
+        if (update_preferred_size) {
+            *axis.given = preferred;
+            // final grid areas make cyclic percentage heights definite for their descendants.
+            if (resolved_percentage && !horizontal)
+                item->blk->percentage_height_resolved_late = true;
+        }
         float border_size = layout_css_size_to_border_box(
             item->bound, layout_box_sizing(item), preferred, horizontal);
         return resolved_percentage

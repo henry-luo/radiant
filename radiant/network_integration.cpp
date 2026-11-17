@@ -71,8 +71,10 @@ static void attach_font_resource_callback(NetworkResource* res,
 // Returns a heap-allocated absolute URL string (caller must free with mem_free).
 // If resolution fails, returns a copy of the input.
 static char* resolve_url(const char* href, DomDocument* doc) {
-    return radiant_resolve_resource_url(href, doc ? doc->url : nullptr,
-        MEM_CAT_NETWORK);
+    Url* base = doc ? dom_document_resolve_url(doc) : nullptr;
+    char* result = radiant_resolve_resource_url(href, base, MEM_CAT_NETWORK);
+    if (base) url_destroy(base);
+    return result;
 }
 
 static char* resolve_font_resource_url(const char* href, const char* stylesheet_url,
@@ -188,9 +190,18 @@ typedef struct NetworkSelectorWalk {
     void* user_data;
 } NetworkSelectorWalk;
 
+static bool document_resource_is_active(DomNode* node) {
+    // parser-backed template descendants remain in the native chain but are inert.
+    for (DomNode* parent = node ? node->parent.get() : nullptr; parent; parent = parent->parent) {
+        if (dom_element_is_html_tag(parent->as_element(), MARKUP_NAME_TEMPLATE)) return false;
+    }
+    return true;
+}
+
 static bool network_selector_visitor(DomNode* node, void* user_data) {
     NetworkSelectorWalk* walk = (NetworkSelectorWalk*)user_data;
-    if (!node || !walk || !walk->callback || !node->is_element()) return true;
+    if (!node || !walk || !walk->callback || !node->is_element() ||
+        !document_resource_is_active(node)) return true;
     DomElement* element = node->as_element();
     if (element->tag_name && strcmp(element->tag_name, walk->tag_name) == 0) {
         walk->callback(element, walk->user_data);
@@ -447,7 +458,8 @@ static bool prefetch_selected_css_property(StyleNode* node, void* context) {
     const char* source_file = declaration->source_file;
     Url* source = source_file && strcmp(source_file, "<inline-style>") != 0
         ? url_parse(source_file) : nullptr;
-    prefetch->base_url = source ? source : prefetch->doc->url.get();
+    if (!source) source = dom_document_resolve_url(prefetch->doc);
+    prefetch->base_url = source;
     radiant_for_each_css_value_resource_url(value, prefetch_css_resource_url, context);
     if (source) url_destroy(source);
     prefetch->base_url = nullptr;
@@ -455,7 +467,7 @@ static bool prefetch_selected_css_property(StyleNode* node, void* context) {
 }
 
 static bool prefetch_selected_css_resources(DomNode* node, void* context) {
-    if (!node || !node->is_element()) return true;
+    if (!node || !node->is_element() || !document_resource_is_active(node)) return true;
     CssResourcePrefetchContext* prefetch = (CssResourcePrefetchContext*)context;
     prefetch->element = node->as_element();
     prefetch->selected_style = prefetch->element->specified_style;
@@ -478,7 +490,7 @@ void radiant_prefetch_document_stylesheet_resources(DomDocument* doc) {
 }
 
 static bool prefetch_inline_style_resource_urls(DomNode* node, void* context) {
-    if (!node || !node->is_element()) return true;
+    if (!node || !node->is_element() || !document_resource_is_active(node)) return true;
     CssResourcePrefetchContext* prefetch = (CssResourcePrefetchContext*)context;
     DomElement* element = node->as_element();
     CssRule* rule = dom_element_inline_declaration_block(element);
@@ -504,8 +516,10 @@ static bool prefetch_inline_style_resource_urls(DomNode* node, void* context) {
 static void discover_document_image_resources(DomDocument* doc) {
     radiant_prefetch_document_stylesheet_resources(doc);
     // uncommitted inline edits still need their bytes before the next layout.
-    CssResourcePrefetchContext inline_resources = {doc, doc->url, 0};
+    Url* base = dom_document_resolve_url(doc);
+    CssResourcePrefetchContext inline_resources = {doc, base, 0};
     view_geometry_walk_dom_tree(doc->root, prefetch_inline_style_resource_urls, &inline_resources);
+    if (base) url_destroy(base);
     if (inline_resources.inline_parse_pool) pool_destroy(inline_resources.inline_parse_pool);
     if (inline_resources.queued > 0)
         log_info("[PREFETCH] queued %d inline CSS declaration resources", inline_resources.queued);

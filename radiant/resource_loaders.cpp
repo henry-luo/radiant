@@ -110,6 +110,16 @@ void process_css_resource(NetworkResource* res, struct DomDocument* doc) {
     if (!res || (res->state != STATE_COMPLETED && res->state != STATE_CACHED) || !doc) return;
     CssResourceCompletion completion{res};
 
+    // the initial loader already parsed prefetched links; deliver completion without a second sheet.
+    for (int i = 0; res->owner_element && i < doc->stylesheet_count; i++) {
+        CssStylesheet* sheet = doc->stylesheets[i];
+        if (sheet && sheet->owner_element == res->owner_element && !sheet->is_import_child &&
+            sheet->origin_url && strcmp(sheet->origin_url, res->url) == 0) {
+            completion.loaded = true;
+            return;
+        }
+    }
+
     log_debug("network: processing CSS resource %s from %s", res->url, res->local_path);
 
     // read CSS content from local file

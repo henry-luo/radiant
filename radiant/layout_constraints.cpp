@@ -229,7 +229,11 @@ float layout_apply_min_max_border_box_axis(ViewBlock* block, float border_size, 
     LayoutAxisRefs axis(block->block_mut(), horizontal);
     float minimum = *axis.minimum;
     float maximum = *axis.maximum;
-    if (ignore_percentage_max && horizontal && !isnan(*axis.maximum_percent)) {
+    CssDeclaration* maximum_decl = ignore_percentage_max && horizontal
+        ? layout_specified_physical_minmax_size_declaration(block->as_element(), true, false) : nullptr;
+    if (ignore_percentage_max && horizontal &&
+        (!isnan(*axis.maximum_percent) ||
+         layout_css_size_facts(nullptr, block->as_element(), maximum_decl).percentage)) {
         // A cyclic shrink-to-fit grid cannot use the provisional percentage max;
         // its intrinsic min-width contribution must win before the grid area exists.
         maximum = -1.0f;

@@ -31,6 +31,7 @@ char* radiant_resolve_resource_path(const char* href, const char* base_path,
 bool radiant_url_is_http(const char* url);
 bool radiant_url_is_http(const Url* url);
 char* radiant_document_resource_base(DomDocument* doc, MemCategory category);
+bool radiant_source_is_inert_template(DomElement* root, const Element* source);
 char* radiant_resolve_wpt_resource_path(const char* href, Url* base_url,
                                         MemCategory category);
 

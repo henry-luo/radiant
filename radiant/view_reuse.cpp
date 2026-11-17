@@ -114,75 +114,43 @@ uint64_t cursor_images_hash(const CursorImageSpec* images) {
     return hash_fnv1a_64_extend_byte(hash, 0xff);
 }
 
+// canonical identity must include every semantic field, including non-inherited effects.
+#define INLINE_PROP_SCALARS(F) \
+    F(cursor) F(image_rendering) F(caret_shape) \
+    F(color.c) F(accent_color.c) F(caret_color.c) \
+    F(selection_color.c) F(selection_background_color.c) \
+    F(has_color) F(has_accent_color) F(caret_color_mode) \
+    F(has_selection_color) F(has_selection_background_color) \
+    F(svg_fill_color.c) F(svg_stroke_color.c) F(vertical_align) F(ruby_position) \
+    F(content_strut_establishes_line) F(visibility) F(mix_blend_mode) F(isolation) \
+    F(has_svg_fill) F(svg_fill_none) F(has_svg_stroke) F(svg_stroke_none) \
+    F(has_svg_stroke_width)
+#define INLINE_PROP_FLOATS(F) F(vertical_align_offset) F(opacity) F(svg_stroke_width)
+
 uint64_t inline_prop_hash(const InlineProp* value) {
     if (!value) return 0;
     uint64_t hash = HASH_FNV1A_64_OFFSET_BASIS;
-#define INLINE_HASH_FIELD(field) hash = hash_fnv1a_64_extend_u64le(hash, (uint64_t)value->field)
-    INLINE_HASH_FIELD(cursor);
-    hash = hash_fnv1a_64_extend_u64le(hash, cursor_images_hash(value->cursor_images));
-    INLINE_HASH_FIELD(caret_shape);
-    INLINE_HASH_FIELD(color.c);
-    INLINE_HASH_FIELD(accent_color.c);
-    INLINE_HASH_FIELD(caret_color.c);
-    INLINE_HASH_FIELD(selection_color.c);
-    INLINE_HASH_FIELD(selection_background_color.c);
-    INLINE_HASH_FIELD(has_color);
-    INLINE_HASH_FIELD(has_accent_color);
-    INLINE_HASH_FIELD(caret_color_mode);
-    INLINE_HASH_FIELD(has_selection_color);
-    INLINE_HASH_FIELD(has_selection_background_color);
-    INLINE_HASH_FIELD(svg_fill_color.c);
-    INLINE_HASH_FIELD(svg_stroke_color.c);
-    INLINE_HASH_FIELD(vertical_align);
-    hash = hash_fnv1a_64_extend_u64le(hash,
-        inline_float_hash_bits(value->vertical_align_offset));
-    hash = hash_fnv1a_64_extend_u64le(hash, inline_float_hash_bits(value->opacity));
-    INLINE_HASH_FIELD(visibility);
-    INLINE_HASH_FIELD(mix_blend_mode);
-    INLINE_HASH_FIELD(has_svg_fill);
-    INLINE_HASH_FIELD(svg_fill_none);
-    INLINE_HASH_FIELD(has_svg_stroke);
-    INLINE_HASH_FIELD(svg_stroke_none);
-    INLINE_HASH_FIELD(has_svg_stroke_width);
-    hash = hash_fnv1a_64_extend_u64le(hash,
-        inline_float_hash_bits(value->svg_stroke_width));
-#undef INLINE_HASH_FIELD
-    return hash;
+#define INLINE_HASH_SCALAR(field) hash = hash_fnv1a_64_extend_u64le(hash, (uint64_t)value->field);
+#define INLINE_HASH_FLOAT(field) hash = hash_fnv1a_64_extend_u64le(hash, inline_float_hash_bits(value->field));
+    INLINE_PROP_SCALARS(INLINE_HASH_SCALAR)
+    INLINE_PROP_FLOATS(INLINE_HASH_FLOAT)
+#undef INLINE_HASH_SCALAR
+#undef INLINE_HASH_FLOAT
+    return hash_fnv1a_64_extend_u64le(hash, cursor_images_hash(value->cursor_images));
 }
 
 bool inline_prop_equal(const InlineProp* left, const InlineProp* right) {
     if (left == right) return true;
-    if (!left || !right) return false;
-    // Explicit semantic comparison keeps padding and future compiler layout out
-    // of the canonicalization contract.
-    return left->cursor == right->cursor &&
-           cursor_images_equal(left->cursor_images, right->cursor_images) &&
-           left->image_rendering == right->image_rendering &&
-           left->caret_shape == right->caret_shape &&
-           left->color.c == right->color.c &&
-           left->accent_color.c == right->accent_color.c &&
-           left->caret_color.c == right->caret_color.c &&
-           left->selection_color.c == right->selection_color.c &&
-           left->selection_background_color.c == right->selection_background_color.c &&
-           left->has_color == right->has_color &&
-           left->has_accent_color == right->has_accent_color &&
-           left->caret_color_mode == right->caret_color_mode &&
-           left->has_selection_color == right->has_selection_color &&
-           left->has_selection_background_color == right->has_selection_background_color &&
-           left->svg_fill_color.c == right->svg_fill_color.c &&
-           left->svg_stroke_color.c == right->svg_stroke_color.c &&
-           left->vertical_align == right->vertical_align &&
-           left->vertical_align_offset == right->vertical_align_offset &&
-           left->opacity == right->opacity &&
-           left->visibility == right->visibility &&
-           left->mix_blend_mode == right->mix_blend_mode &&
-           left->has_svg_fill == right->has_svg_fill &&
-           left->svg_fill_none == right->svg_fill_none &&
-           left->has_svg_stroke == right->has_svg_stroke &&
-           left->svg_stroke_none == right->svg_stroke_none &&
-           left->has_svg_stroke_width == right->has_svg_stroke_width &&
-           left->svg_stroke_width == right->svg_stroke_width;
+    if (!left || !right || !cursor_images_equal(left->cursor_images, right->cursor_images)) return false;
+    // compare values explicitly; padding and pointer identity are not CSS semantics.
+#define INLINE_COMPARE(field) if (left->field != right->field) return false;
+    INLINE_PROP_SCALARS(INLINE_COMPARE)
+    INLINE_PROP_FLOATS(INLINE_COMPARE)
+#undef INLINE_COMPARE
+    return true;
 }
+#undef INLINE_PROP_SCALARS
+#undef INLINE_PROP_FLOATS
 
 static bool canonical_inline_resize(ViewTree* tree, size_t bucket_count) {
     if (!tree || !tree->prop_pool || bucket_count < 16) return false;
