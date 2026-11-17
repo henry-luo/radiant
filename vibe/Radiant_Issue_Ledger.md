@@ -46,7 +46,9 @@ LLDB confirms `ScratchScope::~ScratchScope` in
 `layout_absolute_children_in_context` (`radiant/layout_abs_children.cpp:103`),
 called by `layout_flex_absolute_children` and nested flex-content layout.
 The specific foreign allocation's producer and required lifetime are
-**unconfirmed**. Expected: each scope releases only its own temporary storage;
+**unconfirmed**.
+
+Additional 2026-11-18 Lambda baseline observation: `JavaScriptTests/JsFileTest.Run/flex_grid_placement_ignored` aborts in 10/10 isolated reruns. Direct command: `./lambda.exe js test/js/flex_grid_placement_ignored.js --document test/js/flex_grid_placement_ignored.html`. It reports scope 5, one foreign block, 16 bytes at the same assertion. The allocation site and whether it shares RI-125's root cause are unconfirmed. Evidence: `temp/sync-test-phase2/js-dom-recheck.log` and `js-dom-direct.err` in the Lambda checkout. An isolated `AutoDiscovered/LambdaScriptTest.ExecuteAndCompare/mermaid_state_diagram` also aborts at the same assertion; its output is in `temp/sync-test-phase2/mermaid-state-recheck.log`. Its allocation site is unconfirmed. Three further isolated Lambda baseline cases (`chart_timeline_export`, `proc_timeline_export`, and `archive_pkg_render`) likewise abort with the assertion; see `temp/sync-test-phase2/layout-other-recheck.log`. Expected: each scope releases only its own temporary storage;
 all 20 events complete without changing assertions or allocation checks.
 Page-load, fuzzy-layout and document suites also report scratch-scope aborts;
 those observations do not establish one shared allocation site.
