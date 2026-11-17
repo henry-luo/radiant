@@ -41,18 +41,23 @@ void layout_absolute_children_in_context(LayoutContext* lycon, ViewBlock* contai
     AbsStaticContext* ctx) {
     if (!lycon || !container || !ctx) return;
 
-    DomNode* child = container->first_child;
-    while (child) {
-        if (!child->is_element()) {
-            child = child->next_sibling;
-            continue;
-        }
-
+    // positioned children follow the same box-tree flattening as flex/grid items.
+    ScratchScope scope(&lycon->scratch);
+    int capacity = layout_count_flattened_item_nodes(container, false);
+    if (capacity <= 0) return;
+    DomNode** nodes = (DomNode**)scratch_calloc(&lycon->scratch,
+        (size_t)capacity * sizeof(DomNode*));
+    if (!nodes) {
+        log_error("[LAYOUT_ABS] unable to collect positioned child boxes");
+        return;
+    }
+    LayoutFlattenedItemPolicy policy = {};
+    int count = layout_collect_flattened_item_nodes(lycon, container,
+        container->first_child, nodes, capacity, &policy);
+    for (int index = 0; index < count; index++) {
+        DomNode* child = nodes[index];
         ViewBlock* child_block = lam::view_as_block(child->as_element());
-        if (!layout_view_is_abs_or_fixed(child_block)) {
-            child = child->next_sibling;
-            continue;
-        }
+        if (!layout_view_is_abs_or_fixed(child_block)) continue;
 
         AbsChildLayoutState state = {};
         state.child = lam::up(child);
@@ -94,7 +99,5 @@ void layout_absolute_children_in_context(LayoutContext* lycon, ViewBlock* contai
         }
 
         layout_apply_abs_child_aspect_ratio(&state);
-
-        child = child->next_sibling;
     }
 }

@@ -3,6 +3,7 @@
 #include "radiant.hpp"
 #include "view.hpp"
 #include "layout.hpp"
+#include "event.hpp"
 #include "platform.hpp"
 #include "lambda/network/network_resource_manager.h"
 #include "lambda/network/network_downloader.h"
@@ -513,6 +514,20 @@ static bool prefetch_inline_style_resource_urls(DomNode* node, void* context) {
     return true;
 }
 
+static void discover_media_callback(DomElement* media, void* context) {
+    const char* poster = media->tag() == MARKUP_NAME_VIDEO ? media->get_attribute("poster") : nullptr;
+    // posters and playable bytes retain their independent owners and admission policies.
+    if (poster && *poster) queue_resolved_http_resource((DomDocument*)context,
+        poster, RESOURCE_PREFETCH, PRIORITY_NORMAL, nullptr);
+    // prepare eligible source requests before the snapshot wait, not during its first layout.
+    radiant_media_prepare(media);
+}
+
+static void discover_document_media_resources(DomDocument* doc) {
+    find_elements_by_selector(doc->root, "video", discover_media_callback, doc);
+    find_elements_by_selector(doc->root, "audio", discover_media_callback, doc);
+}
+
 static void discover_document_image_resources(DomDocument* doc) {
     radiant_prefetch_document_stylesheet_resources(doc);
     // uncommitted inline edits still need their bytes before the next layout.
@@ -525,12 +540,7 @@ static void discover_document_image_resources(DomDocument* doc) {
         log_info("[PREFETCH] queued %d inline CSS declaration resources", inline_resources.queued);
     find_elements_by_selector(doc->root, "img", discover_img_callback, doc);
     find_elements_by_selector(doc->root, "use", discover_use_callback, doc);
-    find_elements_by_selector(doc->root, "video", [](DomElement* video, void* context) {
-        const char* poster = video->get_attribute("poster");
-        // posters consume ready image bytes without changing the video's embedded media owner.
-        if (poster && *poster) queue_resolved_http_resource((DomDocument*)context,
-            poster, RESOURCE_PREFETCH, PRIORITY_NORMAL, nullptr);
-    }, doc);
+    discover_document_media_resources(doc);
 }
 
 static int snapshot_resource_wait_timeout_ms() {
@@ -547,7 +557,10 @@ static int snapshot_resource_wait_timeout_ms() {
 }
 
 void radiant_prepare_snapshot_resources(UiContext* ui, DomDocument* doc) {
-    if (!ui || !doc || !doc->resource_manager) return;
+    if (!ui || !doc) return;
+    // local HTML can acquire its first network manager from an eligible media source.
+    if (!doc->resource_manager) discover_document_media_resources(doc);
+    if (!doc->resource_manager) return;
     resource_manager_set_ui_context(doc->resource_manager, ui);
     radiant_discover_document_font_resources(doc);
     // network-managed layout only reads ready bytes, so ordinary image requests

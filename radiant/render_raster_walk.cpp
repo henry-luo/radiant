@@ -262,7 +262,8 @@ void render_raster_view_tree(RasterRenderContext* rdcon, ViewTree* view_tree) {
 
     View* root_view = view_tree->root;
     if (root_view && root_view->view_type == RDT_VIEW_BLOCK) {
-        render_children(rdcon, root_view);
+        // the document root has no parent stacking pass to recover a deferred positioned box.
+        render_raster_stacking_view(rdcon, root_view);
     } else {
         log_error("Invalid root view");
     }

@@ -606,8 +606,12 @@ static void render_raster_stacking_path(RasterRenderContext* rdcon, View* owner,
     BlockBlot saved = rdcon->block;
     FontBox font = rdcon->font;
     Color color = rdcon->color;
-    RenderClipScope css_clip = render_clip_push_css_scope(rdcon, block, saved.x, saved.y, rdcon->raster_scale);
-    RenderClipScope legacy_clip = render_clip_push_legacy_scope(rdcon, block, saved.x, saved.y, rdcon->raster_scale);
+    // intervening positioned ancestors also use their containing block's coordinate basis.
+    RdtLogicalPoint offset = layout_positioned_parent_offset(child);
+    rdcon->block.x -= offset.x * rdcon->raster_scale;
+    rdcon->block.y -= offset.y * rdcon->raster_scale;
+    RenderClipScope css_clip = render_clip_push_css_scope(rdcon, block, rdcon->block.x, rdcon->block.y, rdcon->raster_scale);
+    RenderClipScope legacy_clip = render_clip_push_legacy_scope(rdcon, block, rdcon->block.x, rdcon->block.y, rdcon->raster_scale);
     rdcon->block.x += block->x * rdcon->raster_scale;
     rdcon->block.y += block->y * rdcon->raster_scale;
     render_block_setup_font(rdcon, block);

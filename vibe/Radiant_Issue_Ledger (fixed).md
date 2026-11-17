@@ -14,6 +14,437 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-124"></a>
+
+### RI-124 — Float roundoff falsely wraps an exactly fitting atomic inline
+
+**Status:** FIXED, 2026-11-18. Native ownership follows **D9.1.1v4 /
+D9.1.3v2**. No capture clock, threshold, budget or browser reference changes
+(**D10.1.7**).
+
+Python's search form is 348.8812866px wide and its adjacent social menu is
+98.03125px. Their containing float measures 446.9125061px. Separate float sums
+differ by about 0.0000305px, so a strict greater-than fit test puts the menu on
+another line and shifts the following page by about 46px. This is distinct from
+round44's already repaired internal-button whitespace isolation. Integral-width
+controls fit with and without internal whitespace; fractional edge controls
+reproduce the failure without text, fonts or network resources.
+
+Promote the existing float exclusion edge comparator to layout.hpp as
+layout_edge_at_or_before and reuse it at the four atomic inline fit/float-band
+decisions. Its existing scale-relative FLT_EPSILON policy absorbs one float
+roundoff; no fixed pixel allowance or second comparator is introduced. The
+reverse float-edge comparison delegates to the same helper. This preserves the
+project's float geometry convention while avoiding spurious soft line breaks.
+
+Six new PNG cases cover inline-block, inline-flex and inline-grid at the
+rounding boundary and with genuine 0.1125px overflow. All three fitting cases
+fail before; all three real-overflow controls pass before. Chromium confirms
+all six. Afterward all **32 focused inline-height/break/button-isolation
+checks** pass, as does integer lint. The same-source Python comparison improves
+from 10.8% to 0.27%; its header and following content align. The live capture
+loads and scores 4.20%, but the carousel code and explanatory content remain
+absent, so the pre-existing manual high-severity annotation is retained.
+No page clearance is claimed. The preceding round74 broad checkpoint remains
+the aggregate evidence; no broad baseline is repeated for this focused repair.
+
+The preceding media diagnosis used a temporary optimized trace, now removed.
+It verified that Jetty's correct 1200w hero URL was queued but still pending at
+the existing wait: 53 total resources, 15 completed, zero failed. Squarespace
+had 50/12/0 and Pelago 20/16/0. Those observations do not establish an image
+decoder or sizing bug. No priority exception or larger wait was added.
+
+Evidence in Lambda: temp/online-visual-round78/fractional-before.log,
+fractional-browser.json, pixels-qualified.log, final-metrics.json,
+python-children-probe native/browser logs, before/ paired PNGs and the final
+Python PNGs; resource-readiness-summary.json retains the separate media trace.
+All diagnostic source instrumentation was removed before the final build.
+
+<a id="ri-123"></a>
+
+### RI-123 — Intrinsic atomic-inline height loses the enclosing line strut
+
+**Status:** FIXED, 2026-11-17. Native ownership follows **D9.1.1v4 /
+D9.1.3v2**; selected layout fragments retain their measurement ownership
+(**D5.5.1**). Capture clocks and budgets remain unchanged (**D10.1.7**).
+
+Optimizely's script-free heading lays out at 222.3px, but its containing flex
+column inside a grid receives only 117px. This shifts the hero copy and the
+following section upward by 105.3px and changes background-image placement.
+The heading contains an atomic inline box with a block measurement descendant
+and positioned per-letter boxes. The intrinsic inline-text collector cannot
+flatten that structure. Its fallback takes the maximum child height, losing
+the enclosing parent's line strut, although normal layout already includes it.
+
+The failed-flattening path now reuses intrinsic_inline_flow_content_height,
+which already invokes the real inline formatter and restores selected fragments.
+It preserves baseline alignment and the enclosing strut without a second
+height estimator or a site condition. The obsolete second qualification
+collection is removed. This implements
+[CSS 2.2 §10.8](https://www.w3.org/TR/CSS22/visudet.html#line-height).
+
+Six small cases cover 24px/80px ancestor line height with an atomic inline
+containing a block child, under block, flex and grid parents. Chromium confirms
+all six. The 80px grid case fails on the preceding release; the other five
+remain controls. The repaired trial passes all 22 focused inline-break/height
+checks. Identical saved Optimizely HTML improves from 13.56% to 1.4% mean
+difference; the major vertical shift disappears. Text strokes and small font
+details remain outside the major-difference scope. The final simplified build
+also passes all 22 checks and retains the 1.44% same-source result. Its normal
+live capture improves from 14.43% to 2.53%; Optimizely leaves high severity.
+The sorted inventory is 148 high, one critical and 918 low. Other report rows,
+browser references, annotations, catalog, clocks and budgets are preserved.
+Integer lint passes. The preceding passing round74 broad checkpoint is retained
+without another baseline run for this focused follow-up.
+
+Evidence: Lambda temp/online-visual-round77/strut-before.log,
+strut-browser.json, pixels-qualified.log, optimizely-parity.json and
+static-parity.json, the before/ image archive and qualified same-source PNGs.
+No browser reference, annotation, URL, threshold, timeout or clock is changed.
+
+<a id="ri-121"></a>
+
+### RI-121 — HTTP media sources enter the scheduler after the snapshot wait
+
+**Status:** FIXED, 2026-11-17, for media request ordering. Native ownership
+follows **D9.1.1v4 / D9.1.3v2**; resource acquisition stays with the input
+service (**D9.1.2v2**). Existing audio authorization (**D11.3.1**) and capture
+clocks/budgets (**D10.1.7**) are unchanged.
+
+Going's exact hero MP4 decodes correctly from a local file, but an HTTP source
+without a script-triggered layout returns a blank frame almost immediately.
+Resource discovery queued video posters only. Media source requests arose
+later in style/layout through `radiant_media_prepare`, after the snapshot's
+ready-byte wait. Local HTML could have no manager at that earlier boundary,
+so the wait returned before the source initialized its manager.
+
+Discovery now reuses `radiant_media_prepare` for video and audio. It queues
+eligible bytes before the existing wait while retaining the same source
+iteration, preload:none behavior, autoplay requests, audio permission checks,
+resource identity and cache/decoder ownership. A shared media discovery helper
+also lets local HTML acquire its first manager before the wait guard. Poster
+requests retain their independent owner. No source iterator, policy branch,
+time budget or site condition is duplicated.
+
+Four regressions fail before: direct HTTP video, a nested source, autoplay
+with preload:none, and a local document's remote source. A non-autoplay
+preload:none control passes and continues making zero source requests.
+The existing 640×360 repository MP4 must produce a 320×180 used box before
+paint; the fast loopback reproductions eliminate large-file transfer time
+as the ordering cause. All **34 focused CSS-resource/video-sizing checks**
+and integer lint pass afterward. These media-decoder cases use the macOS
+backend; other-platform video backends remain RAD22-2.
+
+Going's 7 MB source remains absent in the current capture, and several
+live pages retain separate startup/content omissions. This fix does not
+claim progressive playback or a resolved large-file transfer; see RAD22-3.
+Holocene's verified design change requires separate browser-reference
+maintenance. The passing round74 curated milestone precedes this focused
+follow-up and is not repeated. Evidence: Lambda
+`temp/online-visual-round76/`; report
+`test/online/comparison/repairs.html#round-76`.
+
+<a id="ri-120"></a>
+
+### RI-120 — SVG auto dimensions acquire a definite fallback natural size
+
+**Status:** FIXED, 2026-11-17. **Lambda blocker:** resolved for SVG natural
+metadata and percentage flex sizing. Ownership follows **D9.1.1v4 /
+D9.1.3v2**. Capture clocks and resource budgets remain unchanged (**D10.1.7**).
+
+Wispr's hero has width:100% SVG attributes and height="auto" with viewBox
+1048×594. The SVG occupies approximately 265×150 inside a 600px flex column,
+compressing the large text paths. With height omitted, a minimal flex SVG
+correctly occupies 600×340.08; height="auto" produces 264.65×150. Ordinary
+block layout instead keeps width600 but the same incorrect height150.
+
+`calculate_svg_intrinsic_size` marked every nonpercentage attribute string
+as a natural dimension even when `parse_svg_length` failed and returned the
+300/150 default. It now reuses the existing `read_svg_number_attr` success
+contract for both numeric and string attributes. Only parsed nonnegative
+finite lengths set natural-axis flags; percentage guards and viewBox ratio
+handling are retained. This follows
+[SVG 2 §8.12](https://www.w3.org/TR/SVG2/coords.html#IntrinsicSizing): auto and
+percentage dimensions do not supply natural dimensions. No alternate sizing
+path, hardcoded keyword exception or new feature is introduced.
+
+Three new auto/invalid-height cases fail before; omitted-height and numeric
+controls pass. Chromium confirms the five controls and the 320px card height.
+All **34 focused SVG/ratio/flex PNG cases** and integer lint pass afterward.
+Wispr's saved-page error improves **15.30% to 2.43%**, restoring the large
+path regions. Remaining font/animation details are not claimed fixed.
+The passing round71 broad gate precedes this focused follow-up and is not
+repeated. Evidence and final capture qualification: Lambda
+`temp/online-visual-round73/`; report
+`test/online/comparison/repairs.html#round-73`.
+
+<a id="ri-119"></a>
+
+### RI-119 — Positioned decorations make inline intrinsic heights stack
+
+**Status:** FIXED, 2026-11-17. **Lambda blocker:** resolved for native inline
+height measurement. Ownership follows **D9.1.1v4 / D9.1.3v2**; selected flow
+restoration remains under **D5.5.1**. Capture clocks and resource budgets are
+unchanged (**D10.1.7**).
+
+Overpass's saved first heading line contains eight inline-block letters and
+an absolute underline span. Its native height is 195.55px versus Chromium's
+32.89px, and the hero grows to 1131.55px versus 550.53px, displacing its photo
+and following section. A minimal eight-letter line is 24px tall normally but
+192px with an empty absolute decoration. Fixed positioning also reproduces.
+
+The intrinsic height classifier checked display:none but allowed out-of-flow
+children to decide whether content was inline. The absolute span has a block
+outer role, so it disabled inline measurement; the later loop skipped the
+span yet summed the letters as separate blocks. Classification now reuses
+`intrinsic_child_is_out_of_flow` before deciding the formatting mode. An
+independent flow-root had a related omission: inline-child classification
+was enabled only for line clamping. Ordinary flow roots now use that existing
+classification too. The child-level checks and existing height paths remain
+shared; no new formatter or site condition is added. This follows
+[CSS 2.2 §9.2.1 / §9.4](https://www.w3.org/TR/CSS22/visuren.html#normal-flow).
+
+The flow-root and absolute/fixed decoration reductions fail before; plain
+block and inline-block controls pass. Chromium confirms all five controls.
+All **42 focused flex/inline PNG cases** and integer lint pass after the fix.
+The flow-root-only counterfactual does not repair Overpass, distinguishing it
+from the confirmed decoration cause. With both corrections, exact-source
+Overpass error improves **18.22% to 0.47%** and the hero/next section recover.
+Minor heading details are not claimed fixed. The round71 full Radiant gate
+passed 8,169 of 8,488 with 299 partial and 20 skipped before this focused
+follow-up and is not repeated.
+
+Evidence, counterfactual renderer and final qualification: Lambda
+`temp/online-visual-round72/`; report
+`test/online/comparison/repairs.html#round-72`.
+
+<a id="ri-118"></a>
+
+### RI-118 — Preferred widths leak into flex content-only intrinsic minima
+
+**Status:** FIXED, 2026-11-17. **Lambda blocker:** resolved for native flex
+minimum sizing. Ownership follows **D9.1.1v4 / D9.1.3v2**. Capture clocks and
+resource budgets remain unchanged (**D10.1.7**).
+
+Orum's saved hero is a 1120px row. Its left block flex item has a 600px flex
+basis and width:100%; native allocates the entire row to that item and pushes
+the right image outside the viewport. A reduced 360px row with a 200px fixed
+sibling reproduces the inflated minimum using either percentage preferred
+widths or a large fixed preferred width. A smaller fixed-width control passes.
+
+The existing content-only intrinsic query omits the item's preferred width,
+but descendant percentages still resolved against that preferred width.
+[CSS Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto) makes
+this intrinsic percentage basis indefinite even when the preferred width is
+definite. The percentage-basis helper now reads the existing active intrinsic
+query stack. It recognizes content-only mode before descendant cache lookup,
+so ordinary and cyclic percentage measurements receive distinct cache keys.
+No new layout state, copied measurement path or site condition is introduced.
+
+Three reduced cases fail before and the small-width control passes. All
+**55 focused flex/intrinsic PNG cases** pass afterward. The new native cache
+unit alternates normal/content-only queries with warm descendant caches and
+passes only after the correction. Two older selected cache tests fail with
+byte-identical assertions before and after this change; their existing
+104/204-versus-4 failures are retained, not masked. Counterfactual binaries
+use the same current test objects and differ only in the intrinsic object.
+Integer-cast lint passes. The accumulated follow-ups pass the second broad
+Radiant milestone: **8,169 passed, 299 partial, 20 skipped, no failures out
+of 8,488 checks**.
+
+The saved Orum source regains its right image and column allocation. Both
+qualified renderers produce an entirely white current live capture, so this
+repair does not clear Orum from high severity or claim a resolved startup
+cause. Evidence and qualification: Lambda `temp/online-visual-round71/`;
+report `test/online/comparison/repairs.html#round-71`.
+
+<a id="ri-116"></a>
+
+### RI-116 — Lifted layers retain an intermediate absolute ancestor's DOM offset
+
+**Status:** FIXED, 2026-11-17. **Lambda blocker:** resolved for native paint
+coordinate replay. Readymag's independent live startup remains unresolved.
+Ownership follows **D9.1.1v4 / D9.1.3v2**; **D10.1.7** clocks and resource
+budgets are unchanged.
+
+Readymag's saved document has an in-flow consent box translated above the
+viewport; its normal wrapper remains at y529. Its absolute main, absolute
+page container and nested absolute content all report y0 in Lambda and
+Chromium, but Lambda paints the page below y529. The page container is a
+positive stacking layer lifted across an auto-level absolute main ancestor.
+A simple absolute box alone paints correctly; the additional lifted layer
+is required to reproduce the defect.
+
+Raster and shared vector stacking-path replay subtracted
+`layout_positioned_parent_offset` at the target only. Intermediate absolute
+ancestors were added in DOM-parent coordinates, retaining the wrapper's y529
+even though their used positions belong to an earlier containing block. Both
+walkers now apply the existing helper at intermediate positioned ancestors;
+raster CSS/legacy clip replay receives that corrected parent origin too.
+No new coordinate helper, site condition or conservative fallback is added.
+
+The reduced absolute case fails before the correction; a fixed ancestor is
+a separate stacking context and correctly keeps its child below a later outer
+layer. Chromium independently confirms both cases. All **38 focused paint
+fixtures** pass afterward. The SVG witness moves the blue rectangle from y200
+to y0. Exact-source Readymag error improves **41.50% to 9.87%**; mosaic and
+text return to the viewport. Remaining font, white-card and widget details
+are not claimed fixed. The current live page still yields a blank startup
+capture, so it remains high; inventory **151 high, 1 critical, 915 low**.
+
+The round66 broad baseline passed 8,169 of 8,488 with 299 partial and 20
+skipped before the two later local fixes; it was not repeated for this
+focused coordinate correction. Lambda evidence/pin:
+`temp/online-visual-round68/`; report:
+`test/online/comparison/repairs.html#round-68`.
+
+<a id="ri-115"></a>
+
+### RI-115 — Flex refinement forgets heights of items exposed through contents
+
+**Status:** FIXED, 2026-11-17. **Lambda blocker:** resolved; Superlist's major
+missing app image now paints in the actual current source and live capture.
+Native ownership follows **D9.1.1v4 / D9.1.3v2**; **D10.1.7** clocks, resource
+budgets and browser capture procedure are unchanged.
+
+After RI-114 restores navigation, Superlist's current app image remains absent.
+Its flex-item container has aspect-ratio 1.63 and width 1120px but zero used
+height, while its row parent retains 687.12px. A 400px-wide minimal ratio box
+with positioned content paints through a direct parent and disappears when
+one or two display:contents wrappers are inserted. Following flow retains the
+expected y200 position, distinguishing child height loss from parent collapse.
+
+`layout_final_flex_content` captures original heights through the flattened,
+ordered `flex_for_each_final_content_item` list. Its restoration helper walked
+direct DOM children instead, omitting flattened descendants and potentially
+misassociating reordered items. The restoration helper now takes the active
+flex layout and reuses the same existing iterator. Both ratio restoration and
+cross-size refinement consume the matching height snapshot; existing final
+absolute-child percentage resolution updates the restored image viewport.
+No new parent walk, sizing fallback or site-specific logic is introduced.
+
+Before the fix, the direct control passes and both contents cases fail.
+All **25 focused ratio and positioned/grid fixtures** pass after the fix;
+integer-cast lint passes. Superlist's app image returns in its current saved
+source and normal live capture. Its temporary missing-image annotation is
+removed after visual review; headline wrapping and small details remain.
+The inventory becomes **151 high, 1 critical, 915 low**. Browser references,
+other rows and all previous annotations are preserved. The round66 audited
+reference refresh remains separate from this engine repair.
+
+The preceding three-fix Radiant baseline passed **8,169 / 8,488**, with
+299 partial and 20 skipped, before this follow-up. It was not repeated for
+this local iterator correction. Evidence and the pinned release:
+Lambda `temp/online-visual-round67/`; report:
+`test/online/comparison/repairs.html#round-67`.
+
+<a id="ri-114"></a>
+
+### RI-114 — Positioned children beneath contents wrappers never receive layout
+
+**Status:** FIXED, 2026-11-17. **Lambda blocker:** resolved for existing
+flex/grid positioned-child collection; Superlist retains a distinct ratio-box
+sizing omission. Ownership follows **D9.1.1v4 / D9.1.3v2**; **D10.1.7** clocks
+and resource budgets are unchanged.
+
+Superlist's saved navigation is visible/fixed but has zero geometry. It sits
+below a display:contents wrapper in the outer flex container. Flex/grid item
+collection flattens such wrappers and excludes out-of-flow boxes from normal
+items; `layout_absolute_children_in_context` then visited only direct DOM
+children and never reached the initialized positioned box.
+
+The shared pass now reuses the existing flattened-node count/collection
+helpers with scoped scratch storage. Existing containing-block, static-position
+and grid-area callbacks remain in use. No new flattening implementation,
+parent reparenting, site condition or sizing fallback is introduced.
+
+Four new fixtures fail before the fix: grid placement under one/two contents
+wrappers, flex absolute and nested flex fixed boxes. All **29 focused paint
+fixtures** pass afterward; integer-cast lint passes. The fixed navigation
+returns in the exact saved source. A milestone gate for RI-112/RI-113/RI-114
+passes **8,169 tests, 299 partial, 20 skipped, no failures out of 8,488**.
+Lambda's native baseline runners were rebuilt in release and the documented
+run-radiant-baseline command used the immutable round66 host. No references,
+expected failures or tolerances were changed to pass the engine baseline.
+
+The live site has independently changed from a dark “Tasks, notes, and plans”
+page to a light “A little less on your mind” design. Archived/current HTTP
+sources justify an audited browser-reference refresh. A missing large app
+image still has a zero-height 1120px-wide ratio box; a manual annotation
+retains high severity. This is a separate unresolved sizing defect, not a
+claimed RI-114 clearance. Inventory: **152 high, 1 critical, 914 low**.
+Evidence: Lambda `temp/online-visual-round66/`; report:
+`test/online/comparison/repairs.html#round-66`.
+
+<a id="ri-113"></a>
+
+### RI-113 — Calculated preferred aspect ratios collapse auto-sized boxes
+
+**Status:** FIXED, 2026-11-17. **Lambda blocker:** resolved for dimensionless
+preferred-ratio math; Remote's live client startup remains unresolved.
+Native ownership follows **D9.1.1v4 / D9.1.3v2**. **D10.1.7** capture clocks,
+references and budgets are unchanged.
+
+Remote's large SVG logo paints in isolation but disappears in the exact saved
+full document. Its relative flex-item container is 1093.94px wide and zero
+height in Lambda, versus 199.61px high in Chromium. Selectors, opacity and
+animation-none resolve correctly. The preferred ratio is supplied through a
+custom property containing `calc(1096 / 200)`.
+
+`layout_aspect_ratio_value` read literal numeric tokens but ignored CSS math
+functions, returning no preferred ratio. A shared numeric-component reader
+now invokes the existing CSS math evaluator with an empty evaluation context;
+both a single ratio number and numerator/denominator components use it.
+Dimensional or unresolved function components reject the ratio instead of
+silently being skipped. No flex-specific or SVG-specific sizing override is
+added.
+
+Two new pixel cases fail on the previous release. The final build passes all
+nine related sizing fixtures and two focused native tests, including a ten-row
+ratio table covering literal, calc, min, auto, calculated components, zero and
+invalid dimensions. Integer-cast lint passes. Focused tests caught an initial
+null-context call (type checking only), which was corrected before publishing.
+The exact-source comparison improves **11.27% to 0.75%** mean image error.
+The live capture still lacks the hydrated logo and headline in the preserved
+browser reference, so Remote remains high severity; the inventory remains
+**152 high, 1 critical, 914 low**. Only Remote's native attempt is refreshed.
+No broad baseline was repeated. Lambda evidence and pin:
+`temp/online-visual-round65/`; report:
+`test/online/comparison/repairs.html#round-65`.
+
+<a id="ri-112"></a>
+
+### RI-112 — A positioned document root disappears from raster output
+
+**Status:** FIXED, 2026-11-17. **Lambda blocker:** resolved for root painting;
+Dayos retains a separate live startup overlay. Native ownership follows
+**D9.1.1v4 / D9.1.3v2**; **D10.1.7** capture clocks and budgets are unchanged.
+
+Dayos's saved script-free document renders entirely white in Lambda despite
+valid visible content geometry; Chromium paints its black page and content.
+A minimal `html {position:fixed;inset:0}` reproduces the loss independently of
+BODY positioning or overflow clipping. An absolute root also fails; a fixed
+BODY beneath an ordinary root is a passing control.
+
+`render_raster_view_tree` passed the root to `render_children`, whose shared
+normal-flow walker defers positioned boxes to a parent's stacking pass. The
+document root has no such parent pass. The tree entry now uses the existing
+`render_raster_stacking_view` dispatcher directly, painting the root exactly
+once without changing descendant positioning, stacking or clipping rules.
+
+Four new root fixtures fail before the correction, while the BODY control
+passes. The final release passes all **24 focused opacity/position and
+root/body overflow fixtures**. Chromium independently confirms the five new
+cases. The exact saved Dayos source improves from **99.01% to 0.77%** mean
+image error. Its normal live capture still has a full-page yellow `.site-in`
+overlay (authored fixed, z-index 100); no overlay removal or clock advance is
+introduced. The Nuxt bootstrap needed to remove it is not qualified here.
+Dayos therefore remains high severity; the inventory stays **152 high,
+1 critical, 914 low**. Full baselines were not repeated for this single
+entry-point change. Evidence and the pinned release are under Lambda's
+`temp/online-visual-round64/`; the repair report is
+`test/online/comparison/repairs.html#round-64`.
+
 <a id="ri-111"></a>
 
 ### RI-111 — Inline-property sharing erases isolation and other semantic differences

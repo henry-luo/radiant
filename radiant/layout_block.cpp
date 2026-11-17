@@ -10079,13 +10079,15 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
                 !lycon->line.has_float_intrusion &&
                 !has_prior_flow_content &&
                 lycon->line.advance_x > effective_left &&
-                effective_left + margin_box_width <= effective_right) {
+                layout_edge_at_or_before(effective_left + margin_box_width, effective_right)) {
                 lycon->line.advance_x = effective_left;
             }
             // CSS Text: a collapsible separator is a break opportunity before
             // an atomic inline; include it in fit testing so overflow selects
             // that opportunity, then line_break() removes the separator.
-            if (lycon->line.advance_x + margin_box_width > effective_right && boundary_allows_wrap) {
+            // intrinsic sums and placed edges can differ by one float roundoff.
+            if (!layout_edge_at_or_before(lycon->line.advance_x + margin_box_width, effective_right) &&
+                boundary_allows_wrap) {
                 if (!lycon->line.is_line_start && has_prior_flow_content) {
                     // a wrapped pending box must not alter the preceding line's shape band or alignment.
                     lycon->line = previous_float_band;
@@ -10097,7 +10099,7 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
                         lycon->line.effective_right : lycon->line.right;
                     // CSS 2.1 §9.5: If the block still doesn't fit on the new line
                     if (lycon->line.has_float_intrusion &&
-                        effective_left + margin_box_width > effective_right) {
+                        !layout_edge_at_or_before(effective_left + margin_box_width, effective_right)) {
                         BlockContext* bfc = block_context_find_bfc(&lycon->block);
                         if (bfc) {
                             effective_left = push_inline_block_below_floats(
@@ -10144,7 +10146,7 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
                     block->x = effective_left;
                 } else if (lycon->line.has_float_intrusion &&
                            lycon->line.advance_x > effective_left &&
-                           effective_left + margin_box_width <= effective_right) {
+                           layout_edge_at_or_before(effective_left + margin_box_width, effective_right)) {
                     lycon->line.advance_x = effective_left;
                     block->x = effective_left;
                 } else {

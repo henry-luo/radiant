@@ -120,10 +120,22 @@ static bool layout_parse_aspect_ratio_number(const char* text, double* out_value
     return true;
 }
 
+static bool layout_resolve_aspect_ratio_number(const CssValue* value, double* number) {
+    if (!value || (value->type != CSS_VALUE_TYPE_NUMBER && value->type != CSS_VALUE_TYPE_FUNCTION))
+        return false;
+    // ratio components are dimensionless math, not only literal number tokens.
+    const CssMathEvaluationContext context = {};
+    CssMathResult result = css_math_evaluate(value, &context);
+    if (!result.resolved || result.type != CSS_MATH_NUMBER) return false;
+    *number = result.value;
+    return true;
+}
+
 float layout_aspect_ratio_value(const CssValue* value) {
     if (!value || value->type == CSS_VALUE_TYPE_KEYWORD) return 0.0f;
-    if (value->type == CSS_VALUE_TYPE_NUMBER && value->data.number.value > 0.0) {
-        return (float)value->data.number.value;
+    double number = 0.0;
+    if (layout_resolve_aspect_ratio_number(value, &number)) {
+        return number > 0.0 ? (float)number : 0.0f;
     }
     if (value->type == CSS_VALUE_TYPE_STRING) {
         double ratio = 0.0;
@@ -140,12 +152,15 @@ float layout_aspect_ratio_value(const CssValue* value) {
         bool got_denominator = false;
         for (int i = 0; i < value->data.list.count && !got_denominator; i++) {
             CssValue* item = value->data.list.values[i];
-            if (!item || item->type != CSS_VALUE_TYPE_NUMBER) continue;
+            if (!layout_resolve_aspect_ratio_number(item, &number)) {
+                if (item && item->type == CSS_VALUE_TYPE_FUNCTION) return 0.0f;
+                continue;
+            }
             if (!got_numerator) {
-                numerator = item->data.number.value;
+                numerator = number;
                 got_numerator = true;
             } else {
-                denominator = item->data.number.value;
+                denominator = number;
                 got_denominator = true;
             }
         }
@@ -869,6 +884,7 @@ static bool intrinsic_has_inline_size_keyword(ViewBlock* block) {
         layout_intrinsic_max_size_keyword(block, true) != CSS_VALUE__UNDEF;
 }
 static bool intrinsic_percentage_width_is_indefinite(LayoutContext* lycon, DomElement* element);
+static bool intrinsic_width_query_is_content_only(DomElement* element);
 
 struct IntrinsicHorizontalBoxEdges {
     float padding_start;
@@ -920,7 +936,8 @@ static bool intrinsic_percentage_width_is_indefinite(LayoutContext* lycon, DomEl
     if (!parent || !parent->measuring_intrinsic_width() ||
         layout_block_inline_axis_is_vertical(parent)) return false;
     // auto block descendants also have cyclic percentages while their intrinsic width is queried.
-    return intrinsic_parent_has_auto_inline_width(parent) ||
+    return intrinsic_width_query_is_content_only(parent->as_element()) ||
+        intrinsic_parent_has_auto_inline_width(parent) ||
         // min/max intrinsic queries also make descendant percentages cyclic.
         intrinsic_has_inline_size_keyword(parent) ||
         layout_block_has_automatic_size(parent, true) ||
@@ -3720,6 +3737,16 @@ struct IntrinsicWidthCacheScope {
 };
 
 thread_local IntrinsicWidthCacheScope* IntrinsicWidthCacheScope::active = nullptr;
+
+static bool intrinsic_width_query_is_content_only(DomElement* element) {
+    // omitting a box's preferred width also removes its descendants' percentage basis.
+    for (IntrinsicWidthCacheScope* scope = IntrinsicWidthCacheScope::active;
+         scope; scope = scope->parent) {
+        if (scope->element == element) return (scope->basis & 2) != 0;
+    }
+    return false;
+}
+
 
 IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement* element,
                                                 bool content_only, bool preserve_layout) {
@@ -7297,10 +7324,8 @@ static float intrinsic_text_br_content_height(LayoutContext* lycon, DomElement* 
     StrBuf* text = layout_collect_inline_text(element,
         lycon->block.text_wrap_style == CSS_VALUE_BALANCE);
     if (!text) {
-        // qualify text/BR-only inline descendants without flattening their fonts.
-        text = layout_collect_inline_text(element, true);
-        if (!text) return -1.0f;
-        strbuf_free(text);
+        // atomic inlines can contain block descendants; their surrounding line
+        // still includes the parent's strut and baseline (CSS 2.1 §10.8).
         return intrinsic_inline_flow_content_height(lycon, element, view, width);
     }
 
@@ -7822,8 +7847,8 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
 
     if (!is_grid_container && !is_flex_row &&
         (display_inner == CSS_VALUE_FLOW || display_inner == CSS_VALUE_CONTENTS ||
-         (display_inner == CSS_VALUE_FLOW_ROOT && layout_line_clamp_count(view) > 0))) {
-        // Flow and contents boxes expose their inline descendants to this formatting context.
+         display_inner == CSS_VALUE_FLOW_ROOT)) {
+        // independent flow roots still lay out inline children together on line boxes.
         has_only_inline_content = true;
         for (DomNode* c = element->first_child; c; c = c->next_sibling) {
             if (is_vertical_fieldset_legend(c)) continue;
@@ -7834,7 +7859,9 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
                 DomElement* child_elem = c->as_element();
                 // Skip display:none elements — they generate no boxes (CSS 2.1 §9.2.4)
                 ViewElement* child_ve = lam::view_require_element(static_cast<View*>(child_elem));
-                if (layout_display_is_none(child_ve->display)) {
+                if (layout_display_is_none(child_ve->display) ||
+                    intrinsic_child_is_out_of_flow(child_elem, lam::view_as_block(child_elem))) {
+                    // positioned decorations cannot turn an inline run into stacked blocks.
                     continue;
                 }
                 if (!is_inline_level_element(child_elem)) {

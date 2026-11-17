@@ -525,7 +525,9 @@ static void render_walk_stacking_path(RenderBackend* backend, RenderWalkState* s
         return;
     }
     RenderWalkState saved = *state;
-    state->x += block->x; state->y += block->y;
+    // replay each positioned ancestor in its containing block, just like the target layer.
+    RdtLogicalPoint offset = layout_positioned_parent_offset(child);
+    state->x += block->x - offset.x; state->y += block->y - offset.y;
     if (block->font) {
         setup_font(state->ui_context, &state->font, block->font);
         if (backend->on_font_change) backend->on_font_change(backend->ctx, block->font);

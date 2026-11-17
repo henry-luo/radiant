@@ -24,17 +24,15 @@
 // Utility Functions
 // ============================================================================
 
-// CSS 2.1 §9.5 has half-open float exclusion ranges: touching margin edges do
-// not overlap. Float placement and clearance reach that edge through separate
-// arithmetic, so absorb one scale-relative float roundoff before comparing it.
-static bool float_edge_at_or_before(float edge, float coordinate) {
+// float exclusion and inline fitting reach touching edges through separate
+// arithmetic; absorb one scale-relative float roundoff before comparing them.
+bool layout_edge_at_or_before(float edge, float coordinate) {
     float scale = max(max(fabsf(edge), fabsf(coordinate)), 1.0f);
     return edge <= coordinate + scale * FLT_EPSILON;
 }
 
 static bool float_edge_at_or_after(float edge, float coordinate) {
-    float scale = max(max(fabsf(edge), fabsf(coordinate)), 1.0f);
-    return edge >= coordinate - scale * FLT_EPSILON;
+    return layout_edge_at_or_before(coordinate, edge);
 }
 
 /**
@@ -43,13 +41,13 @@ static bool float_edge_at_or_after(float edge, float coordinate) {
 static bool float_intersects_y_range(FloatBox* box, float y_top, float y_bottom,
                                      bool float_placement_query) {
     if (float_placement_query && y_bottom <= y_top &&
-        float_edge_at_or_before(box->margin_box_top, y_top) &&
-        !float_edge_at_or_before(box->margin_box_bottom, y_top)) {
+        layout_edge_at_or_before(box->margin_box_top, y_top) &&
+        !layout_edge_at_or_before(box->margin_box_bottom, y_top)) {
         // CSS 2.1 §9.5.1 Rule 2 constrains a zero-height float by its top
         // edge; an empty query interval must still see preceding floats.
         return true;
     }
-    return !(float_edge_at_or_before(box->margin_box_bottom, y_top) ||
+    return !(layout_edge_at_or_before(box->margin_box_bottom, y_top) ||
              float_edge_at_or_after(box->margin_box_top, y_bottom));
 }
 

@@ -20,6 +20,160 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-124"></a>
+
+### RI-124 — FIXED
+
+Atomic inline fit tests now reuse the float edge comparator's scale-relative
+roundoff handling. Python's header no longer adds a line for a 0.00003px edge
+difference. Real overflowing boxes still wrap. See the
+[fractional edge repair](<Radiant_Issue_Ledger (fixed).md#ri-124>).
+
+<a id="ri-123"></a>
+
+### RI-123 — FIXED
+
+Intrinsic inline height now retains the parent's line strut when atomic inline
+boxes contain block descendants or positioned decorations. The existing inline
+formatter supplies baseline and line-box geometry instead of a child-height
+maximum. See the [line-height repair](<Radiant_Issue_Ledger (fixed).md#ri-123>).
+
+<a id="ri-122"></a>
+
+### RI-122 — Named view-progress animation timelines are unsupported
+
+**Status:** OPEN major feature gap, 2026-11-17. Blocks Nolla's visual parity;
+independent native repairs can continue. Ownership follows **D9.1.1v4 /
+D9.1.3v2**; initial capture clocks remain unchanged (**D10.1.7**).
+
+Nolla's script-free hero and following panels declare a named view timeline,
+animation-timeline and a containment/exit animation range. The style registry
+and native animation subsystem do not implement those properties. The ordinary
+animation path samples the parallax end values: the hero wrapper is at opacity
+zero and translated 156.244px while its heading and other geometry exist.
+Chromium's range-bound animation leaves the hero visible at initial scroll.
+This explains the major blank main region on the same HTTP document
+(29.85% mean error). See
+[Scroll-driven Animations §3–§4](https://www.w3.org/TR/scroll-animations-1/#view-timelines).
+
+The earlier comparison was unqualified because its temporary browser driver
+assigned an absolute numeric currentTime to a progress-based timeline. The
+driver now pauses progress timelines at their natural initial scroll position
+and assigns numeric zero only to numeric times; the comparison completes.
+No canonical capture clock, scroll position, style or reference is changed.
+Named timeline lookup, progress/range calculation and sampling require a new
+subsystem, outside this round's bug-fix scope. No fade suppression or native
+timing exception is added.
+
+Evidence in Lambda: temp/online-visual-round77/nolla-comparison.json,
+the exact-source native/browser PNGs and nolla-probe-lambda-output.log.
+The page remains high severity.
+
+<a id="ri-121"></a>
+
+### RI-121 — FIXED
+
+Snapshot resource discovery now prepares eligible media before the existing
+wait and first layout. Local HTML can initialize its manager from a remote
+media source. The existing preload/autoplay/audio policy remains shared.
+See the [resource-ordering repair](<Radiant_Issue_Ledger (fixed).md#ri-121>).
+
+<a id="ri-120"></a>
+
+### RI-120 — FIXED
+
+SVG natural dimensions now require a successfully parsed length. An auto or
+nonnumeric height no longer invents a definite 150px natural axis and compresses
+Wispr's percentage-width SVGs.
+See the [SVG metadata repair](<Radiant_Issue_Ledger (fixed).md#ri-120>).
+
+<a id="ri-119"></a>
+
+### RI-119 — FIXED
+
+Intrinsic height classification now excludes positioned decorations and
+recognizes inline content in independent flow roots. Overpass's saved hero
+no longer stacks its letters' height contributions.
+See the [inline-height repair](<Radiant_Issue_Ledger (fixed).md#ri-119>).
+
+<a id="ri-118"></a>
+
+### RI-118 — FIXED
+
+Content-only intrinsic measurements now make descendant percentage widths
+indefinite even when the flex item has a preferred width. Orum's saved hero
+columns recover; its independent live blank capture remains unresolved.
+See the [intrinsic-width repair](<Radiant_Issue_Ledger (fixed).md#ri-118>).
+
+<a id="ri-117"></a>
+
+### RI-117 — Chromium ignores Readymag's missing SVG mask reference
+
+**Status:** OPEN interoperability discrepancy, 2026-11-17; no native defect
+confirmed. **Lambda blocker:** no. Preserve the existing native rule rather
+than introducing a browser-matching exception. Ownership follows
+**D9.1.1v4 / D9.1.3v2**; effects ownership **D5.5.1**.
+
+Readymag's saved white card has a path mask URL naming an ID absent from the
+entire document (zero mask elements). Four isolated controls retain the real
+SVG and vary only that attribute and the CSS drop-shadow. Native output is
+transparent with the missing mask, and white without it, independently of
+the drop-shadow. Chromium paints white even with the missing reference.
+
+[CSS Masking Level 1 §7.1](https://www.w3.org/TR/css-masking-1/#the-mask-image)
+specifies a transparent-black layer for a nonexistent mask reference and
+applies to SVG graphics elements. The existing native effect path implements
+that rule intentionally. This is not evidence to suppress the mask or render
+a replacement white shape. No renderer change or reference adjustment is
+made. It explains this saved-source card discrepancy only; Readymag's blank
+live startup remains independently unresolved.
+
+Evidence: Lambda `temp/online-visual-round69/card-results.json`, the four
+minimal documents and native PNGs, and `operate-static-browser.png`.
+The existing qualified round68 renderer is unchanged. No additional baseline
+is needed for this read-only diagnosis.
+
+<a id="ri-116"></a>
+
+### RI-116 — FIXED
+
+Lifted layers now replay intermediate positioned ancestors in their containing
+block's coordinate basis. Readymag's live startup remains unresolved.
+See the [paint-coordinate repair](<Radiant_Issue_Ledger (fixed).md#ri-116>).
+
+<a id="ri-115"></a>
+
+### RI-115 — FIXED
+
+Flex height restoration now visits the same flattened items that supplied
+the snapshot. Superlist's app image returns and leaves high severity.
+See the [height-restoration repair](<Radiant_Issue_Ledger (fixed).md#ri-115>).
+
+<a id="ri-114"></a>
+
+### RI-114 — FIXED
+
+The shared positioned-child layout pass now flattens contents wrappers just
+like flex/grid item collection. Superlist's separate app-image ratio-box loss
+remains unresolved. See the [positioned-box repair](<Radiant_Issue_Ledger (fixed).md#ri-114>).
+
+<a id="ri-113"></a>
+
+### RI-113 — FIXED
+
+Preferred aspect ratios now evaluate dimensionless CSS math rather than
+collapsing calculated-ratio boxes. Remote's independent live startup remains
+unresolved. See the [ratio repair](<Radiant_Issue_Ledger (fixed).md#ri-113>).
+
+<a id="ri-112"></a>
+
+### RI-112 — FIXED
+
+Positioned document roots now enter raster painting directly rather than
+being deferred to a nonexistent parent stacking pass. Dayos's independent
+live startup overlay remains unresolved.
+See the [root-paint repair](<Radiant_Issue_Ledger (fixed).md#ri-112>).
+
 <a id="ri-111"></a>
 
 ### RI-111 — FIXED
@@ -1898,7 +2052,7 @@ Other state-store families and deferred callbacks remain open. See the
 
 #### RAD22-3
 
-**Video source is local files only.** `rdt_video_open_file` is the sole source entry (`rdt_video.h:55-58`); web URLs are explicitly deferred. A `<video src="https://...">` will not load even on macOS.
+**Remote media requires a complete downloaded file; progressive/range playback is unavailable.** Reverified 2026-11-17: `radiant_media_prepare` requests HTTP media through the input-owned resource manager, then copies ready cached bytes to an immutable local decoder file. Fast local-server MP4 controls load successfully, so HTTP media is no longer categorically unsupported. `rdt_video_open_file` still receives a complete local file; it does not consume a partially available HTTP stream. RI-121 fixes source-request ordering before the unchanged snapshot wait, while larger transfers may remain unavailable at capture. Going's 7 MB source decodes locally but its normal snapshot still lacks the video. Progressive/range playback requires a larger input/media integration and is not implemented here (**D9.1.2v2 / D10.1.7**).
 
 <a id="rad22-4"></a>
 

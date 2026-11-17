@@ -4708,6 +4708,8 @@ float block_context_clear_y(BlockContext* ctx, CssEnum clear_type);
  */
 FloatBox* block_context_alloc_float_box(BlockContext* ctx);
 
+bool layout_edge_at_or_before(float edge, float coordinate);
+
 /**
  * Update line effective bounds for BFC floats
  * Adjusts line.effective_left and line.effective_right based on floats at current Y

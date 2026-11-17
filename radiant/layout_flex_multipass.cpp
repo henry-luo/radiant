@@ -509,16 +509,14 @@ static void flex_for_each_final_content_item(ViewBlock* container,
 
 template <typename Fn>
 static void flex_for_each_original_height_item(
-    ViewBlock* container, const float* original_heights, int height_count, Fn fn) {
+    ViewBlock* container, FlexContainerLayout* flex,
+    const float* original_heights, int height_count, Fn fn) {
     if (!container || !original_heights) return;
     int index = 0;
-    for (View* child = container->first_child;
-         child && index < height_count; child = child->next()) {
-        if (!layout_view_is_flex_item_box(child)) continue;
-        ViewElement* item = lam::view_require_element(child);
-        if (!item->fi && !item->form_control()) continue;
-        fn(item, original_heights[index++]);
-    }
+    // restore the same flattened, ordered items whose heights were captured.
+    flex_for_each_final_content_item(container, flex, [&](ViewElement* item) {
+        if (index < height_count) fn(item, original_heights[index++]);
+    });
 }
 
 static void flex_adjust_column_content_item(ViewElement* item, float original_height,
@@ -2036,7 +2034,7 @@ void layout_final_flex_content(LayoutContext* lycon, ViewBlock* flex_container) 
     // Per CSS Sizing Level 4 §7.2: aspect-ratio fixes box dimensions; content overflows
     if (flex && is_main_axis_horizontal(flex)) {
         flex_for_each_original_height_item(
-            flex_container, original_heights, original_height_count,
+            flex_container, flex, original_heights, original_height_count,
             [&](ViewElement* flex_item, float original_height) {
                 if (flex_item->fi && flex_item->fi->aspect_ratio > 0.0f &&
                     original_height > 0.5f && flex_item->height != original_height) {
@@ -2048,7 +2046,7 @@ void layout_final_flex_content(LayoutContext* lycon, ViewBlock* flex_container) 
     if (flex && is_main_axis_horizontal(flex) && flex->lines && flex->line_count > 0) {
         bool any_height_changed = false;
         flex_for_each_original_height_item(
-            flex_container, original_heights, original_height_count,
+            flex_container, flex, original_heights, original_height_count,
             [&](ViewElement* fi, float orig) {
                 bool is_definite_stretched = fi->fi &&
                     flex->has_definite_cross_size && !flex->block_size_is_provisional &&
