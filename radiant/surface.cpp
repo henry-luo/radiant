@@ -428,7 +428,7 @@ static ImageSurface* load_image_resource(DomDocument* document, lam::Own<hashmap
         }
     }
 
-    Url* abs_url = parse_url(document->url, resolved_img_url);
+    Url* abs_url = dom_document_resolve_url(document, resolved_img_url);
     local_file_url.reset();
     if (!abs_url) {
         log_error("Failed to parse URL: %s", img_url);

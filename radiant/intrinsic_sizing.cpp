@@ -3514,9 +3514,8 @@ static void intrinsic_record_first_inline_break(
 
 static float intrinsic_store_ratio_width_from_height(
         LayoutContext* lycon, DomElement* element, ViewBlock* view,
-        float aspect_ratio, float height, bool minimum_height,
-        bool height_is_border_box, bool is_scroll_container, bool content_only,
-        IntrinsicSizes* sizes) {
+        float aspect_ratio, float height, bool height_is_border_box, bool is_scroll_container, bool content_only,
+        bool ignore_percentage_max, bool zero_min_content, IntrinsicSizes* sizes) {
     bool ratio_uses_border_box = !layout_aspect_ratio_uses_content_box(view) &&
         layout_uses_border_box(view);
     float ratio_height = height;
@@ -3530,8 +3529,15 @@ static float intrinsic_store_ratio_width_from_height(
     // an intrinsic inline limit must not constrain the content width used to resolve itself.
     float aspect_width = ratio_height * aspect_ratio;
     if (!content_only) {
-        aspect_width = layout_apply_min_max_axis(
-            view, aspect_width, true, layout_uses_border_box(view));
+        if (ignore_percentage_max) {
+            // cyclic percentage maxima cannot cap intrinsic width using a prior used width.
+            float border_width = layout_border_size_if_content_box(view, aspect_width, true);
+            border_width = layout_apply_min_max_border_box_axis(view, border_width, true, true);
+            aspect_width = layout_used_css_size_from_border_box(view, border_width, true);
+        } else {
+            aspect_width = layout_apply_min_max_axis(
+                view, aspect_width, true, layout_uses_border_box(view));
+        }
     }
     bool width_is_border_box = ratio_uses_border_box ||
         (!layout_aspect_ratio_uses_content_box(view) &&
@@ -3545,11 +3551,14 @@ static float intrinsic_store_ratio_width_from_height(
         sizes->min_content = explicit_min >= 0.0f
             ? layout_css_size_to_border_box(view->bound, layout_box_sizing(view), explicit_min, true)
             : 0.0f;
+    } else if (zero_min_content && layout_element_is_replaced(element)) {
+        // the replaced percentage rule does not erase a non-replaced preferred-ratio minimum.
+        sizes->min_content = content_only ? padding_border
+            : layout_apply_min_max_border_box_axis(view, padding_border, true, ignore_percentage_max);
     } else {
         sizes->min_content = aspect_border_width;
     }
-    sizes->max_content = is_scroll_container || minimum_height
-        ? aspect_border_width : sizes->min_content;
+    sizes->max_content = aspect_border_width;
     return aspect_width;
 }
 
@@ -4349,7 +4358,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         CssDeclaration* aspect_height_decl = layout_specified_physical_size_declaration(
             element, false);
         bool declared_percentage_height = aspect_height_decl && aspect_height_decl->value &&
-            aspect_height_decl->value->type == CSS_VALUE_TYPE_PERCENTAGE;
+            layout_css_size_facts(lycon, element, aspect_height_decl).percentage;
         bool percentage_height_is_intrinsic_auto =
             layout_element_is_replaced(element) &&
             element->tag() != MARKUP_NAME_CANVAS &&
@@ -4365,7 +4374,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
 
         // HTML dimension hints are specified sizes too; their opposite-axis
         // contribution transfers through a replaced element's natural ratio.
-        if (!percentage_height_is_intrinsic_auto &&
+        if (!percentage_height_is_intrinsic_auto && !declared_percentage_height &&
             !layout_block_has_automatic_size(view_block_for_aspect, false) &&
             view_block_for_aspect->blk &&
             view_block_for_aspect->block_mut()->given_height > 0) {
@@ -4396,12 +4405,12 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
                 height_decl->value->type == CSS_VALUE_TYPE_LENGTH) {
                 height = resolve_length_value(lycon, CSS_PROPERTY_HEIGHT,
                                               height_decl->value);
-            } else if (!percentage_height_is_intrinsic_auto && height_decl && height_decl->value &&
-                       height_decl->value->type == CSS_VALUE_TYPE_PERCENTAGE) {
-                float percentage = (float)height_decl->value->data.percentage.value;
+            } else if (!percentage_height_is_intrinsic_auto && declared_percentage_height) {
                 float parent_height = intrinsic_parent_definite_height(lycon);
                 if (parent_height > 0) {
-                    height = parent_height * percentage / 100.0f;
+                    // retained used heights belong to the previous percentage basis.
+                    height = layout_resolve_percentage_preferred_size(
+                        lycon, element, false, parent_height);
                 }
             }
         }
@@ -4460,8 +4469,10 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
             // the shared ratio transfer converts border-box height to content once.
             float aspect_width = intrinsic_store_ratio_width_from_height(
                 lycon, element, view_block_for_aspect, aspect_ratio, ratio_height,
-                false, layout_uses_border_box(view_block_for_aspect),
-                is_scroll_container, content_only, &sizes);
+                layout_uses_border_box(view_block_for_aspect),
+                is_scroll_container, content_only,
+                max_width_is_percentage && percentage_size_is_intrinsic_auto,
+                percentage_width_min_content_zero, &sizes);
             if (!is_scroll_container && !layout_element_is_replaced(element) &&
                 element_has_in_flow_intrinsic_content(element)) {
                 // A non-replaced preferred ratio is an intrinsic-width floor;
@@ -4479,7 +4490,9 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
                 // but its definite min-height still transfers through the ratio.
                 float aspect_width = intrinsic_store_ratio_width_from_height(
                     lycon, element, view_block_for_aspect, aspect_ratio, min_height,
-                    true, false, is_scroll_container, content_only, &sizes);
+                    false, is_scroll_container, content_only,
+                max_width_is_percentage && percentage_size_is_intrinsic_auto,
+                percentage_width_min_content_zero, &sizes);
                 // an opposite-axis minimum floors replaced natural size; it cannot replace it with zero.
                 if (!is_scroll_container && (layout_element_is_replaced(element) ||
                     element_has_in_flow_intrinsic_content(element))) {

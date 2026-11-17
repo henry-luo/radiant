@@ -2464,7 +2464,7 @@ typedef struct BlockProp {
     // aspect-ratio auto height is definite for percentage bases and margin adjacency,
     // but final auto sizing may still grow to contain in-flow content.
     bool aspect_ratio_auto_height;
-    // A percent abspos height resolved after its auto-height containing block completed.
+    // a percentage height made definite after its containing block or grid area completed.
     bool percentage_height_resolved_late;
     float given_width_percent;  // Raw percentage if width: X% (NaN if not percentage)
     float given_height_percent; // Raw percentage if height: X% (NaN if not percentage)

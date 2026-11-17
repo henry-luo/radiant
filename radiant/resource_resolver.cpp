@@ -4,6 +4,7 @@
 #include "lib/url.h"
 #include "lib/file.h"
 #include "lambda/input/css/css_parser.hpp"
+#include "lambda/core/mark_reader.hpp"
 #include "lib/str.h"
 
 #include <string.h>
@@ -51,15 +52,25 @@ bool radiant_url_is_http(const Url* url) {
                    url->scheme == URL_SCHEME_HTTPS);
 }
 
+bool radiant_source_is_inert_template(DomElement* root, const Element* source) {
+    if (!ElementReader(source).hasTag("template")) return false;
+    // the live namespace distinguishes inert HTML templates from foreign elements.
+    return dom_element_is_html_tag(dom_find_element_for_source(root, source), MARKUP_NAME_TEMPLATE);
+}
+
 char* radiant_document_resource_base(DomDocument* doc, MemCategory category) {
     if (!doc || !doc->url) return nullptr;
-    if (radiant_url_is_http(doc->url)) {
-        const char* href = url_get_href(doc->url);
-        return href ? mem_strdup(href, category) : nullptr;
+    Url* base = dom_document_resolve_url(doc);
+    if (!base) return nullptr;
+    if (radiant_url_is_http(base)) {
+        const char* href = url_get_href(base);
+        char* result = href ? mem_strdup(href, category) : nullptr;
+        url_destroy(base);
+        return result;
     }
-    lam::Temp<char> local(url_to_local_path(doc->url));
-    if (!local) return nullptr;
-    return mem_strdup(local.get(), category);
+    lam::Temp<char> local(url_to_local_path(base));
+    url_destroy(base);
+    return local ? mem_strdup(local.get(), category) : nullptr;
 }
 
 static char* radiant_try_wpt_root(const char* root, const char* href,

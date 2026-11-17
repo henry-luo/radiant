@@ -20,6 +20,40 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-111"></a>
+
+### RI-111 — FIXED
+
+Canonical inline-property sharing no longer erases isolation, ruby position or explicit line-strut state.
+See the [identity repair](<Radiant_Issue_Ledger (fixed).md#ri-111>).
+
+<a id="ri-109"></a>
+
+### RI-109 — FIXED
+
+See the [qualified repair](<Radiant_Issue_Ledger (fixed).md#ri-109>).
+
+<a id="ri-110"></a>
+
+### RI-110 — FIXED
+
+See the [qualified repair](<Radiant_Issue_Ledger (fixed).md#ri-110>).
+
+
+<a id="ri-108"></a>
+
+### RI-108 — FIXED
+
+Final grid percentage heights lost definiteness; intrinsic image ratios reused old percentage constraints.
+See the [grid and retained image-sizing repair](<Radiant_Issue_Ledger (fixed).md#ri-108>).
+
+<a id="ri-107"></a>
+
+### RI-107 — FIXED
+
+Reuse initially parsed stylesheets when delivering prefetched link completion.
+See the [completion repair](<Radiant_Issue_Ledger (fixed).md#ri-107>).
+
 <a id="ri-106"></a>
 
 ### RI-106 — FIXED

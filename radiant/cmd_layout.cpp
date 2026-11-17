@@ -682,38 +682,6 @@ static char* find_meta_refresh_url(Element* elem) {
     return nullptr;
 }
 
-// resolve the document's <base href> URL.
-const char* extract_base_href(Element* elem) {
-    if (!elem) return nullptr;
-
-    TypeElmt* type = (TypeElmt*)elem->type;
-    if (!type) return nullptr;
-
-    // Check if this is a <base> element with href attribute
-    if (str_ieq_cstr(type->name.str, "base")) {
-        const char* href = extract_element_attribute(elem, "href", nullptr);
-        if (href && strlen(href) > 0) {
-            return href;
-        }
-        return nullptr;
-    }
-
-    // Stop searching after <body> - base should be in <head>
-    if (str_ieq_cstr(type->name.str, "body")) {
-        return nullptr;
-    }
-
-    // Recursively process children
-    for (int64_t i = 0; i < elem->length; i++) {
-        Item child_item = elem->items[i];
-        if (get_type_id(child_item) == LMD_TYPE_ELEMENT) {
-            const char* result = extract_base_href(child_item.element);
-            if (result) return result;
-        }
-    }
-    return nullptr;
-}
-
 // extract a uniform scale from a transform declaration.
 float extract_transform_scale(CssDeclaration* transform_decl) {
     if (!transform_decl || !transform_decl->value) return 1.0f;
@@ -1187,11 +1155,12 @@ static ResourcePriority external_prefetch_priority(Element* elem,
 
 // Collect one resource class per pass so stylesheet requests cannot wait on
 // unrelated script transfers before CSS parsing starts.
-static void collect_external_resource_urls(Element* elem, const char* base_path,
+static void collect_external_resource_urls(Element* elem, DomElement* dom_root, const char* base_path,
                                             ExternalPrefetchUrl** out_urls,
                                             int* out_count, int* out_capacity,
                                             ExternalPrefetchKind kind, int depth) {
-    if (!elem || depth > MAX_RADIANT_CSS_TREE_DEPTH) return;
+    if (!elem || depth > MAX_RADIANT_CSS_TREE_DEPTH ||
+        radiant_source_is_inert_template(dom_root, elem)) return;
     TypeElmt* type = (TypeElmt*)elem->type;
     if (!type || !type->name.str) goto recurse;
 
@@ -1216,7 +1185,7 @@ recurse:
     for (int64_t i = 0; i < elem->length; i++) {
         Item child_item = elem->items[i];
         if (get_type_id(child_item) == LMD_TYPE_ELEMENT) {
-            collect_external_resource_urls(child_item.element, base_path,
+            collect_external_resource_urls(child_item.element, dom_root, base_path,
                                             out_urls, out_count, out_capacity, kind, depth + 1);
         }
     }
@@ -1238,10 +1207,10 @@ static int prefetch_document_subresources(DomDocument* doc, Element* html_root,
     ExternalPrefetchUrl* script_urls = nullptr;
     int script_count = 0;
     int script_capacity = 0;
-    collect_external_resource_urls(html_root, base_path, &stylesheet_urls, &stylesheet_count,
+    collect_external_resource_urls(html_root, doc->root, base_path, &stylesheet_urls, &stylesheet_count,
                                    &stylesheet_capacity, EXTERNAL_PREFETCH_STYLESHEET, 0);
     if (fetch_scripts) {
-        collect_external_resource_urls(html_root, base_path, &script_urls, &script_count,
+        collect_external_resource_urls(html_root, doc->root, base_path, &script_urls, &script_count,
                                        &script_capacity, EXTERNAL_PREFETCH_SCRIPT, 0);
     }
 
@@ -1470,7 +1439,7 @@ static void collect_stylesheets_in_document_order(Element* elem, DomElement* dom
                                                   int* linked_count,
                                                   int depth = 0) {
     if (!elem || !engine || !pool || !stylesheets || !count || !capacity) return;
-    if (depth > MAX_RADIANT_CSS_TREE_DEPTH) return;
+    if (depth > MAX_RADIANT_CSS_TREE_DEPTH || radiant_source_is_inert_template(dom_root, elem)) return;
 
     TypeElmt* type = (TypeElmt*)elem->type;
     if (type) {
@@ -1529,7 +1498,7 @@ void collect_inline_styles_from_dom(DomElement* elem, CssEngine* engine, const c
                                     CssStylesheet*** stylesheets, int* count,
                                     int* capacity, int depth = 0) {
     if (!elem || !engine || !pool || !stylesheets || !count || !capacity) return;
-    if (depth > MAX_RADIANT_CSS_TREE_DEPTH) return;
+    if (depth > MAX_RADIANT_CSS_TREE_DEPTH || dom_element_is_html_tag(elem, MARKUP_NAME_TEMPLATE)) return;
 
     // Check if this is a <style> element
     if (elem->tag_name && str_icmp_cstr(elem->tag_name, "style") == 0) {
@@ -2515,23 +2484,7 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
 
     // Extract viewport meta tag values before building DOM tree
     extract_viewport_meta(html_root, dom_doc);
-    // Extract <base href="..."> and update document URL if found
-    // This ensures relative URLs resolve correctly when loading remote HTML
-    const char* base_href = extract_base_href(html_root);
-    if (base_href) {
-        Url* base_url = url_parse(base_href);
-        if (base_url && base_url->is_valid) {
-            log_info("[base] Overriding document URL with base href: %s", base_href);
-            // Input and CLI cleanup share this carrier, including after a base override.
-            url_replace_contents(html_url, base_url);
-        } else if (base_url) {
-            url_destroy(base_url);
-        }
-    }
-
-    // Page scripts execute before final document bookkeeping below, but their
-    // URL-dependent globals and relative fetches must already observe the
-    // redirected/<base>-adjusted document URL.
+    // base href affects resource resolution, not the document's location or history.
     dom_doc->url = lam::own(html_url);
 
     DomElement* dom_root = build_dom_tree_from_element(html_root, dom_doc, nullptr);
@@ -2540,6 +2493,8 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
         dom_document_destroy(dom_doc);
         return nullptr;
     }
+    // dependency discovery needs the DOM base before CSS or scripts are collected.
+    dom_doc->root = lam::up(dom_root);
     log_mem_stage("load_html: dom_built");
 
     auto t_dom = time_now_ns();
@@ -2585,11 +2540,13 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
     int inline_stylesheet_count = 0;
     int script_prefetch_count = 0;
     uint64_t script_prefetch_start_ns = 0;
-    const char* css_base_path = url_get_href(html_url);
+    Url* resource_base = dom_document_resolve_url(dom_doc);
+    const char* css_base_path = resource_base ? url_get_href(resource_base) : url_get_href(html_url);
     g_css_document_charset = dom_doc->document_charset; // set fallback encoding for CSS files
     CssStylesheet** inline_stylesheets = extract_and_collect_css(
         html_root, dom_root, css_engine, css_base_path, pool,
         &inline_stylesheet_count, nullptr, &script_prefetch_count, &script_prefetch_start_ns);
+    if (resource_base) url_destroy(resource_base);
     g_css_document_charset = nullptr; // reset after CSS collection
 
     auto t_css_parse = time_now_ns();
@@ -2638,7 +2595,6 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
     log_mem_stage("load_html: after_inline_attrs");
     auto t_inline_style = timing ? time_now_ns() : t_stylesheet_setup;
 
-    dom_doc->root = lam::up(dom_root);  // set root for CSSOM and JS DOM API access
     dom_document_process_metadata_insertion(dom_doc, dom_root);
 
     // Scripts read computed styles during load, so the initial cascade is the

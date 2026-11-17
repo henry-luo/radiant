@@ -14,6 +14,174 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-111"></a>
+
+### RI-111 — Inline-property sharing erases isolation and other semantic differences
+
+**Status:** FIXED, 2026-11-17. **Lambda blocker:** resolved for the existing
+canonical inline-style path. Native ownership follows **D9.1.1v4 / D9.1.3v2**;
+**D10.1.7** capture clocks and resource budgets are unchanged.
+
+Operate's large gray foreground panels were painted beneath the main green
+background. A script-free replay preserves the heading geometry exactly in
+Chromium and Lambda, but loses the gray fill. DOM/declaration minimization and
+SVG command order show a negative layer escaping its isolated ancestor.
+
+`inline_prop_equal` and `inline_prop_hash` omitted isolation. An explicit auto
+ancestor therefore allowed an isolated child to share its default inline
+storage, discarding the child's stacking context during canonical promotion.
+The InlineProp field audit also found ruby_position and the explicit line-strut
+flag missing from both functions, plus image_rendering absent from hashing
+(its equality check was already correct). One shared scalar/float field list
+now drives both comparisons and hashes, preserving normalized float hashing
+and deep cursor-image equality. No allocation or lifetime fallback is added.
+
+Before linking the correction, two new pixel cases fail (green over red) and an
+auto-isolation control passes. The final release passes all eleven shared
+opacity/position fixtures, five focused canonical-style unit tests and three
+independent Chromium isolation cases. The new unit tests exercise actual
+parent/child promotion for isolation, ruby position and line-strut state, plus
+existing exact-value reuse, copy-on-write and capacity fallbacks. The final
+same-source and live Operate captures restore the main interface and gray
+panels. Remaining widget/font/decorative details are not claimed exact matches.
+Full baselines were not repeated. Evidence: `../../lambda/temp/online-visual-round63/`.
+
+
+<a id="ri-109"></a>
+
+### RI-109 — Relative HTML base URLs are ignored and absolute bases overwrite document identity
+
+**Status:** FIXED, 2026-11-17. **Lambda blocker:** resolved for initial resource
+resolution. Ownership follows **D9.1.1v4 / D9.1.3v2 / D9.5.6v2**. Fixed-frame
+capture rules under **D10.1.7** are unchanged.
+
+Unreal declares `<base href="/documentation/assets/">`. The initial loader parsed
+this without its document URL, rejecting it and requesting stylesheet/script
+siblings under the documentation route instead. Absolute bases replaced the
+actual loader URL, also changing `document.URL` and `location.href` incorrectly.
+
+Input now supplies one owned document-relative URL resolver. It selects the
+first HTML base with href, excludes template/shadow contents, resolves against
+the actual document URL and falls back for invalid/data/javascript bases. The
+loader attaches the DOM root before dependency discovery and retains its actual
+URL. Initial CSS/scripts, module base, images, font/inline resource fallbacks,
+baseURI and XHR initialization reuse the resolver. External stylesheets keep
+their own URL origins. Input LI-074 separately repairs head-template closure.
+
+Final release qualification: nine focused native document tests pass, including
+six relative/absolute/empty/prohibited/invalid-base cases with CSS, classic and
+module scripts, image geometry and URL identity. Two persistent HTTP regression
+tests pass. Chromium agrees on five base controls; malformed `http://[invalid`
+produces about:blank in Chromium, whereas the current HTML Standard's frozen
+base URL algorithm specifies document fallback after parse failure. This
+reference discrepancy remains explicit; no Chromium-specific exception is added.
+See https://html.spec.whatwg.org/multipage/semantics.html#frozen-base-url.
+The qualified live Unreal capture restores styled documentation; visual review
+remains open because its preserved browser reference is a client-side 403.
+Evidence: `../../lambda/temp/online-visual-round62/`.
+
+<a id="ri-110"></a>
+
+### RI-110 — Resource and stylesheet discovery activates inert HTML template contents
+
+**Status:** FIXED, 2026-11-17. **Lambda blocker:** resolved for the existing
+initial discovery paths. Ownership: **D9.1.1v4 / D9.1.3v2 / D9.5.6v2**.
+
+Raw stylesheet collection, prefetch and the live native resource scans walked
+parser-backed HTML template descendants as ordinary document content. A reduced
+page acquired inert CSS/scripts and turned its active green box red. The Lambda
+script adapter also executed those scripts (JS13-L10).
+
+Shared namespace-aware source checks stop initial CSS/prefetch and script
+collection at HTML templates; live CSS recollection excludes their descendants.
+Native resource selector, selected-style and inline-style callbacks share one
+ancestor check, preventing inert sheet/script/image/background downloads.
+Foreign SVG template elements remain active. No vendor code, capture clock,
+resource cap or site-specific condition changes.
+
+Nine focused document tests and both persistent HTTP regressions pass against
+the final release archives. The HTTP inert fixture asserts no sheet, script,
+image or background request; native and Chromium controls agree on six style,
+script, stylesheet-count and foreign-SVG states. Input's three focused parser
+tests and Radiant integer lint pass. Full baselines were not repeated.
+Evidence: `../../lambda/temp/online-visual-round62/`.
+
+
+
+<a id="ri-108"></a>
+
+### RI-108 — Final grid percentage heights and intrinsic image ratios lose their current constraints
+
+**Status:** FIXED, 2026-11-17. **Lambda blocker:** resolved for this existing
+layout path; the live Cape page still has a separate startup/entrance omission.
+Radiant owns these algorithms under **D9.1.1v4 / D9.1.3v2**. **D10.1.7** capture
+clocks, resource budgets, references and severity thresholds are unchanged.
+
+The Cape's saved hydrated document has a large SVG illustration inside an
+auto-height grid, a percentage-height block, a flex container and an automatic
+flex item. Native paint loses the illustration. A reduced viewBox-only image
+measures 100×150 instead of Chromium's 220×330; definite-height controls agree.
+
+Final grid-area percentage resolution stored the used number but discarded its
+definiteness when descendants queried the original cyclic percentage. Grid
+positioning now retains the existing late-percentage flag and the next intrinsic
+grid pass clears it before measuring. No additional layout-state field is added.
+
+Two intrinsic-ratio shortcuts then reused old constraints during retained
+resizing: an image's previous resolved percentage height and its previous
+resolved max-width:100%. Traces show a 450px current containing height alongside
+a stale 330px image height; later, a correct 300px ratio width is capped at the
+old 220px percentage maximum. Re-resolve percentage heights from the current
+query and reuse the shared border-box constraint helper to defer cyclic maxima.
+That helper also recognizes calculated and substituted percentage maxima.
+Replaced cyclic contributions retain their zero min-content rule and authored
+floors. Non-replaced preferred-ratio minima and definite-bound clamp behavior
+remain with their existing paths; this distinction protects grid ratio and
+border-box/max-content cases.
+
+**Verification:** five focused native document tests pass. The new test has
+**54 retained states**, covering percentage/calc heights, percentage/calc/var
+maxima, height changes and narrowing/restoring the containing grid column.
+Chromium headless shell independently confirms all 54 states. Integer-cast lint
+and all three repository diff checks pass. Same-source saved-page PNGs restore
+the Cape illustration; the live capture still lacks hero content and remains
+high severity. The pre-resource inline geometry probe is not a final-paint
+measurement: it runs before the external SVG's final admission.
+
+One configured layout sweep reports **5,626 passed, 295 partial, 12 skipped and
+three sizing regressions**. Correcting the scope of the replaced minimum and
+definite-bound paths restores **all 776 sizing baseline cases** on a sizing-only
+rerun, including grid-aspect-ratio-016/025 and border-box-and-max-content-002.
+The other categories passed the first sweep. The full sweep was not repeated;
+its input-event section used the existing native runner. No full native Radiant
+or Lambda baseline was rebuilt or claimed for this repair.
+
+<a id="ri-107"></a>
+
+### RI-107 — Reuse initially parsed stylesheets when delivering prefetched link completion
+
+**Status:** FIXED, 2026-11-17. **Lambda blocker:** resolved for initial
+stylesheet completion alongside Input **LI-073**. Ownership remains under
+**D9.1.1v4 / D9.1.3v2**; the host observer continues using its existing pinned
+event queue and **D6.3** lifetime contract. Capture clocks are unchanged.
+
+The initial loader parses authored stylesheet links synchronously after a
+byte-only prefetch. Once Input correctly associates later discovery with the
+link, ordinary CSS processing must deliver completion without appending the
+same stylesheet again or discarding its CSSOM changes. The CSS resource handler
+recognizes an existing non-import sheet by owner and resolved origin URL and
+uses its existing completion guard to publish the load event without reparsing.
+New and empty sheets continue through the existing parsing path.
+
+The four initial-link HTTP tests cover print-to-all activation, already-active
+CSS, empty CSS and HTTP failure; all fail before the handoff fix and pass on the
+final host. Successful sheets remain present exactly once, one HTTP transfer is
+made, and both inline handlers and listeners run before window.load. The ten
+existing CSS resource tests also pass on the first candidate; six native Input
+resource-manager tests pass on the final archive. Chromium confirms the four
+fixture event/rendering outcomes. Failed-sheet CSSOM representation remains a
+small known difference. No broad baseline was rerun.
+
 <a id="ri-106"></a>
 
 ### RI-106 — Lifted positioned children overpaint exported ancestor outlines
