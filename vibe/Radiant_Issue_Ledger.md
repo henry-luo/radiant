@@ -20,6 +20,44 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-125"></a>
+
+### RI-125 — Absolute-child layout unwinds a foreign scratch allocation
+
+**Status:** OPEN blocking, 2026-11-18. Blocks verification of Lambda's
+`Scene3dTest.OutdoorGardenFogWindWaterAndCascades` after a complete sibling
+archive refresh. Lifetime authority: **D5.1.4 / D5.5.1**; source ownership:
+**D9.1.1v4 / D9.1.3v2**.
+
+After fixing the outdoor demo's E228 camera-error acknowledgement, its existing
+20-event replay passed with 15 assertions on the pre-refresh executable.
+`make test-radiant-baseline` then refreshed the release/debug sibling archives.
+The rebuilt executable loads the document but aborts before event execution:
+`scratch_scope_end: scope 23 unwound 1 foreign block(s), 32 bytes`, followed by
+`assert(foreign == 0)` at input's `lib/scratch_arena.c:185`.
+
+Reproduce from the Lambda checkout:
+`./test/test_radiant_view_gtest.exe --gtest_filter=Scene3dTest.OutdoorGardenFogWindWaterAndCascades`.
+Use macOS graphics access; the sandboxed GUI process cannot initialize its XPC
+services. A debug reproduction uses `LAMBDA_HEADLESS_GLFW_WINDOW=1` with
+`./lambda-static.exe view test/demo/scene3d/outdoors.ls --headless --event-file test/scene3d/events/OutdoorGardenFogWindWaterAndCascades.json`.
+
+LLDB confirms `ScratchScope::~ScratchScope` in
+`layout_absolute_children_in_context` (`radiant/layout_abs_children.cpp:103`),
+called by `layout_flex_absolute_children` and nested flex-content layout.
+The specific foreign allocation's producer and required lifetime are
+**unconfirmed**. Expected: each scope releases only its own temporary storage;
+all 20 events complete without changing assertions or allocation checks.
+Page-load, fuzzy-layout and document suites also report scratch-scope aborts;
+those observations do not establish one shared allocation site.
+
+Evidence in the sibling Lambda checkout: `temp/outdoor-lldb.log`,
+`temp/outdoor-test-rebuilt.log`, `temp/outdoor-radiant-baseline.log`, and
+`temp/outdoor-test-after.log` (pre-refresh pass). The baseline reports
+7,042 passed, 931 failed, 296 partial and 20 skipped; these totals are not an
+attribution of every failure to this issue. Per owner instructions, the
+blocked repair remains separate from the completed Lambda demo change.
+
 <a id="ri-124"></a>
 
 ### RI-124 — FIXED
