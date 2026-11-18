@@ -14,6 +14,42 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-141"></a>
+
+### RI-141 — Multicol projection loses inline geometry and adjoining margins
+
+**Fixed 2026-11-19.** Radiant owns column balancing and box placement
+under **D9.1.1v4 / D9.1.3v2**. These were failures in Lambda's layout gate.
+
+- `multicol-dynamic-add-001`, its reference and `multicol-fill-balance-019`
+  added a 17 px font box on top of the projected block fragment union. A
+  wrapper with only block fragments now uses their projected bounds.
+- `multicol-fill-balance-021` replaced the ruby box with the union of
+  overflowing atomic descendants. Multicol finalization preserves the
+  box established by ruby layout.
+- `multicol-span-all-007` dropped the nested spanner's margins when normal
+  flow collapsed them into its wrapper. The full-width flow reads the
+  spanner's captured margins. In `multicol-span-all-010` and its reference,
+  the heading margins adjoin the transformed and filtered wrapper edges
+  and contribute to the column flow.
+
+The CSS Multicol baseline recorded 336 full matches and 26 partial passes
+across 362 cases, with zero regressions.
+
+<a id="ri-139"></a>
+
+### RI-139 — Dynamic body zoom loses the first list's collapsed block-start margin
+
+**Fixed 2026-11-19.** Radiant owns the used layout values
+under **D9.1.1v4 / D9.1.3v2**. This was a failure in Lambda's layout gate.
+
+`wpt-css-lists/list-style-image-zoom-dynamic.html` doubles the body zoom
+after a geometry read. UA em spacing was resolved before the font's used
+zoom was refreshed, leaving the list margin at 16 px. Refreshing the font
+zoom before resolving UA spacing places the body and list at 32 px and
+restores the root height to 346 px. The CSS Lists baseline recorded 52 full
+matches and eight partial passes across 60 cases, with zero regressions.
+
 <a id="ri-138"></a>
 
 ### RI-138 — Trial flow resets the scroll position of an EPUB frame

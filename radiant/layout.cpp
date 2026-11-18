@@ -2454,6 +2454,8 @@ void dom_node_resolve_style(DomNode* node, LayoutContext* lycon) {
                 // untouched body sides so authored margins remain cascade winners.
                 layout_refresh_html_body_ua_margin(lycon, dom_elem);
 
+                // resolve UA em spacing with the current zoom, including changes on ancestors.
+                layout_refresh_font_used_zoom(static_cast<View*>(dom_elem), lycon);
                 if (dom_elem->bound) {
                     ViewSpan* span = lam::view_require_element(static_cast<View*>(dom_elem));
                     float used_font_size = (span->font && span->fontp()->font_size > 0)
@@ -2462,7 +2464,6 @@ void dom_node_resolve_style(DomNode* node, LayoutContext* lycon) {
                     layout_apply_html_ua_spacing(lycon, dom_elem, used_font_size);
                 }
 
-                layout_refresh_font_used_zoom(static_cast<View*>(dom_elem), lycon);
                 record.commit();
             }
 

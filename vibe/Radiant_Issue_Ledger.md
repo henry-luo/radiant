@@ -29,14 +29,20 @@ native replay checks the painted pixel, click-local result, focus after close
 and cleared pixel. Natural-size, broken-image fallback and other image input
 geometry remain unqualified (**D9.1.1v4 / D9.1.3v2**).
 
-### RI-139 — Dynamic body zoom loses the first list's collapsed block-start margin
+<a id="ri-141"></a>
 
-Open. `wpt-css-lists/list-style-image-zoom-dynamic.html` doubles the body zoom
-after a geometry read. Radiant scales the list and marker content, but places
-the body and list at 16 px instead of 32 px. Root height comes out 32 px short.
-The case reproduces in isolation at `6f38618` and after the named-slot layout
-repair. The fixture has no shadow tree. It remains a failure in the CSS Lists
-baseline (**D9.1.1v4 / D9.1.3v2**).
+### RI-141 — FIXED
+
+Multicol layout preserves projected inline geometry and uses adjoining
+margins during column placement (**D9.1.1v4 / D9.1.3v2**). See the
+[seven multicol regressions](<Radiant_Issue_Ledger (fixed).md#ri-141>).
+
+<a id="ri-139"></a>
+
+### RI-139 — FIXED
+
+HTML UA em spacing uses the current zoom (**D9.1.1v4 / D9.1.3v2**). See the
+[dynamic list zoom reproduction](<Radiant_Issue_Ledger (fixed).md#ri-139>).
 
 <a id="ri-138"></a>
 
