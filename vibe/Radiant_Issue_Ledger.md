@@ -20,6 +20,93 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-136"></a>
+
+### RI-136 — FIXED
+
+Flex items flattened through boxless DOM wrappers use the real flex box's
+padding/border offsets. Affinity's navigation is readable and aligned; its
+separate artwork startup omission remains. See the
+[boxless flex positioning repair](<Radiant_Issue_Ledger (fixed).md#ri-136>).
+
+<a id="ri-135"></a>
+
+### RI-135 — FIXED
+
+Retained descendants refresh inherited text shadows from the parent's computed
+list; explicit inherit/unset share the same owned-copy path. Boldare's complete
+outlined headline returns. See the
+[computed-shadow inheritance repair](<Radiant_Issue_Ledger (fixed).md#ri-135>).
+
+<a id="ri-134"></a>
+
+### RI-134 — FIXED
+
+Video snapshots now ask the existing decoder for an available first frame while
+the asynchronous player is opening, retaining poster precedence and clocks.
+Mymind's large halo is restored. See the
+[first-frame readiness repair](<Radiant_Issue_Ledger (fixed).md#ri-134>).
+
+<a id="ri-133"></a>
+
+### RI-133 — FIXED
+
+Image signature detection skips bounded leading XML comments before inspecting
+SVG markup. Ordinary and XML-declaration controls retain their behavior.
+See the [SVG prefix repair](<Radiant_Issue_Ledger (fixed).md#ri-133>).
+
+<a id="ri-132"></a>
+
+### RI-132 — FIXED
+
+Balance and intrinsic-axis probes retain their already selected content width
+instead of resolving authored width/min/max constraints again. Three milestone
+regressions return to their unchanged 100% references. See the
+[assigned-width contract repair](<Radiant_Issue_Ledger (fixed).md#ri-132>).
+
+<a id="ri-131"></a>
+
+### RI-131 — FIXED
+
+Text-balancing line-count probes no longer start balancing the same paragraph
+again through the atomic inline-flow height fallback. Other paragraph owners
+retain independent balancing. See the [measurement recursion repair](<Radiant_Issue_Ledger (fixed).md#ri-131>).
+
+<a id="ri-130"></a>
+
+### RI-130 — FIXED
+
+Text-clipped backgrounds reach nested block/inline descendants through the
+shared painter, retaining owner coordinates and ancestor paint order. Wiza's
+saved heading and copy return; its separate live startup omission stays high.
+See the [ancestor text-background repair](<Radiant_Issue_Ledger (fixed).md#ri-130>).
+
+<a id="ri-129"></a>
+
+### RI-129 — FIXED
+
+Intrinsic inline-flow trials retain the measured box's resolved width and
+ratio-derived percentage-height basis. Percentage images no longer inflate
+Clay's 95px logo strip to 1494.8px. See the
+[containing-size repair](<Radiant_Issue_Ledger (fixed).md#ri-129>).
+
+<a id="ri-128"></a>
+
+### RI-128 — FIXED
+
+Animation background shorthands now feed the existing background-color track,
+retaining the shorthand grammar through variable substitution. Other background
+components remain outside this repair. See the
+[shorthand repair](<Radiant_Issue_Ledger (fixed).md#ri-128>).
+
+<a id="ri-127"></a>
+
+### RI-127 — FIXED
+
+Exports honor the existing host-selected post-load window, including script-free
+CSS frame preparation. Unspecified exports retain their initial frame. See the
+[selected-frame repair](<Radiant_Issue_Ledger (fixed).md#ri-127>).
+
 <a id="ri-126"></a>
 
 ### RI-126 — FIXED

@@ -4055,6 +4055,7 @@ typedef struct CssAnimatedProp {
             bool has_used;         // true for a captured underlying value
         } display;                  // ANIM_VAL_DISPLAY
     } value;
+    CssPropertyCode expression_grammar; // shorthand grammar retained through variable substitution
 } CssAnimatedProp;
 
 // ============================================================================
@@ -4133,6 +4134,7 @@ bool css_transition_select_config(const CssTransitionList* list, CssPropertyCode
 
 // Shared parser entry points used by CSS animations and Web Animations so both
 // paths apply the same property-value grammar and timing-function semantics.
+CssPropertyCode css_animation_property_target(CssPropertyCode property);
 bool css_animation_parse_property_value(CssPropertyCode property,
                                         const char* value,
                                         CssAnimatedProp* out,
@@ -4782,6 +4784,7 @@ typedef struct DocumentJsHostConfig {
     bool scripting_disabled;    // DomDocument::scripting_disabled for the loaded document
     bool microphone_granted;   // D11.3.2: initial document only, never inherited
 } DocumentJsHostConfig;
+int document_js_host_post_load_settle_ms(int fallback, bool explicitly_set);
 DocumentJsHostConfig document_js_host_config_inherit(UiContext* uicon,
                                                      const struct DomDocument* source);
 // The settings a frame's document loads with: its embedder's, and with

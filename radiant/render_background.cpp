@@ -2261,14 +2261,37 @@ static bool background_has_text_clip(const DomElement* parent) {
     return false;
 }
 
+template<typename PaintOwner>
+static bool background_for_each_text_owner(DomElement* owner, DomElement* leaf,
+        Rect leaf_border, float scale, PaintOwner& paint_owner) {
+    if (!owner) return false;
+    DomElement* ancestor = owner->parent && owner->parent->is_element()
+        ? owner->parent->as_element() : nullptr;
+    // backgrounds follow ancestor paint order; inner clipped layers stay above outer ones.
+    bool painted = background_for_each_text_owner(ancestor, leaf, leaf_border, scale, paint_owner);
+    if (!background_has_text_clip(owner)) return painted;
+    Rect border = leaf_border;
+    if (owner != leaf) {
+        // the glyph origin follows its containing block, ignoring intervening inline wrappers.
+        RdtLogicalPoint offset = view_geometry_ancestor_offset(
+            static_cast<View*>(leaf), static_cast<View*>(owner), true);
+        border = {leaf_border.x - offset.x * scale, leaf_border.y - offset.y * scale,
+            owner->width * scale, owner->height * scale};
+    }
+    return paint_owner(owner, border) || painted;
+}
+
 bool render_paint_text_background(PaintList* paint, UiContext* ui, DomElement* parent,
         const PaintGlyphRun* run, Rect border) {
-    if (!paint || !run || !background_has_text_clip(parent)) return false;
-    RdtPath* mask = render_path_create_paint_glyph_run(run, ui ? ui->font_ctx.get() : nullptr);
-    if (!mask) return false;
-    bool painted = record_background(paint, ui, static_cast<ViewBlock*>(parent), border,
-        ui_context_raster_scale(ui), nullptr, nullptr, true, mask);
-    rdt_path_free(mask);
+    if (!paint || !run || !parent) return false;
+    RdtPath* mask = nullptr;
+    auto paint_owner = [&](DomElement* owner, Rect owner_border) {
+        if (!mask) mask = render_path_create_paint_glyph_run(run, ui ? ui->font_ctx.get() : nullptr);
+        return mask && record_background(paint, ui, static_cast<ViewBlock*>(owner), owner_border,
+            ui_context_raster_scale(ui), nullptr, nullptr, true, mask);
+    };
+    bool painted = background_for_each_text_owner(parent, parent, border, 1.0f, paint_owner);
+    if (mask) rdt_path_free(mask);
     return painted;
 }
 
@@ -2350,7 +2373,7 @@ static bool background_record_masked_layer(PaintList* destination, const PaintLi
 
 bool render_paint_text_background_glyph(RasterRenderContext* context, DomElement* parent,
         Rect physical_border, const GlyphBitmap* bitmap, float x, float y) {
-    if (!context || !background_has_text_clip(parent) || !bitmap || !bitmap->buffer ||
+    if (!context || !parent || !bitmap || !bitmap->buffer ||
         bitmap->width <= 0 || bitmap->height <= 0 || context->raster_scale <= 0.0f) return false;
     PaintRecordTarget target = rc_record_target(context);
     if (!paint_record_ready(&target)) return false;
@@ -2361,8 +2384,11 @@ bool render_paint_text_background_glyph(RasterRenderContext* context, DomElement
     PaintList paint;
     // each background layer gets text coverage before the existing compositor combines the layers.
     BackgroundGlyphMask mask = {bitmap, x, y, context};
-    if (!record_background(&paint, context->ui_context, static_cast<ViewBlock*>(parent),
-            border, scale, &density, nullptr, true, nullptr, &mask)) return false;
+    auto paint_owner = [&](DomElement* owner, Rect owner_border) {
+        return record_background(&paint, context->ui_context, static_cast<ViewBlock*>(owner),
+            owner_border, scale, &density, nullptr, true, nullptr, &mask);
+    };
+    if (!background_for_each_text_owner(parent, parent, border, 1.0f, paint_owner)) return false;
     // retain masked layers directly; a composite snapshot would quantize alpha before the foreground paint.
     paint_record_lower_pending(&target);
     paint_ir_lower_raster_transformed(&paint, target.display_list,

@@ -14,6 +14,352 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-136"></a>
+
+### RI-136 — Boxless DOM ancestors erase flex decoration offsets
+
+**Status:** FIXED, 2026-11-18. **Lambda blocker:** cleared for Affinity's
+navigation positioning; the page remains high for missing hero artwork.
+Native ownership follows **D9.1.1v4 / D9.1.3v2**, retained geometry ownership
+**D5.5.1**, and selected capture time **D10.1.7**. No formal ruling changes.
+
+The saved isolated Affinity header has 20px top padding on its flex container.
+Items inside display:contents wrappers receive y0, while a direct item receives
+y20; Chromium places all at y20. flex_set_axis_position reads decoration
+from the item's DOM parent, which has no principal box. Its companion cross
+position getter reads that same incorrect border owner.
+
+Both lookups now reuse layout_nearest_block_ancestor, preserving the DOM/style
+ancestry while using the actual formatting box's decoration offsets. Reverse
+flow, alignment and existing baseline coordinate contracts are retained. No
+new ancestor walker, generated wrapper, authored CSS edit or page condition is
+introduced. No public header, layout-state shape or scripting ABI changes.
+
+Eight new real PNG controls compare otherwise identical plain and boxless
+wrapper layouts across row/column/reverse, wrap-reverse, RTL, vertical writing
+and ignored wrapper decorations. All eight fail on the saved renderer and
+match in independent Chromium controls. All eight pass with the repair, along
+with three existing contents/ratio cases and nine recent shadow-inheritance
+regressions: **20 focused native checks**. Integer-cast lint checks89 casts
+with zero unmarked; both repository diff checks pass. No broad baseline is
+repeated; round83 remains the recent broad gate.
+
+The original header reduction places all three labels at y20 after repair.
+One unmodified live Affinity capture completes in1.90 seconds at the existing
+1000ms request, with readable aligned navigation. Four hero artwork panels
+remain absent. Their stored files are complete, but initial markup has an
+opacity-zero wrapper and required deferred bundles exceed current admission;
+that separate host barrier remains LR12-57. No unhide or budget increase is
+adopted. The report retains high severity and review history, preserves its
+Chromium reference and all1066 unselected rows. Evidence is in Lambda's
+`temp/online-visual-round89/` and
+`test/online/comparison/repairs.html#round-89`. Release SHA-256:
+`ba5f2b7dab87c82a48b6507962951c893cefa7d577a9987f44d93dd97cd66c2d`.
+
+<a id="ri-135"></a>
+
+### RI-135 — Retained descendants lose inherited text shadows
+
+**Status:** FIXED, 2026-11-18. **Lambda blocker:** cleared for Boldare's
+missing major headline words. Native ownership follows **D9.1.1v4 / D9.1.3v2**;
+computed-list ownership follows **D5.5.1**. No formal ruling, script admission,
+resource budget or selected capture time changes (**D10.1.7**).
+
+Boldare paints white headline glyphs on white boxes with black text shadows.
+The first layout can precede the application's shadow-variable assignment.
+After that assignment, direct text recovers its shadows but nested text loses
+them: text-shadow was absent from the runtime inherited-property refresh list.
+An initial FontProp copy happened to inherit the list, hiding the missing
+retained-layout path. Explicit inherit/unset also discarded the shadow list.
+
+The runtime inheritance list now includes text-shadow. Implicit inheritance and
+explicit inherit/unset share one helper that clones the nearest parent's
+computed shadow list into element-owned storage. Parent-relative offsets and
+colors are preserved instead of substituting declarations against the child's
+font or custom properties. Replacements release the previous owned list;
+none/initial and local overrides retain their reset/precedence behavior.
+No foreground-color fallback, authored-page edit or site condition is added.
+
+Nine real PNG regressions in Lambda's
+`test/online/render_text_shadow_inheritance.test.cjs` cover defining a missing
+variable after layout, removal, changed parent font-relative offsets, a child's
+conflicting variable, explicit inherit/unset, local none, nested transforms and
+initial. The saved renderer fails six and passes three controls. All nine pass
+after repair, and independent Chromium controls agree with all nine. Eight
+existing ancestor text-background cases also pass: **17 focused native checks**.
+The layout integer-cast check and both repository diff checks pass. The prior
+round83 broad baseline remains the milestone gate; it is not repeated here.
+
+One unmodified live Boldare capture completes in 7.12 seconds at its existing
+1000 ms request. ONLINE and FOR REMOTE TEAMS are fully readable; the remaining
+small animated decorations and raster details are outside this major-only
+pass. Its original matched-window Chromium image is preserved. The manual
+major review is resolved with history retained; all other page rows and browser
+metadata are unchanged. Report qualification is in Lambda's
+`test/online/comparison/repairs.html#round-88` and evidence in
+`temp/online-visual-round88/`. Release renderer SHA-256:
+`18507bc770defa4ab16928b2183fff3a6ffb0fbd68734d131a5ffec1dd9bc483`.
+
+<a id="ri-134"></a>
+
+### RI-134 — Video snapshots reject decodable frames while playback opens
+
+**Status:** FIXED, 2026-11-18. Native snapshot ownership follows
+**D9.1.1v4 / D9.1.3v2** and immutable frame storage follows **D5.5.1**.
+Capture does not advance media or virtual time (**D10.1.7**).
+
+Mymind's missing large halo is an autoplay H.264 video, not a CSS gradient.
+Its complete 3,091,800-byte source is cached. Both that local file and the
+repository's 640x360 H.264 fixture expose native dimensions but paint a gray
+placeholder. Independent Chromium captures show both real first frames at
+time zero, excluding transfer, URL, codec and animation-phase explanations.
+
+render_video_snapshot excluded RDT_VIDEO_STATE_LOADING before asking the
+existing frame decoder. AVPlayer's asynchronous opening state can lag a valid
+AVAssetImageGenerator frame from a complete file. The non-poster path now uses
+the decoder result to establish frame availability while opening. Error/idle
+guards, poster precedence, failed-decode placeholders, immutable pixel ownership
+and the existing time getter remain unchanged. No source exception, new codec,
+run-loop wait, clock advance or transfer/admission-budget change is introduced.
+
+Three focused first-frame/poster controls pass; the saved renderer fails both
+paused and autoplay landscape cases and passes the poster control. Thirteen
+existing video sizing cases and five selected media-discovery cases also pass
+(21 total). Backend qualification is macOS only. Larger incomplete HTTP
+transfers remain RAD22-3; other platform decoders remain RAD22-2.
+
+Mymind's unchanged one-second browser reference now agrees in major composition:
+the halo, heading, copy, navigation and actions are present. Coarse error falls
+to 7.18% with 16.36% changed area; the recorded missing-halo review is resolved.
+Small spacing and native playback-overlay differences remain. No broader video
+time synchronization or exact pixel parity is claimed. Evidence:
+../../lambda/temp/online-visual-round87/ and
+../../lambda/test/online/comparison/repairs.html#round-87.
+
+<a id="ri-133"></a>
+
+### RI-133 — Valid SVG images with leading XML comments are rejected
+
+**Status:** FIXED, 2026-11-18. Native image admission belongs to Radiant
+(**D9.1.1v4 / D9.1.3v2**).
+
+WebKit's logo, search and menu SVG responses start with a copyright XML comment.
+The shared image signature detector skipped BOM/whitespace but inspected the
+comment as if it were the document root, rejecting valid SVG bytes before the
+existing XML/SVG loader could run. HTTP images, data URLs and extensionless
+image probes share this detector.
+
+The detector now skips complete leading comments using the existing bounded
+str_find helper, returning false for unterminated comments. It preserves the
+existing XML-declaration and local-root-name paths; namespace validation remains
+with the loader. No URL, file extension or response-header exception is added.
+
+Six focused data-URL PNG checks cover ordinary SVG, XML declaration, copyright
+comment, BOM/multiple comments with embedded markup, unterminated comment and
+comment-only input. The saved round83 binary fails the two valid comment cases;
+all six pass after repair. Twelve existing SVG percentage/intrinsic controls
+also pass. Live WebKit no longer emits those three unknown-format rejections.
+The two major missing article photos remain: their valid PNG requests are
+queued, but independent downloads take 2.45/2.71 seconds, beyond the existing
+one-second resource window. This fix does not claim a high-severity clearance
+or change capture/resource budgets. The fresh round83 milestone gate is retained;
+this narrow non-layout repair uses focused checks. Evidence:
+../../lambda/temp/online-visual-round84/.
+
+<a id="ri-132"></a>
+
+### RI-132 — Assigned inline measures are resolved as containing widths again
+
+**Status:** FIXED, 2026-11-18. Intrinsic query contracts belong to native Radiant
+(**D9.1.1v4 / D9.1.3v2**).
+
+The RI-129 formatter repair correctly uses the element's resolved content width
+when its caller supplies a containing-block width. Some callers already choose
+the content width: balance's candidate line-count queries and block intrinsic
+axis/containment queries. They left the existing width_is_used_size flag false,
+so authored width/min/max values could replace their selected candidate.
+
+The round83 milestone exposed three regressions: text-wrap-balance-overflow-002,
+text-wrap-balance-003, and the vertical min/max-content block-size fixture.
+A/B checks match all three references on round79 and reproduce identical bad
+scores on both the frame-only and capture-blocker round83 binaries. Their
+reference scores include 0%/9.1% element matching for the balance cases and
+64.7% elements / 2.0% text for vertical sizing.
+
+The three callers now use the existing assigned-content-width contract. No
+underlying formatter change is reverted, no special writing-mode/site branch
+is added, and no reference, baseline score or threshold is changed. All three
+original cases again match their frozen element, span and text references at
+100%. Evidence and preserved pre-repair binaries are under
+../../lambda/temp/online-visual-round83/.
+
+<a id="ri-131"></a>
+
+### RI-131 — Text balancing recursively measures its own atomic inline flow
+
+**Status:** FIXED, 2026-11-18. Intrinsic measurement and layout belong to native
+Radiant (**D9.1.1v4 / D9.1.3v2**); transient probes keep their scoped lifetime
+under **D5.5.1**.
+
+Vooma crashes with native stack exhaustion when the selected window commits its
+page layout. The saved pre-repair renderer reproduces the same failure, and a
+small static balanced paragraph containing an inline-block with a block child
+crashes without any JavaScript. The release link map identifies the cycle:
+balance line count -> max-content height -> atomic inline-flow height -> inline
+setup -> balance line count for the same owner. The height fallback needs
+ordinary wrapping to count candidate lines, not another balancing search.
+
+The existing balance-probe scope now tracks active owners and restores the
+previous probe on destruction. Only a repeated owner is excluded from starting
+another search while its line-count probe runs; nested and sibling paragraphs
+retain their own balancing. No depth cutoff, all-measurement disabling, heap or
+layout-context ABI change is introduced.
+
+Four focused PNG regressions cover one atom, repeated atoms, nested balanced
+owners and plain text. Three crash before the fix and all four pass afterward,
+with visible text and atomic content. Integer lint passes. Exact shaping and
+broader clamped-prefix balancing remain outside this repair. This unblocks the
+shared crash path found during Lambda's online comparison goal. Evidence:
+../../lambda/temp/online-visual-round83/.
+
+<a id="ri-130"></a>
+
+### RI-130 — Text-clipped backgrounds ignore descendant glyphs
+
+**Status:** FIXED, 2026-11-18. Native paint belongs to Radiant
+(**D9.1.1v4 / D9.1.3v2**). The existing glyph masks and owned paint resources
+retain their lifetime contract under **D5.5.1**.
+
+Wiza's saved heading and description have transparent foreground fills. Their
+radial/color text background belongs to an ancestor wrapper, while the actual
+text nodes belong to child headings/paragraphs. The painter checked only the
+immediate text parent and returned before recording the ancestor background.
+The text disappeared even though the existing masked background path already
+handles the required gradient/color layers.
+
+One shared owner traversal now feeds native raster and vector recording. It
+visits outer owners first so inner clipped layers stay above them, and reuses
+the existing block-coordinate ancestor-offset helper to keep each gradient in
+its owner's box. Direct-owner fragment geometry is unchanged. The same glyph
+mask and layer compositor provide coverage; no fallback text color or page
+selector is added. Fragmented inline owners, transformed descendants and wider
+image/effect interactions remain partial rather than implied by this repair.
+
+Eight reduced cases cover direct text, block and nested inline descendants,
+radial paint, a translated owner, nested clipping owners, an offset hard-stop
+gradient, and ordinary foreground text. The old renderer fails five cases and
+passes three controls. Chromium confirms all eight. After the repair, 31
+focused raster clipping/inline-decoration cases pass, along with integer lint.
+Three SVG descendant/coordinate controls and a separate nested-owner SVG check
+cover vector recording and reusable masks. PDF is not independently qualified.
+No full baseline is repeated; the preceding round79 milestone remains the broad
+checkpoint.
+
+Wiza's identical saved source restores its large heading and description;
+coarse error falls from 6.23% to 4.77%. Navigation alignment and the decorative
+background still differ. Its normal live capture remains blank/high despite a
+successful document load, so no live-page clearance is claimed. The browser
+reference, capture clock, deadlines and thresholds are unchanged (**D10.1.7**).
+Evidence is under Lambda's `temp/online-visual-round82/`.
+
+<a id="ri-129"></a>
+
+### RI-129 — Intrinsic inline flow loses the measured box's containing sizes
+
+**Status:** FIXED, 2026-11-18. Native sizing follows **D9.1.1v4 /
+D9.1.3v2**. Trial geometry retains the selected flow under **D5.5.1**.
+
+Clay's saved pricing source places percentage-sized inline images inside
+112px-wide, 16:9 logo covers. Its native logo strip grows to 1494.8px rather
+than Chromium's 95px, pushing all pricing cards below the viewport. The final
+logo cover itself is 112x63; its erroneous intrinsic contribution inflates the
+outer flex row. Removing tooltips or changing inline-flex to flex does not
+repair it. Replacing images with fixed boxes does.
+
+The intrinsic height query already resolves the cover's content width and
+ratio-derived height basis. Its inline-flow fallback passed the outer query
+width and created an assigned block context with an indefinite height. The
+image consequently used an unrelated percentage width and natural-height
+fallback. The shared formatter now receives the resolved content width and
+height basis. No early ratio-height return, image exception or fixed clamp is
+introduced; automatic heights and overflowing content retain their behavior.
+
+Six reduced cases cover two ratio sizes, fixed-height and block-image controls,
+indefinite automatic height, and ratio content growth. Chromium confirms all
+six. Before: three fail and three controls pass. After: all 50 focused inline,
+button, nested-ratio and flattened-flex cases pass; integer lint passes. The
+preceding round79 broad gate remains the milestone; it is not repeated for
+this focused repair.
+
+The identical saved source restores the logos and four pricing cards. Coarse
+error falls from 12.54% to 10.37%; heading line-height and smaller details still
+differ. The normal live capture remains blank and high severity. Its authored
+anti-flicker script sets a hidden class and removes it after 4000ms, while the
+unchanged export policy selects virtual frame zero (**D10.1.7**). Separate
+inline/deferred script TypeErrors are observed but not attributed to this
+sizing bug. No delay, visibility override or reference refresh is added and
+no live-page clearance is claimed. Evidence is in Lambda's
+`temp/online-visual-round80/`, including both same-source PNGs and focused logs.
+
+<a id="ri-128"></a>
+
+### RI-128 — Background keyframe shorthands discard their color component
+
+**Status:** FIXED, 2026-11-18. Native animation ownership follows
+**D9.1.1v4 / D9.1.3v2**, and parsed keyframe storage follows **D5.5.1**.
+
+The keyframe parser chose the animation value type from the declaration's
+property ID. The background shorthand has no direct animation track, so even
+`to { background: lime }` was dropped while its background-color equivalent
+worked. A longhand CSS control disproved an initially suspected clock fault.
+
+The shared parser normalizes the existing color track but retains the original
+shorthand value and grammar. After variable substitution, the existing
+background component helper supplies the color. An omitted color follows the
+initial-value path. Normalized targets also preserve shorthand/longhand source
+order and exclude important keyframe declarations. No image/layer animation
+subsystem or duplicated shorthand parser is introduced. Lambda's Web Animations
+admission uses the same normalized target (LR12-56, **D9.5.6v2**).
+
+Six native/Chromium CSS cases cover color, a full-grammar variable, omitted-color
+reset, both declaration orders and important exclusion. All pass. Explicit
+Web Animations shorthand and longhand seeks also pass. Automatic Web playback
+is a separately documented unsupported surface: both longhand and shorthand
+stay at their initial sample without an explicit seek. This repair does not
+claim playback support. Before evidence and the 29-case focused pass are under
+Lambda's `temp/online-visual-round79/`.
+The release Radiant milestone gate passes 8,169 / 8,488, with 299 partial,
+20 skipped and zero failures; the curated 201 document cases are unchanged.
+
+<a id="ri-127"></a>
+
+### RI-127 — Render exports ignore the host-selected settling frame
+
+**Status:** FIXED, 2026-11-18. Native export ownership follows **D9.1.1v4 /
+D9.1.3v2**. The selected frame is prepared before encoding; encoding does not
+move virtual time (**D10.1.7**).
+
+Layout honors LAMBDA_POST_LOAD_SETTLE_MS, but the common render-export host
+configuration silently ignored it. Python's authored first-slide fade therefore
+remained at opacity zero despite an explicitly selected later frame. A second
+control showed script-free CSS had no JS timer loop to prepare that frame.
+
+Layout and export now share validated host-option selection. Explicit CLI zero
+still overrides a host default. Export honors the selected interval; a
+script-free document samples its existing CSS scheduler after initial layout.
+Unspecified exports still use zero. Malformed/negative windows are refused.
+No default delay, site exception or timeout extension is introduced.
+
+The focused loopback tests cover an 80ms task versus a later 3000ms task, explicit
+zero, unchanged defaults, script-free CSS, option precedence and browser parity.
+The old release fails the selected-window task control; all 29 focused capture,
+comparison and animation checks pass after both repairs. Capture methodology is
+recorded separately: Python's paired 1000ms capture restores the carousel,
+but this is not an unchanged-policy engine-driven clearance. WebKit's article
+grid becomes visible; missing large article images keep manual high severity.
+Evidence: Lambda `temp/online-visual-round79/` and the separate
+`test/online/comparison/capture_frame_updates.json` audit.
+
 <a id="ri-126"></a>
 
 ### RI-126 — Intrinsic inline-height trials skip atomic placement and reset frame scrolling

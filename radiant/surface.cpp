@@ -49,10 +49,13 @@ bool image_content_is_svg(const unsigned char* data, size_t size) {
         offset = 3;
     }
 
-    // Skip whitespace
-    while (offset < size && (data[offset] == ' ' || data[offset] == '\t' ||
-                              data[offset] == '\n' || data[offset] == '\r')) {
-        offset++;
+    // XML comments may precede the SVG root; do not confuse their contents with markup.
+    for (;;) {
+        while (offset < size && str_char_is_ascii_space(data[offset])) offset++;
+        if (size - offset < 4 || memcmp(data + offset, "<!--", 4)) break;
+        size_t end = str_find((const char*)data + offset + 4, size - offset - 4, "-->", 3);
+        if (end == STR_NPOS) return false;
+        offset += 4 + end + 3;
     }
 
     // sniff the local root name; the XML loader validates its namespace binding.

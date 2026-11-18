@@ -47,6 +47,10 @@ static const char* skip_css_balanced_block(const char* source) {
     return str_scan_balanced(str_scan_until_char(source, '{'), '{', '}', false, NULL);
 }
 
+CssPropertyCode css_animation_property_target(CssPropertyCode property) {
+    return property == CSS_PROPERTY_BACKGROUND ? CSS_PROPERTY_BACKGROUND_COLOR : property;
+}
+
 static CssAnimValueType property_value_type(CssPropertyCode id) {
     const CssPropertyRuntimeMetadata* metadata = css_property_runtime_metadata(id);
     return metadata ? metadata->animation_type : ANIM_VAL_NONE;
@@ -129,8 +133,8 @@ static bool parse_aspect_ratio_value(const char* val, CssAnimatedProp* out) {
 static bool parse_property_value(CssPropertyCode prop_id, const char* val,
                                   CssAnimatedProp* out, Pool* pool) {
     memset(out, 0, sizeof(*out));
-    out->property_code = prop_id;
-    out->value_type = property_value_type(prop_id);
+    out->property_code = css_animation_property_target(prop_id);
+    out->value_type = property_value_type(out->property_code);
     out->composite = CSS_ANIM_COMPOSITE_REPLACE;
 
     const CssProperty* property = css_property_get_by_code(prop_id);
@@ -138,6 +142,12 @@ static bool parse_property_value(CssPropertyCode prop_id, const char* val,
         property->name, strlen(property->name), val, strlen(val), pool) : nullptr;
     // keyframe declarations never participate in the important cascade.
     if (!declaration || !declaration->value || declaration->important) return false;
+    if (out->property_code != prop_id) {
+        // normalize the color track, but keep the full shorthand until variables resolve.
+        out->expression = declaration->value;
+        out->expression_grammar = prop_id;
+        return true;
+    }
 
     switch (out->value_type) {
         case ANIM_VAL_FLOAT: {
@@ -713,9 +723,15 @@ static bool css_animation_compute_property(CssAnimState* state, LayoutContext* l
         return true;
     }
     const CssValue* value = resolve_var_function(lycon, property->expression);
+    CssPropertyCode grammar = property->expression_grammar
+        ? property->expression_grammar : property->property_code;
+    bool valid = value && css_property_validate_value(grammar, value);
+    if (valid && grammar == CSS_PROPERTY_BACKGROUND && !css_value_is_global_keyword(value))
+        value = css_background_color_component(value);
     const CssEnumInfo* keyword = value && value->type == CSS_VALUE_TYPE_KEYWORD
         ? css_enum_info(value->data.keyword) : nullptr;
-    bool invalid = !value || !css_property_validate_value(property->property_code, value);
+    // an omitted shorthand color uses the same initial-value path as an unset color.
+    bool invalid = !valid || !value;
     bool global = keyword && keyword->group == CSS_VALUE_GROUP_GLOBAL;
     if (invalid || global) {
         bool inherit = global && value->data.keyword == CSS_VALUE_INHERIT;

@@ -5440,6 +5440,18 @@ static uint64_t inherited_declaration_mask(LayoutContext* context, DomElement* e
     return mask;
 }
 
+static void inherit_computed_text_shadow(ViewSpan* span, LayoutContext* lycon) {
+    FontProp* font = span->ensure_font(lycon);
+    if (!font) return;
+    DomElement* parent = dom_parent_element(span);
+    while (parent && !parent->font) parent = dom_parent_element(parent);
+    const TextShadow* source = parent ? parent->fontp()->text_shadow.get() : nullptr;
+    // retained children inherit computed offsets, not declarations in their own font/variable context.
+    TextShadow* shadows = clone_text_shadows(layout_prop_pool(lycon), source);
+    lam::free_owned_list(layout_prop_pool(lycon), font->text_shadow);
+    font->text_shadow = lam::own(shadows);
+}
+
 static void resolve_css_inherited_properties(DomElement* dom_elem,
     LayoutContext* lycon, bool font_phase) {
     StyleTree* style_tree = dom_elem->specified_style;
@@ -5464,6 +5476,10 @@ static void resolve_css_inherited_properties(DomElement* dom_elem,
                 continue;
             }
             if (all_initial && prop_id != CSS_PROPERTY_DIRECTION) {
+                continue;
+            }
+            if (prop_id == CSS_PROPERTY_TEXT_SHADOW) {
+                inherit_computed_text_shadow(inheritance_span, lycon);
                 continue;
             }
             if (prop_id == CSS_PROPERTY_TAB_SIZE && parent) {
@@ -10046,10 +10062,13 @@ void css_apply_computed_property(CssPropertyCode prop_id,
             // was authored on this element.
             FontProp* font = span->ensure_font(lycon);
             if (!font) break;
-            if (value->type == CSS_VALUE_TYPE_KEYWORD && value->data.keyword == CSS_VALUE_NONE) {
-                font->text_shadow = nullptr;
+            if (css_value_keyword_equals(value, CSS_VALUE_INHERIT) ||
+                css_value_keyword_equals(value, CSS_VALUE_UNSET)) {
+                inherit_computed_text_shadow(span, lycon);
                 break;
             }
+            lam::free_owned_list(layout_prop_pool(lycon), font->text_shadow);
+            if (value->type == CSS_VALUE_TYPE_KEYWORD) break;
             font->text_shadow = lam::own(resolve_css_shadow_list<TextShadow>(
                 lycon, prop_id, value, false, store_text_shadow_values));
             break;

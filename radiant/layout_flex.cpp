@@ -3678,7 +3678,7 @@ float get_cross_axis_size(ViewElement* item, FlexContainerLayout* flex_layout) {
 
 float get_cross_axis_position(ViewElement* item, FlexContainerLayout* flex_layout) {
     // CRITICAL FIX: Return position relative to container content area, not absolute position
-    ViewBlock* container = lam::view_as_block(item->parent);
+    ViewBlock* container = layout_nearest_block_ancestor(item->parent_view());
     LayoutAxis cross_axis = flex_cross_axis(flex_layout);
     float border_offset = 0.0f;
 
@@ -3695,7 +3695,8 @@ static void flex_set_axis_position(ViewElement* item, float position,
                                     float container_size, float item_size) {
     if (!item) return;
 
-    ViewElement* container = lam::view_as_element(item->parent);
+    // boxless DOM ancestors do not own the flex container's decoration offsets.
+    ViewBlock* container = layout_nearest_block_ancestor(item->parent_view());
     float offset = container ? layout_axis_decoration_start(container->bound, axis) : 0.0f;
 
     float final_pos = reverse
