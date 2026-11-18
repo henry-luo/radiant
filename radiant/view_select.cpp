@@ -1,38 +1,5 @@
 #include "view.hpp"
 
-DomElement* dom_select_next_option(DomElement* select, DomElement* previous) {
-    if (!select) return nullptr;
-
-    DomNode* cursor = select->first_child;
-    if (previous) {
-        DomElement* parent = previous->parent ? previous->parent->as_element() : nullptr;
-        cursor = previous->next_sibling;
-        if (parent && parent->tag() == MARKUP_NAME_OPTGROUP) {
-            while (cursor) {
-                DomElement* option = cursor->as_element();
-                if (option && option->tag() == MARKUP_NAME_OPTION) return option;
-                cursor = cursor->next_sibling;
-            }
-            cursor = parent->next_sibling;
-        }
-    }
-
-    while (cursor) {
-        DomElement* element = cursor->as_element();
-        if (element) {
-            if (element->tag() == MARKUP_NAME_OPTION) return element;
-            if (element->tag() == MARKUP_NAME_OPTGROUP) {
-                for (DomNode* child = element->first_child; child; child = child->next_sibling) {
-                    DomElement* option = child->as_element();
-                    if (option && option->tag() == MARKUP_NAME_OPTION) return option;
-                }
-            }
-        }
-        cursor = cursor->next_sibling;
-    }
-    return nullptr;
-}
-
 DomElement* dom_select_option_at_index(DomElement* select, int index) {
     if (index < 0) return nullptr;
     for (DomElement* option = dom_select_next_option(select, nullptr); option;
@@ -42,19 +9,11 @@ DomElement* dom_select_option_at_index(DomElement* select, int index) {
     return nullptr;
 }
 
-const char* dom_option_label_override(DomElement* option) {
-    if (!option || option->tag() != MARKUP_NAME_OPTION) return nullptr;
+void dom_option_label(DomElement* option, StrBuf* out) {
+    if (!out) return;
+    strbuf_reset(out);
+    if (!option || option->tag() != MARKUP_NAME_OPTION) return;
     const char* label = option->get_attribute("label");
-    return label && *label ? label : nullptr;
-}
-
-const char* dom_option_text(DomElement* option) {
-    if (!option || option->tag() != MARKUP_NAME_OPTION) return nullptr;
-    // HTML's nonempty label attribute supplies the same displayed label to sizing and painting.
-    if (const char* label = dom_option_label_override(option)) return label;
-    for (DomNode* child = option->first_child; child; child = child->next_sibling) {
-        DomText* text = child->as_text();
-        if (text) return text->text;
-    }
-    return nullptr;
+    if (label && *label) strbuf_append_str(out, label);
+    else dom_option_text_normalized(option, out);
 }

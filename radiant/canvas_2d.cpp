@@ -673,6 +673,21 @@ extern "C" bool radiant_canvas_transform(void* canvas_element, const float* coef
     return canvas_apply_matrix(canvas_element, &matrix, replace);
 }
 
+extern "C" bool radiant_canvas_get_transform(void* canvas_element, float* coefficients) {
+    if (!coefficients) return false;
+    CanvasEntry* entry = canvas_entry_for_element((DomElement*)canvas_element, true);
+    if (!entry) return false;
+    const RdtMatrix& matrix = entry->state.transform;
+    // Copy the current matrix in Canvas's a, b, c, d, e, f order.
+    coefficients[0] = matrix.e11;
+    coefficients[1] = matrix.e21;
+    coefficients[2] = matrix.e12;
+    coefficients[3] = matrix.e22;
+    coefficients[4] = matrix.e13;
+    coefficients[5] = matrix.e23;
+    return true;
+}
+
 extern "C" bool radiant_canvas_scale(void* canvas_element, float x, float y) {
     if (!isfinite(x) || !isfinite(y)) return false;
     RdtMatrix scale = rdt_matrix_scale(x, y);
@@ -729,9 +744,7 @@ extern "C" bool radiant_canvas_move_to(void* canvas_element, float x, float y) {
     return true;
 }
 
-extern "C" bool radiant_canvas_line_to(void* canvas_element, float x, float y) {
-    CanvasEntry* entry = canvas_entry_for_element((DomElement*)canvas_element, true);
-    if (!canvas_ensure_path(entry)) return false;
+static void canvas_path_line_to(CanvasEntry* entry, float x, float y) {
     if (!entry->path_has_point) {
         rdt_path_move_to(entry->path, x, y);
         entry->path_subpath_x = x;
@@ -741,6 +754,12 @@ extern "C" bool radiant_canvas_line_to(void* canvas_element, float x, float y) {
     entry->path_has_point = true;
     entry->path_current_x = x;
     entry->path_current_y = y;
+}
+
+extern "C" bool radiant_canvas_line_to(void* canvas_element, float x, float y) {
+    CanvasEntry* entry = canvas_entry_for_element((DomElement*)canvas_element, true);
+    if (!canvas_ensure_path(entry)) return false;
+    canvas_path_line_to(entry, x, y);
     return true;
 }
 
@@ -803,46 +822,92 @@ extern "C" bool radiant_canvas_rect(void* canvas_element, float x, float y,
     return true;
 }
 
-extern "C" bool radiant_canvas_arc(void* canvas_element, float x, float y,
-                                      float radius, float start_angle,
-                                      float end_angle, bool counter_clockwise) {
+struct CanvasEllipse {
+    double x, y;
+    double xx, xy, yx, yy;
+
+    RdtLogicalPoint point(double u, double v) const {
+        return {(float)(x + xx * u + xy * v), (float)(y + yx * u + yy * v)};
+    }
+};
+
+static void canvas_append_ellipse_arc(CanvasEntry* entry, const CanvasEllipse& ellipse,
+                                       double start, double delta) {
+    // Affinely transform each unit-circle cubic into the requested ellipse.
+    RdtLogicalPoint point = ellipse.point(cos(start), sin(start));
+    canvas_path_line_to(entry, point.x, point.y);
+    if (delta == 0.0) return;
+    int segments = (int)ceil(fabs(delta) / (M_PI * 0.5)); // INT_CAST_OK: at most four cubic quarters.
+    double step = delta / segments;
+    double control = 4.0 / 3.0 * tan(step * 0.25);
+    for (int index = 0; index < segments; index++) {
+        double angle = start + step * index;
+        double c0 = cos(angle), s0 = sin(angle), c1 = cos(angle + step), s1 = sin(angle + step);
+        RdtLogicalPoint first = ellipse.point(c0 - control * s0, s0 + control * c0);
+        RdtLogicalPoint second = ellipse.point(c1 + control * s1, s1 - control * c1);
+        point = ellipse.point(c1, s1);
+        rdt_path_cubic_to(entry->path, first.x, first.y, second.x, second.y, point.x, point.y);
+    }
+    entry->path_current_x = point.x;
+    entry->path_current_y = point.y;
+}
+
+extern "C" bool radiant_canvas_ellipse(void* canvas_element, float x, float y,
+                                       float radius_x, float radius_y, double rotation,
+                                       double start_angle, double end_angle, bool counter_clockwise) {
+    if (!isfinite(x) || !isfinite(y) || !isfinite(radius_x) || !isfinite(radius_y) ||
+        !isfinite(rotation) || !isfinite(start_angle) || !isfinite(end_angle)) return true;
+    CanvasEntry* entry = canvas_entry_for_element((DomElement*)canvas_element, true);
+    if (!canvas_ensure_path(entry) || radius_x < 0.0f || radius_y < 0.0f) return false;
+    const double turn = 2.0 * M_PI;
+    double delta = end_angle - start_angle;
+    double start = atan2(sin(start_angle), cos(start_angle));
+    if ((!counter_clockwise && delta >= turn) || (counter_clockwise && delta <= -turn)) {
+        delta = counter_clockwise ? -turn : turn;
+    } else {
+        // Reduce long opposing sweeps from their endpoints, even when subtraction overflows.
+        if (fabs(delta) >= turn) delta = atan2(sin(end_angle), cos(end_angle)) - start;
+        delta = fmod(delta, turn);
+        if (counter_clockwise && delta > 0.0) delta -= turn;
+        if (!counter_clockwise && delta < 0.0) delta += turn;
+    }
+
+    double cosine = cos(rotation), sine = sin(rotation);
+    CanvasEllipse ellipse = {x, y, radius_x * cosine, -radius_y * sine,
+                                  radius_x * sine, radius_y * cosine};
+    canvas_append_ellipse_arc(entry, ellipse, start, delta);
+    return true;
+}
+
+extern "C" bool radiant_canvas_arc_to(void* canvas_element, float x1, float y1,
+                                       float x2, float y2, float radius) {
+    if (!isfinite(x1) || !isfinite(y1) || !isfinite(x2) || !isfinite(y2) || !isfinite(radius)) return true;
     CanvasEntry* entry = canvas_entry_for_element((DomElement*)canvas_element, true);
     if (!canvas_ensure_path(entry) || radius < 0.0f) return false;
-    const float two_pi = math_tau_f();
-    float delta = end_angle - start_angle;
-    if (!counter_clockwise) {
-        while (delta < 0.0f) delta += two_pi;
-        if (delta > two_pi) delta = two_pi;
-    } else {
-        while (delta > 0.0f) delta -= two_pi;
-        if (delta < -two_pi) delta = -two_pi;
+    if (!entry->path_has_point || radius == 0.0f) {
+        canvas_path_line_to(entry, x1, y1);
+        return true;
     }
-    float start_x = x + radius * cosf(start_angle);
-    float start_y = y + radius * sinf(start_angle);
-    if (entry->path_has_point) rdt_path_line_to(entry->path, start_x, start_y);
-    else {
-        rdt_path_move_to(entry->path, start_x, start_y);
-        entry->path_subpath_x = start_x;
-        entry->path_subpath_y = start_y;
-        entry->path_has_subpath = true;
+    double ux = (double)entry->path_current_x - x1, uy = (double)entry->path_current_y - y1;
+    double vx = (double)x2 - x1, vy = (double)y2 - y1;
+    double cross = ux * vy - uy * vx;
+    if (cross == 0.0) {
+        canvas_path_line_to(entry, x1, y1);
+        return true;
     }
-    int segments = (int)ceilf(fabsf(delta) / (math_pi_f() * 0.5f)); // INT_CAST_OK: arc uses at most four cubic quarters.
-    if (segments < 1) segments = 1;
-    float step = delta / (float)segments;
-    for (int index = 0; index < segments; index++) {
-        float a0 = start_angle + step * (float)index;
-        float a1 = a0 + step;
-        float control = 4.0f / 3.0f * tanf((a1 - a0) * 0.25f);
-        float c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
-        rdt_path_cubic_to(entry->path, x + radius * (c0 - control * s0),
-                          y + radius * (s0 + control * c0),
-                          x + radius * (c1 + control * s1),
-                          y + radius * (s1 - control * c1),
-                          x + radius * c1, y + radius * s1);
-    }
-    entry->path_has_point = true;
-    entry->path_current_x = x + radius * cosf(start_angle + delta);
-    entry->path_current_y = y + radius * sinf(start_angle + delta);
+    double incoming = hypot(ux, uy), outgoing = hypot(vx, vy);
+    ux /= incoming; uy /= incoming;
+    vx /= outgoing; vy /= outgoing;
+    double dot = ux * vx + uy * vy;
+    cross /= incoming * outgoing;
+    // The half-angle places both tangents at equal distances from the corner.
+    double distance = radius * (dot < 0.0 ? fabs(cross) / (1.0 - dot) : (1.0 + dot) / fabs(cross));
+    double side = copysign(1.0, cross);
+    double normal_x = -side * uy, normal_y = side * ux;
+    CanvasEllipse circle = {x1 + distance * ux + radius * normal_x,
+                            y1 + distance * uy + radius * normal_y,
+                            radius, 0.0, 0.0, radius};
+    canvas_append_ellipse_arc(entry, circle, atan2(-normal_y, -normal_x), atan2(-cross, -dot));
     return true;
 }
 

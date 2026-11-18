@@ -1687,7 +1687,7 @@ static void store_document_stylesheets(DomDocument* dom_doc,
 static void layout_apply_css_stylesheets(DomDocument* doc, DomElement* root,
                                          CssStylesheet** stylesheets, int count,
                                          Pool* pool, CssEngine* engine) {
-    if (!doc || !root || !pool || !engine || count <= 0) return;
+    if (!doc || !root || !pool || !engine || (count <= 0 && !doc->js.has_shadow_roots)) return;
     // caller-owned: each layout cascade must not retain a matcher in the document pool
     SelectorMatcher matcher;
     selector_matcher_init(&matcher, pool);

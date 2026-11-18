@@ -12,19 +12,19 @@ int radiant_stack_compare_tree_order(View* view_a, View* view_b) {
     if (!view_b) return 1;
 
     int depth_a = 0, depth_b = 0;
-    for (View* view = view_a; view; view = view->parent) depth_a++;
-    for (View* view = view_b; view; view = view->parent) depth_b++;
+    for (View* view = view_a; view; view = layout_render_parent(view)) depth_a++;
+    for (View* view = view_b; view; view = layout_render_parent(view)) depth_b++;
     View* child_a = view_a;
     View* child_b = view_b;
     // containing-block chains can cross arbitrary DOM depth; do not truncate their ancestry.
-    while (depth_a > depth_b) { child_a = child_a->parent; depth_a--; }
-    while (depth_b > depth_a) { child_b = child_b->parent; depth_b--; }
+    while (depth_a > depth_b) { child_a = layout_render_parent(child_a); depth_a--; }
+    while (depth_b > depth_a) { child_b = layout_render_parent(child_b); depth_b--; }
     if (child_a == child_b) return child_a == view_a ? -1 : 1;
-    while (child_a->parent != child_b->parent) {
-        child_a = child_a->parent;
-        child_b = child_b->parent;
+    while (layout_render_parent(child_a) != layout_render_parent(child_b)) {
+        child_a = layout_render_parent(child_a);
+        child_b = layout_render_parent(child_b);
     }
-    for (View* sib = child_a; sib; sib = static_cast<View*>(sib->next_sibling)) {
+    for (View* sib = child_a; sib; sib = layout_paint_next(sib)) {
         if (sib == child_b) {
             return -1;
         }
@@ -45,7 +45,7 @@ static bool radiant_stack_is_flex_grid_item(View* view) {
     DomElement::ParentItemKind kind = element->parent_item_kind();
     if (kind != DomElement::PARENT_ITEM_FLEX && kind != DomElement::PARENT_ITEM_GRID) return false;
     // authored item properties allocate storage even outside a flex/grid formatting context.
-    for (View* parent = view->parent; parent; parent = parent->parent) {
+    for (View* parent = layout_render_parent(view); parent; parent = layout_render_parent(parent)) {
         ViewElement* owner = lam::view_as_element(parent);
         if (!owner || owner->display.outer == CSS_VALUE_CONTENTS) continue;
         return !layout_view_is_out_of_flow_positioned(view) &&
@@ -136,7 +136,7 @@ bool radiant_stack_is_paint_atomic(View* view) {
 unsigned radiant_stack_flow_phases(View* first_child) {
     unsigned phases = 0;
     const unsigned flow = (1u << RADIANT_PAINT_BLOCK_BACKGROUNDS) | (1u << RADIANT_PAINT_FOREGROUND);
-    for (View* child = first_child; child; child = child->next()) {
+    for (View* child = first_child; child; child = layout_paint_next(child)) {
         if (radiant_stack_is_deferred_from_normal_flow(child) ||
             radiant_stack_is_in_flow_positioned_step8(child)) continue;
         if (radiant_stack_is_float(child)) {
@@ -148,7 +148,7 @@ unsigned radiant_stack_flow_phases(View* first_child) {
         if (child->is_block()) phases |= flow;
         if (view_contents_are_skipped(child)) continue;
         ViewElement* element = lam::view_as_element(child);
-        if (element) phases |= radiant_stack_flow_phases(element->first_child);
+        if (element) phases |= radiant_stack_flow_phases(layout_paint_first_child(element));
     }
     return phases;
 }
@@ -170,8 +170,10 @@ RadiantPaintPhase radiant_stack_paint_phase(unsigned index) {
 }
 
 View* radiant_stack_path_child(View* ancestor, View* descendant) {
-    for (View* child = descendant; child; child = child->parent) {
-        if (child->parent == ancestor) return child;
+    for (View* child = descendant; child;) {
+        View* parent = layout_render_parent(child);
+        if (parent == ancestor) return child;
+        child = parent;
     }
     return nullptr;
 }
@@ -179,7 +181,7 @@ View* radiant_stack_path_child(View* ancestor, View* descendant) {
 
 
 static void radiant_stack_collect_z_into(View* view, ArrayList* out, bool negative) {
-    for (View* child = view; child; child = child->next()) {
+    for (View* child = view; child; child = layout_paint_next(child)) {
         // hidden DOM records retain styles; neither they nor their descendants own paint layers.
         if (child->view_type == RDT_VIEW_NONE) continue;
         if (negative ? radiant_stack_is_negative_z_block(child) : radiant_stack_is_positive_z_positioned(child)) {
@@ -189,8 +191,8 @@ static void radiant_stack_collect_z_into(View* view, ArrayList* out, bool negati
             }
         } else {
             ViewElement* element = lam::view_as_element(child);
-            if (element && element->first_child && !view_contents_are_skipped(child) && !radiant_stack_is_context(child))
-                radiant_stack_collect_z_into(element->first_child, out, negative);
+            if (element && !view_contents_are_skipped(child) && !radiant_stack_is_context(child))
+                radiant_stack_collect_z_into(layout_paint_first_child(element), out, negative);
         }
     }
 }
@@ -210,7 +212,7 @@ ArrayList* radiant_stack_collect_positive_z_descendants(View* first_child, const
 static ArrayList* radiant_stack_collect_z_descendants(View* owner, bool negative) {
     ViewElement* element = lam::view_as_element(owner);
     return element && radiant_stack_is_context(owner) ?
-        radiant_stack_collect_z_list(element->first_child, negative) : nullptr;
+        radiant_stack_collect_z_list(layout_paint_first_child(element), negative) : nullptr;
 }
 
 static void radiant_stack_visit_list(ArrayList* views, View* owner, bool reverse, void* context,
@@ -241,7 +243,7 @@ bool radiant_stack_overflow_applies(View* layer, View* ancestor) {
     ViewBlock* containing = block ? find_containing_block(block, block->positionp()->position) : nullptr;
     if (!containing) return false;
     // overflow does not clip an absolute/fixed descendant whose containing block is outside that ancestor.
-    for (View* parent = ancestor->parent; parent; parent = parent->parent)
+    for (View* parent = layout_render_parent(ancestor); parent; parent = layout_render_parent(parent))
         if (parent == containing) return false;
     return true;
 }
@@ -280,14 +282,14 @@ bool radiant_stack_is_in_flow_positioned_step8(View* view) {
 }
 
 bool radiant_stack_zero_layer_is_lifted(View* view) {
-    for (View* ancestor = view ? view->parent : nullptr; ancestor; ancestor = ancestor->parent) {
+    for (View* ancestor = layout_render_parent(view); ancestor; ancestor = layout_render_parent(ancestor)) {
         if (radiant_stack_is_context(ancestor)) return lam::view_as_block(ancestor) != nullptr;
     }
     return false;
 }
 
 static void radiant_stack_collect_zero_layers(View* first, ArrayList* out) {
-    for (View* view = first; view; view = view->next()) {
+    for (View* view = first; view; view = layout_paint_next(view)) {
         if (view->view_type == RDT_VIEW_NONE || radiant_stack_is_positive_z_positioned(view) ||
             radiant_stack_is_negative_z_block(view)) continue;
         if (radiant_stack_is_out_of_flow_positioned(view) || radiant_stack_is_in_flow_positioned_step8(view)) {
@@ -298,7 +300,7 @@ static void radiant_stack_collect_zero_layers(View* first, ArrayList* out) {
         }
         ViewElement* element = lam::view_as_element(view);
         if (element && !view_contents_are_skipped(view) && !radiant_stack_is_context(view))
-            radiant_stack_collect_zero_layers(element->first_child, out);
+            radiant_stack_collect_zero_layers(layout_paint_first_child(element), out);
     }
 }
 
@@ -307,7 +309,7 @@ static ViewBlock* radiant_stack_positioned_paint_owner(ViewBlock* child,
     ViewBlock* containing = find_containing_block(child, child->positionp()->position);
     if (containing_out) *containing_out = containing;
     // opacity and isolation own descendant paint without becoming their positioning containing block.
-    for (View* ancestor = child->parent; ancestor; ancestor = ancestor->parent) {
+    for (View* ancestor = layout_render_parent(child); ancestor; ancestor = layout_render_parent(ancestor)) {
         if (ancestor == containing) return containing;
         ViewBlock* block = lam::view_as_block(ancestor);
         if (block && radiant_stack_is_context(ancestor)) return block;
@@ -317,7 +319,7 @@ static ViewBlock* radiant_stack_positioned_paint_owner(ViewBlock* child,
 
 static void radiant_stack_collect_escaping_positioned(View* first, ViewBlock* owner,
                                                        ArrayList* views, const char* log_prefix) {
-    for (View* view = first; view; view = view->next()) {
+    for (View* view = first; view; view = layout_paint_next(view)) {
         if (view->view_type == RDT_VIEW_NONE) continue;
         if (radiant_stack_is_out_of_flow_positioned(view)) {
             ViewBlock* child = lam::view_as_block(view);
@@ -332,9 +334,9 @@ static void radiant_stack_collect_escaping_positioned(View* first, ViewBlock* ow
             continue;
         }
         ViewElement* element = lam::view_as_element(view);
-        if (element && element->first_child && !view_contents_are_skipped(view) &&
+        if (element && !view_contents_are_skipped(view) &&
             !radiant_stack_is_context(view)) {
-            radiant_stack_collect_escaping_positioned(element->first_child, owner, views, log_prefix);
+            radiant_stack_collect_escaping_positioned(layout_paint_first_child(element), owner, views, log_prefix);
         }
     }
 }
@@ -346,7 +348,8 @@ ArrayList* radiant_stack_collect_positioned_children(ViewBlock* block, const cha
             // zero-level descendants share their real context even across ordinary wrappers (CSS E.2 step 8).
             ArrayList* layers = arraylist_new(16);
             if (!layers) return nullptr;
-            if (!view_contents_are_skipped(block)) radiant_stack_collect_zero_layers(block->first_child, layers);
+            if (!view_contents_are_skipped(block))
+                radiant_stack_collect_zero_layers(layout_paint_first_child(block), layers);
             if (!layers->length) { arraylist_free(layers); return nullptr; }
             return layers;
         }
@@ -355,7 +358,7 @@ ArrayList* radiant_stack_collect_positioned_children(ViewBlock* block, const cha
     }
     bool has_in_flow = false;
     if (!block->custom_layout_paint_prop()) {
-        for (View* child = block->first_child; child; child = child->next()) {
+        for (View* child = layout_paint_first_child(block); child; child = layout_paint_next(child)) {
             if (!radiant_stack_is_deferred_from_normal_flow(child) &&
                 radiant_stack_is_in_flow_positioned_step8(child)) { has_in_flow = true; break; }
         }
@@ -372,7 +375,7 @@ ArrayList* radiant_stack_collect_positioned_children(ViewBlock* block, const cha
 
     // CSS E.2 step 8 interleaves zero-level in-flow and absolute siblings in tree order.
     if (has_in_flow) {
-        for (View* child = block->first_child; child; child = child->next()) {
+        for (View* child = layout_paint_first_child(block); child; child = layout_paint_next(child)) {
             if (!radiant_stack_is_deferred_from_normal_flow(child) &&
                 radiant_stack_is_in_flow_positioned_step8(child) && !arraylist_append(views, child)) {
                 log_warn("%s failed to grow positioned list", log_prefix);
@@ -392,7 +395,7 @@ ArrayList* radiant_stack_collect_positioned_children(ViewBlock* block, const cha
         child = child->position ? child->positionp()->next_abs_sibling : NULL;
     }
     if (owns_context && !view_contents_are_skipped(block)) {
-        radiant_stack_collect_escaping_positioned(block->first_child, block, views, log_prefix);
+        radiant_stack_collect_escaping_positioned(layout_paint_first_child(block), block, views, log_prefix);
     }
     if (!views->length) { arraylist_free(views); return nullptr; }
     return views;
@@ -438,7 +441,7 @@ RadiantStackPaintList radiant_stack_collect_custom_layout_paint(ViewBlock* block
     CustomLayoutPaintState* paint =
         (CustomLayoutPaintState*)block->custom_layout_paint_prop();
     int child_count = 0;
-    for (View* child = block->first_child; child; child = child->next()) {
+    for (View* child = layout_paint_first_child(block); child; child = layout_paint_next(child)) {
         if (child->view_type != RDT_VIEW_NONE &&
             !radiant_stack_is_out_of_flow_positioned(child)) {
             child_count++;
@@ -458,7 +461,7 @@ RadiantStackPaintList radiant_stack_collect_custom_layout_paint(ViewBlock* block
         entry->is_generated_layer = true;
     }
     int child_order = 0;
-    for (View* child = block->first_child; child; child = child->next()) {
+    for (View* child = layout_paint_first_child(block); child; child = layout_paint_next(child)) {
         if (child->view_type == RDT_VIEW_NONE ||
             radiant_stack_is_out_of_flow_positioned(child)) {
             continue;

@@ -2836,7 +2836,7 @@ LayoutFlexStyleInfo layout_flex_declared_style_info(LayoutContext* lycon,
                                                     DomElement* element);
 CssEnum layout_specified_keyword(DomElement* element, CssPropertyCode property,
                                  CssEnum fallback = (CssEnum)0);
-CssEnum layout_html_replaced_alignment_hint(DomElement* element, CssPropertyCode property);
+CssEnum layout_html_presentational_keyword(DomElement* element, CssPropertyCode property);
 CssEnum logical_inline_direction(DomElement* element);
 CssEnum layout_element_css_direction(DomElement* element);
 
@@ -4995,6 +4995,11 @@ void layout_shift_content_baselines(LayoutContext* lycon, ViewBlock* block, floa
 // light-DOM children remain the DOM/API tree and are projected at <slot>.
 DomNode* layout_render_child_list(DomElement* element);
 DomNode* layout_rendered_first_child_node(DomElement* element);
+// Flatten unboxed slots for paint, layer order, and hit testing.
+DomNode* layout_paint_first_child(DomElement* element);
+DomNode* layout_paint_next(DomNode* node);
+DomNode* layout_paint_previous(DomNode* node);
+ViewElement* layout_render_parent(DomNode* node);
 bool layout_is_inline_math_box(DomNode* node);
 // CSS Shadow DOM: expose the host as the formatting parent of a direct
 // shadow-tree child while preserving the fragment's DOM parentage.

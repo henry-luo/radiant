@@ -1536,7 +1536,7 @@ float layout_br_line_box_extent(LayoutContext* lycon, FontHandle* handle) {
 CssEnum layout_specified_keyword(DomElement* element, CssPropertyCode property,
                                  CssEnum fallback) {
     if (!element) return fallback;
-    CssEnum keyword = layout_html_replaced_alignment_hint(element, property);
+    CssEnum keyword = layout_html_presentational_keyword(element, property);
     CssValue hint_value = {};
     hint_value.type = CSS_VALUE_TYPE_KEYWORD;
     hint_value.data.keyword = keyword;
@@ -4525,24 +4525,74 @@ bool layout_is_shadow_slot(DomNode* node) {
         layout_shadow_tree_host(node) != nullptr;
 }
 
-static DomNode* layout_slot_assigned_sibling(DomElement* slot, DomNode* child,
-                                              bool forward) {
-    if (!slot || !child) return nullptr;
-    DomElement* host = layout_shadow_tree_host((DomNode*)slot);
-    if (!host) return nullptr;
-    if (forward) {
-        for (DomNode* candidate = child->next_sibling; candidate;
-             candidate = candidate->next_sibling) {
-            if (dom_slot_assignment_matches(slot, candidate)) return candidate;
+static DomNode* layout_source_sibling(DomNode* node, bool forward) {
+    return forward ? node->next_sibling.get() : node->prev_sibling.get();
+}
+
+static DomNode* layout_next_slot_assignment(DomElement* slot, DomNode* candidate, bool forward) {
+    for (; candidate; candidate = layout_source_sibling(candidate, forward)) {
+        if (dom_slot_assignment_matches(slot, candidate)) return candidate;
+    }
+    return nullptr;
+}
+
+static DomElement* layout_projection_slot(DomNode* node) {
+    DomElement* parent = node->parent ? node->parent->as_element() : nullptr;
+    return parent && parent->shadow_root_element() ? dom_find_assigned_slot(node) : nullptr;
+}
+
+ViewElement* layout_render_parent(DomNode* node) {
+    if (!node) return nullptr;
+    DomNode* parent = layout_projection_slot(node);
+    if (!parent) parent = node->parent;
+    while (layout_is_shadow_slot(parent)) {
+        DomNode* slot = parent;
+        parent = layout_projection_slot(slot);
+        if (!parent) parent = slot->parent;
+    }
+    DomElement* element = parent ? parent->as_element() : nullptr;
+    // Slot and shadow fragment nodes have no formatting box.
+    return lam::view_as_element(element && element->shadow_host_element()
+        ? element->shadow_host_element() : element);
+}
+
+static DomNode* layout_paint_source_sibling(DomNode* node, bool forward) {
+    while (node) {
+        DomNode* sibling = layout_source_sibling(node, forward);
+        if (DomElement* slot = layout_projection_slot(node)) {
+            if (DomNode* assigned = layout_next_slot_assignment(slot, sibling, forward)) return assigned;
+            node = slot;
+        } else {
+            if (sibling) return sibling;
+            node = node->parent;
+            if (!layout_is_shadow_slot(node)) return nullptr;
         }
-        return nullptr;
     }
-    DomNode* previous = nullptr;
-    for (DomNode* candidate = host->first_child; candidate && candidate != child;
-         candidate = candidate->next_sibling) {
-        if (dom_slot_assignment_matches(slot, candidate)) previous = candidate;
+    return nullptr;
+}
+
+static DomNode* layout_paint_expand_slot(DomNode* node, bool forward) {
+    while (layout_is_shadow_slot(node)) {
+        DomElement* slot = node->as_element();
+        DomElement* host = dom_slot_assignment_host(slot);
+        DomNode* first = host ? layout_next_slot_assignment(slot,
+            forward ? host->first_child.get() : host->last_child.get(), forward) : nullptr;
+        if (!first) first = forward ? slot->first_child.get() : slot->last_child.get();
+        node = first ? first : layout_paint_source_sibling(node, forward);
     }
-    return previous;
+    return node;
+}
+
+DomNode* layout_paint_first_child(DomElement* element) {
+    return layout_paint_expand_slot(layout_render_child_list(element), true);
+}
+
+DomNode* layout_paint_next(DomNode* node) {
+    return layout_paint_expand_slot(layout_paint_source_sibling(node, true), true);
+}
+
+DomNode* layout_paint_previous(DomNode* node) {
+    return layout_paint_expand_slot(layout_paint_source_sibling(node, false), false);
 }
 
 void layout_shadow_slot_children(LayoutContext* lycon, DomElement* slot) {
@@ -4550,13 +4600,9 @@ void layout_shadow_slot_children(LayoutContext* lycon, DomElement* slot) {
     DomElement* host = layout_shadow_tree_host((DomNode*)slot);
     if (!host) return;
 
-    const char* slot_name = dom_element_attribute_value_ns(slot, "", "name");
-    if (!slot_name) slot_name = "";
     // Shadow DOM: each slotable is assigned to the first matching slot in
     // shadow-tree order; later same-name slots render only their fallback.
-    DomElement* first_matching_slot = dom_shadow_first_matching_slot(
-        host->shadow_root_element(), slot_name);
-    bool is_assignment_target = first_matching_slot == slot;
+    bool is_assignment_target = dom_slot_assignment_host(slot) != nullptr;
     bool has_assigned_nodes = false;
     for (DomNode* child = host->first_child; child; child = child->next_sibling) {
         if (is_assignment_target && dom_slot_assignment_matches(slot, child)) {
@@ -4568,35 +4614,11 @@ void layout_shadow_slot_children(LayoutContext* lycon, DomElement* slot) {
             // counter/list-item context come from the slot insertion point;
             // restore the light-DOM parent after this synchronous layout call.
             child->parent = slot->parent;
-            child->prev_sibling = lam::up(layout_slot_assigned_sibling(slot, child, false));
-            child->next_sibling = lam::own(layout_slot_assigned_sibling(slot, child, true));
+            child->prev_sibling = lam::up(layout_next_slot_assignment(slot, dom_prev, false));
+            child->next_sibling = lam::own(layout_next_slot_assignment(slot, dom_next, true));
             layout_flow_node(lycon, child);
-            float projection_x = 0.0f;
-            float projection_y = 0.0f;
-            for (DomNode* ancestor = slot->parent; ancestor;
-                 ancestor = ancestor->parent) {
-                if (ancestor->is_element() &&
-                    ancestor->as_element()->tag_name &&
-                    strcmp(ancestor->as_element()->tag_name, "#document-fragment") == 0) {
-                    break;
-                }
-                projection_x += ancestor->x;
-                projection_y += ancestor->y;
-            }
-            // CSS Shadow DOM: slot coordinates are local to the shadow
-            // tree's first rendered box; the host's external DOM ancestors
-            // must not be subtracted from this flattened-tree position.
-            DomNode* shadow_root_child = layout_rendered_first_child_node(
-                host->shadow_root_element());
-            if (shadow_root_child) {
-                projection_y -= shadow_root_child->y;
-            }
-            if (projection_x != 0.0f || projection_y != 0.0f) {
-                // The serialized light-DOM node is rooted at the host, so
-                // translate its laid-out subtree by the flattened insertion
-                // point before restoring the DOM parent.
-                layout_shift_view_tree_geometry((View*)child, projection_x, projection_y);
-            }
+            // Keep geometry in the insertion parent's coordinate space.
+            // Paint and CSSOM resolve that parent through the same projection.
             child->parent = lam::up(dom_parent);
             child->prev_sibling = lam::up(dom_prev);
             child->next_sibling = lam::own(dom_next);

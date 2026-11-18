@@ -2408,7 +2408,6 @@ void render_children(RasterRenderContext* rdcon, View* view, bool defer_position
 void render_raster_positioned_children(RasterRenderContext* rdcon, ViewBlock* block);
 void render_raster_stacking_view(RasterRenderContext* rdcon, View* view);
 void render_raster_negative_z_descendants(RasterRenderContext* rdcon, ViewBlock* block);
-void render_raster_positive_z_descendants(RasterRenderContext* rdcon, View* view);
 bool render_raster_custom_layout_children(RasterRenderContext* rdcon, ViewBlock* block);
 void render_raster_view_tree(RasterRenderContext* rdcon, ViewTree* view_tree);
 RenderElementMarkerScope render_element_marker_begin(RasterRenderContext* rdcon, ViewBlock* block);
@@ -2481,6 +2480,7 @@ struct RenderBackend {
     // Called for every block/inline element that has a BoundaryProp.
     // abs_x/abs_y = absolute CSS-px position of the element on the page.
     void (*render_bound)(RenderContext* ctx, ViewBlock* view, float abs_x, float abs_y);
+    bool (*fill_rect)(void* ctx, Color color, RdtLogicalRect rect);
 
     // ── Text rendering ─────────────────────────────────────────────────
     // Called for every ViewText node.
@@ -2562,7 +2562,7 @@ void render_walk_block(RenderBackend* backend, RenderWalkState* state, ViewBlock
 void render_walk_inline(RenderBackend* backend, RenderWalkState* state, ViewSpan* span);
 void render_walk_children(RenderBackend* backend, RenderWalkState* state, View* first_child, bool defer_positioned = false);
 void render_walk_positioned_children(RenderBackend* backend, RenderWalkState* state, ViewBlock* block);
-void render_walk_positive_z_descendants(RenderBackend* backend, RenderWalkState* state, View* first_child);
+void render_walk_positive_z_descendants(RenderBackend* backend, RenderWalkState* state, View* owner);
 void render_walk_negative_z_descendants(RenderBackend* backend, RenderWalkState* state, ViewBlock* block);
 void render_walk_view_one(RenderBackend* backend, RenderWalkState* state, View* view);
 
@@ -4528,6 +4528,13 @@ struct RasterRenderContext;
 void render_simple_string(RasterRenderContext* rdcon, const char* text, float x, float y,
                           FontProp* font, Color color);
 void render_form_control(RasterRenderContext* rdcon, ViewBlock* block);
+
+struct HtmlGaugePaint {
+    RdtLogicalRect track, value;
+    Color track_color, value_color;
+};
+bool render_html_gauge_plan(ViewBlock* block, float x, float y, HtmlGaugePaint* out);
+void render_html_gauge(RasterRenderContext* rdcon, ViewBlock* block);
 void render_select_dropdown(RasterRenderContext* rdcon, ViewBlock* select, DocState* state);
 
 // ===== render_glyph.hpp =====

@@ -1240,6 +1240,7 @@ bool radiant_dispatch_behavior_reset_activation(EventContext* evcon, View* targe
 // The package selects the activation key/timing; native only dispatches the
 // resulting click through the shared author/default-action pipeline.
 bool radiant_keyboard_click_from_package(void* dom_node);
+bool radiant_forward_label_click_from_package(void* dom_node);
 bool radiant_keyboard_command_from_package(void* dom_node, const char* name);
 // D10.2.1: an API command result carries its event facts from the DOM package.
 // This emits its post-commit `input` notification without re-entering a UA
@@ -1943,6 +1944,9 @@ static inline uint32_t tc_utf8_to_utf16_offset(const char* s, uint32_t byte_len,
 }
 
 // Lazy initialization + writes -------------------------------------------
+
+// Copy the HTML default without initializing live state. Release with mem_free.
+char* tc_copy_initial_value(DomElement* elem, uint32_t* out_len = nullptr);
 
 // Initialize current_value from HTML default (input's value attr / textarea
 // children) and collapse selection at end-of-text per HTML §4.10.6.
@@ -3780,6 +3784,7 @@ void form_control_set_range_value(DocState* state, View* view, float value);
  * Check whether an element participates in the HTML disabled/enabled state.
  */
 bool form_control_supports_disabled_state(View* view);
+bool form_control_is_html_disabled(DomElement* element);
 
 /**
  * Check if a form control is disabled.

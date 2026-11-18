@@ -218,6 +218,14 @@ static bool render_walk_block_paint_self(RenderPaintBlockDriver* ctx, ViewBlock*
 
     // visibility suppresses this box's paint, while visible descendants remain traversable.
     if (hidden) return true;
+    HtmlGaugePaint gauge;
+    if (backend->fill_rect && render_html_gauge_plan(block, state->x, state->y, &gauge)) {
+        bool painted = backend->fill_rect(backend->ctx, gauge.track_color, gauge.track);
+        if (painted && gauge.value.width > 0.0f && gauge.value.height > 0.0f)
+            backend->fill_rect(backend->ctx, gauge.value_color, gauge.value);
+        p->stop_after_self = true;
+        return false;
+    }
     if (block->tag_id == MARKUP_NAME_GEOMAP) {
         if (backend->render_geomap) backend->render_geomap(backend->ctx, block, state->x, state->y);
         p->stop_after_self = true;
@@ -251,7 +259,8 @@ static double render_walk_block_paint_children(RenderPaintBlockDriver* ctx, View
     RenderBackend* backend = driver->backend;
     RenderWalkState* state = driver->state;
     RenderTextPaintScope text_paint(backend->ctx, block, &state->font, &state->color);
-    if (block->first_child || block->custom_layout_paint_prop()) {
+    View* children = layout_paint_first_child(block);
+    if (children || block->custom_layout_paint_prop()) {
         // overflow and containment clip descendants after the box's own boundary paint.
         bool content_clip = backend->begin_clip && backend->end_clip &&
             backend->begin_clip(backend->ctx, block, state->x, state->y, RENDER_CLIP_CONTENTS);
@@ -288,14 +297,14 @@ static double render_walk_block_paint_children(RenderPaintBlockDriver* ctx, View
             }
             radiant_stack_free_custom_layout_paint(&paint);
         } else {
-            render_walk_children(backend, state, block->first_child, true);
+            render_walk_children(backend, state, children, true);
         }
 
         if (content_phase) {
             render_walk_positioned_children(backend, state, block);
         }
         if (content_phase && !block->custom_layout_paint_prop()) {
-            render_walk_positive_z_descendants(backend, state, block->first_child);
+            render_walk_positive_z_descendants(backend, state, block);
         }
 
         if (backend->end_block_children) {
@@ -394,7 +403,7 @@ void render_walk_inline(RenderBackend* backend, RenderWalkState* state, ViewSpan
         backend->begin_clip(backend->ctx, span,
             state->x + span->x, state->y + span->y, RENDER_CLIP_SHAPE);
 
-    if (span->first_child) {
+    if (View* children = layout_paint_first_child(span)) {
         PaintEffectGroup group = {};
         bool has_effect_group = render_walk_inline_effect_group(span, &group);
         bool opened_effect_group = has_effect_group &&
@@ -408,7 +417,7 @@ void render_walk_inline(RenderBackend* backend, RenderWalkState* state, ViewSpan
             backend->begin_inline_children(backend->ctx, span);
         }
 
-        render_walk_children(backend, state, span->first_child);
+        render_walk_children(backend, state, children);
 
         if (backend->end_inline_children) {
             backend->end_inline_children(backend->ctx, span);
@@ -574,7 +583,7 @@ void render_walk_children(RenderBackend* backend, RenderWalkState* state, View* 
         return;
     }
     bool has_step8 = false;
-    for (View* child = view; child; child = child->next()) {
+    for (View* child = view; child; child = layout_paint_next(child)) {
         if (render_walk_aborted(backend)) break;
         if (radiant_stack_is_deferred_from_normal_flow(child)) continue;
         if (radiant_stack_is_in_flow_positioned_step8(child)) {
@@ -588,7 +597,7 @@ void render_walk_children(RenderBackend* backend, RenderWalkState* state, View* 
     // others, in tree order; target_children hit-tests them in reverse.
     // block owners merge these siblings with their absolute chain in step 8.
     if (!has_step8 || defer_positioned) return;
-    for (View* child = view; child; child = child->next()) {
+    for (View* child = view; child; child = layout_paint_next(child)) {
         if (render_walk_aborted(backend)) break;
         if (!radiant_stack_is_deferred_from_normal_flow(child) &&
             radiant_stack_is_in_flow_positioned_step8(child) && !radiant_stack_zero_layer_is_lifted(child)) {
@@ -597,12 +606,12 @@ void render_walk_children(RenderBackend* backend, RenderWalkState* state, View* 
     }
 }
 
-void render_walk_positive_z_descendants(RenderBackend* backend, RenderWalkState* state, View* view) {
-    if (!backend || !state || !view) return;
+void render_walk_positive_z_descendants(RenderBackend* backend, RenderWalkState* state, View* owner) {
+    if (!backend || !state || !owner) return;
 
     RenderWalkBlockDriver driver = {};
     driver.backend = backend; driver.state = state;
-    radiant_stack_visit_positive_z_descendants(view->parent, false, &driver, render_walk_stacking_layer);
+    radiant_stack_visit_positive_z_descendants(owner, false, &driver, render_walk_stacking_layer);
 }
 
 static void render_walk_positioned_layer(RenderBackend* backend, RenderWalkState* state,

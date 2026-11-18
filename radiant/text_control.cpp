@@ -141,11 +141,12 @@ void form_control_release_prop(DomElement* elem) {
 
 // ---- internal: initial value resolution --------------------------------
 
-static char* tc_initial_value(DomElement* elem, uint32_t* out_len) {
-    *out_len = 0;
+char* tc_copy_initial_value(DomElement* elem, uint32_t* out_len) {
+    if (out_len) *out_len = 0;
     if (!elem) return nullptr;
     if (elem->tag_name && str_icmp_cstr(elem->tag_name, "textarea") == 0) {
         StrBuf* sb = strbuf_new_cap(64);
+        if (!sb) return nullptr;
         dom_collect_text_content((DomNode*)elem, sb);
         size_t len = sb->str ? strlen(sb->str) : 0;
         const char* attr_value = nullptr;
@@ -156,13 +157,13 @@ static char* tc_initial_value(DomElement* elem, uint32_t* out_len) {
         const char* value = attr_value ? attr_value : (sb->str ? sb->str : "");
         char* out = mem_dup_n(value, len, MEM_CAT_DOM);
         strbuf_free(sb);
-        *out_len = (uint32_t)len;
+        if (out_len) *out_len = (uint32_t)len;
         return out;
     }
     const char* v = elem->get_attribute("value");
     if (!v) v = "";
     char* out = mem_strdup(v, MEM_CAT_DOM);
-    *out_len = (uint32_t)strlen(v);
+    if (out_len) *out_len = (uint32_t)strlen(v);
     return out;
 }
 
@@ -182,7 +183,7 @@ static bool tc_materialize_current_value(DomElement* elem, FormControlProp* f) {
     DocState* state = tc_value_state(elem, f);
     if (!state) return false;
     uint32_t len = 0;
-    char* initial = tc_initial_value(elem, &len);
+    char* initial = tc_copy_initial_value(elem, &len);
     uint32_t u16_len = tc_utf8_to_utf16_length(initial ? initial : "", len);
     bool stored = form_control_store_text_value(state, (View*)elem,
                                                  initial, len, u16_len);

@@ -15,14 +15,6 @@ static inline uint32_t dom_mutation_bit(DomJsMutationKind kind) {
 }
 
 
-static bool dom_mutation_node_was_connected(DomDocument* doc, DomNode* node) {
-    if (!doc || !doc->root || !node) return false;
-    for (DomNode* current = node; current; current = current->parent) {
-        if (current == static_cast<DomNode*>(doc->root)) return true;
-    }
-    return false;
-}
-
 static DomJsMutationAttribute dom_mutation_attribute_from_name(DomDocument* doc, const char* name) {
     if (name && str_icmp_cstr(name, "class") == 0) {
         return DOM_JS_MUTATION_ATTRIBUTE_CLASS;
@@ -61,6 +53,9 @@ void radiant_dom_record_mutation_detail(DomDocument* doc, DomJsMutationKind kind
                                         const char* attribute_name, CssPropertyCode presentation_property) {
     parent = dom_source_inclusive_ancestor(parent);
     if (!doc) return;
+    // Atomic replacements may publish only their child records before the
+    // final notification. The sheets belong to each recorded child mutation.
+    radiant_dom_record_inline_stylesheet_mutation(doc, kind, target, parent);
 
     if (sequence == 0) {
         sequence = doc->js.mutation_sequence + 1;
@@ -99,8 +94,8 @@ void radiant_dom_record_mutation_detail(DomDocument* doc, DomJsMutationKind kind
                 : kind == DOM_JS_MUTATION_TEXT || kind == DOM_JS_MUTATION_CONTROL_VALUE;
         record->presentation_property = presentation_property;
         record->was_connected =
-            dom_mutation_node_was_connected(doc, target) ||
-            dom_mutation_node_was_connected(doc, parent);
+            dom_shadow_including_contains(doc->root, target) ||
+            dom_shadow_including_contains(doc->root, parent);
     } else {
         doc->js.mutation_record_overflow++;
     }
@@ -142,7 +137,10 @@ static void dom_record_inline_stylesheets_in_subtree(DomDocument* doc,
         if (element->tag_name && str_icmp_cstr(element->tag_name, "style") == 0) {
             radiant_dom_record_inline_stylesheet_owner(doc, element);
         }
-        for (DomNode* child = element->first_child; child; child = child->next_sibling) {
+        if (dom_element_is_html_tag(element, MARKUP_NAME_TEMPLATE)) return;
+        if (element->shadow_root_element())
+            dom_record_inline_stylesheets_in_subtree(doc, element->shadow_root_element());
+        for (DomNode* child = dom_source_child(element, true); child; child = dom_source_sibling(child, true)) {
             dom_record_inline_stylesheets_in_subtree(doc, child);
         }
     }
@@ -199,8 +197,6 @@ void radiant_dom_mutation_begin(DomDocument* doc, DomJsMutationKind kind,
     if (inherited_change) doc->style_content_epoch++;
     dom_layer_note_mutation(target, !inherited_change);
     if (parent && (!target || parent != target->parent)) dom_layer_note_mutation(parent);
-    radiant_dom_record_inline_stylesheet_mutation(doc, kind, target, parent);
-
     bool has_pending_structural_record = false;
     if (doc->js.mutation_record_count > 0) {
         DomJsMutationRecord* last = &doc->js.mutation_records[doc->js.mutation_record_count - 1];

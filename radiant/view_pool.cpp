@@ -1476,7 +1476,7 @@ void view_get_layout_position(View* view, TextRect* rect, float* out_x, float* o
             // The recursive containing-block position includes ancestor scroll,
             // while this absolute descendant must additionally move with the
             // containing block's own scroll only when it is a DOM ancestor.
-            for (View* parent = view->parent; parent; parent = parent->parent) {
+            for (View* parent = layout_render_parent(view); parent; parent = layout_render_parent(parent)) {
                 if (parent != static_cast<View*>(cb)) continue;
                 if (cb != root) subtract_block_scroll(cb, &abs_x, &abs_y);
                 break;
@@ -1490,7 +1490,7 @@ void view_get_layout_position(View* view, TextRect* rect, float* out_x, float* o
         // When we encounter an absolute/fixed parent, we still add its position,
         // but then we need to continue walking up to find the absolute parent's
         // containing block and add those positions too.
-        ViewElement* parent = view->parent_view();
+        ViewElement* parent = layout_render_parent(view);
         while (parent && parent != boundary) {
             if (parent->is_block()) {
                 ViewBlock* parent_block = lam::view_require_block(parent);
@@ -1516,7 +1516,7 @@ void view_get_layout_position(View* view, TextRect* rect, float* out_x, float* o
                     subtract_block_scroll(parent_block, &abs_x, &abs_y);
                 }
             }
-            parent = parent->parent_view();
+            parent = layout_render_parent(parent);
         }
         if (!parent && root) {
             // root scroll moves the viewport for every non-fixed box; element scroll remains paint-time only.
@@ -1561,10 +1561,10 @@ static void apply_matrix_to_bounds(const RdtMatrix* matrix, float* x,
 static void apply_css_transforms_to_bounds(View* view, float* x, float* y, float* width, float* height) {
     View* chain[256];
     int count = 0;
-    ViewElement* ancestor = view->parent_view();
+    ViewElement* ancestor = layout_render_parent(view);
     while (ancestor && count < 256) {
         chain[count++] = static_cast<View*>(ancestor);
-        ancestor = ancestor->parent_view();
+        ancestor = layout_render_parent(ancestor);
     }
 
     for (int i = count - 1; i >= 0; i--) { // INT_CAST_OK: bounded ancestor stack index
@@ -1602,7 +1602,7 @@ static bool view_has_3d_transform(View* view) {
 }
 
 static bool view_chain_has_3d_transform(View* view) {
-    for (View* current = view; current; current = current->parent_view()) {
+    for (View* current = view; current; current = layout_render_parent(current)) {
         if (view_has_3d_transform(current)) return true;
     }
     return false;
@@ -1612,7 +1612,7 @@ RdtMatrix4 view_accumulated_transform_3d(View* view, bool context_only) {
     RdtMatrix4 accumulated = rdt_matrix4_identity();
     int depth = 0;
     for (View* current = view; current && depth < 256;
-         current = current->parent_view(), depth++) {
+         current = layout_render_parent(current), depth++) {
         if (!current->is_block()) continue;
         ViewBlock* block = lam::view_require_block(current);
         const TransformProp* transform = block->transform;
@@ -1691,7 +1691,7 @@ bool view_focus_is_hidden(View* view) {
 
 bool view_backface_is_hidden(View* view, BackfaceCheck check) {
     bool independent_plane = false;
-    for (View* current = view; current; current = current->parent_view()) {
+    for (View* current = view; current; current = layout_render_parent(current)) {
         if (!current->is_block()) continue;
         const TransformProp* transform = lam::view_require_block(current)->transform;
         if (transform && transform->backface_visibility == CSS_VALUE_HIDDEN) {
@@ -1740,7 +1740,7 @@ static void apply_3d_transform_to_bounds(View* view, float* x, float* y,
 static float text_rect_client_height(ViewText* text, TextRect* rect) {
     if (!rect) return 0.0f;
     float height = rect->height;
-    ViewBlock* block = text ? layout_nearest_block_ancestor(text->parent_view()) : nullptr;
+    ViewBlock* block = text ? layout_nearest_block_ancestor(layout_render_parent(text)) : nullptr;
     if (block && layout_block_inline_axis_is_vertical(block)) {
         // CSS Writing Modes maps the text advance into the physical height;
         // do not replace that mapped glyph extent with horizontal line-height.
@@ -1775,7 +1775,7 @@ bool view_get_foreign_object_matrix(View* view, RdtMatrix* out_matrix, bool incl
     if (!view || !out_matrix) return false;
     View* chain[256]; unsigned count = 0;
     ViewElement* foreign = nullptr;
-    for (ViewElement* parent = view->parent_view(); parent && count < 256; parent = parent->parent_view()) {
+    for (ViewElement* parent = layout_render_parent(view); parent && count < 256; parent = layout_render_parent(parent)) {
         if (parent->tag() == MARKUP_NAME_FOREIGNOBJECT) { foreign = parent; break; }
         chain[count++] = static_cast<View*>(parent);
     }

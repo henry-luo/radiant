@@ -2,6 +2,7 @@
 #include "layout.hpp"
 #include "view.hpp"
 #include "event.hpp"
+#include "form_controls.hpp"
 #include "tagged.hpp"
 #include "lib/memtrack.h"
 #include "lib/font/font.h"
@@ -10,6 +11,7 @@
 // str.h included via view.hpp
 #include <string.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <math.h>
 
 /**
@@ -71,6 +73,64 @@ static Color form_accent_color(ViewBlock* block, bool disabled) {
         return block->inl()->accent_color;
     }
     return make_color(0, 0, 0);
+}
+
+static Color form_meter_color(const HtmlGaugeValues& gauge) {
+    // Match the value and optimum to their low, middle or high region.
+    int value_region = gauge.value < gauge.low ? 0 : gauge.value > gauge.high ? 2 : 1;
+    int optimum_region = gauge.optimum < gauge.low ? 0 : gauge.optimum > gauge.high ? 2 : 1;
+    int distance = abs(value_region - optimum_region);
+    if (distance == 0) return make_color(24, 128, 56);
+    if (distance == 1) return make_color(186, 117, 0);
+    return make_color(196, 43, 28);
+}
+
+bool render_html_gauge_plan(ViewBlock* block, float x, float y, HtmlGaugePaint* out) {
+    if (!block || !out || (block->tag() != MARKUP_NAME_PROGRESS && block->tag() != MARKUP_NAME_METER))
+        return false;
+    DomElement* element = block->as_element();
+    if (layout_specified_keyword(element, CSS_PROPERTY_APPEARANCE) == CSS_VALUE_NONE)
+        return false;
+    HtmlGaugeValues gauge = {};
+    if (!radiant_html_gauge_values(element, &gauge)) return false;
+    LayoutContentBox box = layout_content_box(block);
+    if (box.width <= 0.0f || box.height <= 0.0f) return false;
+    out->track = {x + box.offset_x, y + box.offset_y, box.width, box.height};
+    out->value = out->track;
+    out->track_color = make_color(226, 228, 231);
+    out->value_color = gauge.progress
+        ? (block->in_line && block->inl()->has_accent_color
+            ? block->inl()->accent_color : make_color(0, 103, 192))
+        : form_meter_color(gauge);
+
+    bool vertical = layout_block_inline_axis_is_vertical(block);
+    bool forward = layout_logical_start_is_physical_start(block, vertical ? LAYOUT_AXIS_Y : LAYOUT_AXIS_X);
+    float& offset = vertical ? out->value.y : out->value.x;
+    float& extent = vertical ? out->value.height : out->value.width;
+    if (!gauge.determinate) {
+        // A centered segment distinguishes the indeterminate snapshot from any determinate fill.
+        offset += extent * (1.0f / 3.0f);
+        extent *= 1.0f / 3.0f;
+    } else {
+        float length = extent * (float)radiant_html_gauge_fraction(gauge);
+        if (!forward) offset += extent - length;
+        extent = length;
+    }
+    return true;
+}
+
+void render_html_gauge(RasterRenderContext* rdcon, ViewBlock* block) {
+    float scale = rdcon->raster_scale;
+    HtmlGaugePaint plan;
+    if (!render_html_gauge_plan(block, rdcon->block.x / scale + block->x,
+                                     rdcon->block.y / scale + block->y, &plan)) return;
+    Rect track = {plan.track.x * scale, plan.track.y * scale,
+                  plan.track.width * scale, plan.track.height * scale};
+    Rect value = {plan.value.x * scale, plan.value.y * scale,
+                  plan.value.width * scale, plan.value.height * scale};
+    render_painter_fill_context_rect(rdcon, &track, plan.track_color.c);
+    if (value.width > 0.0f && value.height > 0.0f)
+        render_painter_fill_context_rect(rdcon, &value, plan.value_color.c);
 }
 
 static float form_scroll_to_reveal(float scroll, float caret_start, float caret_extent,
@@ -570,11 +630,12 @@ static char* build_preedit_display_text(FormControlProp* form,
 static void resolve_text_control_display_text(FormControlProp* form,
                                               DocState* state,
                                               View* view,
+                                              const char* value_text,
                                               bool placeholder_requires_text,
                                               TextControlDisplayText* out) {
     if (!out) return;
     memset(out, 0, sizeof(*out));
-    const char* value_text = (form && form->value) ? form->value : "";
+    if (!value_text) value_text = "";
     out->value_text = value_text;
     out->value_len = (uint32_t)strlen(value_text);
     out->text = value_text;
@@ -619,7 +680,7 @@ static void render_text_input(RasterRenderContext* rdcon, ViewBlock* block, Form
     bool focused_here = form_control_has_focus(&fc, block);
     TextControlDisplayText display;
     resolve_text_control_display_text(form, state, static_cast<View*>(block),
-                                      false, &display);
+                                      form->value, false, &display);
     const char* src_text = display.text;
     uint32_t selection_start = display.selection_start;
     uint32_t selection_end = display.selection_end;
@@ -1026,13 +1087,6 @@ static void render_file_input(RasterRenderContext* rdcon, ViewBlock* block,
     }
 }
 
-/**
- * Helper to get option text at index (same logic as event.cpp)
- */
-static const char* get_option_text_at_index(ViewBlock* select, int index) {
-    return dom_option_text(dom_select_option_at_index(select, index));
-}
-
 static bool form_has_background_declaration(DomElement* element) {
     StyleTree* style = element ? element->specified_style : nullptr;
     return style && (style_tree_get_declaration(style, CSS_PROPERTY_BACKGROUND) ||
@@ -1116,6 +1170,7 @@ static void render_select_listbox_rows(RasterRenderContext* rdcon, ViewBlock* bl
     rdcon->block.clip = view_geometry_intersect_bound_rect(
         rdcon->block.clip, {fc->x, fc->y, fc->w, fc->h});
 
+    StrBuf* label = strbuf_new_cap(32);
     for (DomElement* option = dom_select_next_option(block->as_element(), nullptr); option;
          option = dom_select_next_option(block->as_element(), option)) {
         if (option->height <= 0.0f || option->width <= 0.0f) continue;   // hidden row
@@ -1127,13 +1182,14 @@ static void render_select_listbox_rows(RasterRenderContext* rdcon, ViewBlock* bl
         SelectOptionPaint paint = select_option_paint(block, option, selected, false,
             fc->disabled || form_control_is_disabled(fc->state, option), true);
         if (paint.background.a) fill_rect(rdcon, row_x, row_y, row_w, row_h, paint.background);
-        const char* label = dom_option_text(option);
-        if (label && *label && paint.font) {
+        dom_option_label(option, label);
+        if (label && label->length && paint.font) {
             float font_height = paint.font->font_height * s;
-            render_simple_string(rdcon, label, row_x + paint.padding * s,
+            render_simple_string(rdcon, label->str, row_x + paint.padding * s,
                                  row_y + (row_h - font_height) / 2, paint.font, paint.text);
         }
     }
+    strbuf_free(label);
     rdcon->block.clip = saved_clip;
 }
 
@@ -1208,7 +1264,9 @@ static void render_select(RasterRenderContext* rdcon, ViewBlock* block, FormCont
 
     // Render selected option text
     if (block->font && selected_index >= 0) {
-        const char* selected_text = get_option_text_at_index(block, selected_index);
+        StrBuf* label = strbuf_new_cap(32);
+        dom_option_label(dom_select_option_at_index(block, selected_index), label);
+        const char* selected_text = label && label->length ? label->str : nullptr;
         if (selected_text) {
             // Use actual CSS padding so text starts after the author-specified
             // left padding and is reserved on the right for any UA arrow well
@@ -1260,6 +1318,7 @@ static void render_select(RasterRenderContext* rdcon, ViewBlock* block, FormCont
                 render_simple_string(rdcon, selected_text, text_x, text_top, block->font, text_color);
             }
         }
+        strbuf_free(label);
     }
 
 }
@@ -1324,6 +1383,7 @@ void render_select_dropdown(RasterRenderContext* rdcon, ViewBlock* select, DocSt
     Bound options_clip = {x + bw, y + bw, options_right, y + h - bw};
     RenderClipScope options_scope = render_clip_push_rect_scope(rdcon, &options_clip, nullptr);
     rdcon->block.clip = options_clip;
+    StrBuf* label = strbuf_new_cap(32);
     DomElement* option = dom_select_next_option(select->as_element(), nullptr);
     for (int i = 0; i < form->option_count && option; i++,
          option = dom_select_next_option(select->as_element(), option)) {
@@ -1336,8 +1396,8 @@ void render_select_dropdown(RasterRenderContext* rdcon, ViewBlock* select, DocSt
             options_right - x - bw, option_height - bw, paint.background);
 
         // Get option text
-        const char* opt_text = dom_option_text(option);
-        if (opt_text && paint.font) {
+        dom_option_label(option, label);
+        if (label && label->length && paint.font) {
             // Calculate text position with padding
             float text_padding = paint.padding * s;
             float text_x = x + bw + text_padding;
@@ -1350,9 +1410,10 @@ void render_select_dropdown(RasterRenderContext* rdcon, ViewBlock* select, DocSt
 
 
             // Render the option text (y is top of text area, not baseline)
-            render_simple_string(rdcon, opt_text, text_x, text_top, paint.font, paint.text);
+            render_simple_string(rdcon, label->str, text_x, text_top, paint.font, paint.text);
         }
     }
+    strbuf_free(label);
 
     render_clip_pop_scope(rdcon, &options_scope);
     rdcon->block.clip = {0, 0, (float)rdcon->ui_context->surface->width,
@@ -1427,9 +1488,16 @@ static void render_textarea(RasterRenderContext* rdcon, ViewBlock* block, FormCo
     // textarea would be flagged as a placeholder and the caret-render
     // path (guarded by !is_placeholder) would skip drawing the caret.
     DocState* state = fc.state;
+    const char* value_text = form_control_get_value(state, static_cast<View*>(block), nullptr);
+    lam::Temp<char> initial_value;
+    if (!value_text) {
+        // An unfocused textarea can paint before its live value is materialized.
+        initial_value.reset(tc_copy_initial_value(block->as_element()));
+        value_text = initial_value.get();
+    }
     TextControlDisplayText display;
     resolve_text_control_display_text(form, state, static_cast<View*>(block),
-                                      true, &display);
+                                      value_text, true, &display);
     const char* text = display.text;
     uint32_t preedit_start = display.preedit_start;
     uint32_t preedit_end = display.preedit_end;

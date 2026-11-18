@@ -584,8 +584,8 @@ ViewBlock* layout_positioning_block(ViewElement* ancestor, CssEnum position_type
 }
 
 ViewBlock* find_positioned_containing_block(ViewElement* view) {
-    for (ViewElement* ancestor = view ? view->parent_view() : nullptr;
-         ancestor; ancestor = ancestor->parent_view()) {
+    for (ViewElement* ancestor = layout_render_parent(view);
+         ancestor; ancestor = layout_render_parent(ancestor)) {
         ViewBlock* containing_block = layout_positioning_block(ancestor, CSS_VALUE_ABSOLUTE);
         if (containing_block) return containing_block;
     }
@@ -594,9 +594,9 @@ ViewBlock* find_positioned_containing_block(ViewElement* view) {
 
 ViewBlock* find_containing_block(ViewBlock* element, CssEnum position_type) {
     if (position_type == CSS_VALUE_FIXED) {
-        for (ViewElement* ancestor = element ? element->parent_view() : nullptr;
+        for (ViewElement* ancestor = layout_render_parent(element);
              ancestor;
-             ancestor = ancestor->parent_view()) {
+             ancestor = layout_render_parent(ancestor)) {
             ViewBlock* containing_block = layout_positioning_block(ancestor, CSS_VALUE_FIXED);
             if (containing_block) return containing_block;
         }
