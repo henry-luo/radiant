@@ -4860,6 +4860,9 @@ bool layout_details_needs_default_summary(ViewBlock* block) {
 }
 
 void layout_flow_node(LayoutContext* lycon, DomNode *node) {
+    // positioned boxes have no line contribution and may own live embedded documents.
+    if (lycon->run_mode == radiant::RunMode::MeasureFlow && node->is_element() &&
+        layout_element_is_abs_or_fixed(node->as_element())) return;
     node->ruby_annotation_hidden = false;
     if (lycon->depth >= MAX_LAYOUT_DEPTH) {
         log_error("layout_flow_node: max depth %d exceeded, skipping node %s",

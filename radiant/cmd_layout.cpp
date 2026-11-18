@@ -2099,6 +2099,20 @@ static void configure_css_input_environment(CssEngine* engine, DomDocument* docu
     if (host) css_engine_set_input_capabilities(engine, &host->input_capabilities);
 }
 
+int document_js_host_post_load_settle_ms(int fallback, bool explicitly_set) {
+    const char* text = explicitly_set ? nullptr : shell_getenv("LAMBDA_POST_LOAD_SETTLE_MS");
+    if (!text || !text[0]) return fallback;
+    int64_t value = 0;
+    const char* end = nullptr;
+    size_t length = strlen(text);
+    if (!str_to_int64(text, length, &value, &end) || end != text + length ||
+        value < 0 || value > INT_MAX) {
+        log_error("capture frame: LAMBDA_POST_LOAD_SETTLE_MS must be a nonnegative integer");
+        return -1;
+    }
+    return (int)value; // INT_CAST_OK: validated millisecond option, not geometry.
+}
+
 DocumentJsHostConfig document_js_host_config_inherit(UiContext* uicon,
                                                      const DomDocument* source) {
     DocumentJsHostConfig config = {};
@@ -6035,15 +6049,9 @@ int cmd_layout(int argc, char** argv) {
     bool batch_mode = (opts.input_file_count > 1) || (opts.output_dir != nullptr) ||
         opts.stream_layout_results;
     bool auto_close = opts.auto_close || shell_getenv("LAMBDA_AUTO_CLOSE") != nullptr;
-    int post_load_settle_ms = opts.post_load_settle_ms;
-    // an explicit zero freezes delayed capture tasks even when a host supplies a default window.
-    if (!opts.post_load_settle_given) {
-        const char* settle_env = shell_getenv("LAMBDA_POST_LOAD_SETTLE_MS");
-        if (settle_env) {
-            post_load_settle_ms = (int)str_to_int64_default(
-                settle_env, strlen(settle_env), 0); // INT_CAST_OK: CLI timing option
-        }
-    }
+    // an explicit zero freezes delayed tasks even when the host supplies a window.
+    int post_load_settle_ms = document_js_host_post_load_settle_ms(
+        opts.post_load_settle_ms, opts.post_load_settle_given);
     if (post_load_settle_ms < 0) {
         log_error("Error: post-load settle duration must be non-negative");
         return 1;

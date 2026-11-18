@@ -795,7 +795,8 @@ namespace radiant {
 enum class RunMode : uint8_t {
     ComputeSize = 0,
     PerformLayout = 1,
-    PerformHiddenLayout = 2
+    PerformHiddenLayout = 2,
+    MeasureFlow = 3
 };
 
 enum class SizingMode : uint8_t {
@@ -4108,6 +4109,7 @@ typedef struct LayoutContext {
     // - ComputeSize: Only compute dimensions, skip positioning (for measurement)
     // - PerformLayout: Full layout with final positioning
     // - PerformHiddenLayout: Minimal layout for display:none
+    // - MeasureFlow: Format trial lines without publishing layout state
     radiant::RunMode run_mode;
     // Sizing mode for intrinsic size computation
     // - InherentSize: Use element's own CSS size properties
@@ -4169,7 +4171,8 @@ inline ViewTree* layout_context_view_tree(const LayoutContext* context) {
  * Check if layout is in measurement mode (only computing sizes)
  */
 inline bool layout_context_is_measuring(LayoutContext* lycon) {
-    return lycon->run_mode == radiant::RunMode::ComputeSize;
+    return lycon->run_mode == radiant::RunMode::ComputeSize ||
+        lycon->run_mode == radiant::RunMode::MeasureFlow;
 }
 
 /**

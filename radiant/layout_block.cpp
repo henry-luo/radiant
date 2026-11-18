@@ -372,11 +372,10 @@ static float layout_block_intrinsic_content_height(LayoutContext* lycon, ViewBlo
     if (!lycon || !block || !block->is_element()) return -1.0f;
     float given_height = block->blk ? block->block()->given_height : -1.0f;
     CssEnum given_height_type = block->blk ? block->block()->given_height_type : CSS_VALUE__UNDEF;
-    // definite height is the value being constrained and must not short-circuit it.
+    // preserve the assigned width and restore any cyclic height resolved by the probe.
     float intrinsic_border_height = calculate_max_content_height(
-        lycon, static_cast<DomNode*>(block), content_width, true);
+        lycon, static_cast<DomNode*>(block), content_width, true, true);
     if (block->blk) {
-        // Style resolution in the probe can restore a cyclic percentage that the active flow cleared.
         block->block_mut()->given_height = given_height;
         block->block_mut()->given_height_type = given_height_type;
     }
@@ -720,6 +719,8 @@ static float text_wrap_balance_line_height(LayoutContext* lycon) {
 }
 
 struct TextWrapBalanceProbe {
+    static thread_local TextWrapBalanceProbe* active;
+    TextWrapBalanceProbe* previous;
     LayoutContext* lycon;
     ViewBlock* block;
     StrBuf* content;
@@ -732,11 +733,12 @@ struct TextWrapBalanceProbe {
     float clearance;
 
     TextWrapBalanceProbe(LayoutContext* context, ViewBlock* owner, int index)
-        : lycon(context), block(owner),
+        : previous(active), lycon(context), block(owner),
           content(layout_collect_inline_text(owner->as_element(), true)),
           paragraph(nullptr), length(0), has_boundaries(false),
           query_y(context->block.advance_y), query_left(context->line.align_left),
           query_width(0.0f), clearance(0.0f) {
+        active = this;
         if (!content) return;
         has_boundaries = memchr(content->str, '\v', content->length) != nullptr;
         const char* begin = content->str;
@@ -751,7 +753,7 @@ struct TextWrapBalanceProbe {
         length = (size_t)((boundary ? boundary : end) - begin);
     }
     // paragraph slices borrow this buffer only until the measurement returns.
-    ~TextWrapBalanceProbe() { if (content) strbuf_free(content); }
+    ~TextWrapBalanceProbe() { active = previous; if (content) strbuf_free(content); }
     TextWrapBalanceProbe(const TextWrapBalanceProbe&) = delete;
     TextWrapBalanceProbe& operator=(const TextWrapBalanceProbe&) = delete;
 
@@ -806,7 +808,8 @@ struct TextWrapBalanceProbe {
                 width, line_height, get_element_text_transform(block),
                 get_element_font_variant(block), false,
                 query_floats ? line_width : nullptr, this) : 0.0f)
-            : calculate_max_content_height(lycon, block, width);
+            // the candidate is already this paragraph's content width, not its containing width.
+            : calculate_max_content_height(lycon, block, width, false, true);
         if (!has_boundaries && !query_floats) {
             // The intrinsic query includes the border box; the line budget
             // counts only the paragraph's content line boxes.
@@ -816,10 +819,16 @@ struct TextWrapBalanceProbe {
     }
 };
 
+thread_local TextWrapBalanceProbe* TextWrapBalanceProbe::active = nullptr;
+
 static float text_wrap_balance_measure(LayoutContext* lycon, ViewBlock* block,
                                        float content_width, int paragraph,
                                        bool* has_paragraph_boundaries) {
     *has_paragraph_boundaries = false;
+    // line-count probes lay out this paragraph without recursively balancing it.
+    for (TextWrapBalanceProbe* probe = TextWrapBalanceProbe::active; probe; probe = probe->previous) {
+        if (probe->block == block) return 0.0f;
+    }
     if (!block || !block->blk || content_width <= 0.0f ||
         lycon->block.text_wrap_style != CSS_VALUE_BALANCE) return 0.0f;
     if (block->block()->white_space == CSS_VALUE_NOWRAP || block->block()->white_space == CSS_VALUE_PRE) return 0.0f;
@@ -4715,7 +4724,8 @@ void finalize_block_flow(LayoutContext* lycon, ViewBlock* block, CssEnum display
             set_block_scroller_clip(block);
         }
     }
-    if (block->scroller && block->scroll_mut()->pane) {
+    if (block->scroller && block->scroll_mut()->pane &&
+        lycon->run_mode != radiant::RunMode::MeasureFlow) {
         DocState* state = lycon && lycon->doc ? (DocState*)lycon->doc->state : nullptr;
         // CSS Writing Modes gives vertical-rl a signed horizontal scroll range;
         // use the inherited/resolved mode so a raw default does not clamp a
@@ -5109,6 +5119,8 @@ bool layout_iframe_content_size(DomDocument* doc, float* width, float* height) {
 }
 
 void layout_iframe(LayoutContext* lycon, ViewBlock* block, DisplayValue display) {
+    // only the replaced frame box contributes to trial flow, so keep its document live.
+    if (lycon->run_mode == radiant::RunMode::MeasureFlow) return;
     LayoutContentBox content = layout_content_box(block);
     DomDocument* doc = layout_ensure_iframe_document(lycon, block,
         block->width > 0.0f ? content.width : lycon->ui_context->viewport_width,
@@ -8900,7 +8912,7 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
     if (has_intrinsic_height_keyword && block->is_element() &&
         layout_block_has_size_containment_in_axis(block, false)) {
         float intrinsic_border_height = calculate_max_content_height(
-            lycon, static_cast<DomNode*>(block), content_width);
+            lycon, static_cast<DomNode*>(block), content_width, false, true);
         BoxMetrics block_box = layout_box_metrics(block);
         float intrinsic_content_height = max(
             intrinsic_border_height - block_box.pad_border_v, 0.0f);

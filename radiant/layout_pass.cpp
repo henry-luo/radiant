@@ -544,7 +544,7 @@ bool layout_flow_result_apply(LayoutContext* context, const LayoutFlowResult* re
             payload = payload->next;
         }
         layout_view_snapshot_restore(&output->box);
-        // A trial flow can restore provisional box extents without clamping live scroll state.
+        // only committed layout may update live scroll ranges.
         if (context->run_mode == RunMode::PerformLayout &&
             node != root && node->is_element() && node->as_element()->scroller) {
             ViewBlock* block = lam::unsafe_view_block_element_storage(node->as_element());

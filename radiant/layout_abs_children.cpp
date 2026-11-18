@@ -39,7 +39,7 @@ static void layout_apply_abs_child_aspect_ratio(AbsChildLayoutState* state) {
 
 void layout_absolute_children_in_context(LayoutContext* lycon, ViewBlock* container,
     AbsStaticContext* ctx) {
-    if (!lycon || !container || !ctx) return;
+    if (!lycon || !container || !ctx || lycon->run_mode == radiant::RunMode::MeasureFlow) return;
 
     // the scope owns the flattened list through recursive child layout.
     int capacity = layout_count_flattened_item_nodes(container, false);

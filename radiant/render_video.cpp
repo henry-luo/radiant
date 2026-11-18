@@ -351,9 +351,9 @@ ImageSurface* render_video_snapshot(const EmbedProp* embed, bool has_poster,
     bool live = (state == RDT_VIDEO_STATE_PLAYING || state == RDT_VIDEO_STATE_PAUSED) &&
         rdt_video_get_frame(video, &frame) == 0 && frame.pixels;
     if (has_poster && !live && !embed->has_controls) return nullptr;
+    // a complete-file frame can be decoded while asynchronous playback is still opening.
     bool decoded = live || (!has_poster && state != RDT_VIDEO_STATE_ERROR &&
-        state != RDT_VIDEO_STATE_IDLE && state != RDT_VIDEO_STATE_LOADING &&
-        rdt_video_get_frame(video, &frame) == 0 && frame.pixels);
+        state != RDT_VIDEO_STATE_IDLE && rdt_video_get_frame(video, &frame) == 0 && frame.pixels);
     if (!has_poster && !decoded && state != RDT_VIDEO_STATE_ERROR &&
         state != RDT_VIDEO_STATE_IDLE && state != RDT_VIDEO_STATE_LOADING) return nullptr;
     MemContext* memory = ui && ui->document ? (MemContext*)ui->document->services.mem_ctx : nullptr;

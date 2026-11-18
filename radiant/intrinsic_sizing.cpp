@@ -6990,7 +6990,7 @@ static bool intrinsic_measure_direct_text(LayoutContext* lycon, ViewBlock* block
 }
 
 static float intrinsic_text_br_content_height(LayoutContext* lycon, DomElement* element,
-                                              ViewBlock* view, float width);
+                                              ViewBlock* view, float width, float content_height = -1.0f);
 
 bool layout_measure_direct_text_intrinsic_size(LayoutContext* lycon, ViewBlock* block,
                                                IntrinsicSize* size, float inline_size) {
@@ -7281,7 +7281,7 @@ float layout_resolve_preferred_intrinsic_inline_size(LayoutContext* lycon, ViewB
 
 static float intrinsic_inline_flow_content_height(LayoutContext* context,
                                                    DomElement* element,
-                                                   ViewBlock* block, float width) {
+                                                   ViewBlock* block, float width, float content_height) {
     if (!context->ui_context || context->paged || layout_block_inline_axis_is_vertical(block) ||
         context->node_count >= context->node_limit || context->depth >= MAX_LAYOUT_DEPTH)
         return -1.0f;
@@ -7293,13 +7293,16 @@ static float intrinsic_inline_flow_content_height(LayoutContext* context,
         return -1.0f;
     radiant::LayoutFlowResult* selected = radiant::layout_flow_result_capture(context, element);
     if (!selected) return -1.0f;
-    radiant::LayoutMeasureScope measure(context, element);
+    radiant::LayoutMeasureScope measure(context, element, true);
+    // line height needs placed atoms and baselines even when their sizes are known.
+    radiant::LayoutRunModeScope flow_mode(context, radiant::RunMode::MeasureFlow);
     LayoutViewScope view_scope(context);
     block->view_type = RDT_VIEW_BLOCK;
     block->width = layout_border_size_from_content_box(block, width, true);
-    block->height = layout_border_size_from_content_box(block, 0.0f, false);
+    block->height = layout_border_size_from_content_box(block, max(content_height, 0.0f), false);
     BlockContext parent = context->block;
-    layout_setup_assigned_block_context(context, block, &parent, width, -1.0f);
+    // retain this box's resolved axes; outer free space is not an inline child's percentage basis.
+    layout_setup_assigned_block_context(context, block, &parent, width, content_height);
     context->view = lam::up(static_cast<View*>(block));
     context->elmt = lam::up(static_cast<DomNode*>(element));
     setup_line_height(context, block);
@@ -7320,14 +7323,14 @@ static float intrinsic_inline_flow_content_height(LayoutContext* context,
 }
 
 static float intrinsic_text_br_content_height(LayoutContext* lycon, DomElement* element,
-                                              ViewBlock* view, float width) {
+                                              ViewBlock* view, float width, float content_height) {
     if (!lycon || !element || !view || width <= 0.0f) return -1.0f;
     StrBuf* text = layout_collect_inline_text(element,
         lycon->block.text_wrap_style == CSS_VALUE_BALANCE);
     if (!text) {
         // atomic inlines can contain block descendants; their surrounding line
         // still includes the parent's strut and baseline (CSS 2.1 §10.8).
-        return intrinsic_inline_flow_content_height(lycon, element, view, width);
+        return intrinsic_inline_flow_content_height(lycon, element, view, width, content_height);
     }
 
     float line_height = intrinsic_element_line_height(lycon, element, view);
@@ -8088,7 +8091,7 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
         height = total_height;
     } else {
         float inline_run_height = has_only_inline_content
-            ? intrinsic_text_br_content_height(lycon, element, view, width) : -1.0f;
+            ? intrinsic_text_br_content_height(lycon, element, view, content_w, child_height_basis) : -1.0f;
         if (inline_run_height >= 0.0f) {
             // Inline fragments share line boxes; taking their maximum loses
             // wrapped and <br>-separated lines from the intrinsic block size.

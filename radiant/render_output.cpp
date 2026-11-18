@@ -198,6 +198,8 @@ static DocumentJsHostConfig render_export_js_host_config(RenderExportSession* se
     // one-shot exports settle the selected frame, not recurring page activity (D10.1.7).
     config.auto_close_event_loop = true;
     config.virtual_clock_enabled = true;
+    // choose the host's requested frame before loading; export keeps that frame (D10.1.7).
+    config.post_load_settle_ms = document_js_host_post_load_settle_ms(0, false);
     config.resource_policy = resource_policy;
     return config;
 }
@@ -207,6 +209,7 @@ static DomDocument* render_export_load_html_source(RenderExportSession* session,
     RenderExportSourceRequest* source = (RenderExportSourceRequest*)request;
     DocumentJsHostConfig config = render_export_js_host_config(session,
         source->block_remote_resources ? INPUT_RESOURCE_LOCAL_ONLY : INPUT_RESOURCE_ALLOW_NETWORK);
+    if (config.post_load_settle_ms < 0.0) return nullptr;
     Url* base = source->base_url ? url_parse_with_base(source->base_url, session->base_url) : nullptr;
     if (source->base_url && !base) return nullptr;
     DomDocument* doc = load_html_source_doc(source->source, layout_width, layout_height,
@@ -220,6 +223,7 @@ static DomDocument* render_export_load_html_document(RenderExportSession* sessio
     RenderExportHtmlRequest* html_request = (RenderExportHtmlRequest*)request;
     DocumentJsHostConfig config = render_export_js_host_config(session,
         html_request ? html_request->resource_policy : INPUT_RESOURCE_ALLOW_NETWORK);
+    if (config.post_load_settle_ms < 0.0) return nullptr;
     RenderPagedOptions paged_defaults = render_paged_options_default();
     if (html_request && html_request->paged) config.paged_media = html_request->paged_options ? html_request->paged_options : &paged_defaults;
     return html_request && html_request->html_file
@@ -611,6 +615,15 @@ static bool render_export_session_begin_internal(
             page_style.content_rect.height);
     }
     layout_update_document(session->ui_context, session->document);
+    DomDocument* document = session->document;
+    if (document->js.virtual_clock_enabled && document->js.post_load_settle_ms > 0.0 &&
+        !document->js.runtime) {
+        // script-free documents have no timer loop to prepare their selected CSS frame.
+        double selected_time = (document->js.virtual_clock_ms +
+            document->js.post_load_settle_ms) / 1000.0;
+        radiant_tick_document_animations(document, selected_time);
+        layout_update_document(session->ui_context, document);
+    }
 
     session->content_width = session->has_page_geometry
         ? (int)ceilf(session->page_width) : layout_width; // INT_CAST_OK: legacy export extent stores integral CSS pixels.
