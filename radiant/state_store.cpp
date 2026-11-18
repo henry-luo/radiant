@@ -5388,16 +5388,19 @@ void form_control_set_range_value(DocState* state, View* view, float value) {
 // Phase 4A: Constraint Attributes (disabled, readonly, required)
 // ============================================================================
 
+bool form_control_is_html_disabled(DomElement* element) {
+    // Activation uses the current attribute tree, including changes before layout.
+    return form_element_supports_disabled_state(element) &&
+        (element->has_attribute("disabled") || form_control_is_disabled_by_fieldset(element));
+}
+
 bool form_control_is_disabled(DocState* state, View* view) {
     if (!view || !view->is_element()) return false;
     DomElement* element = lam::dom_require_element(view);
     if (!form_element_supports_disabled_state(element)) return false;
 
     // Detached clones can retain a StateStore snapshot after an IDL attribute write.
-    if (!dom_element_is_connected(element)) {
-        return element->has_attribute("disabled") ||
-            form_control_is_disabled_by_fieldset(element);
-    }
+    if (!dom_element_is_connected(element)) return form_control_is_html_disabled(element);
     ViewState* view_state = form_view_state_get(state, view);
     bool directly_disabled = view_state
         ? view_state->data.form.disabled != 0

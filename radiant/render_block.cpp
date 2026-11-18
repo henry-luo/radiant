@@ -45,7 +45,7 @@ static bool render_block_fully_transparent(ViewBlock* block) {
 }
 
 static bool render_block_has_visible_child_overflow(RasterRenderContext* rdcon, ViewBlock* block) {
-    if (!block || !block->is_element() || !block->first_child) return false;
+    if (!block || !block->is_element() || !layout_paint_first_child(block)) return false;
     if (block->blk && block->block()->contain_paint) return false;
     if (block->scroller &&
         (block->scroll()->overflow_x != CSS_VALUE_VISIBLE ||
@@ -128,7 +128,7 @@ static bool render_block_solid_box(RasterRenderContext* rdcon, ViewBlock* block,
         rdcon->block.has_clip_radius || rdcon->clip_shape_depth || rdcon->vector_clip_depth ||
         (block->view_type != RDT_VIEW_BLOCK && block->view_type != RDT_VIEW_INLINE_BLOCK) ||
         block->tag_id == MARKUP_NAME_HTML || block->tag_id == MARKUP_NAME_BODY || !block->parent ||
-        block->first_child || block->transform || block->scroller || block->embed ||
+        layout_paint_first_child(block) || block->transform || block->scroller || block->embed ||
         block->form_control() || block->vector_path() || block->custom_layout_paint_prop() ||
         block->filter_prop() || block->backdrop_filter_prop() || block->layout_fragment_list() ||
         view_visibility_is_hidden(block) ||
@@ -483,9 +483,10 @@ static void render_block_paint_self(RasterRenderContext* rdcon, ViewBlock* block
     }
 
     if (render_paint_phase_has_content(rdcon->paint_phase) &&
-        !phase->self_hidden && !view_contents_are_skipped(block) &&
-        block->form_control()) {
-        render_form_control(rdcon, block);
+        !phase->self_hidden && !view_contents_are_skipped(block)) {
+        if (block->form_control()) render_form_control(rdcon, block);
+        else if (block->tag() == MARKUP_NAME_METER || block->tag() == MARKUP_NAME_PROGRESS)
+            render_html_gauge(rdcon, block);
     }
 
     float s = rdcon->raster_scale;
@@ -529,7 +530,7 @@ static void render_block_apply_inherited_color(RasterRenderContext* rdcon, ViewB
 
 static void render_block_deferred_child_outlines(RasterRenderContext* rdcon, ViewBlock* block) {
     if (!rdcon || !block) return;
-    View* outline_view = block->first_child;
+    View* outline_view = layout_paint_first_child(block);
     while (outline_view) {
         if (outline_view->view_type == RDT_VIEW_BLOCK ||
             outline_view->view_type == RDT_VIEW_INLINE_BLOCK) {
@@ -538,7 +539,7 @@ static void render_block_deferred_child_outlines(RasterRenderContext* rdcon, Vie
                 render_outline_deferred(rdcon, outline_block);
             }
         }
-        outline_view = static_cast<View*>(outline_view->next_sibling);
+        outline_view = layout_paint_next(outline_view);
     }
 }
 
@@ -546,7 +547,7 @@ static RenderBlockChildrenPhase render_block_begin_children_phase(RasterRenderCo
                                                                   ViewBlock* block) {
     RenderBlockChildrenPhase phase = {};
     phase.start_time = time_now_ns();
-    View* view = block ? block->first_child : nullptr;
+    View* view = layout_paint_first_child(block);
     phase.has_children = view != nullptr || (block && block->custom_layout_paint_prop());
     if (!phase.has_children) {
         return phase;
@@ -561,6 +562,8 @@ static RenderBlockChildrenPhase render_block_begin_children_phase(RasterRenderCo
     return phase;
 }
 
+static bool render_raster_stacking_layer(void* context, View* owner, View* layer);
+
 static void render_block_walk_children_phase(RasterRenderContext* rdcon, ViewBlock* block,
                                              RenderBlockChildrenPhase* phase) {
     if (!rdcon || !block || !phase || !phase->has_children) return;
@@ -569,13 +572,13 @@ static void render_block_walk_children_phase(RasterRenderContext* rdcon, ViewBlo
     if (content_phase) render_raster_negative_z_descendants(rdcon, block);
     bool custom_painted = render_raster_custom_layout_children(rdcon, block);
     if (!custom_painted) {
-        render_children(rdcon, block->first_child, true);
+        render_children(rdcon, layout_paint_first_child(block), true);
     }
     if (content_phase) {
         render_raster_positioned_children(rdcon, block);
     }
     if (content_phase && !custom_painted) {
-        render_raster_positive_z_descendants(rdcon, block->first_child);
+        radiant_stack_visit_positive_z_descendants(block, false, rdcon, render_raster_stacking_layer);
     }
 }
 
@@ -641,11 +644,6 @@ void render_raster_positioned_children(RasterRenderContext* rdcon, ViewBlock* bl
 
 void render_raster_negative_z_descendants(RasterRenderContext* rdcon, ViewBlock* block) {
     radiant_stack_visit_negative_z_descendants(block, false, rdcon, render_raster_stacking_layer);
-}
-
-void render_raster_positive_z_descendants(RasterRenderContext* rdcon, View* first_child) {
-    if (rdcon && first_child) radiant_stack_visit_positive_z_descendants(
-        first_child->parent, false, rdcon, render_raster_stacking_layer);
 }
 
 static double render_block_finish_children_phase(RasterRenderContext* rdcon, ViewBlock* block,

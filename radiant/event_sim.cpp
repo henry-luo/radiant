@@ -4413,16 +4413,18 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             // Find matching option by value or label
             int match_index = -1;
             int idx = 0;
+            StrBuf* label = ev->option_label ? strbuf_new_cap(32) : nullptr;
             for (DomElement* option = dom_select_next_option(select, nullptr); option;
                  option = dom_select_next_option(select, option), idx++) {
                 const char* value_attr = option->get_attribute("value");
-                const char* label = dom_option_text(option);
+                dom_option_label(option, label);
                 if ((ev->option_value && value_attr && strcmp(value_attr, ev->option_value) == 0) ||
-                    (ev->option_label && label && strcmp(label, ev->option_label) == 0)) {
+                    (label && label->str && strcmp(label->str, ev->option_label) == 0)) {
                     match_index = idx;
                     break;
                 }
             }
+            strbuf_free(label);
             if (match_index < 0) {
                 log_error("event_sim: select_option - no matching option found (value='%s', label='%s')",
                          ev->option_value ? ev->option_value : "(null)",
@@ -4988,6 +4990,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             // for HTML <input>/<textarea>. Falling back to the attribute keeps
             // legacy non-FormControl widgets (e.g. todo.ls) working.
             const char* actual = nullptr;
+            StrBuf* option_text = nullptr;
             if (dom_elem->tag() == MARKUP_NAME_SELECT) {
                 // A select's value comes from live option selectedness, not
                 // from the select's immutable content attribute/edit buffer.
@@ -5000,7 +5003,11 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
                      option = dom_select_next_option(dom_elem, option), option_index++) {
                     if (option_index != selected_index) continue;
                     actual = option->get_attribute("value");
-                    if (!actual) actual = dom_option_text(option);
+                    if (!actual) {
+                        option_text = strbuf_new_cap(32);
+                        dom_option_text_normalized(option, option_text);
+                        if (option_text) actual = option_text->str;
+                    }
                     break;
                 }
                 if (!actual) actual = "";
@@ -5023,6 +5030,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
                 log_info("event_sim: assert_value PASS (value='%s')", actual);
             }
             sim_record_assertion(ctx, passed);
+            strbuf_free(option_text);
             break;
         }
 

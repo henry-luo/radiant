@@ -2104,6 +2104,18 @@ Other state-store families and deferred callbacks remain open. See the
 
 **Legacy dual dispatch surface.** `te_replace_byte_range` vs `te_replace_byte_range_no_events`, and `te_ime_commit` vs the `_prepare`/`_finish` split, exist purely to straddle "legacy caller without EventContext" and "unified dispatcher". The legacy variants (`text_edit.cpp:278`, `806`) are latent duplication once all callers own an `EventContext`.
 
+<a id="rad19-9"></a>
+
+#### RAD19-9
+
+**Flat SVG and PDF omit textarea values.** Open, 2026-11-18. PNG paint reads
+initial or current control text, including a script-assigned empty value.
+The flat vector walk has no form-content callback. In the focused probe,
+SVG's textarea group contained no text paint and the rasterized PDF was
+identical for empty and populated textareas. Shared paint ownership follows
+**D5.5.1** and control policy follows **D10.2.1**. The missing vector consumer
+does not block independent HTML work.
+
 ### RAD20 — Application Shell, Browsing & Document Loading
 
 <a id="rad20-1"></a>

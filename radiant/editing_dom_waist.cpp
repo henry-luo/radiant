@@ -941,7 +941,7 @@ bool dom_edit_snapshot_native_select(DomDocument* document, DomElement* select) 
         snapshot->form_index = form_control_get_selected_index(state, static_cast<View*>(select));
         snapshot->option_count = select->form_control() ? select->form->option_count : 0;
     }
-    radiant_select_walk_options(select->first_child, editing_dom_snapshot_option, snapshot);
+    radiant_select_walk_options(select, editing_dom_snapshot_option, snapshot);
     if (snapshot->failed || !arraylist_append(transaction->select_snapshots, snapshot)) {
         editing_dom_select_snapshot_free(document, snapshot);
         return false;

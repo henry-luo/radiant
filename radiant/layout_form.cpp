@@ -672,9 +672,7 @@ static float layout_select_option_text_intrinsic_width(LayoutContext* lycon,
                                                        DomElement* option) {
     StrBuf* label = strbuf_new_cap(32);
     if (!label) return 0.0f;
-    if (const char* override = dom_option_label_override(option))
-        strbuf_append_str(label, override);
-    else dom_option_text_normalized(option, label);
+    dom_option_label(option, label);
     float width = measure_text_max_content_width(lycon, label->str, label->length);
     strbuf_free(label);
     return width;

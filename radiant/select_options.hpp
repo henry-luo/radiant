@@ -1,12 +1,12 @@
 #pragma once
 
 struct DomElement;
-struct DomNode;
 
 typedef void (*RadiantSelectOptionVisitor)(DomElement* option, void* context);
 
-// Walk the options owned by a select, excluding nested select and optgroup trees.
-void radiant_select_walk_options(DomNode* first, RadiantSelectOptionVisitor visitor, void* context);
+DomElement* dom_select_next_option(DomElement* select, DomElement* previous);
+DomElement* dom_select_option_owner(DomElement* option);
+void radiant_select_walk_options(DomElement* select, RadiantSelectOptionVisitor visitor, void* context);
 
 struct RadiantSelectResetOps {
     bool (*selected)(DomElement* option, void* context);

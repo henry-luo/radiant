@@ -33,6 +33,7 @@ static CssStylesheet* stylesheet_parse_inline(DomElement* elem) {
     if (!sheet) return nullptr;
 
     sheet->owner_element = elem;
+    sheet->owner_document = elem->doc;
     const char* media = elem->get_attribute("media");
     sheet->media = media ? pool_strdup(pool, media) : nullptr;
     return sheet;
@@ -122,14 +123,21 @@ bool radiant_sync_inline_stylesheet(DomElement* elem) {
     }
 
     DomDocument* doc = elem->doc;
-    bool connected = false;
-    for (DomNode* node = static_cast<DomNode*>(elem); node; node = node->parent) {
-        if (node == static_cast<DomNode*>(doc->root)) {
-            connected = true;
-            break;
-        }
+    bool connected = dom_element_is_connected(elem);
+    if (connected && dom_shadow_root(elem)) {
+        // A sheet inside a shadow root is associated with its owner, outside
+        // the Document's ordered sheet list. Moving the owner changes its scope.
+        auto* state = elem->ensure_ext();
+        if (!state) return false;
+        CssStylesheet* sheet = stylesheet_parse_inline(elem);
+        if (!sheet) return false;
+        stylesheet_remove_inline(doc, elem);
+        state->shadow_inline_stylesheet = lam::up(sheet);
+        return true;
     }
-    if (!connected) return stylesheet_remove_inline(doc, elem);
+    bool detached_shadow_sheet = elem->ext && elem->ext->shadow_inline_stylesheet;
+    if (detached_shadow_sheet) elem->ext->shadow_inline_stylesheet = nullptr;
+    if (!connected) return stylesheet_remove_inline(doc, elem) || detached_shadow_sheet;
 
     CssStylesheet* sheet = stylesheet_parse_inline(elem);
     if (!sheet) return false;
@@ -151,6 +159,22 @@ bool radiant_sync_inline_stylesheet(DomElement* elem) {
     doc->services.keyframe_registry = nullptr;
     doc->font_faces_processed = false;
     return true;
+}
+
+CssStylesheet* radiant_shadow_inline_stylesheet(DomElement* owner) {
+    CssStylesheet* sheet = owner && owner->ext ? owner->ext->shadow_inline_stylesheet.get() : nullptr;
+    return sheet && sheet->owner_document == owner->doc && dom_element_is_connected(owner) &&
+        dom_shadow_root(owner) ? sheet : nullptr;
+}
+
+CssStylesheet* radiant_next_shadow_stylesheet(DomElement* root, DomElement* after) {
+    if (!root) return nullptr;
+    // CSSOM and the cascade see the same source order and tree boundary.
+    for (DomNode* node = dom_source_next_in_tree(root, after ? after : root); node;
+         node = dom_source_next_in_tree(root, node)) {
+        if (CssStylesheet* sheet = radiant_shadow_inline_stylesheet(node->as_element())) return sheet;
+    }
+    return nullptr;
 }
 
 void radiant_sync_mutated_inline_stylesheets(DomDocument* doc) {

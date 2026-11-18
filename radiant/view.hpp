@@ -21,6 +21,7 @@ struct Runtime;
 #include "lambda/input/css/css_environment.hpp"
 #include "lambda/input/css/css_style_node.hpp"
 #include "scale.hpp"
+#include "select_options.hpp"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -190,10 +191,8 @@ struct CssomCascadeQueryScope {
 
 struct DirtyTracker;
 
-DomElement* dom_select_next_option(DomElement* select, DomElement* previous);
 DomElement* dom_select_option_at_index(DomElement* select, int index);
-const char* dom_option_text(DomElement* option);
-const char* dom_option_label_override(DomElement* option);
+void dom_option_label(DomElement* option, StrBuf* out);
 
 typedef enum AnimationType {
     ANIM_CSS_ANIMATION = 0,

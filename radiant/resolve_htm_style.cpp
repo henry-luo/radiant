@@ -201,11 +201,38 @@ static void apply_html_text_align_attribute(LayoutContext* lycon, DomNode* eleme
     apply_html_align_attribute(lycon, element, block, false);
 }
 
-CssEnum layout_html_replaced_alignment_hint(DomElement* element, CssPropertyCode property) {
-    if (!element || (property != CSS_PROPERTY_VERTICAL_ALIGN && property != CSS_PROPERTY_FLOAT))
+static CssEnum html_list_type_hint(DomElement* element) {
+    NameId tag = element->tag();
+    if (tag != MARKUP_NAME_OL && tag != MARKUP_NAME_UL && tag != MARKUP_NAME_LI)
+        return CSS_VALUE__UNDEF;
+    const char* type = element->get_attribute("type");
+    if (!type || !*type) return CSS_VALUE__UNDEF;
+    // HTML's alphabetic and Roman hints use case-sensitive matching.
+    if (tag != MARKUP_NAME_UL && !type[1]) {
+        switch (type[0]) {
+            case '1': return CSS_VALUE_DECIMAL;
+            case 'a': return CSS_VALUE_LOWER_ALPHA;
+            case 'A': return CSS_VALUE_UPPER_ALPHA;
+            case 'i': return CSS_VALUE_LOWER_ROMAN;
+            case 'I': return CSS_VALUE_UPPER_ROMAN;
+        }
+    }
+    if (tag != MARKUP_NAME_OL) {
+        if (str_ieq_cstr(type, "none")) return CSS_VALUE_NONE;
+        if (str_ieq_cstr(type, "disc")) return CSS_VALUE_DISC;
+        if (str_ieq_cstr(type, "circle")) return CSS_VALUE_CIRCLE;
+        if (str_ieq_cstr(type, "square")) return CSS_VALUE_SQUARE;
+    }
+    return CSS_VALUE__UNDEF;
+}
+
+CssEnum layout_html_presentational_keyword(DomElement* element, CssPropertyCode property) {
+    if (!element || (property != CSS_PROPERTY_LIST_STYLE_TYPE &&
+            property != CSS_PROPERTY_VERTICAL_ALIGN && property != CSS_PROPERTY_FLOAT))
         return CSS_VALUE__UNDEF;
     const char* uri = element->get_attribute("__lambda_ns_uri");
     if (uri && strcmp(uri, "http://www.w3.org/1999/xhtml") != 0) return CSS_VALUE__UNDEF;
+    if (property == CSS_PROPERTY_LIST_STYLE_TYPE) return html_list_type_hint(element);
     bool supports_hint = true;
     switch (element->tag()) {
         case MARKUP_NAME_IMG: case MARKUP_NAME_IFRAME:
@@ -518,13 +545,24 @@ static HtmlUaListAncestors html_ua_list_ancestors(DomElement* element) {
 
 void layout_apply_html_ua_spacing(LayoutContext* lycon, DomElement* element,
                                   float font_size, bool initial) {
+    if (!lycon || !element || !dom_element_is_html_tag(element, element->tag())) return;
+    ViewSpan* span = lam::view_require_element(static_cast<View*>(element));
+    if (!initial && element->tag() == MARKUP_NAME_DIALOG && element->bound) {
+        BoundaryProp* boundary = element->boundary_mut();
+        Color current_color = get_current_color_for_view(span);
+        // resolve the default em padding and currentColor after authored font and color.
+        for (int side = CSS_BOX_SIDE_TOP; side <= CSS_BOX_SIDE_LEFT; side++) {
+            if (boundary->padding.specificities[side] < 0) boundary->padding.values[side] = font_size;
+            if (boundary->border && boundary->border->color_specificities[side] < 0) {
+                boundary->border->colors[side] = current_color;
+            }
+        }
+    }
     HtmlUaElementDefault ua;
-    if (!lycon || !element || !dom_element_is_html_tag(element, element->tag()) ||
-        !layout_html_ua_element_default(element->tag(), &ua)) return;
+    if (!layout_html_ua_element_default(element->tag(), &ua)) return;
     if (ua.margin_block_em < 0.0f && ua.margin_inline_px < 0.0f &&
         ua.margin_inline_start_px < 0.0f && ua.padding_inline_start_px < 0.0f) return;
 
-    ViewSpan* span = lam::view_require_element(static_cast<View*>(element));
     BoundaryProp* boundary = span->ensure_boundary(lycon);
     if (initial) {
         // retained recascade must drop indentation from the previous flow axis.
@@ -1310,13 +1348,15 @@ static void apply_html_q_quote_defaults(LayoutContext* lycon, DomElement* elemen
 }
 
 static void apply_html_centered_popup_style(LayoutContext* lycon, ViewBlock* block,
-                                            float padding_em) {
+                                            float padding_em, bool fixed) {
     block->ensure_position(lycon);
-    block->position->position = CSS_VALUE_FIXED;
+    block->position->position = fixed ? CSS_VALUE_FIXED : CSS_VALUE_ABSOLUTE;
     block->position->top = block->position->right =
         block->position->bottom = block->position->left = 0.0f;
-    block->position->has_top = block->position->has_right =
-        block->position->has_bottom = block->position->has_left = true;
+    // non-modal dialogs center on the inline axis and keep their static block position.
+    bool vertical = layout_element_inline_axis_is_vertical(block->as_element());
+    block->position->has_top = block->position->has_bottom = fixed || vertical;
+    block->position->has_right = block->position->has_left = fixed || !vertical;
     block->ensure_boundary(lycon);
     radiant_margin_set_type_all(&block->boundary_mut()->margin, CSS_VALUE_AUTO);
     radiant_spacing_set_all(&block->boundary_mut()->padding,
@@ -1325,7 +1365,7 @@ static void apply_html_centered_popup_style(LayoutContext* lycon, ViewBlock* blo
     block->ensure_block(lycon);
     block->blk->given_width = block->blk->given_height = -1.0f;
     block->blk->given_width_type = block->blk->given_height_type = CSS_VALUE_FIT_CONTENT;
-    apply_html_overflow(lycon, block, CSS_VALUE_AUTO);
+    if (fixed) apply_html_overflow(lycon, block, CSS_VALUE_AUTO);
 }
 
 static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt);
@@ -1359,7 +1399,7 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         if (dom_elem->has_attribute("popover") &&
             (dom_elem->is_popover_open() || popover_has_display_override)) {
             // popover UA styling supplies the fit-content box even when author display keeps it in flow
-            apply_html_centered_popup_style(lycon, block, 0.25f);
+            apply_html_centered_popup_style(lycon, block, 0.25f, true);
             if (dom_elem->is_popover_open() && dom_elem->tag_id == MARKUP_NAME_OBJECT &&
                 !dom_elem->get_attribute(MARKUP_NAME_DATA)) {
                 // an open object fallback keeps the replaced default size while fit-content includes popup chrome
@@ -1451,8 +1491,15 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
             // use the direct computed parent rather than the ambient context.
             block->blk->text_align = parent->block()->text_align;
         }
-        block->blk->list_style_type = layout_html_ua_list_marker(
+        CssEnum marker = layout_html_ua_list_marker(
             elmt_name, html_ua_list_ancestors(elmt->as_element()).unordered);
+        block->blk->list_style_type = layout_specified_keyword(
+            elmt->as_element(), CSS_PROPERTY_LIST_STYLE_TYPE, marker);
+        break;
+    }
+    case MARKUP_NAME_LI: {
+        CssEnum marker = layout_specified_keyword(elmt->as_element(), CSS_PROPERTY_LIST_STYLE_TYPE);
+        if (marker != CSS_VALUE__UNDEF) block->ensure_block(lycon)->list_style_type = marker;
         break;
     }
     case MARKUP_NAME_CENTER:
@@ -2162,9 +2209,18 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         // Chrome UA: dialog:not([open]) { display: none; }
         if (layout_display_is_none(css_default_display_for_element(elmt->as_element(), elmt))) {
             block->display = {CSS_VALUE_NONE, CSS_VALUE_NONE};
-        } else if (elmt->is_element() && elmt->as_element()->is_dialog_modal()) {
-            // modal dialogs use the fixed, centered fit-content UA box before authored insets apply
-            apply_html_centered_popup_style(lycon, block, 1.0f);
+        } else if (!elmt->as_element()->is_popover_open()) {
+            apply_html_centered_popup_style(lycon, block, 1.0f,
+                elmt->as_element()->is_dialog_modal());
+            apply_html_background_color(lycon, block, (Color){.r=255, .g=255, .b=255, .a=255});
+            InlineProp* inl = block->ensure_inline(lycon);
+            inl->color = Color{0xFF000000};
+            inl->has_color = true;
+            BoundaryProp* boundary = block->boundary_mut();
+            for (int side = CSS_BOX_SIDE_TOP; side <= CSS_BOX_SIDE_LEFT; side++) {
+                boundary->padding.specificities[side] = -1;
+                boundary->border->color_specificities[side] = -1;
+            }
         }
         break;
     }

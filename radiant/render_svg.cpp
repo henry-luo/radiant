@@ -965,6 +965,12 @@ static RenderBackend svg_make_backend(SvgRenderContext* ctx) {
     RenderBackend b = {};
     b.ctx                   = lam::up(ctx);
     b.render_bound          = svg_cb_render_bound;
+    b.fill_rect             = [](void* data, Color color, RdtLogicalRect rect) {
+        SvgRenderContext* context = static_cast<SvgRenderContext*>(data);
+        paint_fill_rect(svg_active_paint_list(context), rect.x, rect.y, rect.width, rect.height, color);
+        svg_lower_paint_list(context);
+        return true;
+    };
     b.render_text           = svg_cb_render_text;
     b.render_image          = svg_cb_render_image;
     b.render_inline_svg     = svg_cb_render_inline_svg;
@@ -1031,7 +1037,7 @@ static void calculate_visible_content_bounds(View* view, Bound clip,
                  overflow.right - overflow.left, overflow.bottom - overflow.top});
         }
     }
-    for (View* child = element->first_child; child; child = child->next())
+    for (View* child = layout_paint_first_child(element); child; child = layout_paint_next(child))
         calculate_visible_content_bounds(child, clip, transform, apply_clips, extent);
 }
 

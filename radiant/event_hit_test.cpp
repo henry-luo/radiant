@@ -76,9 +76,9 @@ static void target_positioned_children(EventContext* evcon, ViewBlock* block) {
 }
 
 
-static void target_positive_z_descendants(EventContext* evcon, View* first_child) {
-    if (first_child && !evcon->target) radiant_stack_visit_positive_z_descendants(
-        first_child->parent, true, evcon, target_stacking_layer);
+static void target_positive_z_descendants(EventContext* evcon, View* owner) {
+    if (!evcon->target) radiant_stack_visit_positive_z_descendants(
+        owner, true, evcon, target_stacking_layer);
 }
 
 static void target_negative_z_descendants(EventContext* evcon, ViewBlock* block) {
@@ -113,17 +113,17 @@ void target_children(EventContext* evcon, View* view, bool defer_positioned = fa
         return;
     }
     View* last = view;
-    for (View* child = view; child; child = child->next()) last = child;
+    for (View* child = view; child; child = layout_paint_next(child)) last = child;
     if (render_paint_phase_has_content(evcon->paint_phase) && !defer_positioned) {
         for (View* child = last; child && !evcon->target;
-             child = child == view ? nullptr : static_cast<View*>(child->prev_sibling)) {
+             child = child == view ? nullptr : layout_paint_previous(child)) {
             if (!radiant_stack_is_deferred_from_normal_flow(child) &&
                 radiant_stack_is_in_flow_positioned_step8(child) &&
                 !radiant_stack_zero_layer_is_lifted(child)) target_stacking_view(evcon, child);
         }
     }
     for (View* child = last; child && !evcon->target;
-         child = child == view ? nullptr : static_cast<View*>(child->prev_sibling)) {
+         child = child == view ? nullptr : layout_paint_previous(child)) {
         if (radiant_stack_is_deferred_from_normal_flow(child) ||
             radiant_stack_is_in_flow_positioned_step8(child) ||
             !radiant_stack_in_paint_phase(child, evcon->paint_phase)) continue;
@@ -267,7 +267,7 @@ void target_inline_view(EventContext* evcon, ViewSpan* view_span) {
     log_enter();
     FontBox pa_font = evcon->font;
     if (evcon->stacking_path == static_cast<View*>(view_span)) evcon->stacking_path = nullptr;
-    View* view = view_span->first_child;
+    View* view = layout_paint_first_child(view_span);
     if (view) {
         if (view_span->font) {
             setup_font(evcon->ui_context, &evcon->font, view_span->font);
@@ -446,7 +446,7 @@ void target_block_view(EventContext* evcon, ViewBlock* block) {
     } else if (content_phase) {
         // Positioned content paints above the block's embedded self-content; walking
         // it first prevents iframe/webview hit targets from stealing covered clicks.
-        target_positive_z_descendants(evcon, block->first_child);
+        target_positive_z_descendants(evcon, block);
         if (evcon->target) goto RETURN;
         target_positioned_children(evcon, block);
         if (evcon->target) goto RETURN;
@@ -509,7 +509,7 @@ void target_block_view(EventContext* evcon, ViewBlock* block) {
     }
 
     // target static positioned children
-    view = block->custom_layout_paint_prop() ? nullptr : block->first_child;
+    view = block->custom_layout_paint_prop() ? nullptr : layout_paint_first_child(block);
     if (view) {
         target_children(evcon, view, true);
         bool rich_host_margin_hit_allowed = event_inside_block(evcon, block);
@@ -521,8 +521,8 @@ void target_block_view(EventContext* evcon, ViewBlock* block) {
             rich_host_margin_hit_allowed = parent_block &&
                 pa_block.x <= event->x && event->x < pa_block.x + parent_block->width &&
                 pa_block.y <= event->y && event->y < pa_block.y + parent_block->height;
-            for (View* sibling = parent_block ? parent_block->first_child : nullptr;
-                 sibling; sibling = sibling->next_sibling) {
+            for (View* sibling = layout_paint_first_child(parent_block);
+                 sibling; sibling = layout_paint_next(sibling)) {
                 if (sibling == static_cast<View*>(block)) continue;
                 if (sibling->view_type != RDT_VIEW_BLOCK &&
                     sibling->view_type != RDT_VIEW_INLINE_BLOCK &&
@@ -543,7 +543,7 @@ void target_block_view(EventContext* evcon, ViewBlock* block) {
             rich_host_margin_hit_allowed) {
             EditableMarginTextHit margin_hit = { NULL, NULL, 0, 0.0f, 0.0f, -1.0f };
             bool include_vertical_gap = rich_host;
-            for (View* child = view; child; child = child->next()) {
+            for (View* child = view; child; child = layout_paint_next(child)) {
                 if (!child->view_type) continue;
                 find_editable_margin_text_hit(evcon, child, evcon->block.x, evcon->block.y,
                                               &margin_hit, include_vertical_gap);

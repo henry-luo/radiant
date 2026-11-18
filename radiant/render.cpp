@@ -51,7 +51,7 @@ static bool render_inline_trace_enabled(void) {
 
 static bool inline_span_has_direct_text_fragment(ViewSpan* span) {
     if (!span) return false;
-    for (View* child = span->first_child; child; child = child->next_sibling) {
+    for (View* child = layout_paint_first_child(span); child; child = layout_paint_next(child)) {
         if (child->view_type == RDT_VIEW_TEXT) {
             ViewText* text = lam::view_require<RDT_VIEW_TEXT>(child);
             if (text->rect) return true;
@@ -208,7 +208,7 @@ void render_inline_view(RasterRenderContext* rdcon, ViewSpan* view_span) {
         }
     }
 
-    View* view = view_span->first_child;
+    View* view = layout_paint_first_child(view_span);
     if (view) {
         if (view_span->font) {
             setup_font(rdcon->ui_context, &rdcon->font, view_span->font);

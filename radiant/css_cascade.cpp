@@ -1,6 +1,7 @@
 #include "view.hpp"
 #include "layout.hpp"
 #include "network_integration.h"
+#include "stylesheet_sync.hpp"
 #include "lambda/input/css/css_engine.hpp"
 #include "lambda/input/css/dom_element.hpp"
 #include "lambda/input/css/selector_matcher.hpp"
@@ -653,7 +654,7 @@ static void apply_active_rules_to_tree(DomElement* root, CssRule** rules,
     if (!root || !rules || !matcher || !pool || depth > MAX_RADIANT_CSS_TREE_DEPTH) return;
 
     // generated boxes read their host cascade rather than matching authored selectors.
-    if (!root->is_synthetic()) {
+    if (!root->is_synthetic() && !root->shadow_host_element()) {
         if (index) {
             uint32_t count = cascade_rule_index_candidates(index, root);
             for (uint32_t i = 0; i < count; i++) {
@@ -682,7 +683,7 @@ static void apply_stylesheets_reference_to_tree(DomElement* root,
     if (!root || !sheets || !matcher || !pool ||
         depth > MAX_RADIANT_CSS_TREE_DEPTH) return;
 
-    if (!root->is_synthetic()) {
+    if (!root->is_synthetic() && !root->shadow_host_element()) {
         for (int sheet = 0; sheet < sheet_count; sheet++) {
             CssStylesheet* stylesheet = sheets[sheet];
             if (!cascade_stylesheet_is_active(stylesheet, engine, include_import_child)) continue;
@@ -772,6 +773,13 @@ CssStylesheet* radiant_ua_focus_stylesheet(DomDocument* doc, CssEngine* engine) 
     return doc->services.ua_focus_stylesheet;
 }
 
+static void cascade_collect_shadow_stylesheets(DomElement* root, lam::ArrayList<CssStylesheet*>& sheets) {
+    for (CssStylesheet* sheet = radiant_next_shadow_stylesheet(root, nullptr); sheet;
+         sheet = radiant_next_shadow_stylesheet(root, sheet->owner_element)) {
+        sheets.push_back(sheet);
+    }
+}
+
 void radiant_apply_css_stylesheets_to_tree(DomDocument* doc, DomElement* root,
                                            CssStylesheet** stylesheets, int count,
                                            Pool* pool, CssEngine* engine,
@@ -786,6 +794,14 @@ void radiant_apply_css_stylesheets_to_tree(DomDocument* doc, DomElement* root,
     }
 
     CssStylesheet* defaults = radiant_ua_focus_stylesheet(doc, engine);
+    // Each tree contributes author sheets independently, even during a
+    // localized refresh that starts below the tree's boundary.
+    lam::ArrayList<CssStylesheet*> scoped(MEM_CAT_LAYOUT, 0);
+    if (DomElement* shadow = dom_shadow_root(root)) {
+        cascade_collect_shadow_stylesheets(shadow, scoped);
+        stylesheets = scoped.data();
+        count = (int)scoped.size(); // INT_CAST_OK: stylesheet count.
+    }
     lam::Temp<CssStylesheet*> combined((CssStylesheet**)mem_alloc(
         ((size_t)count + 1) * sizeof(CssStylesheet*), MEM_CAT_LAYOUT));
     if (!combined) { log_error("focus cascade: could not allocate stylesheet inputs"); return; }
@@ -796,6 +812,13 @@ void radiant_apply_css_stylesheets_to_tree(DomDocument* doc, DomElement* root,
     // Finish UA and author rules together before descendants cache inherited variables.
     apply_stylesheets_to_tree(root, combined.get(), count + 1, matcher, pool, engine, 0);
     if (epoch_scope) style_epoch_cascade_end(doc);
+    if (doc->js.has_shadow_roots) {
+        for (DomNode* node = root; node; node = dom_source_next_in_tree(root, node)) {
+            DomElement* element = node->as_element();
+            DomElement* shadow = element ? element->shadow_root_element() : nullptr;
+            if (shadow) radiant_recascade_document_styles(doc, shadow, matcher);
+        }
+    }
     // resource discovery consumes the completed cascade, including new CSSOM and selector matches.
     radiant_prefetch_document_stylesheet_resources(doc);
 }
@@ -841,7 +864,15 @@ void radiant_cascade_styles_for_element_with_matcher(DomElement* element,
 
     CssEngine* engine = (CssEngine*)doc->services.cached_css_engine;
     if (!engine) return;
-    css_layer_rank_stylesheets(doc, doc->stylesheets, doc->stylesheet_count, engine);
+    lam::ArrayList<CssStylesheet*> scoped(MEM_CAT_LAYOUT, 0);
+    CssStylesheet** sheets = doc->stylesheets;
+    int count = doc->stylesheet_count;
+    if (DomElement* shadow = dom_shadow_root(element)) {
+        cascade_collect_shadow_stylesheets(shadow, scoped);
+        sheets = scoped.data();
+        count = (int)scoped.size(); // INT_CAST_OK: stylesheet count.
+    }
+    css_layer_rank_stylesheets(doc, sheets, count, engine);
     // CSSOM reads must see the same live form and interaction state as layout.
     state_configure_selector_matcher((DocState*)doc->state, matcher);
 
@@ -849,8 +880,8 @@ void radiant_cascade_styles_for_element_with_matcher(DomElement* element,
     for (size_t i = 0; defaults && i < defaults->rule_count; i++)
         apply_rule_to_element(element, defaults->rules[i], matcher, pool, engine);
 
-    for (int i = 0; i < doc->stylesheet_count; i++) {
-        CssStylesheet* stylesheet = doc->stylesheets[i];
+    for (int i = 0; i < count; i++) {
+        CssStylesheet* stylesheet = sheets[i];
         if (!cascade_stylesheet_is_active(stylesheet, engine)) continue;
         for (size_t j = 0; j < stylesheet->rule_count; j++) {
             CssRule* rule = stylesheet->rules[j];
