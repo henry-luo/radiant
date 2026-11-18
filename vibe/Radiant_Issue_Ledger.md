@@ -20,6 +20,33 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+### RI-141 — Writing-modes reference includes the upstream WPT report
+
+**Open 2026-11-18.** `make run-layout-baseline-suites
+LAYOUT_BASELINE_SUITES=wpt-css-writing-modes` reports one regression,
+`text-input-baseline`. The Chromium capture includes the `#log` report subtree.
+It makes the captured body 1627.63 px tall and applies the harness font to the
+fixture. The layout runner uses its lightweight WPT setup, producing a 21 px
+body with the input and text in matching positions. Its element score is 33.3%
+against a recorded 50.0%, and the span font-family comparison also fails.
+
+The same fixture ran all 21 input-type and writing-mode assertions with the
+repository's WPT assertion shim. They passed. The visual reference remains
+the blocker for the writing-modes gate. Evidence in the Lambda checkout is
+under `temp/radiant-failed-tests/` in `focused-before.log` and
+`writing-assertions.log`.
+**D9.1.1v4** governs ownership across the snapshot host and Radiant.
+
+### RI-140 — FIXED
+
+Fragmented inline bounds retain projected block extents and Ruby's own line
+boxes. See the [multicolumn repair](<Radiant_Issue_Ledger (fixed).md#ri-140>).
+
+### RI-139 — FIXED
+
+HTML UA em spacing uses the effective zoom from the current cascade. See the
+[zoomed list repair](<Radiant_Issue_Ledger (fixed).md#ri-139>).
+
 <a id="ri-138"></a>
 
 ### RI-138 — FIXED

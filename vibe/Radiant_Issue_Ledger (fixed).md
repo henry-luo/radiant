@@ -14,6 +14,25 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+### RI-140 — Inline wrappers acquire extra height during column projection
+
+**Fixed 2026-11-18.** The multicolumn finalizer added an inline font strut
+to the union of projected block fragments, turning a 100 px wrapper into a
+117 px wrapper in `multicol-fill-balance-019` and both variants of
+`multicol-dynamic-add-001`. Block descendants contribute their projected box.
+Atomic inline descendants contribute their font box. Ruby already owns its
+base and annotation boxes, so its bounds stay with the Ruby layout under
+**D5.5.1**. This also restores the base box in `multicol-fill-balance-021`.
+All four cases match the existing geometry references in the focused run.
+
+### RI-139 — Dynamic zoom leaves list block margins at their previous size
+
+**Fixed 2026-11-18.** In `list-style-image-zoom-dynamic`, the body class change
+sets `zoom: 2`, but the list's UA em margins read the old used font size before
+the style pass refreshes font zoom. Refreshing zoom before resolving those
+margins puts the list at y=32 px and restores a full match to the existing
+reference. **D5.5.3** governs retained restyle and reflow.
+
 <a id="ri-138"></a>
 
 ### RI-138 — Trial flow resets the scroll position of an EPUB frame

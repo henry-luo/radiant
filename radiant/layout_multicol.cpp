@@ -1669,6 +1669,11 @@ static void multicol_reanchor_text_descendants(View* view, float target_x, float
     }
 }
 
+static bool multicol_span_owns_ruby_bounds(ViewSpan* span) {
+    // Ruby retains its own base and annotation line boxes during projection.
+    return span->display.inner == CSS_VALUE_RUBY || layout_ruby_annotation_node(span);
+}
+
 static bool multicol_rebuild_flattened_inline_span_union(
     LayoutContext* lycon, ViewSpan* span, ViewBlock* containing_block,
     bool* out_used_block_geometry = nullptr) {
@@ -1689,6 +1694,7 @@ static bool multicol_rebuild_flattened_inline_span_union(
         line_advance = calc_normal_line_height(font_handle);
     }
     if (visual_height <= 0.0f) visual_height = line_advance;
+    float line_offset = multicol_normal_line_offset(line_advance, visual_height);
 
     if (out_used_block_geometry) *out_used_block_geometry = false;
     bool found_fragmented_block = false;
@@ -1726,15 +1732,16 @@ static bool multicol_rebuild_flattened_inline_span_union(
             }
             min_x = min(min_x, inline_block->x);
             max_x = max(max_x, inline_block->x + inline_block->width);
-            min_y = min(min_y, inline_block->y);
             if (current->view_type == RDT_VIEW_BLOCK) {
                 // fragmented block descendants already carry their full
                 // projected border-box extent.
+                min_y = min(min_y, inline_block->y);
                 max_y = max(max_y, inline_block->y + inline_block->height);
             } else {
-                // inline-block descendants contribute their line position;
-                // the inline strut is added below instead of their overflow.
-                max_y = max(max_y, inline_block->y);
+                // atomic descendants contribute the inline font box at their line position.
+                float top = inline_block->y + line_offset;
+                min_y = min(min_y, top);
+                max_y = max(max_y, top + visual_height);
             }
         }
     };
@@ -1748,11 +1755,8 @@ static bool multicol_rebuild_flattened_inline_span_union(
         return false;
     }
 
-    float line_offset = found_fragmented_block
-        ? 0.0f : multicol_normal_line_offset(line_advance, visual_height);
     layout_extend_fragment_union(
-        span, FRAGMENT_UNION_SPLIT_INLINE, min_x, max_x,
-        min_y + line_offset, max_y + line_offset + visual_height);
+        span, FRAGMENT_UNION_SPLIT_INLINE, min_x, max_x, min_y, max_y);
     return true;
 }
 
@@ -1825,9 +1829,7 @@ static void multicol_finalize_fragmented_inline_continuations(View* view) {
                 break;
             }
         }
-        // CSS Ruby: an annotation inline box owns its line box; an atomic
-        // annotation child may overflow it and must not resize the box.
-        if (!layout_ruby_annotation_node(span) &&
+        if (!multicol_span_owns_ruby_bounds(span) &&
             containing_block && is_multicol_container(containing_block)) {
             span->set_has_fragment_union(FRAGMENT_UNION_SPLIT_INLINE, false);
             bool used_block_geometry = false;
@@ -8414,6 +8416,7 @@ static float multicol_split_child_around_spanners(
              descendant = descendant->next()) {
             if (descendant->view_type != RDT_VIEW_INLINE) continue;
             ViewSpan* span = lam::view_require<RDT_VIEW_INLINE>(descendant);
+            if (multicol_span_owns_ruby_bounds(span)) continue;
             span->set_has_fragment_union(FRAGMENT_UNION_SPLIT_INLINE, false);
             if (multicol_rebuild_flattened_inline_span_union(lycon, span, child)) {
                 compute_span_bounding_box(
