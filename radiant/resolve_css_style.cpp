@@ -2820,6 +2820,8 @@ DisplayValue css_default_display_for_element(DomElement* dom_elem, DomNode* node
     // UA suppression is part of computed display before any layout adapter binds cached CSS.
     if (tag_id == MARKUP_NAME_DIALOG && !dom_elem->has_attribute("open"))
         return {CSS_VALUE_NONE, CSS_VALUE_NONE};
+    if (dom_element_is_html_tag(dom_elem, MARKUP_NAME_SLOT))
+        return {CSS_VALUE_CONTENTS, CSS_VALUE_CONTENTS};
     if (dom_elem && dom_elem->is_parser_inserted_table_form()) {
         return {CSS_VALUE_NONE, CSS_VALUE_NONE};
     }
@@ -3075,8 +3077,8 @@ static DisplayValue resolve_display_value_raw(void* child,
                   specified_display_decl->value->data.keyword == CSS_VALUE_CONTENTS);
         // The hidden attribute supplies a UA display:none default; an authored
         // display declaration has higher cascade priority.
-        if (dom_elem && dom_elem->has_attribute("hidden") &&
-            !has_specified_display) {
+        const char* hidden = dom_elem ? dom_elem->get_attribute("hidden") : nullptr;
+        if (hidden && !str_ieq_cstr(hidden, "until-found") && !has_specified_display) {
             DisplayValue none_display = {CSS_VALUE_NONE, CSS_VALUE_NONE};
             return none_display;
         }

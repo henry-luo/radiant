@@ -577,7 +577,11 @@ static void calc_image_input_size(LayoutContext* lycon, ViewBlock* block,
     if (!lycon || !block || !form) return;
 
     const char* src = block->get_attribute("src");
-    if (src && src[0] != '\0') return;
+    if (src && src[0] != '\0') {
+        // The replaced image paint and pointer selection consume the same surface.
+        layout_ensure_replaced_image_surface(lycon, block, block->as_element());
+        return;
+    }
 
     // HTML image-button fallback uses alt when present; Chromium exposes the
     // value label when alt is omitted on a source-less image input.

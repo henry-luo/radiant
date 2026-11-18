@@ -762,15 +762,22 @@ void radiant_apply_css_stylesheet_to_tree(DomElement* root,
     if (epoch_scope) style_epoch_cascade_end(root->doc);
 }
 
-CssStylesheet* radiant_ua_focus_stylesheet(DomDocument* doc, CssEngine* engine) {
+CssStylesheet* radiant_ua_stylesheet(DomDocument* doc, CssEngine* engine) {
     if (!doc || !engine) return nullptr;
-    if (!doc->services.ua_focus_stylesheet) {
-        CssStylesheet* sheet = css_parse_stylesheet(engine, layout_html_ua_focus_css(), nullptr);
+    if (!doc->services.ua_stylesheet) {
+        StrBuf* source = strbuf_new();
+        if (!source) return nullptr;
+        strbuf_append_str(source, "@namespace html \"http://www.w3.org/1999/xhtml\";");
+        strbuf_append_str(source, layout_html_ua_focus_css());
+        // Until-found retains the element's own box and skips its contents.
+        strbuf_append_str(source, "html|*[hidden=\"until-found\" i]:not(html|embed){content-visibility:hidden}");
+        CssStylesheet* sheet = css_parse_stylesheet(engine, source->str, nullptr);
+        strbuf_free(source);
         if (!sheet) return nullptr;
         for (size_t i = 0; i < sheet->rule_count; i++) sheet->rules[i]->origin = CSS_ORIGIN_USER_AGENT;
-        doc->services.ua_focus_stylesheet = lam::up(sheet);
+        doc->services.ua_stylesheet = lam::up(sheet);
     }
-    return doc->services.ua_focus_stylesheet;
+    return doc->services.ua_stylesheet;
 }
 
 static void cascade_collect_shadow_stylesheets(DomElement* root, lam::ArrayList<CssStylesheet*>& sheets) {
@@ -793,7 +800,7 @@ void radiant_apply_css_stylesheets_to_tree(DomDocument* doc, DomElement* root,
         state_configure_selector_matcher((DocState*)doc->state, matcher);
     }
 
-    CssStylesheet* defaults = radiant_ua_focus_stylesheet(doc, engine);
+    CssStylesheet* defaults = radiant_ua_stylesheet(doc, engine);
     // Each tree contributes author sheets independently, even during a
     // localized refresh that starts below the tree's boundary.
     lam::ArrayList<CssStylesheet*> scoped(MEM_CAT_LAYOUT, 0);
@@ -804,7 +811,7 @@ void radiant_apply_css_stylesheets_to_tree(DomDocument* doc, DomElement* root,
     }
     lam::Temp<CssStylesheet*> combined((CssStylesheet**)mem_alloc(
         ((size_t)count + 1) * sizeof(CssStylesheet*), MEM_CAT_LAYOUT));
-    if (!combined) { log_error("focus cascade: could not allocate stylesheet inputs"); return; }
+    if (!combined) { log_error("document cascade: could not allocate stylesheet inputs"); return; }
     combined.get()[0] = defaults;
     if (count > 0) memcpy(combined.get() + 1, stylesheets, (size_t)count * sizeof(CssStylesheet*));
     css_layer_rank_stylesheets(doc, combined.get(), count + 1, engine);
@@ -876,7 +883,7 @@ void radiant_cascade_styles_for_element_with_matcher(DomElement* element,
     // CSSOM reads must see the same live form and interaction state as layout.
     state_configure_selector_matcher((DocState*)doc->state, matcher);
 
-    CssStylesheet* defaults = radiant_ua_focus_stylesheet(doc, engine);
+    CssStylesheet* defaults = radiant_ua_stylesheet(doc, engine);
     for (size_t i = 0; defaults && i < defaults->rule_count; i++)
         apply_rule_to_element(element, defaults->rules[i], matcher, pool, engine);
 

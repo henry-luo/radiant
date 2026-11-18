@@ -22,7 +22,7 @@ static bool layout_stretch_fit_block_margins_can_adjoin(ViewBlock* block, bool h
 
 bool layout_parent_block_edge_is_unedged(ViewBlock* block,
                                          bool horizontal, bool start) {
-    ViewElement* parent_view = block->parent_view();
+    ViewElement* parent_view = layout_render_parent(block);
     if (!parent_view || !parent_view->is_block()) return true;
     ViewBlock* parent = lam::view_require_block(parent_view);
     if (!parent->bound) return true;

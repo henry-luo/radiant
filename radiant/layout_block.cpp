@@ -1183,9 +1183,21 @@ static inline bool has_margin_chain(BoundaryProp* bound) {
     return bound && (bound->margin_chain_positive != 0 || bound->margin_chain_negative != 0);
 }
 
+static void capture_flow_margin(BoundaryProp* boundary) {
+    if (!boundary || boundary->has_flow_margin) return;
+    boundary->flow_margin = boundary->margin;
+    boundary->has_flow_margin = true;
+}
+
 static View* layout_rendered_first_placed_child(ViewBlock* block) {
     return block ? static_cast<View*>(layout_rendered_first_child_node(block->as_element()))
                  : nullptr;
+}
+
+static View* layout_next_rendered_placed_sibling(View* view) {
+    View* sibling = layout_paint_next(view);
+    while (sibling && !sibling->view_type) sibling = layout_paint_next(sibling);
+    return sibling;
 }
 
 static void get_self_margin_chain(ViewBlock* block, float margin_top,
@@ -3042,7 +3054,7 @@ static float vertical_inline_prefix_before_block(ViewBlock* parent) {
 
 static ViewBlock* flow_margin_block_from(ViewBlock* parent, View* first, bool start) {
     for (View* child = first;
-         child; child = start ? child->next() : child->prev_placed_view()) {
+         child; child = start ? layout_paint_next(child) : layout_paint_previous(child)) {
         // sibling links also contain skipped DOM nodes without a placed view.
         if (!child->view_type) continue;
         if (layout_marker_is_outside(child)) continue;
@@ -3070,16 +3082,15 @@ static ViewBlock* flow_adjoining_child(ViewBlock* parent, bool start) {
         block_context_establishes_bfc(parent)) return nullptr;
     bool horizontal = layout_block_inline_axis_is_vertical(parent);
     if (!start && !block_axis_has_automatic_css_size(parent, horizontal)) return nullptr;
-    ViewElement* element = lam::view_require_element(parent);
     ViewBlock* child = flow_margin_block_from(parent,
-        start ? element->first_placed_child() : element->last_placed_child(), start);
+        start ? layout_paint_first_child(parent) : layout_paint_last_child(parent), start);
     if (!child || !layout_parent_block_edge_is_unedged(child, horizontal, start)) return nullptr;
     if (!start && layout_positive_min_axis(parent, horizontal) > 0.0f) {
         // CSS 2.2 §8.3.1: a nonzero minimum separates the end from a child set adjoining the start.
         ViewBlock* first = flow_adjoining_child(parent, true);
         for (ViewBlock* member = child;
              member && layout_block_is_self_collapsing(member, horizontal);
-             member = flow_margin_block_from(parent, member->prev_placed_view(), false)) {
+             member = flow_margin_block_from(parent, layout_paint_previous(member), false)) {
             if (member == first) return nullptr;
         }
     }
@@ -3087,7 +3098,7 @@ static ViewBlock* flow_adjoining_child(ViewBlock* parent, bool start) {
 }
 
 static ViewBlock* flow_previous_margin_block(ViewBlock* parent, ViewBlock* child) {
-    return flow_margin_block_from(parent, child->prev_placed_view(), false);
+    return flow_margin_block_from(parent, layout_paint_previous(child), false);
 }
 
 static void include_flow_margin_chain(ViewBlock* block, WritingMode mode, bool start,
@@ -3111,7 +3122,7 @@ static void include_flow_margin_chain(ViewBlock* block, WritingMode mode, bool s
         include_flow_margin_chain(child, mode, start, child_through, positive, negative);
         if (!child_through) break;
         child = flow_margin_block_from(block,
-            start ? child->next() : child->prev_placed_view(), start);
+            start ? layout_paint_next(child) : layout_paint_previous(child), start);
     }
 }
 
@@ -9104,12 +9115,8 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
                 }
             }
         }
-        if (!block->boundary()->has_flow_margin) {
-            // Preserve the resolved margin box before normal-flow collapse can
-            // consume it; fragmentation needs the uncollapsed CSS margins.
-            block->boundary_mut()->flow_margin = block->boundary()->margin;
-            block->boundary_mut()->has_flow_margin = true;
-        }
+        // Fragmentation and adjoining chains use the resolved, uncollapsed margin.
+        capture_flow_margin(block->boundary_mut());
         *out_original_margin_top = block->boundary()->margin.top;
         block->x += block->boundary()->margin.left;
         block->y += block->boundary()->margin.top;
@@ -10477,27 +10484,24 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
                 float y_shift = block->y - pa_block.advance_y;
                 float unaccounted = y_shift - stored_mt;
                 if (fabsf(unaccounted) > 0.01f) {
-                    ViewBlock* gp = layout_nearest_block_ancestor(block->parent_view());
+                    ViewBlock* gp = layout_nearest_block_ancestor(layout_render_parent(block));
                     if (gp) {
-                        View* first = gp->first_placed_child();
+                        View* first = layout_rendered_first_placed_child(gp);
                         while (first) {
                             if (first->view_type == RDT_VIEW_MARKER) {
-                                first = static_cast<View*>(first->next_sibling);
-                                first = layout_first_view_with_type(first);
+                                first = layout_next_rendered_placed_sibling(first);
                                 continue;
                             }
                             if (!first->is_block()) {
                                 if (first->height > 0) break;
                                 if (first->view_type == RDT_VIEW_INLINE &&
                                     is_inline_substantial(lam::view_require_element(first))) break;
-                                first = static_cast<View*>(first->next_sibling);
-                                first = layout_first_view_with_type(first);
+                                first = layout_next_rendered_placed_sibling(first);
                                 continue;
                             }
                             ViewBlock* fvb = lam::view_require_block(first);
                             if (fvb->position && element_has_float(fvb)) {
-                                first = static_cast<View*>(first->next_sibling);
-                                first = layout_first_view_with_type(first);
+                                first = layout_next_rendered_placed_sibling(first);
                                 continue;
                             }
                             break;
@@ -10506,6 +10510,7 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
                             if (!block->bound) {
                                 block->ensure_boundary(lycon);
                             }
+                            capture_flow_margin(block->boundary_mut());
                             block->boundary_mut()->margin.top = y_shift;
                         }
                     }
@@ -10521,42 +10526,27 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
                 }
             } else if (block->bound) {
                 // Skip floats AND empty zero-height blocks (CSS 2.2 Section 8.3.1)
-                DomElement* shadow_formatting_parent =
-                    layout_shadow_formatting_parent((DomNode*)block);
-                bool first_shadow_child = shadow_formatting_parent &&
-                    layout_rendered_first_child_node(
-                        shadow_formatting_parent->shadow_root_element()) == (DomNode*)block;
-                ViewElement* collapse_parent_view = shadow_formatting_parent
-                    ? (ViewElement*)shadow_formatting_parent : block->parent_view();
-                ViewBlock* parent = first_shadow_child
-                    ? (collapse_parent_view && collapse_parent_view->is_block()
-                        ? lam::view_require_block(collapse_parent_view) : nullptr)
-                    : layout_nearest_block_ancestor(block->parent_view());
+                // Slotted boxes before this block are in-flow predecessors.
+                ViewElement* collapse_parent_view = layout_render_parent(block);
+                ViewBlock* parent = layout_nearest_block_ancestor(collapse_parent_view);
                 bool parent_start_adjoins = parent_start_margin_has_no_boundary(parent) &&
                     !is_root_element_block(parent) &&
                     !layout_inline_has_prior_in_flow_content(
                         static_cast<DomNode*>(block->parent_view()));
-                View* first_in_flow_child = first_shadow_child
-                    ? static_cast<View*>(block)
-                    : (collapse_parent_view
-                        ? collapse_parent_view->first_placed_child() : nullptr);
+                View* first_in_flow_child = layout_rendered_first_child_node(collapse_parent_view);
                 float preceding_margin_positive = 0.0f;
                 float preceding_margin_negative = 0.0f;
                 bool has_preceding_self_collapsing = false;
                 while (first_in_flow_child) {
                     if (first_in_flow_child->view_type == RDT_VIEW_MARKER) {
-                        View* next = static_cast<View*>(first_in_flow_child->next_sibling);
-                        next = layout_first_view_with_type(next);
-                        first_in_flow_child = next;
+                        first_in_flow_child = layout_next_rendered_placed_sibling(first_in_flow_child);
                         continue;
                     }
                     if (!first_in_flow_child->is_block()) {
                         // CSS 2.1 §8.3.1 + CSS Inline 3 §2.1: Only real (non-phantom)
                         if (first_in_flow_child->view_type == RDT_VIEW_INLINE &&
                             !is_inline_substantial(lam::view_require_element(first_in_flow_child))) {
-                            View* next = static_cast<View*>(first_in_flow_child->next_sibling);
-                            next = layout_first_view_with_type(next);
-                            first_in_flow_child = next;
+                            first_in_flow_child = layout_next_rendered_placed_sibling(first_in_flow_child);
                             continue;
                         }
                         break;
@@ -10564,9 +10554,7 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
                     ViewBlock* vb = lam::view_require_block(first_in_flow_child);
                     // CSS 2.1 §9.4.1: Out-of-flow elements don't participate in
                     if (layout_block_is_out_of_flow(vb)) {
-                        View* next = static_cast<View*>(first_in_flow_child->next_sibling);
-                        next = layout_first_view_with_type(next);
-                        first_in_flow_child = next;
+                        first_in_flow_child = layout_next_rendered_placed_sibling(first_in_flow_child);
                         continue;
                     }
                     // CSS 2.1 §8.3.1: Self-collapsing blocks (height=0, no border/padding) with margins
@@ -10611,9 +10599,7 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
                                     &preceding_margin_negative, positive, negative);
                                 has_preceding_self_collapsing = true;
                             }
-                            View* next = static_cast<View*>(first_in_flow_child->next_sibling);
-                            next = layout_first_view_with_type(next);
-                            first_in_flow_child = next;
+                            first_in_flow_child = layout_next_rendered_placed_sibling(first_in_flow_child);
                             continue;
                         }
                     }
@@ -10707,6 +10693,9 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
                                 if (!parent->bound) {
                                     parent->ensure_boundary(lycon);
                                 }
+                                // A box without authored edges can acquire its first boundary here.
+                                // Retain its pre-collapse margin so a later flow restores it.
+                                capture_flow_margin(parent->boundary_mut());
                                 parent->boundary_mut()->margin.top = margin_top;
                             }
                             block->y = stretch_margin_after_float_avoidance

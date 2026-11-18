@@ -20,6 +20,24 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+### RI-140 — Image button paint and dialog pointer selection
+
+Partial. The image-button layout loads `src` through the shared replaced
+image path, and raster form dispatch now paints it through the same content
+renderer used by images. Flat SVG and PDF also paint the loaded source. The
+native replay checks the painted pixel, click-local result, focus after close
+and cleared pixel. Natural-size, broken-image fallback and other image input
+geometry remain unqualified (**D9.1.1v4 / D9.1.3v2**).
+
+### RI-139 — Dynamic body zoom loses the first list's collapsed block-start margin
+
+Open. `wpt-css-lists/list-style-image-zoom-dynamic.html` doubles the body zoom
+after a geometry read. Radiant scales the list and marker content, but places
+the body and list at 16 px instead of 32 px. Root height comes out 32 px short.
+The case reproduces in isolation at `6f38618` and after the named-slot layout
+repair. The fixture has no shadow tree. It remains a failure in the CSS Lists
+baseline (**D9.1.1v4 / D9.1.3v2**).
+
 <a id="ri-138"></a>
 
 ### RI-138 — FIXED

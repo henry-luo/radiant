@@ -15,9 +15,15 @@ static inline uint32_t dom_mutation_bit(DomJsMutationKind kind) {
 }
 
 
-static DomJsMutationAttribute dom_mutation_attribute_from_name(DomDocument* doc, const char* name) {
+static DomJsMutationAttribute dom_mutation_attribute_from_name(DomDocument* doc,
+    DomNode* target, const char* name) {
     if (name && str_icmp_cstr(name, "class") == 0) {
         return DOM_JS_MUTATION_ATTRIBUTE_CLASS;
+    }
+    if (doc->js.has_shadow_roots && name &&
+        (str_ieq_cstr(name, "slot") || (str_ieq_cstr(name, "name") && target &&
+            dom_element_is_html_tag(target->as_element(), MARKUP_NAME_SLOT)))) {
+        return DOM_JS_MUTATION_ATTRIBUTE_SLOT_DISTRIBUTION;
     }
     // data/ARIA writes cannot change native pseudo states; only an attribute
     // reference inside :has() can make their cascade escape the local subtree.
@@ -85,7 +91,7 @@ void radiant_dom_record_mutation_detail(DomDocument* doc, DomJsMutationKind kind
         record->target_id = target_ref.expected_id;
         record->parent_id = parent_ref.expected_id;
         record->attribute = kind == DOM_JS_MUTATION_ATTRIBUTE
-            ? dom_mutation_attribute_from_name(doc, attribute_name)
+            ? dom_mutation_attribute_from_name(doc, target, attribute_name)
             : DOM_JS_MUTATION_ATTRIBUTE_UNKNOWN;
         record->direction_sensitive = kind == DOM_JS_MUTATION_ATTRIBUTE
             ? dom_mutation_attribute_affects_direction(attribute_name)

@@ -3074,7 +3074,7 @@ bool layout_html_ua_list_nesting_ancestor(NameId tag);
 CssEnum layout_html_ua_list_marker(NameId tag, size_t unordered_ancestors);
 struct StrBuf;
 const char* layout_html_ua_focus_css();
-CssStylesheet* radiant_ua_focus_stylesheet(DomDocument* doc, CssEngine* engine);
+CssStylesheet* radiant_ua_stylesheet(DomDocument* doc, CssEngine* engine);
 bool layout_html_ua_stylesheet(StrBuf* css);
 bool layout_parse_legacy_font_size_level(const char* input, int* out_level);
 // Chromium CheckForGenericFamilyChange: a medium-lineage size that switches to monospace scales by 13/16.
@@ -5002,9 +5002,11 @@ DomNode* layout_render_child_list(DomElement* element);
 DomNode* layout_rendered_first_child_node(DomElement* element);
 // Flatten unboxed slots for paint, layer order, and hit testing.
 DomNode* layout_paint_first_child(DomElement* element);
+DomNode* layout_paint_last_child(DomElement* element);
 DomNode* layout_paint_next(DomNode* node);
 DomNode* layout_paint_previous(DomNode* node);
 ViewElement* layout_render_parent(DomNode* node);
+bool layout_shadow_suppresses_box(DomElement* element);
 bool layout_is_inline_math_box(DomNode* node);
 // CSS Shadow DOM: expose the host as the formatting parent of a direct
 // shadow-tree child while preserving the fragment's DOM parentage.

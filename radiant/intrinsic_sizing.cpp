@@ -3335,16 +3335,20 @@ ImageSurface* layout_ensure_replaced_image_surface(LayoutContext* lycon,
                                                     DomElement* element) {
     if (!block || !element) return nullptr;
     NameId tag = element->tag();
-    bool loadable = tag == MARKUP_NAME_IMG || tag == MARKUP_NAME_EMBED ||
+    bool image_button = tag == MARKUP_NAME_INPUT &&
+        form_input_kind_is(element->get_attribute("type"), FORM_INPUT_KIND_IMAGE);
+    bool loadable = tag == MARKUP_NAME_IMG || image_button || tag == MARKUP_NAME_EMBED ||
         (tag == MARKUP_NAME_OBJECT && element->get_attribute(MARKUP_NAME_DATA));
     if (!loadable) return nullptr;
     if (!lycon || !lycon->ui_context || !lycon->doc) return nullptr;
-    if (tag != MARKUP_NAME_IMG && block->embed && block->embedp()->img) return block->embedp()->img;
+    if (tag != MARKUP_NAME_IMG && !image_button && block->embed && block->embedp()->img)
+        return block->embedp()->img;
     CssEngine* engine = (CssEngine*)lycon->doc->services.cached_css_engine;
     float density = 1.0f; DomElement* dimensions = element;
     lam::Temp<char> selected_source(tag == MARKUP_NAME_IMG
         ? layout_resolve_replaced_image_source(element, engine, &density, &dimensions) : nullptr);
-    const char* source = tag == MARKUP_NAME_IMG ? selected_source.get() : element->get_attribute(MARKUP_NAME_DATA);
+    const char* source = tag == MARKUP_NAME_IMG ? selected_source.get()
+        : image_button ? element->get_attribute("src") : element->get_attribute(MARKUP_NAME_DATA);
     // native graphics resolve XML Base before the common loader enforces resource admission.
     bool native = radiant_page_element(lycon->doc->root, "page-document");
     const char* resolved = native && source

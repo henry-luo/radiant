@@ -1843,9 +1843,12 @@ void render_form_control(RasterRenderContext* rdcon, ViewBlock* block) {
         render_range(rdcon, block, form);
         break;
 
-    case FORM_CONTROL_HIDDEN:
     case FORM_CONTROL_IMAGE:
-        // No rendering for hidden inputs and broken image buttons
+        // The form-control dispatch owns the outer box and its paint scopes.
+        render_media_image_content(rdcon, block);
+        break;
+
+    case FORM_CONTROL_HIDDEN:
         break;
 
     default:
