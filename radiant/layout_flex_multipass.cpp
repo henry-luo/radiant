@@ -1463,7 +1463,8 @@ static void layout_flex_item_content_pass(LayoutContext* lycon, ViewBlock* flex_
         if (layout_is_svg_viewport(elmt_name)) {
             // replaced SVG sizing still needs to lay out its foreignObject formatting contexts.
             layout_svg_foreign_objects(lycon, flex_item->as_element());
-        } else if (elmt_name == MARKUP_NAME_IFRAME) {
+        } else if (elmt_name == MARKUP_NAME_IFRAME &&
+                   lycon->run_mode != radiant::RunMode::MeasureFlow) {
             float flex_border_width = flex_item->width;
             float flex_border_height = flex_item->height;
             LayoutContentBox iframe_content = layout_content_box(flex_item);

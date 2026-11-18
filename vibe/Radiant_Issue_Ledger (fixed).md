@@ -14,6 +14,41 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-126"></a>
+
+### RI-126 — Intrinsic inline-height trials skip atomic placement and reset frame scrolling
+
+**Status:** FIXED, 2026-11-18. Native layout ownership follows
+**D9.1.1v4 / D9.1.3v2**. Trial geometry and retained document state follow
+**D5.5.1**.
+
+RI-123 extended intrinsic height measurement to inline runs containing atomic
+boxes. The scalar cache and definite-size shortcuts returned child dimensions
+before joining the parent line. A fixed-size child contributed zero to the
+intrinsic height, and `baseline-source-first-001` placed the sibling of an
+inline flexbox 45px below the reference. Trial layout also visited the EPUB
+reader's positioned frames and refreshed scroll ranges from provisional geometry.
+Both page-next actions left the chapter on page 1.
+
+An inline-height trial now formats its lines and atomic boxes in a measurement
+mode that bypasses scalar shortcuts. It omits out-of-flow placement and embedded
+document layout. It restores the selected flow without refreshing the live
+scroll ranges from the trial replay.
+
+The broader height trial also exposed a cyclic percentage on a range control.
+The height query refreshed the control's CSS while the auto-height parent had
+34px of provisional inline flow. Ordinary layout had already cleared the 50%
+height. The query put back the resulting 17px before the final control sizing.
+The block height query now restores the caller's selected preferred height and
+its type before the caller applies the intrinsic constraint.
+
+The rebuilt debug host passes `IntrinsicQueriesRestoreCallerSizingContext`,
+all 169 `wpt-css-inline` baseline entries, all five `ebook_paged` assertions,
+and all 28 inline-height and line-break rendering checks. The Radiant integer
+cast lint passes. The full `make test-radiant-baseline` exits 0 with 8,169 passed,
+299 partial, 20 skipped, and zero failures. Reproduction and verification logs
+are in the Lambda checkout under `temp/radiant-test-fixes/`.
+
 <a id="ri-125"></a>
 
 ### RI-125 — Absolute-child layout unwinds a foreign scratch allocation

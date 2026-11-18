@@ -7293,7 +7293,9 @@ static float intrinsic_inline_flow_content_height(LayoutContext* context,
         return -1.0f;
     radiant::LayoutFlowResult* selected = radiant::layout_flow_result_capture(context, element);
     if (!selected) return -1.0f;
-    radiant::LayoutMeasureScope measure(context, element);
+    radiant::LayoutMeasureScope measure(context, element, true);
+    // line height needs placed atoms and baselines even when their sizes are known.
+    radiant::LayoutRunModeScope flow_mode(context, radiant::RunMode::MeasureFlow);
     LayoutViewScope view_scope(context);
     block->view_type = RDT_VIEW_BLOCK;
     block->width = layout_border_size_from_content_box(block, width, true);

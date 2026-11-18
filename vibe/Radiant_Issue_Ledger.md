@@ -20,6 +20,13 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-126"></a>
+
+### RI-126 — FIXED
+
+Intrinsic inline height now formats atomic boxes during its trial and preserves
+live frame scrolling. See the [trial-flow repair](<Radiant_Issue_Ledger (fixed).md#ri-126>).
+
 <a id="ri-125"></a>
 
 ### RI-125 — FIXED

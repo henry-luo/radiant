@@ -370,9 +370,16 @@ static void apply_canvas_last_remembered_size(LayoutContext* lycon, ViewBlock* b
 static float layout_block_intrinsic_content_height(LayoutContext* lycon, ViewBlock* block,
                                                    float content_width) {
     if (!lycon || !block || !block->is_element()) return -1.0f;
-    // definite height is the value being constrained and must not short-circuit it.
+    float given_height = block->block()->given_height;
+    CssEnum given_height_type = block->block()->given_height_type;
+    // a style refresh during the query can resolve a cyclic percentage against
+    // a provisional height. Continue with the caller's selected axis size.
     float intrinsic_border_height = calculate_max_content_height(
         lycon, static_cast<DomNode*>(block), content_width, true);
+    if (block->blk) {
+        block->block_mut()->given_height = given_height;
+        block->block_mut()->given_height_type = given_height_type;
+    }
     BoxMetrics box = layout_box_metrics(block);
     return max(intrinsic_border_height - box.pad_border_v, 0.0f);
 }
@@ -4708,7 +4715,8 @@ void finalize_block_flow(LayoutContext* lycon, ViewBlock* block, CssEnum display
             set_block_scroller_clip(block);
         }
     }
-    if (block->scroller && block->scroll_mut()->pane) {
+    if (block->scroller && block->scroll_mut()->pane &&
+        lycon->run_mode != radiant::RunMode::MeasureFlow) {
         DocState* state = lycon && lycon->doc ? (DocState*)lycon->doc->state : nullptr;
         // CSS Writing Modes gives vertical-rl a signed horizontal scroll range;
         // use the inherited/resolved mode so a raw default does not clamp a
@@ -5100,6 +5108,8 @@ bool layout_iframe_content_size(DomDocument* doc, float* width, float* height) {
 }
 
 void layout_iframe(LayoutContext* lycon, ViewBlock* block, DisplayValue display) {
+    // only the replaced frame box contributes to trial flow, so keep its document live.
+    if (lycon->run_mode == radiant::RunMode::MeasureFlow) return;
     LayoutContentBox content = layout_content_box(block);
     DomDocument* doc = layout_ensure_iframe_document(lycon, block,
         block->width > 0.0f ? content.width : lycon->ui_context->viewport_width,
