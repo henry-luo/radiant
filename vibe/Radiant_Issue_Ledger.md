@@ -20,6 +20,22 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-127"></a>
+
+### RI-127 — FIXED
+
+Trial layout no longer commits iframe viewport sizing or clamps retained
+scroll offsets (**D5.5.1**). See the
+[EPUB page-turn reproduction](<Radiant_Issue_Ledger (fixed).md#ri-127>).
+
+<a id="ri-126"></a>
+
+### RI-126 — FIXED
+
+Inline flex containers export baselines after their child content is laid
+out (**D5.5.1**). See the
+[baseline-source reproduction](<Radiant_Issue_Ledger (fixed).md#ri-126>).
+
 <a id="ri-125"></a>
 
 ### RI-125 — FIXED

@@ -14,6 +14,35 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-127"></a>
+
+### RI-127 — Trial flow resets the scroll position of an EPUB frame
+
+**Fixed 2026-11-18.** Trial flow and committed scroll state have
+separate ownership under **D5.5.1**.
+
+In `test/ui/ebook_paged.json`, a page turn sets the iframe's horizontal
+position to 798 px. A subsequent intrinsic layout temporarily sizes the frame
+with an indefinite height and publishes a zero scroll range. That clamps
+the scroll position to zero before the committed layout restores the range.
+A size-only pass uses the iframe's outer box and leaves its embedded
+viewport and scroll state with the committed layout. The UI replay passes all
+five assertions, including the second page turn after changing typography.
+
+<a id="ri-126"></a>
+
+### RI-126 — Inline flex exports a baseline before its children have line geometry
+
+**Fixed 2026-11-18.** Final flex flow owns the selected baseline
+geometry under **D5.5.1**.
+
+WPT `baseline-source-first-001` places the span beside an inline column flex
+box at y=701 px instead of y=656 px. The flex baseline cache contained zero
+because it was populated before the children had completed their layout.
+The final-content pass now publishes the same baseline calculation after
+child layout and baseline alignment. The focused test matches all 125 element
+boxes and 51 spans in the reference.
+
 <a id="ri-125"></a>
 
 ### RI-125 — Absolute-child layout unwinds a foreign scratch allocation
@@ -127,6 +156,14 @@ Evidence: Lambda temp/online-visual-round77/strut-before.log,
 strut-browser.json, pixels-qualified.log, optimizely-parity.json and
 static-parity.json, the before/ image archive and qualified same-source PNGs.
 No browser reference, annotation, URL, threshold, timeout or clock is changed.
+
+The integration test `IntrinsicQueriesRestoreCallerSizingContext` exposed a
+second path under **D5.5.1**. The scalar-size shortcut returned a definite
+atomic inline's dimensions before it could contribute to the trial line.
+Only block contexts measuring inline line boxes now require that placement.
+The range-control check also passes. Its intrinsic min-height query can
+resolve style against a provisional containing height, so the caller now
+restores its selected block size after the query.
 
 <a id="ri-121"></a>
 

@@ -95,6 +95,7 @@ void block_context_init(BlockContext* ctx, ViewBlock* element, Pool* pool) {
     ctx->flow_box = lam::up(element);
     ctx->establishing_element = lam::up(element);
     ctx->is_bfc_root = (element != nullptr);
+    ctx->measures_inline_line_boxes = false;
 
     // BFC offset is 0 for BFC root (coordinates are relative to itself)
     ctx->bfc_offset_x = 0;

@@ -7306,6 +7306,7 @@ static float intrinsic_inline_flow_content_height(LayoutContext* context,
     layout_setup_block_font_metrics(context);
     context->block.block_container_font = lam::up(context->font.style);
     setup_inline(context, block);
+    context->block.measures_inline_line_boxes = true;
     float content_start = context->block.advance_y;
     layout_block_inner_content(context, block);
     float height = max(0.0f, context->block.advance_y - content_start);

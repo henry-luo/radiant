@@ -544,7 +544,9 @@ bool layout_flow_result_apply(LayoutContext* context, const LayoutFlowResult* re
             payload = payload->next;
         }
         layout_view_snapshot_restore(&output->box);
-        if (node != root && node->is_element() && node->as_element()->scroller) {
+        // A trial flow can restore provisional box extents without clamping live scroll state.
+        if (context->run_mode == RunMode::PerformLayout &&
+            node != root && node->is_element() && node->as_element()->scroller) {
             ViewBlock* block = lam::unsafe_view_block_element_storage(node->as_element());
             update_scroller(block, block->content_width,
                 layout_border_size_from_content_box(block, block->content_height, false));

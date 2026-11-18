@@ -370,9 +370,16 @@ static void apply_canvas_last_remembered_size(LayoutContext* lycon, ViewBlock* b
 static float layout_block_intrinsic_content_height(LayoutContext* lycon, ViewBlock* block,
                                                    float content_width) {
     if (!lycon || !block || !block->is_element()) return -1.0f;
+    float given_height = block->blk ? block->block()->given_height : -1.0f;
+    CssEnum given_height_type = block->blk ? block->block()->given_height_type : CSS_VALUE__UNDEF;
     // definite height is the value being constrained and must not short-circuit it.
     float intrinsic_border_height = calculate_max_content_height(
         lycon, static_cast<DomNode*>(block), content_width, true);
+    if (block->blk) {
+        // Style resolution in the probe can restore a cyclic percentage that the active flow cleared.
+        block->block_mut()->given_height = given_height;
+        block->block_mut()->given_height_type = given_height_type;
+    }
     BoxMetrics box = layout_box_metrics(block);
     return max(intrinsic_border_height - box.pad_border_v, 0.0f);
 }
@@ -5013,6 +5020,8 @@ DomDocument* layout_ensure_iframe_document(LayoutContext* lycon, ViewBlock* bloc
         float viewport_width, float viewport_height) {
     if (!lycon || !lycon->ui_context ||
             (lycon->doc && lycon->doc->services.svg_image_document)) return nullptr;
+    // A trial replaced-box size does not define the embedded document's viewport.
+    if (lycon->run_mode == radiant::RunMode::ComputeSize) return nullptr;
     IframeContextScope enclosing(lycon);
     DomDocument* previous = block->embed ? block->embedp()->doc.get() : nullptr;
     const char* srcdoc = block->get_attribute("srcdoc");
@@ -9870,9 +9879,13 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
             custom_layout_name, custom_layout_name_storage, sizeof(custom_layout_name_storage));
     }
     bool has_custom_layout = custom_layout_name && custom_layout_name[0] != '\0';
+    // Intrinsic line height needs the atomic inline's contribution to its parent line.
+    bool measures_parent_line = pa_block.measures_inline_line_boxes &&
+        display.outer == CSS_VALUE_INLINE_BLOCK;
+    bool can_return_size_only = !has_custom_layout && !measures_parent_line;
     radiant::KnownDimensions known_dims = radiant::layout_known_dimensions_from_block(block);
     radiant::SizeF cached_size;
-    if (!has_custom_layout &&
+    if (can_return_size_only &&
         radiant::layout_pass_cache_get(lycon, dom_elem, known_dims, &cached_size, "BLOCK")) {
         block->width = cached_size.width;
         block->height = cached_size.height;
@@ -9881,7 +9894,7 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
         layout_block_record_elapsed(t_block_start);
         return;
     }
-    if (!has_custom_layout && lycon->run_mode == radiant::RunMode::ComputeSize) {
+    if (can_return_size_only && lycon->run_mode == radiant::RunMode::ComputeSize) {
         bool has_definite_width = (block->blk && block->block_mut()->given_width > 0);
         bool has_definite_height = (block->blk && block->block_mut()->given_height > 0);
         if (has_definite_width && has_definite_height) {

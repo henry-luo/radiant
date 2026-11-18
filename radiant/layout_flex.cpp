@@ -460,6 +460,16 @@ static float flex_container_line_baseline(ViewBlock* container,
         calculate_item_baseline(item);
 }
 
+void layout_export_flex_baselines(ViewBlock* container, FlexContainerLayout* layout) {
+    if (!container || !container->embed || !container->embedp()->flex) return;
+    FlexProp* prop = container->embedp()->flex;
+    int count = layout ? layout->line_count : 0;
+    // Child line metrics and positions are available after final content layout.
+    prop->first_baseline = count ? flex_container_line_baseline(container, layout, &layout->lines[0], false) : 0.0f;
+    prop->last_baseline = count ? flex_container_line_baseline(container, layout, &layout->lines[count - 1], true) : 0.0f;
+    prop->has_baseline_child = count && flex_line_has_baseline_child(&layout->lines[0], layout);
+}
+
 float layout_flex_baseline_for_source(ViewBlock* container,
                                       bool prefer_last) {
     if (!container || !container->embed || !container->embedp()->flex) {
@@ -1397,25 +1407,6 @@ void layout_flex_container(LayoutContext* lycon, ViewBlock* container) {
         }
     }
 
-    if (container->embed && container->embedp()->flex) {
-        FlexProp* flex_prop = container->embedp()->flex;
-        flex_prop->first_baseline = 0.0f;
-        flex_prop->last_baseline = 0.0f;
-        flex_prop->has_baseline_child = false;
-    }
-    if (line_count > 0 && container->embed && container->embedp()->flex) {
-        FlexLineInfo* first_line = &flex_layout->lines[0];
-        FlexLineInfo* last_line = &flex_layout->lines[line_count - 1];
-        bool has_baseline_child = flex_line_has_baseline_child(first_line, flex_layout);
-        float computed_first_baseline = flex_container_line_baseline(
-            container, flex_layout, first_line, false);
-        float computed_last_baseline = flex_container_line_baseline(
-            container, flex_layout, last_line, true);
-        container->embedp()->flex->first_baseline = computed_first_baseline;
-        // CSS Flexbox §8.5 distinguishes the endmost item/line baseline.
-        container->embedp()->flex->last_baseline = computed_last_baseline;
-        container->embedp()->flex->has_baseline_child = has_baseline_child;
-    }
     // Note: wrap-reverse item positioning is now handled in align_items_cross_axis
     // CSS spec: position: relative with top/right/bottom/left should offset the item
     // CRITICAL: Percentage offsets must be re-resolved against the actual parent dimensions,

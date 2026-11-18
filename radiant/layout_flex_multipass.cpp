@@ -892,6 +892,7 @@ void layout_flex_container_with_nested_content(LayoutContext* lycon, ViewBlock* 
     layout_final_flex_content(lycon, flex_container);
 
     reposition_baseline_items(lycon, flex_container);
+    layout_export_flex_baselines(flex_container, flex_layout);
     if (lycon->paged) paged_flex_rows(lycon, flex_container, flex_layout);
 
     flex_scope.close();
@@ -1468,16 +1469,15 @@ static void layout_flex_item_content_pass(LayoutContext* lycon, ViewBlock* flex_
             float flex_border_height = flex_item->height;
             LayoutContentBox iframe_content = layout_content_box(flex_item);
             // Flex and block flow share source admission, srcdoc replacement, and resource ownership.
-            layout_ensure_iframe_document(lycon, flex_item, iframe_content.width, iframe_content.height);
+            DomDocument* frame = layout_ensure_iframe_document(
+                lycon, flex_item, iframe_content.width, iframe_content.height);
 
-            CssEnum overflow_x = CSS_VALUE_AUTO, overflow_y = CSS_VALUE_AUTO;
-            if (flex_item->embed) layout_viewport_overflow(flex_item->embedp()->doc, &overflow_x, &overflow_y);
-            if (flex_item->embed && layout_iframe_content_size(flex_item->embedp()->doc,
+            if (layout_iframe_content_size(frame,
                     &flex_item->content_width, &flex_item->content_height)) {
                 // the frame's scrollbars follow its document's viewport overflow, as in block flow
                 flex_item->ensure_scroll(lycon);
-                flex_item->scroller->overflow_x = overflow_x;
-                flex_item->scroller->overflow_y = overflow_y;
+                layout_viewport_overflow(frame, &flex_item->scroller->overflow_x,
+                    &flex_item->scroller->overflow_y);
                 update_scroller(flex_item, flex_item->content_width, flex_item->content_height);
             }
             // CRITICAL: Restore the flex-determined dimensions

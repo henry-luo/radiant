@@ -2562,6 +2562,7 @@ typedef struct BlockContext {
     lam::Up<ViewBlock> flow_box; // cursor owner, including blocks that do not establish a BFC
     lam::Up<ViewBlock> establishing_element;
     bool is_bfc_root;
+    bool measures_inline_line_boxes;
 
     float origin_x;
     float origin_y;
@@ -3636,6 +3637,7 @@ void align_items_main_axis(FlexContainerLayout* flex_layout, FlexLineInfo* line)
 void align_items_cross_axis(FlexContainerLayout* flex_layout, FlexLineInfo* line);
 void align_content(FlexContainerLayout* flex_layout);
 void reposition_baseline_items(LayoutContext* lycon, ViewBlock* flex_container);
+void layout_export_flex_baselines(ViewBlock* container, FlexContainerLayout* layout);
 float layout_flex_baseline_for_source(ViewBlock* container, bool prefer_last);
 float layout_block_last_in_flow_flex_baseline(ViewBlock* block);
 float get_cross_axis_size(ViewElement* item, FlexContainerLayout* flex_layout);
