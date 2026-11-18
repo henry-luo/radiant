@@ -20,22 +20,10 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
-### RI-141 — Writing-modes reference includes the upstream WPT report
+### RI-141 — FIXED
 
-**Open 2026-11-18.** `make run-layout-baseline-suites
-LAYOUT_BASELINE_SUITES=wpt-css-writing-modes` reports one regression,
-`text-input-baseline`. The Chromium capture includes the `#log` report subtree.
-It makes the captured body 1627.63 px tall and applies the harness font to the
-fixture. The layout runner uses its lightweight WPT setup, producing a 21 px
-body with the input and text in matching positions. Its element score is 33.3%
-against a recorded 50.0%, and the span font-family comparison also fails.
-
-The same fixture ran all 21 input-type and writing-mode assertions with the
-repository's WPT assertion shim. They passed. The visual reference remains
-the blocker for the writing-modes gate. Evidence in the Lambda checkout is
-under `temp/radiant-failed-tests/` in `focused-before.log` and
-`writing-assertions.log`.
-**D9.1.1v4** governs ownership across the snapshot host and Radiant.
+Browser captures disable the WPT report. See the
+[reference capture repair](<Radiant_Issue_Ledger (fixed).md#ri-141>).
 
 ### RI-140 — FIXED
 

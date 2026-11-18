@@ -14,6 +14,19 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+### RI-141 — Writing-modes reference includes the upstream WPT report
+
+**Fixed 2026-11-19.** The Chromium reference for `text-input-baseline`
+included the WPT `#log` results panel and its stylesheet. The panel grew
+the captured body to 1627.63 px and the stylesheet changed the fixture font.
+Radiant's lightweight layout host produced a 21 px body. All 21 input-type
+and writing-mode assertions had already passed with the WPT assertion shim.
+
+The browser capture now sets the WPT harness's `output` option to false.
+Assertions and cleanup still run. The recaptured reference has a 21 px body
+and the focused layout comparison passes. **D9.1.1v4** governs ownership
+across the snapshot host and Radiant.
+
 ### RI-140 — Inline wrappers acquire extra height during column projection
 
 **Fixed 2026-11-18.** The multicolumn finalizer added an inline font strut
