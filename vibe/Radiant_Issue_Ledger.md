@@ -20,6 +20,21 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+### RI-142 — Anchor fallback trials and fragmented anchor geometry
+
+Partial, 2026-11-19. Absolute and fixed boxes resolve eligible named and
+implicit anchors, size/inset functions, areas, alignment and bounded scroll
+compensation. Pinned style and geometry checks pass for fallback lengths,
+dependency chains, inheritance, name scopes, position-area serialization
+and popover invokers.
+`anchor-getComputedStyle-003.html` requires trial placement with
+`@position-try`; `anchor-getComputedStyle-002.html` requires geometry in
+fragmented multicol and inline containing blocks. Position visibility, paged
+layout and broader transform and scrolling cases remain open. The typed CSSOM
+inset fixture also requires `computedStyleMap()`. No Lambda blocker.
+Lambda's `vibe/impl/Lambda_Impl_HTML_Support.md` records the qualification
+evidence (**D9.1.1v4 / D9.1.3v2**).
+
 ### RI-140 — Image button paint and dialog pointer selection
 
 Partial. The image-button layout loads `src` through the shared replaced
@@ -1075,19 +1090,7 @@ dock-control/result.json,dock-control/dock-control-lambda.log}`, plus canonical
 
 <a id="ri-029"></a>
 
-### RI-029 — Modal dialog top-layer and backdrop painting remain incomplete
-
-**Status:** OPEN feature gap, 2026-11-12. **Lambda blocker:** no; major new
-paint ordering is outside the current online bug-fix milestone. Ownership
-**D9.1.1v4 / D9.1.3v2**. Leaflet's reference page calls showModal: native DOM
-modal state and fixed centering exist, but the renderer has no top-layer
-painting pass and the parsed `::backdrop` has no layout/paint consumer.
-Ordinary page text can paint over the dialog and no dimming backdrop appears.
-These limits are already recorded in Lambda's HTML/CSS support matrix;
-this record ties them to `https://leafletjs.com/reference.html` and its online
-snapshot. The cause is not assigned to image loading or CSS opacity.
-Evidence: Lambda round2/browser/leaflet_docs.json, canonical paired PNGs,
-`render_block.cpp`, dialog DOM state and the support-matrix dialog/backdrop rows.
+- [RI-029 — Modal dialogs and backdrops paint in the document top layer](<Radiant_Issue_Ledger (fixed).md#ri-029>).
 
 <a id="ri-028"></a>
 

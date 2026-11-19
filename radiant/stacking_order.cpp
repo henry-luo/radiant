@@ -79,7 +79,8 @@ bool radiant_stack_is_out_of_flow_positioned(View* view) {
 }
 
 bool radiant_stack_is_deferred_from_normal_flow(View* view) {
-    return radiant_stack_is_positive_z_positioned(view) ||
+    return (view && layout_is_top_layer_box(view->as_element())) ||
+        radiant_stack_is_positive_z_positioned(view) ||
         radiant_stack_is_negative_z_block(view) ||
         radiant_stack_is_out_of_flow_positioned(view);
 }
@@ -94,6 +95,7 @@ bool radiant_stack_is_context(View* view) {
     if (!view || !view->parent) return true;
     ViewElement* element = lam::view_as_element(view);
     if (!element) return false;
+    if (layout_is_top_layer_box(element->as_element())) return true;
     // a selected view root can retain its DOM parent; it still owns the initial stacking context.
     if (element->doc && element->doc->view_tree && element->doc->view_tree->root == view) return true;
     if (dom_element_is_svg(element)) {
@@ -183,7 +185,7 @@ View* radiant_stack_path_child(View* ancestor, View* descendant) {
 static void radiant_stack_collect_z_into(View* view, ArrayList* out, bool negative) {
     for (View* child = view; child; child = layout_paint_next(child)) {
         // hidden DOM records retain styles; neither they nor their descendants own paint layers.
-        if (child->view_type == RDT_VIEW_NONE) continue;
+        if (child->view_type == RDT_VIEW_NONE || layout_is_top_layer_box(child->as_element())) continue;
         if (negative ? radiant_stack_is_negative_z_block(child) : radiant_stack_is_positive_z_positioned(child)) {
             if (!arraylist_append(out, child)) {
                 log_warn("[RAD_STACK_LAYERS] failed to grow context paint list");
@@ -290,7 +292,8 @@ bool radiant_stack_zero_layer_is_lifted(View* view) {
 
 static void radiant_stack_collect_zero_layers(View* first, ArrayList* out) {
     for (View* view = first; view; view = layout_paint_next(view)) {
-        if (view->view_type == RDT_VIEW_NONE || radiant_stack_is_positive_z_positioned(view) ||
+        if (view->view_type == RDT_VIEW_NONE || layout_is_top_layer_box(view->as_element()) ||
+            radiant_stack_is_positive_z_positioned(view) ||
             radiant_stack_is_negative_z_block(view)) continue;
         if (radiant_stack_is_out_of_flow_positioned(view) || radiant_stack_is_in_flow_positioned_step8(view)) {
             if (!arraylist_append(out, view)) {
@@ -320,7 +323,7 @@ static ViewBlock* radiant_stack_positioned_paint_owner(ViewBlock* child,
 static void radiant_stack_collect_escaping_positioned(View* first, ViewBlock* owner,
                                                        ArrayList* views, const char* log_prefix) {
     for (View* view = first; view; view = layout_paint_next(view)) {
-        if (view->view_type == RDT_VIEW_NONE) continue;
+        if (view->view_type == RDT_VIEW_NONE || layout_is_top_layer_box(view->as_element())) continue;
         if (radiant_stack_is_out_of_flow_positioned(view)) {
             ViewBlock* child = lam::view_as_block(view);
             ViewBlock* containing = nullptr;
@@ -385,7 +388,8 @@ ArrayList* radiant_stack_collect_positioned_children(ViewBlock* block, const cha
     }
     ViewBlock* child = block->position ? block->positionp()->first_abs_child : nullptr;
     while (child) {
-        if (child->view_type != RDT_VIEW_NONE && !radiant_stack_is_negative_z_block(child) &&
+        if (child->view_type != RDT_VIEW_NONE && !layout_is_top_layer_box(child->as_element()) &&
+            !radiant_stack_is_negative_z_block(child) &&
             radiant_stack_positioned_paint_owner(child) == block &&
             (!radiant_stack_is_positive_z_positioned(child) || block->custom_layout_paint_prop()) &&
             !arraylist_append(views, child)) {
@@ -489,4 +493,27 @@ void radiant_stack_free_custom_layout_paint(RadiantStackPaintList* list) {
     if (!list) return;
     lam::free_owned(list->entries);
     list->count = 0;
+}
+
+void radiant_visit_top_layer(ViewTree* tree, bool reverse, void* context, RadiantTopLayerVisit visit) {
+    ViewBlock* viewport = tree ? lam::view_as_block(tree->root) : nullptr;
+    DomDocument* document = viewport ? viewport->doc.get() : nullptr;
+    if (!document || document->view_tree != tree) return;
+    size_t count = dom_top_layer_count(document);
+    for (size_t i = 0; i < count; i++) {
+        DomElement* owner = dom_top_layer_at(document, reverse ? count - i - 1 : i);
+        ViewBlock* box = lam::view_as_block(owner);
+        if (!box) continue;
+        ViewBlock* backdrop = lam::view_as_block(layout_top_layer_backdrop(owner));
+        // each entry's backdrop is directly below its principal box.
+        if (!reverse && backdrop && !visit(context, owner, backdrop)) return;
+        if (!visit(context, owner, box)) return;
+        if (reverse && backdrop && !visit(context, owner, backdrop)) return;
+    }
+}
+
+RdtLogicalPoint radiant_top_layer_offset(ViewBlock* box) {
+    RdtLogicalPoint origin = {};
+    view_get_layout_position(box, nullptr, &origin.x, &origin.y);
+    return {origin.x - box->x, origin.y - box->y};
 }

@@ -1,4 +1,5 @@
 #include "layout.hpp"
+#include "layout_anchor.hpp"
 #include "css_resolved_style.hpp"
 #include "css_alignment.hpp"
 #include "view.hpp"
@@ -1182,7 +1183,7 @@ static void resolve_inset_shorthand(LayoutContext* lycon, ViewSpan* span, const 
         if (values.side[i]->type == CSS_VALUE_TYPE_KEYWORD) {
             set_inset_side_auto(position, side);
         } else {
-            resolve_inset_sides(lycon, span, side, side, CSS_PROPERTY_INSET,
+            resolve_inset_sides(lycon, span, side, side, radiant_inset_property(side),
                                 values.side[i], false);
         }
     }
@@ -2815,6 +2816,12 @@ DisplayValue blockify_display(DisplayValue display) {
     return display;
 }
 
+DisplayValue blockify_top_layer_display(DisplayValue display) {
+    // in the top layer, even display:contents has a principal box.
+    return display.outer == CSS_VALUE_CONTENTS
+        ? DisplayValue{CSS_VALUE_BLOCK, CSS_VALUE_FLOW} : blockify_display(display);
+}
+
 DisplayValue css_default_display_for_element(DomElement* dom_elem, DomNode* node) {
     NameId tag_id = dom_elem ? dom_elem->tag_id : NAME_ID_NONE;
     // UA suppression is part of computed display before any layout adapter binds cached CSS.
@@ -3048,7 +3055,8 @@ static DisplayValue resolve_display_value_raw(void* child,
         bool is_floated = (float_value == CSS_VALUE_LEFT || float_value == CSS_VALUE_RIGHT);
         CssEnum position_value = layout_specified_keyword(
             dom_elem, CSS_PROPERTY_POSITION, CSS_VALUE_NONE);
-        bool is_abspos = (position_value == CSS_VALUE_ABSOLUTE || position_value == CSS_VALUE_FIXED);
+        bool is_abspos = position_value == CSS_VALUE_ABSOLUTE || position_value == CSS_VALUE_FIXED ||
+            layout_is_top_layer_box(dom_elem);
         // CSS Flexbox §4 / CSS Grid §6: Children of flex/grid containers have their
         // CSS Display 3 §2.5 / Flexbox §4 / Grid §9: display:contents
         // removes the wrapper from the box tree, so blockification follows the
@@ -3210,6 +3218,7 @@ static DisplayValue resolve_display_value_raw(void* child,
 DisplayValue resolve_display_value(void* child) {
     DisplayValue display = resolve_display_value_raw(child);
     DomNode* node = static_cast<DomNode*>(child);
+    if (node && layout_is_top_layer_box(node->as_element())) return blockify_top_layer_display(display);
     if (!node || !node->is_element() || !node->parent ||
         !node->parent->is_element()) {
         return display;
@@ -3286,6 +3295,15 @@ static float resolve_length_value_mode(LayoutContext* lycon, uintptr_t property,
 
 static bool css_layout_math_leaf(void* data, const CssValue* value, double* result) {
     CssLayoutMathContext* context = (CssLayoutMathContext*)data;
+    CssAnchorQuery anchor;
+    if (css_anchor_query(value, &anchor)) {
+        if (layout_resolve_anchor_query(context->layout, context->property, anchor, result)) {
+            if (context->computed_units) *result /= layout_effective_zoom(context->layout->view);
+            return true;
+        }
+        if (!anchor.fallback) return false;
+        value = anchor.fallback;
+    }
     if (value->type == CSS_VALUE_TYPE_LENGTH && !css_unit_is_length(value->data.length.unit)) {
         CssUnit canonical;
         return css_dimension_to_canonical(value->data.length.unit, value->data.length.value, &canonical, result);
@@ -6459,6 +6477,16 @@ void resolve_css_axis_size(LayoutContext* lycon, ViewBlock* block,
                 &owner, parent, declaration->value, declaration->property_code);
             if (css_value_keyword_equals(inherited, CSS_VALUE_INHERIT)) continue;
             if (!inherited) break;
+            if (css_value_contains_anchor_query(inherited)) {
+                // the child inherits the owner's computed result and anchor context.
+                float length = resolve_length_value_mode(&owner, declaration->property_code, inherited, true);
+                if (!isfinite(length)) break;
+                CssValue pixels{};
+                pixels.type = CSS_VALUE_TYPE_LENGTH;
+                pixels.data.length = {length, CSS_UNIT_PX};
+                resolve_css_axis_size(lycon, block, &pixels, axis);
+                return;
+            }
             Pool* pool = layout_prop_pool(lycon);
             CssValue* computed = css_value_clone_owned(inherited, pool);
             if (!computed) break;

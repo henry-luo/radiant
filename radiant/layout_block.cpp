@@ -1508,6 +1508,46 @@ bool layout_generated_pseudo(const DomElement* element, uint8_t* pseudo, PseudoS
     return false;
 }
 
+DomElement* layout_top_layer_backdrop(DomElement* owner) {
+    for (DomNode* node = owner ? owner->last_child.get() : nullptr; node; node = node->prev_sibling) {
+        DomElement* element = node->as_element();
+        if (layout_is_backdrop(element)) return element;
+    }
+    return nullptr;
+}
+
+void layout_top_layer_backdrops(LayoutContext* lycon) {
+    DomDocument* document = lycon->doc;
+    for (size_t i = 0; i < dom_top_layer_count(document); i++) {
+        DomElement* owner = dom_top_layer_at(document, i);
+        if (!owner || !lam::view_as_block(owner)) continue;
+        StyleTree* style = owner->pseudo_style(PSEUDO_STYLE_BACKDROP);
+        CssDeclaration* content = style ? style_tree_get_declaration(style, CSS_PROPERTY_CONTENT) : nullptr;
+        DomElement* backdrop = layout_top_layer_backdrop(owner);
+        if ((!style && !owner->is_dialog_modal()) ||
+            (content && css_value_keyword_equals(content->value, CSS_VALUE_NONE))) {
+            if (backdrop) backdrop->view_type = RDT_VIEW_NONE;
+            continue;
+        }
+        if (!backdrop) {
+            backdrop = DomElement::create(document, "::backdrop", nullptr);
+            if (!backdrop) continue;
+            // keep lifetime ownership in the generated child chain, apart from flow.
+            insert_pseudo_into_dom(owner, backdrop, false);
+        }
+        if (!style && backdrop->specified_style_borrowed()) dom_element_clear(backdrop);
+        if (style) refresh_pseudo_element_style(lycon, owner, backdrop, PSEUDO_STYLE_BACKDROP, owner->font);
+        else backdrop->display = {CSS_VALUE_BLOCK, CSS_VALUE_FLOW};
+        if (layout_display_is_none(backdrop->display)) {
+            backdrop->view_type = RDT_VIEW_NONE;
+            continue;
+        }
+        backdrop->set_needs_style_recompute(true);
+        LayoutViewScope view_scope(lycon);
+        layout_block(lycon, backdrop, backdrop->display);
+    }
+}
+
 DomElement* layout_footnote_pseudo(LayoutContext* lycon, DomElement* note, bool call) {
     if (!lycon || !note || !note->parent || !note->parent->is_element()) return nullptr;
     PseudoStyleKind kind = call ? PSEUDO_STYLE_FOOTNOTE_CALL : PSEUDO_STYLE_FOOTNOTE_MARKER;

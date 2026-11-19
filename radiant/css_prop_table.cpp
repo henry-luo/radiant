@@ -418,6 +418,8 @@ static bool format_css_value(DomElement* element, CssPropertyCode id,
     if (id == CSS_PROPERTY_GRID_TEMPLATE_COLUMNS || id == CSS_PROPERTY_GRID_TEMPLATE_ROWS ||
         id == CSS_PROPERTY_GRID_AUTO_COLUMNS || id == CSS_PROPERTY_GRID_AUTO_ROWS)
         return format_grid_computed_value(element, value, out, id, pseudo_type);
+    if (id == CSS_PROPERTY_POSITION_AREA &&
+        css_anchor_serialize_position_area(out, value, true)) return true;
     if (id == CSS_PROPERTY_OVERFLOW_CLIP_MARGIN)
         return format_overflow_clip_margin_computed_value(element, value, out, pseudo_type);
     if (id == CSS_PROPERTY_LINE_CLAMP || id == CSS_PROPERTY_WEBKIT_LINE_CLAMP)
@@ -1694,10 +1696,20 @@ static bool serialize_cursor(const CssPropAccessor*, DomElement* element, int ps
     return true;
 }
 
-static bool serialize_display(const CssPropAccessor*, DomElement* element, int pseudo_type,
+static bool serialize_display(const CssPropAccessor* accessor, DomElement* element, int pseudo_type,
                               StringBuf* out) {
-    if (!element || pseudo_type != 0) return false;
-    DisplayValue display = resolve_display_value(element);
+    if (!element) return false;
+    DisplayValue display;
+    if (pseudo_type == 0) display = resolve_display_value(element);
+    else if (pseudo_type == PSEUDO_ELEMENT_BACKDROP && element->is_in_top_layer()) {
+        display = {CSS_VALUE_BLOCK, CSS_VALUE_FLOW};
+        // computed backdrop display uses the same blockification before a box exists.
+        CssomValueTarget target = {[](DomElement* declaring, const CssValue* value, int, void* result) {
+            return value && css_resolve_display_css_value(declaring, value, static_cast<DisplayValue*>(result));
+        }, &display};
+        consume_cascaded_value(element, CSS_PROPERTY_DISPLAY, pseudo_type, nullptr, false, &target);
+        display = blockify_top_layer_display(display);
+    } else return serialize_decl(accessor, element, pseudo_type, out);
     const char* special = css_display_special_name(display);
     if (special) return copy_text(out, special);
     if (display.outer == CSS_VALUE_NONE) return copy_text(out, "none");
@@ -2266,8 +2278,13 @@ static const CssPropAccessor CSS_PROP_ROWS[] = {
     DERIVED_ROW(CSS_PROPERTY_COLOR_INTERPOLATION, serialize_svg_paint, CSS_PROP_ACCESSOR_CASCADE_RESOLVED),
     DERIVED_ROW(CSS_PROPERTY_COLOR_INTERPOLATION_FILTERS, serialize_svg_paint, CSS_PROP_ACCESSOR_CASCADE_RESOLVED),
     DERIVED_ROW(CSS_PROPERTY_TEXT_ANCHOR, serialize_svg_paint, CSS_PROP_ACCESSOR_CASCADE_RESOLVED),
-    DERIVED_ROW(CSS_PROPERTY_DISPLAY, serialize_display, CSS_PROP_ACCESSOR_CASCADE_RESOLVED),
+    DERIVED_ROW(CSS_PROPERTY_DISPLAY, serialize_display,
+                CSS_PROP_ACCESSOR_CASCADE_RESOLVED | CSS_PROP_ACCESSOR_PSEUDO_RESOLVED),
     DIRECT_ROW(CSS_PROPERTY_POSITION, PROP_GROUP_POSITION, PositionProp, position, CSS_PROP_VALUE_ENUM, 0),
+    DERIVED_ROW(CSS_PROPERTY_ANCHOR_NAME, serialize_decl, CSS_PROP_ACCESSOR_CASCADE_RESOLVED),
+    DERIVED_ROW(CSS_PROPERTY_ANCHOR_SCOPE, serialize_decl, CSS_PROP_ACCESSOR_CASCADE_RESOLVED),
+    DERIVED_ROW(CSS_PROPERTY_POSITION_ANCHOR, serialize_decl, CSS_PROP_ACCESSOR_CASCADE_RESOLVED),
+    DERIVED_ROW(CSS_PROPERTY_POSITION_AREA, serialize_decl, CSS_PROP_ACCESSOR_CASCADE_RESOLVED),
     DERIVED_ROW(CSS_PROPERTY_TOP, serialize_inset, CSS_PROP_ACCESSOR_USED_VALUE),
     DERIVED_ROW(CSS_PROPERTY_RIGHT, serialize_inset, CSS_PROP_ACCESSOR_USED_VALUE),
     DERIVED_ROW(CSS_PROPERTY_BOTTOM, serialize_inset, CSS_PROP_ACCESSOR_USED_VALUE),
@@ -2362,6 +2379,7 @@ static const CssPropAccessor CSS_PROP_ROWS[] = {
     DECL_ROW(CSS_PROPERTY_FLEX_DIRECTION),
     DECL_ROW(CSS_PROPERTY_FLEX_WRAP),
     DECL_ROW(CSS_PROPERTY_JUSTIFY_CONTENT),
+    DECL_ROW(CSS_PROPERTY_JUSTIFY_ITEMS),
     DECL_ROW(CSS_PROPERTY_ALIGN_ITEMS),
     DECL_ROW(CSS_PROPERTY_ALIGN_CONTENT),
     DERIVED_ROW(CSS_PROPERTY_PLACE_CONTENT, serialize_place_content, 0),

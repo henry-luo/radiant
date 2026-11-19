@@ -4148,6 +4148,9 @@ typedef struct LayoutContext {
     bool abspos_static_size_override_y;
     // borrowed stack state only for the positioned child currently being formatted.
     lam::Up<struct AbsChildLayoutState> abspos_grid_area;
+    lam::Up<const struct LayoutAnchorSnapshot> anchor_snapshot;
+    lam::Up<struct LayoutAnchorFrame> anchor_frame;
+    size_t anchor_dependencies;
     // CSS Position 3 sticky constraints require final scrollport and containing-block geometry.
     bool defer_sticky_positioning;
     // Final sticky resolution touches only candidates seen during this layout pass.
@@ -4802,6 +4805,8 @@ bool layout_generated_pseudo(const DomElement* element, uint8_t* pseudo, PseudoS
 // the page flow's footnote call (in the note's place among its parent's children,
 // the note staying its parent) or marker (the note's first child), CSS GCPM 3 §2.3
 DomElement* layout_footnote_pseudo(LayoutContext* lycon, DomElement* note, bool call);
+DomElement* layout_top_layer_backdrop(DomElement* owner);
+void layout_top_layer_backdrops(LayoutContext* lycon);
 // generated text shown inside `owner` (a page document's folio): a synthetic
 // "::generated" first child holding `text`, refreshed in place
 DomElement* layout_generated_text(DomElement* owner, const char* text);
@@ -5659,8 +5664,18 @@ bool layout_image_intrinsic_size(DomElement* element, ImageSurface* image,
                                  float* out_width, float* out_height);
 float layout_view_children_bottom(ViewBlock* block, bool block_only);
 
+inline bool layout_is_backdrop(DomElement* element) {
+    return element && element->is_synthetic() && element->tag_name &&
+        strcmp(element->tag_name, "::backdrop") == 0;
+}
+
+inline bool layout_is_top_layer_box(DomElement* element) {
+    return element && (element->is_in_top_layer() || layout_is_backdrop(element));
+}
+
 inline bool layout_element_is_abs_or_fixed(DomElement* element) {
     if (!element) return false;
+    if (layout_is_top_layer_box(element)) return true;
     CssEnum position = layout_specified_keyword(
         element, CSS_PROPERTY_POSITION, CSS_VALUE_STATIC);
     return layout_position_is_abs_fixed(element->position) ||

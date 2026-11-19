@@ -2565,6 +2565,7 @@ void render_walk_positioned_children(RenderBackend* backend, RenderWalkState* st
 void render_walk_positive_z_descendants(RenderBackend* backend, RenderWalkState* state, View* owner);
 void render_walk_negative_z_descendants(RenderBackend* backend, RenderWalkState* state, ViewBlock* block);
 void render_walk_view_one(RenderBackend* backend, RenderWalkState* state, View* view);
+void render_walk_document(RenderBackend* backend, RenderWalkState* state, ViewTree* tree);
 
 RadiantStackPaintList radiant_stack_collect_custom_layout_paint(ViewBlock* block);
 void radiant_stack_free_custom_layout_paint(RadiantStackPaintList* list);
@@ -3328,6 +3329,9 @@ bool radiant_video_events_pending(DocState* state);
 bool radiant_stack_is_positive_z_positioned(View* view);
 bool radiant_stack_is_negative_z_block(View* view);
 bool radiant_stack_is_context(View* view);
+typedef bool (*RadiantTopLayerVisit)(void* context, DomElement* owner, ViewBlock* box);
+void radiant_visit_top_layer(ViewTree* tree, bool reverse, void* context, RadiantTopLayerVisit visit);
+RdtLogicalPoint radiant_top_layer_offset(ViewBlock* box);
 bool radiant_stack_is_float(View* view);
 bool radiant_stack_is_paint_atomic(View* view);
 unsigned radiant_stack_flow_phases(View* first_child);

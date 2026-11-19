@@ -997,7 +997,8 @@ static RenderBackend svg_make_backend(SvgRenderContext* ctx) {
 static void calculate_visible_content_bounds(View* view, Bound clip,
                                                RdtMatrix transform,
                                                bool apply_clips, Bound* extent) {
-    if (!view) return;
+    // top-layer geometry is painted against the viewport and adds no document overflow.
+    if (!view || layout_is_top_layer_box(view->as_element())) return;
     RdtLogicalPoint origin = {};
     // inline descendants already use their flow's coordinates; their inline ancestors add no translation.
     view_get_layout_position(view, nullptr, &origin.x, &origin.y);
@@ -1135,7 +1136,10 @@ char* render_view_tree_to_svg(UiContext* uicon, View* root_view, float width, fl
     walk_state.ui_context = lam::up(uicon);
 
     if (root_view->view_type == RDT_VIEW_BLOCK) {
-        render_walk_block(&backend, &walk_state, lam::view_require_block(root_view));
+        ViewBlock* root = lam::view_require_block(root_view);
+        ViewTree* tree = root->doc ? root->doc->view_tree.get() : nullptr;
+        if (tree && tree->root == root_view) render_walk_document(&backend, &walk_state, tree);
+        else render_walk_block(&backend, &walk_state, root);
     } else {
         render_walk_children(&backend, &walk_state, root_view);
     }

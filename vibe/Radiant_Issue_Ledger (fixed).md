@@ -14,6 +14,21 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-029"></a>
+
+### RI-029 — Modal dialogs and backdrops paint in the document top layer
+
+**Fixed 2026-11-19.** Input's document top layer supplies the order shared by
+dialog and popover boxes. Radiant lays out each box independently of ancestor
+clips, transforms and stacking contexts. Raster and vector exports draw
+backdrops and foregrounds in entry order. Hit testing uses the reverse order
+and the flat-tree inertness predicate. The Leaflet reference page originally
+showed ordinary page text over its modal and lacked its dim backdrop. The
+pinned `top-layer-position`, `dialog-inert` and `dialog-showModal` checks and
+the focused overlay reproduction cover stacking, hit targets and focus.
+Discrete overlay transition lifetimes and native close watcher integration
+remain open under JS13-L13 (**D9.1.1v4 / D9.1.3v2 / D9.5.6v2**).
+
 <a id="ri-141"></a>
 
 ### RI-141 — Multicol projection loses inline geometry and adjoining margins

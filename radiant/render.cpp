@@ -154,7 +154,7 @@ void render_embed_doc(RasterRenderContext* rdcon, ViewBlock* block) {
                     render_image_view(rdcon, root_block);
                 } else {
                     // Regular HTML document - render with background
-                    render_block_view(rdcon, root_block);
+                    render_raster_view_tree(rdcon, doc->view_tree);
                 }
                 if (doc->state) {
                     render_ui_overlays(rdcon, doc->state);

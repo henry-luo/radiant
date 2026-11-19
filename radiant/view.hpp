@@ -435,7 +435,7 @@ enum ContentVisibilityCheck { CONTENT_VISIBILITY_PAINT, CONTENT_VISIBILITY_USER_
 bool view_content_visibility_hides(DomElement* element, ContentVisibilityCheck check,
                                     bool include_self = false);
 bool view_is_viewport_fixed(View* view);
-RdtLogicalPoint view_geometry_fixed_scroll_adjustment(View* view);
+RdtLogicalPoint view_geometry_positioned_scroll_adjustment(View* view);
 bool rdt_matrix4_backface_visible(const RdtMatrix4* matrix);
 bool view_get_foreign_object_matrix(View* view, RdtMatrix* out_matrix, bool include_self_transform = true);
 // maps border-box local coordinates to the document viewport, including CSS/SVG transforms.
@@ -2043,6 +2043,9 @@ typedef struct PositionProp {
         bool inset_present[4];
     };  // which offsets are set
     bool has_custom_layout_z_index;
+    uint8_t anchor_scroll_axes;
+    DomNodeRef anchor_scroll_target;
+    RdtLogicalPoint anchor_scroll_origin;
     float inline_relative_x, inline_relative_y; // offsets already applied in the parent inline frame
     CssEnum clear;        // clear property for floats
     CssEnum float_prop;   // float property (left, right, none)
@@ -4416,6 +4419,7 @@ bool css_is_mathml_element(const DomElement* element);
 bool layout_resolve_contain_intrinsic_size(LayoutContext* lycon, DomElement* element,
                                            float* out_width, float* out_height);
 DisplayValue blockify_display(DisplayValue display);
+DisplayValue blockify_top_layer_display(DisplayValue display);
 bool css_display_is_ruby_internal(CssEnum display);
 bool css_display_is_ruby_role(CssEnum display);
 CssEnum css_ruby_compute_unicode_bidi(CssEnum value);

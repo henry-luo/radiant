@@ -2,6 +2,7 @@
 #include "lib/host_paths.h"
 #include "geomap.hpp"
 #include "layout.hpp"
+#include "layout_anchor.hpp"
 #include "css_resolved_style.hpp"
 #include "view.hpp"
 #include "render.hpp"
@@ -1380,12 +1381,16 @@ bool view_is_viewport_fixed(View* view) {
         !(root->blk && root->block()->contain_positioning);
 }
 
-RdtLogicalPoint view_geometry_fixed_scroll_adjustment(View* view) {
+RdtLogicalPoint view_geometry_positioned_scroll_adjustment(View* view) {
     RdtLogicalPoint delta = {};
+    if (!view || layout_is_top_layer_box(view->as_element())) return delta;
     if (view_is_viewport_fixed(view)) {
         // viewport-fixed boxes exclude root scroll in paint and hit coordinate frames.
         scroll_state_resolve_view_geometry(view_document_root_block(view), &delta.x, &delta.y, nullptr);
     }
+    RdtLogicalPoint anchored = layout_anchor_scroll_adjustment(lam::view_as_block(view));
+    delta.x += anchored.x;
+    delta.y += anchored.y;
     return delta;
 }
 
@@ -1427,6 +1432,9 @@ void view_get_layout_position(View* view, TextRect* rect, float* out_x, float* o
     float abs_x = rect ? rect->x : view->x;
     float abs_y = rect ? rect->y : view->y;
     ViewBlock* block = view->is_block() ? lam::view_require_block(view) : nullptr;
+    RdtLogicalPoint anchored = layout_anchor_scroll_adjustment(block);
+    abs_x += anchored.x;
+    abs_y += anchored.y;
     bool is_fixed = view_block_has_position(block, CSS_VALUE_FIXED);
     bool is_absolute = view_block_has_position(block, CSS_VALUE_ABSOLUTE);
     ViewBlock* root = view_document_root_block(view);

@@ -40,7 +40,7 @@ static void render_raster_retained_media(RasterRenderContext* rdcon, ViewBlock* 
 static void render_raster_dispatch_block(RasterRenderContext* rdcon, ViewBlock* block,
                                          bool skip_positioned_in_normal_flow) {
     if (!rdcon || !block) return;
-    RdtLogicalPoint fixed = view_geometry_fixed_scroll_adjustment(block);
+    RdtLogicalPoint fixed = view_geometry_positioned_scroll_adjustment(block);
     struct FixedFrameScope {
         RasterRenderContext* context;
         BlockBlot saved;
@@ -257,6 +257,17 @@ void render_children(RasterRenderContext* rdcon, View* view, bool defer_position
         time_elapsed_ms_f(trc_start, trc_end));
 }
 
+static bool render_raster_top_layer_box(void* context, DomElement*, ViewBlock* box) {
+    RasterRenderContext* rdcon = (RasterRenderContext*)context;
+    BlockBlot saved = rdcon->block;
+    RdtLogicalPoint offset = radiant_top_layer_offset(box);
+    rdcon->block.x += offset.x * rdcon->raster_scale;
+    rdcon->block.y += offset.y * rdcon->raster_scale;
+    render_raster_stacking_view(rdcon, box);
+    rdcon->block = saved;
+    return true;
+}
+
 void render_raster_view_tree(RasterRenderContext* rdcon, ViewTree* view_tree) {
     if (!rdcon || !view_tree) return;
 
@@ -264,6 +275,7 @@ void render_raster_view_tree(RasterRenderContext* rdcon, ViewTree* view_tree) {
     if (root_view && root_view->view_type == RDT_VIEW_BLOCK) {
         // the document root has no parent stacking pass to recover a deferred positioned box.
         render_raster_stacking_view(rdcon, root_view);
+        radiant_visit_top_layer(view_tree, false, rdcon, render_raster_top_layer_box);
     } else {
         log_error("Invalid root view");
     }

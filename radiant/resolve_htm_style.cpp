@@ -1388,6 +1388,16 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
     NameId elmt_name = elmt->tag();
     if (elmt->is_element()) {
         DomElement* dom_elem = elmt->as_element();
+        if (layout_is_backdrop(dom_elem)) {
+            PositionProp* position = block->ensure_position(lycon);
+            position->position = CSS_VALUE_FIXED;
+            position->top = position->right = position->bottom = position->left = 0.0f;
+            position->has_top = position->has_right = position->has_bottom = position->has_left = true;
+            DomElement* owner = dom_elem->parent ? dom_elem->parent->as_element() : nullptr;
+            if (owner && owner->is_dialog_modal())
+                apply_html_background_color(lycon, block, Color{.r=0, .g=0, .b=0, .a=26});
+            return;
+        }
         const char* namespace_uri = dom_elem->get_attribute("__lambda_ns_uri");
         if (namespace_uri &&
             strcmp(namespace_uri, "http://www.w3.org/1999/xhtml") != 0) {

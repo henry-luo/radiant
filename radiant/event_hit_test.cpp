@@ -333,7 +333,7 @@ void target_block_view(EventContext* evcon, ViewBlock* block) {
             return; // a singular transform has no hittable painted area.
         }
     }
-    RdtLogicalPoint fixed = view_geometry_fixed_scroll_adjustment(block);
+    RdtLogicalPoint fixed = view_geometry_positioned_scroll_adjustment(block);
     evcon->block.x = pa_block.x + block->x + fixed.x - layer_parent_offset.x;
     evcon->block.y = pa_block.y + block->y + fixed.y - layer_parent_offset.y;
     MousePositionEvent* event = &evcon->event.mouse_position;
@@ -620,6 +620,24 @@ void target_block_view(EventContext* evcon, ViewBlock* block) {
     log_leave();
 }
 
+static bool target_top_layer_box(void* context, DomElement* owner, ViewBlock* box) {
+    EventContext* evcon = (EventContext*)context;
+    bool backdrop = box->as_element() != owner;
+    if (backdrop && owner->is_popover_open()) return true;
+    BlockBlot saved = evcon->block;
+    RdtLogicalPoint offset = radiant_top_layer_offset(box);
+    evcon->block.x += offset.x;
+    evcon->block.y += offset.y;
+    target_stacking_view(evcon, box);
+    if (evcon->target) {
+        // expose the originating dialog as the pointer target for its backdrop.
+        if (backdrop) evcon->target = lam::up(static_cast<View*>(owner));
+        return false;
+    }
+    evcon->block = saved;
+    return true;
+}
+
 void target_html_doc(EventContext* evcon, ViewTree* view_tree) {
     if (!evcon || !view_tree) return;
     // embedded documents own their complete stack, even inside an outer foreground visit.
@@ -637,7 +655,8 @@ void target_html_doc(EventContext* evcon, ViewTree* view_tree) {
         FontProp* default_font = view_tree->html_version == HTML5 ? &evcon->ui_context->default_font : &evcon->ui_context->legacy_default_font;
         log_debug("target_html_doc default font: %s, html version: %d", default_font->family, view_tree->html_version);
         setup_font(evcon->ui_context, &evcon->font, default_font);
-        target_block_view(evcon, lam::view_require_block(root_view));
+        radiant_visit_top_layer(view_tree, true, evcon, target_top_layer_box);
+        if (!evcon->target) target_block_view(evcon, lam::view_require_block(root_view));
         evcon->font = pa_font;
     }
     else {
@@ -678,6 +697,12 @@ static void* radiant_element_from_point(DomDocument* doc, DomElement* root, floa
     uicon->document = lam::up(saved_document);
     DomElement* element = view_geometry_nearest_dom_element(
         static_cast<DomNode*>(evcon.target), 0);
+    if (!element && !root && dom_top_modal_dialog(doc) &&
+        x >= 0.0f && y >= 0.0f && x < uicon->viewport_width && y < uicon->viewport_height) {
+        // CSSOM View falls back to the document element when inertness
+        // suppresses every box at a point in the viewport.
+        element = doc->root;
+    }
     void* hit = element;
     return hit;
 }

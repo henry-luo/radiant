@@ -1182,8 +1182,9 @@ static void collect_external_resource_urls(Element* elem, DomElement* dom_root, 
     }
 
 recurse:
-    for (int64_t i = 0; i < elem->length; i++) {
-        Item child_item = elem->items[i];
+    DomParsedChildren children = dom_parsed_children(dom_root ? dom_root->doc.get() : nullptr, elem);
+    for (int64_t i = 0; i < children.length(); i++) {
+        Item child_item = children.at(i);
         if (get_type_id(child_item) == LMD_TYPE_ELEMENT) {
             collect_external_resource_urls(child_item.element, dom_root, base_path,
                                             out_urls, out_count, out_capacity, kind, depth + 1);
@@ -1442,27 +1443,29 @@ static void collect_stylesheets_in_document_order(Element* elem, DomElement* dom
     if (depth > MAX_RADIANT_CSS_TREE_DEPTH || radiant_source_is_inert_template(dom_root, elem)) return;
 
     TypeElmt* type = (TypeElmt*)elem->type;
+    int first_sheet = *count;
+    DomElement* owner = nullptr;
     if (type) {
         if (str_ieq_cstr(type->name.str, "link")) {
-            int before = *count;
+            owner = dom_find_element_for_source(dom_root, elem);
             load_linked_stylesheet(elem, engine, base_path, pool,
                                    stylesheets, count, capacity);
-            if (linked_count && *count > before) {
-                *linked_count += *count - before;
+            if (linked_count && *count > first_sheet) {
+                *linked_count += *count - first_sheet;
             }
-            DomElement* owner = dom_find_element_for_source(dom_root, elem);
-            for (int i = before; i < *count; i++) {
+            for (int i = first_sheet; i < *count; i++) {
                 (*stylesheets)[i]->owner_element = owner;
             }
-            if (*count > before) {
+            if (*count > first_sheet) {
                 // retain the sheet for CSSOM enabling, but keep an initially
                 // disabled link and its imports out of the first cascade.
                 const char* title = extract_element_attribute(elem, "title", nullptr);
                 const char* rel = extract_element_attribute(elem, "rel", nullptr);
-                (*stylesheets)[before]->disabled = elem->has_attr("disabled") ||
+                (*stylesheets)[first_sheet]->disabled = elem->has_attr("disabled") ||
                     (title && *title && radiant_html_has_token(rel, "alternate"));
             }
         } else if (str_ieq_cstr(type->name.str, "style")) {
+            owner = dom_find_element_for_source(dom_root, elem);
             // media controls activation, not the existence of the CSSOM sheet.
             InlineStyleTextChunk* chunks = (InlineStyleTextChunk*)pool_alloc(
                 pool, (size_t)elem->length * sizeof(InlineStyleTextChunk));
@@ -1477,14 +1480,22 @@ static void collect_stylesheets_in_document_order(Element* elem, DomElement* dom
                     }
                 }
                 parse_inline_style_chunks(engine, chunks, chunk_count,
-                    dom_find_element_for_source(dom_root, elem), base_path, pool,
+                    owner, base_path, pool,
                     stylesheets, count, capacity);
             }
         }
     }
+    if (*count > first_sheet && owner && dom_shadow_root(owner)) {
+        // the primary sheet owns its imports. Expose that sheet only inside its root.
+        CssStylesheet* sheet = (*stylesheets)[first_sheet];
+        sheet->owner_document = owner->doc;
+        if (DomElementExt* state = owner->ensure_ext()) state->shadow_inline_stylesheet = lam::up(sheet);
+        *count = first_sheet;
+    }
 
-    for (int64_t i = 0; i < elem->length; i++) {
-        Item child_item = elem->items[i];
+    DomParsedChildren children = dom_parsed_children(dom_root ? dom_root->doc.get() : nullptr, elem);
+    for (int64_t i = 0; i < children.length(); i++) {
+        Item child_item = children.at(i);
         if (get_type_id(child_item) == LMD_TYPE_ELEMENT) {
             collect_stylesheets_in_document_order(child_item.element, dom_root, engine,
                                                   base_path, pool, stylesheets,
@@ -2424,7 +2435,8 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
     if (input) {
         input->ui_mode = true;
         Html5ParseOptions parse_opts = { .track_source_lines = track_source_lines,
-                                         .scripting_disabled = scripting_disabled };
+                                         .scripting_disabled = scripting_disabled,
+                                         .allow_declarative_shadow_roots = true };
         parsed_document = xhtml
             ? parse_xhtml_document(input, html_content, html_length, track_source_lines)
             : html5_parse_n(input, html_content, html_length, &parse_opts);

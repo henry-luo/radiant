@@ -8529,13 +8529,11 @@ static void focus_collect_candidates_inner(View* view, ArrayList* list, bool seq
     if (focusable) {
         arraylist_append(list, view);
     }
-    // recurse into children (only element nodes have children)
+    // candidate order follows the same slot projection as focus and modal inertness.
     if (view->is_element()) {
         DomElement* elem = lam::dom_require_element(view);
-        DomNode* child = elem->first_child;
-        while (child) {
+        for (DomNode* child = layout_paint_first_child(elem); child; child = layout_paint_next(child)) {
             focus_collect_candidates_inner(static_cast<View*>(child), list, sequential_only);
-            child = child->next_sibling;
         }
     }
 }
