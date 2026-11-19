@@ -6618,7 +6618,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     } else if (width_is_inline_axis && min_width_keyword == CSS_VALUE_MAX_CONTENT) {
         min_border_box = max(min_border_box, intrinsic_max_width);
     }
-    if (min_border_box >= 0.0f) {
+    if (!content_only && min_border_box >= 0.0f) {
         min_border_box = layout_floor_border_box_axis(view_for_minmax, min_border_box, true);
         sizes.min_content = max(sizes.min_content, min_border_box);
         sizes.max_content = max(sizes.max_content, min_border_box);
@@ -6643,7 +6643,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     } else if (width_is_inline_axis && max_width_keyword == CSS_VALUE_MAX_CONTENT) {
         max_border_box = intrinsic_max_width;
     }
-    if (max_border_box >= 0.0f &&
+    if (!content_only && max_border_box >= 0.0f &&
         (!view_for_minmax->blk || view_for_minmax->block()->given_max_width_type != CSS_VALUE_STRETCH) &&
         max_width_keyword != CSS_VALUE_FIT_CONTENT &&
         !(max_width_is_percentage && percentage_size_is_intrinsic_auto)) {
@@ -6670,11 +6670,12 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     sizes.max_content = max(sizes.max_content, sizes.min_content);
     CssEnum preferred_width_keyword = layout_intrinsic_preferred_size_keyword(
         view_for_minmax, true);
-    if (width_is_inline_axis && preferred_width_keyword == CSS_VALUE_MAX_CONTENT) {
+    // content-only queries measure text and descendants, not this box's constraints.
+    if (!content_only && width_is_inline_axis && preferred_width_keyword == CSS_VALUE_MAX_CONTENT) {
         // A max-content preferred size raises the min-content contribution;
         // otherwise an auto-width parent can shrink below the specified size.
         sizes.min_content = sizes.max_content;
-    } else if (width_is_inline_axis && preferred_width_keyword == CSS_VALUE_MIN_CONTENT) {
+    } else if (!content_only && width_is_inline_axis && preferred_width_keyword == CSS_VALUE_MIN_CONTENT) {
         // A min-content preferred size caps the max-content contribution;
         // otherwise shrink-to-fit parents incorrectly expand the child.
         sizes.max_content = sizes.min_content;
@@ -7973,6 +7974,9 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
     } else if (is_grid_container && content_w > 0.0f &&
                !layout_block_inline_axis_is_vertical(view)) {
         height = measure_grid_height_at_width(lycon, view, content_w);
+    } else if (is_flex_container && content_w > 0.0f &&
+               !layout_block_inline_axis_is_vertical(view)) {
+        height = measure_flex_height_at_width(lycon, view, content_w);
     } else if (is_grid_container && grid_column_count > 1) {
         // Collect child heights
         int child_count = 0;

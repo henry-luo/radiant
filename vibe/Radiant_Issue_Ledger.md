@@ -20,6 +20,57 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-148"></a>
+### RI-148 — Superhuman hero and navigation geometry remain different
+
+**Open, cause unconfirmed, 2026-11-19.** Native ownership **D9.1.1v4 /
+D9.1.3v2**. After RI-146 restores foreground colors, the live1200x800 capture
+still places the large portrait to the left of its browser position, places
+the editor overlay lower and clips the sign-in control. Headline wrapping also
+differs. The page remains manually high. Saved source uses a grid stack,
+a stretched flex figure and an aspect-ratio picture. Those facts do not yet
+prove a grid/percentage, flex or replaced-element cause. Isolate its geometry;
+do not change authored widths or add page-specific placement. Evidence:
+Lambda temp/online-visual-round91/superhuman-qualified/ and prior84/source.html.
+No blocker for independent repairs.
+
+Round92 investigation confirms isolated defects: flex bases treat min/max
+constraints as preferred sizes, content-only intrinsic widths retain the box's
+own constraints, and horizontal flex-item flow skips paragraph setup. Candidate
+repairs pass39 focused checks, including grid-parent text-fragment rollback;
+14 flex geometry controls agree with Chromium. These remain **unqualified WIP**:
+the live heading wraps to three lines and native trial flex flow substantially
+increases traversal and memory. Full selected-flow rollback follows **D5.5.1**,
+but the measurement needs a sizing-only pass before publication. The comparison
+and root executable remain round91; no page clearance is claimed. Evidence and
+next step: `../../temp/online-visual-round92/checkpoint.md`. Work stopped at the
+user's wrap-up request; no formal ruling changes.
+
+<a id="ri-147"></a>
+### RI-147 — Automatic UA palette changes for color-scheme remain unsupported
+
+**Partial, 2026-11-19.** Native ownership **D9.1.1v4 / D9.1.3v2**.
+RI-146 supplies authored contextual colors and CSSOM with the selected scheme.
+It does not retheme initial Canvas/CanvasText, default document backdrops,
+form controls or scrollbars. The generic initial foreground remains black;
+color-scheme's dispatch intentionally stores no new UA theme state. This is
+a separate missing UI palette capability, not a reason to override authored
+colors. [CSS Color Adjustment](https://www.w3.org/TR/css-color-adjust-1/#color-scheme-effect)
+defines the broader UA effects. No blocker for independent native fixes.
+
+<a id="ri-146"></a>
+### RI-146 — FIXED
+
+Contextual color consumers share authored scheme selection and inherit the
+parent's computed foreground. See the [fixed record](<Radiant_Issue_Ledger (fixed).md#ri-146>).
+
+
+<a id="ri-145"></a>
+
+### RI-145 — FIXED
+
+Detached text replacement accepts its registered allocation owner; see the [fixed record](<Radiant_Issue_Ledger (fixed).md#ri-145>).
+
 ### RI-144 — FIXED
 
 Direct `:focus` and `:focus-visible` selectors recascade the affected focus

@@ -2961,6 +2961,7 @@ void apply_anonymous_flex_text_geometry(FlexContainerLayout* flex_layout);
 float flex_measure_intrinsic_max_height(LayoutContext* lycon, DomNode* node, float width,
                                         float percentage_containing_width = -1.0f,
                                         bool width_is_used_size = false);
+float measure_flex_height_at_width(LayoutContext* lycon, ViewBlock* container, float width);
 float flex_item_explicit_ratio_basis(ViewElement* item, bool main_is_horizontal);
 bool flex_height_is_parent_constrained(LayoutContext* context, ViewBlock* container,
                                        bool include_column_main_size,

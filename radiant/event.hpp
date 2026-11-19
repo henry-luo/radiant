@@ -1374,7 +1374,8 @@ bool dom_text_replace_data_contents(DocState* state, struct DomText* text,
                                     uint32_t offset, uint32_t count,
                                     const char* replacement,
                                     size_t replacement_bytes,
-                                    uint32_t replacement_u16_len);
+                                    uint32_t replacement_u16_len,
+                                    DomDocument* owner_document = nullptr);
 
 // Range methods —---------------------------------------------------------
 bool dom_range_delete_contents(DomRange* r, const char** out_exception);

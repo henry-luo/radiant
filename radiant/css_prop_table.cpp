@@ -656,7 +656,9 @@ static bool consume_inherited_decl(DomElement* element, CssPropertyCode id,
                     serialized->chars, serialized->len, scratch) : nullptr;
                 if (!source || !css_color_compute(source->value, &current)) return false;
             }
-            if (!css_color_compute(value, &computed_color, &current)) return false;
+            LayoutContext scheme_context = cssom_value_context(element, scratch_pool());
+            bool dark = resolve_color_scheme_is_dark(&scheme_context, pseudo_type);
+            if (!css_color_compute(value, &computed_color, &current, &dark)) return false;
             // CSSOM's temporary tree belongs to this read; authored and registered expressions stay immutable.
             value = css_value_create_computed_color(scratch_pool(), &computed_color);
             if (!value) return false;

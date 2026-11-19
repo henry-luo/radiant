@@ -14,6 +14,53 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-146"></a>
+### RI-146 — Contextual colors use no scheme and inherited colors replay declarations
+
+**Fixed 2026-11-19.** Native ownership follows **D9.1.1v4 / D9.1.3v2**;
+computed-value ownership follows **D5.5.1**. No formal ruling changes.
+
+The color consumer now supplies the used authored scheme from cascaded ancestry,
+resolving variable offers at their declaration owner and respecting normal,
+inheritance, reset and pseudo contexts. CSSOM shares that resolver. Implicit
+foreground inheritance previously replayed a parent's expression at each child;
+it now reuses the existing computed-color inheritance path. A light parent and
+dark child retain the parent's red foreground. CurrentColor mixes and shadowed
+custom variables likewise compute once at their actual owner.
+
+Seven Input tests and25 focused PNG controls pass (20 new contextual controls,
+five existing Lab controls). Nineteen of20 new controls fail the saved renderer;
+all20 agree with Chromium. Computed-style mirrors cover19 flat-color controls.
+Integer lint passes89casts with0unmarked. No frame, budget, vendor or page
+condition changes. No broad baseline is repeated for this bounded milestone.
+
+Superhuman's white/light text and borders are restored at its existing1000ms
+request. Mean error falls10.73% to8.79%, changed area23.88% to19.56%. The page
+remains high for portrait/overlay placement and clipped navigation (RI-148).
+Automatic UA dark palettes/form themes are not implemented (RI-147); this
+qualification covers authored contextual colors. Evidence: Lambda round91.
+
+<a id="ri-145"></a>
+### RI-145 — Detached text replacement loses its allocation document
+
+**Status:** FIXED, 2026-11-19. **D5.5.1** requires allocation
+in the node's actual owner; native boundaries follow **D9.1.1v4 / D9.1.3v2**.
+
+A detached Text.data or replaceData write returns without changing content.
+The replacement helper walks ancestors for its document and therefore passes
+null to dom_document_create_string. It now accepts the DOM caller's registered
+owner as a fallback, checking registry membership before allocating. Connected
+nodes retain ancestor resolution; no synthetic parent or layout state is added.
+Main and foreign-document regressions cover repeated writes and observer
+oldValues. All21 focused native controls pass; qualification is recorded with LR12-64
+in Lambda's round90 evidence.
+
+The required integer lint initially inherited Lambda's parent sgconfig and
+failed on its absent custom Lambda grammar library. Radiant now has its own
+native-rule config, preserving standalone/submodule policy independence.
+The owner make lint command checks89casts with0unmarked.
+
+
 <a id="ri-144"></a>
 
 ### RI-144 — Focus changes recascade unrelated subtrees

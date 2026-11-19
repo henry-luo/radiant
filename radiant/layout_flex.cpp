@@ -2140,54 +2140,17 @@ float calculate_flex_basis(ViewElement* item, FlexContainerLayout* flex_layout) 
         return is_horizontal ? stretch_cross_size * replaced_natural_aspect_ratio
                              : stretch_cross_size / replaced_natural_aspect_ratio;
     }
-    // Case 2c: aspect-ratio with inferred cross-axis size
-    // CSS Sizing Level 4 §7.2: transferred constraints from cross axis to main axis.
-    // When an item has aspect-ratio and no explicit main/cross sizes, but has:
-    if (item->fi && item->fi->aspect_ratio > 0.0f) {
-        float r = item->fi->aspect_ratio;
+    // only a definite stretched cross size supplies a ratio-derived flex base.
+    // min/max constraints clamp intrinsic sizing; they are not preferred sizes.
+    if (item->fi && item->fi->aspect_ratio > 0.0f &&
+        flex_layout->has_definite_cross_size &&
+        flex_item_will_stretch_cross_axis(item, flex_layout) &&
+        flex_layout->cross_axis_size > 0.0f) {
         ViewBlock* item_block = lam::view_as_block(item);
-
-        bool cross_is_horizontal = !is_horizontal;
-        float cross_min = layout_positive_min_axis(item_block, cross_is_horizontal);
-        float cross_max = layout_positive_max_axis_or(item_block, cross_is_horizontal, -1.0f);
-
-        bool is_stretch = flex_item_will_stretch_cross_axis(item, flex_layout);
-
-        float effective_cross = 0.0f;
-
-        if (is_stretch && flex_layout->cross_axis_size > 0) {
-            effective_cross = flex_layout->cross_axis_size;
-            // An item with max-height (or max-width for column) cannot exceed that
-            // limit even when stretched, per CSS Flexbox spec §9.4.
-            if (cross_max > 0.0f && effective_cross > cross_max) {
-                effective_cross = cross_max;
-            }
-            if (cross_min > 0.0f && effective_cross < cross_min) {
-                effective_cross = cross_min;
-            }
-        } else {
-            // Non-stretch: use explicit cross-axis CSS min/max constraints.
-            // Also consider main-axis max/min constraints transferred via aspect-ratio,
-            // per CSS Sizing Level 4 §8.5: a max constraint on one axis transfers via
-            if (cross_max > 0.0f) {
-                effective_cross = cross_max;
-            } else if (cross_min > 0.0f) {
-                effective_cross = cross_min;
-            } else if (item_block) {
-                float main_max = layout_positive_max_axis_or(item_block, is_horizontal, -1.0f);
-                float main_min = layout_positive_min_axis(item_block, is_horizontal);
-                if (main_max > 0.0f) {
-                    effective_cross = is_horizontal ? main_max / r : main_max * r;
-                } else if (main_min > 0.0f) {
-                    effective_cross = is_horizontal ? main_min / r : main_min * r;
-                }
-            }
-        }
-
-        if (effective_cross > 0.0f) {
-            float derived_basis = is_horizontal ? effective_cross * r : effective_cross / r;
-            return derived_basis;
-        }
+        float cross_size = layout_apply_min_max_axis(item_block,
+            flex_layout->cross_axis_size, !is_horizontal, true);
+        return flex_item_main_border_size_from_cross_border_size(
+            item, cross_size, is_horizontal, item->fi->aspect_ratio);
     }
 
     LayoutAxisRefs main(item, is_horizontal);

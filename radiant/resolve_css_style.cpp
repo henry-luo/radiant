@@ -28,6 +28,8 @@
 // Forward declaration for CSS variable lookup
 Color resolve_color_value(LayoutContext* lycon, const CssValue* value);
 static Color get_current_color(LayoutContext* lycon);
+static void resolve_inline_color_property(LayoutContext* lycon, ViewSpan* span,
+    CssPropertyCode property, const CssValue* value);
 static void resolve_text_emphasis_longhands(DomElement* element, LayoutContext* lycon);
 static bool css_value_is_background_color_candidate(const CssValue* value);
 const char* css_background_url_value(const CssValue* value);
@@ -2541,13 +2543,50 @@ const CssValue* resolve_var_function(LayoutContext* lycon, const CssValue* value
     return resolve_layout_var_value(lycon, context, value, CSS_PROPERTY_UNKNOWN);
 }
 
+static CssEngine* layout_color_length_engine(LayoutContext* lycon) {
+    return lycon->selected_view_tree && lycon->selected_view_tree->model
+        ? lycon->selected_view_tree->model->css->engine.get()
+        : lycon->doc ? (CssEngine*)lycon->doc->services.cached_css_engine : nullptr;
+}
+
+bool resolve_color_scheme_is_dark(LayoutContext* lycon, int pseudo_type) {
+    if (!lycon) return false;
+    CssEngine* engine = layout_color_length_engine(lycon);
+    bool prefer_dark = engine && engine->context.color_scheme &&
+        strcmp(engine->context.color_scheme, "dark") == 0;
+    DomElement* element = lycon->view ? view_geometry_nearest_dom_element(lycon->view, 0) : nullptr;
+    for (DomElement* owner = element; owner;) {
+        StyleTree* style = pseudo_type ? dom_element_get_pseudo_style(owner, pseudo_type) : owner->specified_style.get();
+        bool excluded = !pseudo_type && layout_cached_inheritance_excludes(owner, CSS_PROPERTY_COLOR_SCHEME);
+        CssDeclaration* declaration = style ? style_tree_get_declaration(style, CSS_PROPERTY_COLOR_SCHEME) : nullptr;
+        DomElement* next = pseudo_type ? owner : dom_parent_element(owner);
+        pseudo_type = 0;
+        if (excluded) return false;
+        if (!declaration || !declaration->value) {owner = next; continue;}
+        LayoutContext query = *lycon;
+        query.css_style_recording = nullptr;
+        CssComputedValueScratch scratch(&query, CSS_PROPERTY_COLOR_SCHEME, declaration->value, true);
+        // inherited variables resolve at their declaration owner, not at the consuming child.
+        const CssValue* value = resolve_layout_var_value(
+            &query, owner, declaration->value, CSS_PROPERTY_COLOR_SCHEME);
+        if (!value || css_value_keyword_equals(value, CSS_VALUE_INHERIT) ||
+                css_value_keyword_equals(value, CSS_VALUE_UNSET)) {owner = next; continue;}
+        if (css_value_keyword_equals(value, CSS_VALUE_INITIAL)) return false;
+        bool dark;
+        if (css_color_scheme_select(value, prefer_dark, &dark)) return dark;
+        owner = next;
+    }
+    return false;
+}
+
 static Color resolve_color_using_current(LayoutContext* lycon, const CssValue* value, Color current) {
     Color result = {0xFF000000};
     value = resolve_var_function(lycon, value);
     CssComputedColor current_color = {CSS_COLOR_RGB,
         {current.r / 255.0, current.g / 255.0, current.b / 255.0, current.a / 255.0}};
     CssComputedColor color;
-    if (!css_color_compute(value, &color, &current_color)) return result;
+    bool dark = resolve_color_scheme_is_dark(lycon, lycon && lycon->selected_style ? lycon->selected_style->pseudo_element : 0);
+    if (!css_color_compute(value, &color, &current_color, &dark)) return result;
     // currentColor remains a keyword through registered inheritance (CSS Color 4 §15.5).
     if (color.type == CSS_COLOR_CURRENTCOLOR) return current;
     css_color_to_rgba(&color, &result.r, &result.g, &result.b, &result.a);
@@ -3463,9 +3502,7 @@ static float resolve_length_value_mode(LayoutContext* lycon, uintptr_t property,
             : lycon->view && lycon->view->is_element() ? lycon->view->as_element() : nullptr;
         bool length_vertical = lycon->selected_style ? lycon->selected_style->vertical
             : length_owner && layout_element_inline_axis_is_vertical(length_owner);
-        CssEngine* length_engine = lycon->selected_view_tree && lycon->selected_view_tree->model
-            ? lycon->selected_view_tree->model->css->engine.get()
-            : lycon->doc ? (CssEngine*)lycon->doc->services.cached_css_engine : nullptr;
+        CssEngine* length_engine = layout_color_length_engine(lycon);
         double container_pixels = 0.0;
         if (css_container_length_to_px(length_engine, length_owner, unit, num, &container_pixels)) {
             result = container_pixels;
@@ -5496,6 +5533,11 @@ static void resolve_css_inherited_properties(DomElement* dom_elem,
                 continue;
             }
             if (all_initial && prop_id != CSS_PROPERTY_DIRECTION) {
+                continue;
+            }
+            if (prop_id == CSS_PROPERTY_COLOR) {
+                // descendants inherit the computed color, not the parent's contextual expression.
+                resolve_inline_color_property(lycon, inheritance_span, prop_id, nullptr);
                 continue;
             }
             if (prop_id == CSS_PROPERTY_TEXT_SHADOW) {
@@ -8979,6 +9021,9 @@ void css_apply_computed_property(CssPropertyCode prop_id,
         return;
     }
     switch (prop_id) {
+        case CSS_PROPERTY_COLOR_SCHEME:
+            // contextual color consumers resolve the inherited offer from the cascade.
+            break;
         case CSS_PROPERTY_COLOR:
         case CSS_PROPERTY_ACCENT_COLOR:
         case CSS_PROPERTY_CARET_COLOR:

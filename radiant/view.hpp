@@ -4353,6 +4353,7 @@ struct LayoutContext;
 float convert_lambda_length_to_px(const CssValue* value, LayoutContext* lycon,
                                    CssPropertyCode prop_id);
 Color resolve_color_value(LayoutContext* lycon, const CssValue* value);
+bool resolve_color_scheme_is_dark(LayoutContext* lycon, int pseudo_type = 0);
 Color resolve_text_color_value(LayoutContext* lycon, const CssValue* value);
 float resolve_css_opacity_value(LayoutContext* lycon, const CssValue* value);
 bool resolve_pseudo_color(LayoutContext* lycon, StyleTree* pseudo_style,

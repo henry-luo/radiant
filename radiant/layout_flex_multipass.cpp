@@ -1489,8 +1489,13 @@ static void layout_flex_item_content_pass(LayoutContext* lycon, ViewBlock* flex_
         setup_inline(lycon, flex_item);
         layout_block_inner_content(lycon, flex_item);
     } else {
-        // flex-item flow bypasses setup_inline, so initialize its own clamp counter here.
-        layout_setup_line_clamp(lycon, flex_item, &saved_context.block);
+        if (canonical_horizontal_flow) {
+            // assigned flex widths still need the shared paragraph setup,
+            // including balanced wrapping and first-line state.
+            setup_inline(lycon, flex_item);
+        } else {
+            layout_setup_line_clamp(lycon, flex_item, &saved_context.block);
+        }
         // CRITICAL FIX: Generate pseudo-element content for flex items with ::before/::after
         if (flex_item->is_element()) {
             layout_materialize_pseudo_content(lycon, flex_item);
@@ -2173,6 +2178,47 @@ void layout_final_flex_content(LayoutContext* lycon, ViewBlock* flex_container) 
 
     heights_scope.end();
     log_leave();
+}
+
+float measure_flex_height_at_width(LayoutContext* lycon, ViewBlock* container, float width) {
+    if (!lycon || !container || width < 0.0f) return 0.0f;
+    // intrinsic block contributions need solved flex widths before ratio transfer
+    // and text wrapping; the containing width is not every item's used width.
+    ScratchScope counter_scratch(&lycon->scratch);
+    CounterCheckpoint counters;
+    if (!counters.enter(lycon->counter_context, &lycon->scratch, &counter_scratch.mark))
+        return -1.0f;
+    radiant::LayoutFlowResult* selected = radiant::layout_flow_result_capture(lycon, container);
+    if (!selected) return -1.0f;
+    radiant::LayoutMeasureScope measure_scope(lycon, container, true);
+    radiant::LayoutRunModeScope flow_mode(lycon, radiant::RunMode::MeasureFlow);
+    LayoutViewScope view_scope(lycon);
+    lycon->view = lam::up(static_cast<View*>(container));
+    lycon->elmt = lam::up(static_cast<DomNode*>(container));
+    lycon->available_space = AvailableSpace::make_indefinite();
+    lycon->available_space.width = AvailableSize::make_definite(width);
+    lycon->block.given_width = lycon->block.content_width = width;
+    lycon->block.given_height = -1.0f;
+    lycon->block.content_height = 0.0f;
+    lycon->block.used_size_owner = nullptr;
+    ViewBlock* previous_natural_root = lycon->natural_flex_height_root;
+    lycon->natural_flex_height_root = lam::up(container);
+    container->view_type = RDT_VIEW_BLOCK;
+    container->width = layout_border_size_from_content_box(container, width, true);
+    container->height = layout_border_size_from_content_box(container, 0.0f, false);
+    container->content_width = width;
+    container->content_height = 0.0f;
+    layout_flex_content(lycon, container);
+    float height = container->content_height;
+    lycon->natural_flex_height_root = lam::up(previous_natural_root);
+    // trial flex flow owns text fragments too; scalar box rollback cannot
+    // prevent measured runs from leaking into the selected paint result.
+    if (!radiant::layout_flow_result_apply(lycon, selected)) {
+        log_error("flex height: selected flow restoration failed");
+        height = -1.0f;
+    }
+    radiant::layout_flow_result_release(lycon->pool, selected);
+    return height;
 }
 
 void layout_flex_content(LayoutContext* lycon, ViewBlock* block) {
