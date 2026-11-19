@@ -4921,12 +4921,6 @@ void rebuild_lambda_doc_incremental(UiContext* uicon, RetransformResult* results
         // structurally corresponding descendants before retiring the old tree.
         layout_preserve_rebuilt_owners(doc, old_dom, new_dom);
 
-        if (old_dom->is_popover_open() && new_dom->has_attribute("popover")) {
-            // Reconciliation replaces the DOM wrapper, but popover openness is
-            // live state and must survive an unrelated class/style mutation.
-            new_dom->set_popover_open(true);
-        }
-
         if (new_dom == old_dom) {
             new_dom->parent = lam::up(parent_dom);
             new_dom->prev_sibling = lam::up(old_previous);

@@ -73,6 +73,20 @@ const char* radiant_form_control_type(DomElement* element) {
     return buffer;
 }
 
+const char* radiant_form_button_type(DomElement* button) {
+    const char* explicit_type = radiant_form_control_type(button);
+    if (strcmp(explicit_type, "button") == 0) return "button";
+    if (strcmp(explicit_type, "reset") == 0) return "reset";
+    if (strcmp(explicit_type, "submit") == 0) return "submit";
+    // Missing and invalid types are Auto; commands and a select's own
+    // button do not make an Auto button a submitter.
+    DomNode* parent = dom_source_parent(button);
+    if (button && (button->has_attribute("command") || button->has_attribute("commandfor") ||
+        (parent && dom_element_is_html_tag(parent->as_element(), MARKUP_NAME_SELECT))))
+        return "button";
+    return "submit";
+}
+
 bool radiant_form_control_disabled(DomElement* element) {
     return element && element->has_attribute("disabled");
 }
@@ -142,8 +156,7 @@ bool radiant_form_is_submit_button(DomElement* element) {
         return strcmp(type, "submit") == 0 || strcmp(type, "image") == 0;
     }
     if (str_icmp_cstr(element->tag_name, "button") == 0) {
-        const char* type = radiant_form_control_type(element);
-        return strcmp(type, "text") == 0 || strcmp(type, "submit") == 0;
+        return strcmp(radiant_form_button_type(element), "submit") == 0;
     }
     return false;
 }
