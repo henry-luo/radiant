@@ -39,7 +39,7 @@ boxes, `shape-margin` and alpha contours from local/data raster images using
 placement, `clear` and independent block avoidance retain margin-box geometry.
 Remote CORS admission, vertical/fragmented contours, gradient images and broader
 shape grammar remain extensions. See the [implementation and qualification
-record](vibe/impl/Radiant_Impl_CSS_Shapes.md) for the admitted scope and limits.
+record](../vibe/impl/Radiant_Impl_CSS_Shapes.md) for the admitted scope and limits.
 
 The self-contained [visual test page](test/html/css_shapes_visual.html) compares
 rectangular wrapping, circles, ellipses, polygons, rounded insets, shape margins
@@ -73,7 +73,7 @@ and committed line allocations along X in either direction, preserving glyph
 orientation, widows, forced breaks and continuous editions. Page indexes and
 resource ownership
 follow D9.1.1v4 / D9.1.3v2 and D5.5.1 / D5.1.4. See
-[vibe/impl/Radiant_Impl_P7_Fragmentation.md](vibe/impl/Radiant_Impl_P7_Fragmentation.md).
+[vibe/impl/Radiant_Impl_P7_Fragmentation.md](../vibe/impl/Radiant_Impl_P7_Fragmentation.md).
 
 The collector saves immutable source/host hashes, decoded preview pixels,
 physical PDF geometry and independent Poppler rasters. The manifest supplies

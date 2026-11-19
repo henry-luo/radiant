@@ -18,9 +18,9 @@ Preserve D5.5 ownership and D6.3 precise rooting through host adapters. Keep
 layout, render, and UI behavior consistent with the accepted design. Do not
 change Lambda or lambda-input implementation, headers, tests, or build files
 as part of Radiant work. Record Radiant-owned issues in
-[Radiant Issue Ledger](vibe/Radiant_Issue_Ledger.md), input-owned issues in
-`../lambda-input/vibe/Lib_Input_Issue_Ledger.md`, and Lambda-owned issues in
-Lambda's `vibe/Lambda_Issue_Ledger.md`. Include observed behavior,
+[Radiant Issue Ledger](../vibe/Radiant_Issue_Ledger.md), input-owned issues in
+`../vibe/Lib_Input_Issue_Ledger.md`, and Lambda-owned issues in
+Lambda's `../vibe/Lambda_Issue_Ledger.md`. Include observed behavior,
 reproduction, evidence, and whether the issue blocks the task; mark
 unconfirmed causes as unconfirmed. If an issue blocks the task, record it and
 stop the affected work while continuing independent work where possible.
@@ -93,4 +93,4 @@ masked by changing the references or tolerance.
 | Rendering and display lists | `radiant/render.hpp`, `radiant/paint/` |
 | Events and input | `radiant/event.hpp` |
 | Application and host API | `radiant/radiant.hpp`, `radiant/main.cpp` |
-| Issue records | `vibe/Radiant_Issue_Ledger.md` |
+| Issue records | `../vibe/Radiant_Issue_Ledger.md` |
