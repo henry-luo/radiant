@@ -14,6 +14,37 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-144"></a>
+
+### RI-144 — Focus changes recascade unrelated subtrees
+
+**Fixed 2026-11-19.** The Slides replays showed full-document style matching
+on focus transitions. Direct subject selectors can only change the old and
+new focus owners. Radiant refreshes their subtrees so inherited styles and
+geometry follow the change. Scoped, relational, nested and shadow selectors
+use the general cascade. During pending DOM edits, the engine also checks
+whether either focus owner could match before scheduling a focus restyle.
+Programmatic eligibility checks live visibility once. The script adapter
+shares its synchronous cascade read with StateStore validation and allocates
+a query cache only for stale styles (D5.5.1, D9.5.6v2). The Radiant baseline
+keeps its original concurrency.
+
+<a id="ri-143"></a>
+
+### RI-143 — SVG text hit testing repeatedly resolves the document base
+
+**Fixed 2026-11-19.** The Lambda `radiant_view_math_intensive_scroll`
+replay exposed repeated source-tree walks to resolve the same document base
+while testing inline SVG text. One synchronous hit test now shares the base
+and geometry scratch across candidates in the same document. The scope ends
+before event handlers can mutate the tree. When the walk descends an SVG
+viewport or clipped group, it checks that boundary before visiting the
+group's children. Resource resolution still uses
+the input service (D9.1.2v2) and Radiant owns the hit-test scratch (D5.5.1).
+The release profiles and two passing isolated debug runs are recorded in
+Lambda's `temp/slow-debug-tests/`. The full Radiant baseline had zero
+failures. No Lambda blocker.
+
 <a id="ri-029"></a>
 
 ### RI-029 — Modal dialogs and backdrops paint in the document top layer

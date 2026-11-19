@@ -176,6 +176,7 @@ void view_get_visual_bounds(View* view, float* out_x, float* out_y,
 typedef bool (*RadiantCssomUsedValueSync)(DomDocument* doc);
 void radiant_set_cssom_used_value_sync(RadiantCssomUsedValueSync sync);
 bool dom_ensure_computed(DomElement* element, bool needs_used_value = false);
+bool dom_has_current_computed_style(DomElement* element);
 
 // synchronous declaration reads can share refreshed ancestors without committing layout.
 struct CssomCascadeQueryScope {

@@ -1722,9 +1722,9 @@ static bool css_cascade_memory_profile_enabled(void) {
     return enabled && strcmp(enabled, "1") == 0;
 }
 
-static bool css_cascade_memory_force_recascade(void) {
+static const char* css_cascade_memory_recascade_mode(void) {
     const char* enabled = getenv("RADIANT_CSS_CASCADE_MEMORY_FORCE_RECASCADE");
-    return css_cascade_memory_profile_enabled() && enabled && strcmp(enabled, "1") == 0;
+    return css_cascade_memory_profile_enabled() && enabled ? enabled : "";
 }
 
 static long long css_cascade_memory_delta(uint64_t after, uint64_t before) {
@@ -2631,7 +2631,11 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
     log_mem_stage("load_html: pre_script_cascade_done");
     auto t_initial_cascade = timing ? time_now_ns() : t_inline_style;
     auto t_post_script = t_initial_cascade;
-    bool profile_recascade_completed = css_cascade_memory_force_recascade();
+    const char* recascade_mode = css_cascade_memory_recascade_mode();
+    // A scoped diagnostic samples the same scripting-aware parse and both
+    // cascades. Guest scripts run after both samples and cannot affect them.
+    bool cascade_only = strcmp(recascade_mode, "cascade-only") == 0;
+    bool profile_recascade_completed = cascade_only || strcmp(recascade_mode, "1") == 0;
     if (profile_recascade_completed) {
         // The memory probe measures CSS reuse against the parsed DOM. Running
         // it after scripts would fold arbitrary page mutations into the sample.
@@ -2642,7 +2646,7 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
         log_mem_stage("load_html: profile_recascade_done");
     }
 
-    if (execute_scripts) {
+    if (execute_scripts && !cascade_only) {
         dom_doc->html_root = lam::up(html_root);
         run_html_document_scripts(dom_doc, pool, timing, script_timing,
                                   profile_recascade_completed, script_prefetch_count,

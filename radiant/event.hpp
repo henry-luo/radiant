@@ -3516,6 +3516,7 @@ bool focus_restore(DocState* state);
  * Get the currently focused element
  */
 View* focus_get(DocState* state);
+View* focus_get_previous(DocState* state);
 bool focus_has_current(DocState* state);
 View* focus_get_visible(DocState* state);
 

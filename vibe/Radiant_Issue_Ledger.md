@@ -20,6 +20,11 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+### RI-144 — FIXED
+
+Direct `:focus` and `:focus-visible` selectors recascade the affected focus
+subtrees (D5.5.1). See the [fixed record](<Radiant_Issue_Ledger (fixed).md#ri-144>).
+
 ### RI-142 — Anchor fallback trials and fragmented anchor geometry
 
 Partial, 2026-11-19. Absolute and fixed boxes resolve eligible named and
@@ -2242,6 +2247,10 @@ does not block independent HTML work.
 - [RAD22-9](<Radiant_Issue_Ledger (fixed).md#rad22-9>).
 
 ## Fixed issues
+
+<a id="ri-143"></a>
+
+- [RI-143 — SVG text hit testing repeatedly resolves the document base](<Radiant_Issue_Ledger (fixed).md#ri-143>).
 
 <a id="ri-013"></a>
 

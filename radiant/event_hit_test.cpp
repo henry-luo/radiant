@@ -648,7 +648,9 @@ void target_html_doc(EventContext* evcon, ViewTree* view_tree) {
     View* root_view = view_tree->root;
     if (root_view && root_view->view_type == RDT_VIEW_BLOCK) {
         // Pointer hits start in this tree, independently of keyboard focus in an iframe.
-        evcon->target_document = lam::view_require_block(root_view)->doc;
+        ViewBlock* root_block = lam::view_require_block(root_view);
+        DomSvgHitGeometryScope svg_geometry(root_block);
+        evcon->target_document = root_block->doc;
         evcon->iframe_container = nullptr;
         log_debug("target root view");
         FontBox pa_font = evcon->font;
@@ -656,7 +658,7 @@ void target_html_doc(EventContext* evcon, ViewTree* view_tree) {
         log_debug("target_html_doc default font: %s, html version: %d", default_font->family, view_tree->html_version);
         setup_font(evcon->ui_context, &evcon->font, default_font);
         radiant_visit_top_layer(view_tree, true, evcon, target_top_layer_box);
-        if (!evcon->target) target_block_view(evcon, lam::view_require_block(root_view));
+        if (!evcon->target) target_block_view(evcon, root_block);
         evcon->font = pa_font;
     }
     else {

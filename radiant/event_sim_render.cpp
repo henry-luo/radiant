@@ -403,6 +403,17 @@ static bool assert_surface(EventSimContext* context, UiContext* ui, MapReader& a
         if (!args.get("count").isMap() || args.get("count").asMap().isEmpty()) return false;
         size_t count = 0;
         auto predicate = args.get("rgba").asArray();
+        // The arguments describe one region. Decode them once rather than
+        // walking the replay's map and arrays for every pixel in that region.
+        const size_t compare_bytes = args.get("alpha").asBool() ? 4 : 3;
+        const bool red_above_blue = args.get("red_above_blue").asBool();
+        const auto channels = predicate.length() < 4 ? predicate.length() : 4;
+        double minima[4], maxima[4];
+        for (unsigned c = 0; c < channels; ++c) {
+            auto bounds = predicate.get(c).asArray();
+            minima[c] = number(bounds.get(0));
+            maxima[c] = number(bounds.get(1), 255);
+        }
         auto different = args.get("different_from_pixel").asArray();
         const uint8_t* background = nullptr;
         if (args.has("different_from_pixel")) {
@@ -414,13 +425,11 @@ static bool assert_surface(EventSimContext* context, UiContext* ui, MapReader& a
         for (size_t row = (size_t)y; row < y + height; row++) for (size_t column = (size_t)x; column < x + width; column++) {
             size_t offset = row * image->pitch + column * 4;
             const auto* p = (uint8_t*)image->pixels + offset;
-            bool match = reference ? memcmp(p, previous->pixels + offset, args.has("alpha") && args.get("alpha").asBool() ? 4 : 3) != 0 : true;
-            if (background) match &= memcmp(p, background, 3) != 0;
-            if (args.get("red_above_blue").asBool()) match &= p[0] > p[2];
-            for (unsigned c = 0; c < predicate.length() && c < 4; c++) {
-                auto bounds = predicate.get(c).asArray();
-                match &= p[c] >= number(bounds.get(0)) && p[c] <= number(bounds.get(1), 255);
-            }
+            bool match = !previous || memcmp(p, previous->pixels + offset, compare_bytes) != 0;
+            if (match && background) match = memcmp(p, background, 3) != 0;
+            if (match && red_above_blue) match = p[0] > p[2];
+            for (unsigned c = 0; match && c < channels; c++)
+                match = p[c] >= minima[c] && p[c] <= maxima[c];
             if (match) count++;
         }
         auto bounds = args.get("count").asMap();

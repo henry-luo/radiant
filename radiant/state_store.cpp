@@ -8612,6 +8612,10 @@ View* focus_get(DocState* state) {
     return state->focus->current;
 }
 
+View* focus_get_previous(DocState* state) {
+    return state && state->focus ? state->focus->previous : nullptr;
+}
+
 bool focus_has_current(DocState* state) {
     return focus_get(state) != NULL;
 }

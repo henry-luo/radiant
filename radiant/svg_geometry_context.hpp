@@ -18,13 +18,16 @@ struct DomSvgHitGeometry {
 struct DomSvgHitGeometryScope {
     DomDocument* document;
     HashMap* entries;
+    char* resource_base;
     DomSvgHitGeometryScope* previous;
+    bool resource_base_resolved;
     bool owner;
     explicit DomSvgHitGeometryScope(DomElement* element);
     ~DomSvgHitGeometryScope();
 };
 
 DomSvgHitGeometry* dom_svg_hit_geometry(DomElement* element, bool create = false);
+bool dom_svg_hit_resource_base(DomDocument* document, const char** base);
 void dom_svg_apply_css_viewport_size(DomElement* element, float* width, float* height);
 
 extern "C" bool dom_svg_foreign_object_rectangle(void* element, float* x, float* y,

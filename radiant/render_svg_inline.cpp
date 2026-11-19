@@ -6128,13 +6128,17 @@ static bool svg_text_geometry_scope_open(SvgTextGeometryScope* scope, DomElement
     SvgPaintHostStyle* shared = svg_host_style(svg->doc);
     SvgStyleContext* style = shared ? &shared->style : &scope->style;
     if (!shared && !svg_style_init_host(style, svg->doc)) return false;
-    scope->source_path = radiant_document_resource_base(svg->doc, MEM_CAT_FONT);
+    const char* source_path = nullptr;
+    if (!dom_svg_hit_resource_base(svg->doc, &source_path)) {
+        scope->source_path = radiant_document_resource_base(svg->doc, MEM_CAT_FONT);
+        source_path = scope->source_path;
+    }
     if (scope->owns_fonts) scope->fonts = svg_style_font_context(style,
-        scope->source_path, 1.0f, false, nullptr);
+        source_path, 1.0f, false, nullptr);
     if (!scope->fonts) return false;
     SvgInlineRenderContext* ctx = &scope->context;
     ctx->svg_root = lam::up(source); ctx->id_scope = lam::up(render_svg_reference_scope(svg));
-    ctx->source_path = lam::up(scope->source_path); ctx->resource_scratch = lam::up(&scope->scratch);
+    ctx->source_path = lam::up(source_path); ctx->resource_scratch = lam::up(&scope->scratch);
     ctx->font_ctx = lam::up(scope->fonts); ctx->style_context = lam::up(style);
     ctx->transform = rdt_matrix_identity();
     ctx->current_viewport_w = lengths->viewport_width; ctx->current_viewport_h = lengths->viewport_height;

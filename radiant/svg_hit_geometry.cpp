@@ -477,46 +477,21 @@ static bool dom_svg_element_skips_hit_test(DomElement* elem) {
     return display && str_icmp_cstr(display, "none") == 0;
 }
 
-static bool dom_svg_point_is_within_viewports(DomElement* elem, float x, float y) {
-    for (DomNode* node = (DomNode*)elem; node && node->is_element(); node = node->parent) {
-        DomElement* current = node->as_element();
-        if (!dom_svg_tag_is(current, "svg")) continue;
-        char overflow_buffer[64] = {};
-        const char* overflow = dom_svg_presentation_value(current, "overflow", false,
-            overflow_buffer, sizeof(overflow_buffer));
-        if (overflow && str_icmp_cstr(overflow, "visible") == 0) continue;
-        float local_x = 0.0f;
-        float local_y = 0.0f;
-        RdtMatrix ctm = dom_svg_ctm(current, true);
-        if (!rdt_matrix_unproject_affine_point(&ctm, x, y, &local_x, &local_y)) {
-            return false;
-        }
-        float left = 0.0f;
-        float top = 0.0f;
-        float right = 0.0f;
-        float bottom = 0.0f;
-        if (!dom_svg_viewport_local_bounds(current, &left, &top, &right, &bottom) ||
-            local_x < left || local_x > right || local_y < top || local_y > bottom) {
-            return false;
-        }
-    }
-    return true;
-}
-
-static bool dom_svg_point_is_within_clips(DomElement* elem, float x, float y) {
-    for (DomNode* node = elem; node && node->is_element(); node = node->parent) {
-        DomElement* current = node->as_element();
-        if (!dom_element_is_svg(current)) break;
-        if (!dom_svg_clip_contains(current, nullptr, x, y)) return false;
-    }
-    return true;
+static bool dom_svg_point_is_within_viewport(DomElement* elem, float x, float y) {
+    if (!dom_svg_tag_is(elem, "svg")) return true;
+    char overflow_buffer[64] = {};
+    const char* overflow = dom_svg_presentation_value(elem, "overflow", false,
+        overflow_buffer, sizeof(overflow_buffer));
+    if (overflow && str_icmp_cstr(overflow, "visible") == 0) return true;
+    float local_x, local_y, left, top, right, bottom;
+    RdtMatrix ctm = dom_svg_ctm(elem, true);
+    return rdt_matrix_unproject_affine_point(&ctm, x, y, &local_x, &local_y) &&
+        dom_svg_viewport_local_bounds(elem, &left, &top, &right, &bottom) &&
+        local_x >= left && local_x <= right && local_y >= top && local_y <= bottom;
 }
 
 static bool dom_svg_element_contains_viewport_point(DomElement* elem,
                                                        float x, float y) {
-    if (!elem || dom_svg_element_skips_hit_test(elem) ||
-        !dom_svg_point_is_within_viewports(elem, x, y) ||
-        !dom_svg_point_is_within_clips(elem, x, y)) return false;
     NativeSvgPointerEventsMode pointer_events = dom_svg_pointer_events_mode(elem);
     if (pointer_events == NATIVE_SVG_POINTER_EVENTS_NONE) return false;
     NativeSvgShapeHit hit = {};
@@ -557,21 +532,25 @@ static bool dom_svg_element_contains_viewport_point(DomElement* elem,
 
 static DomElement* dom_svg_element_from_point_walk(DomElement* elem,
                                                        float x, float y) {
-    DomSvgHitGeometryScope geometry(elem);
-    SvgAnimationSourceScope animation_sources(elem ? elem->doc : nullptr);
+    // Descendants share their ancestors' fixed clip and viewport predicates at
+    // this point. Checking on descent avoids resolving them for every glyph.
     if (!elem || dom_svg_element_skips_hit_test(elem) ||
-        !dom_svg_point_is_within_viewports(elem, x, y)) return nullptr;
+        !dom_svg_point_is_within_viewport(elem, x, y) ||
+        !dom_svg_clip_contains(elem, nullptr, x, y)) return nullptr;
     if (dom_svg_tag_is(elem, "foreignObject")) {
-        if (!dom_svg_point_is_within_clips(elem, x, y)) return nullptr;
         float local_x, local_y;
         if (!dom_svg_foreign_object_local_point(elem, x, y, &local_x, &local_y)) return nullptr;
         // HTML targeting uses the existing CSS paint order, controls and overflow walker.
         DomElement* hit = (DomElement*)radiant_subtree_element_from_point(elem, local_x, local_y);
         return hit ? hit : (dom_svg_element_contains_viewport_point(elem, x, y) ? elem : nullptr);
     }
+    if (dom_svg_tag_is(elem, "switch")) {
+        DomNode* selected = static_cast<DomNode*>(dom_svg_switch_selected_child(elem));
+        return selected && selected->is_element()
+            ? dom_svg_element_from_point_walk(selected->as_element(), x, y) : nullptr;
+    }
     for (DomNode* child = elem->last_child; child; child = child->prev_sibling) {
         if (!child->is_element()) continue;
-        if (dom_svg_tag_is(elem, "switch") && child != dom_svg_switch_selected_child(elem)) continue;
         DomElement* child_elem = child->as_element();
         DomElement* hit = dom_svg_element_from_point_walk(child_elem, x, y);
         if (hit) return hit;
@@ -580,5 +559,18 @@ static DomElement* dom_svg_element_from_point_walk(DomElement* elem,
 }
 
 extern "C" void* dom_svg_element_from_point(void* element, float x, float y) {
-    return dom_svg_element_from_point_walk((DomElement*)element, x, y);
+    DomElement* elem = (DomElement*)element;
+    if (!elem) return nullptr;
+    DomSvgHitGeometryScope geometry(elem);
+    SvgAnimationSourceScope animation_sources(elem->doc);
+    // The public entry point can start below an SVG ancestor. Viewport
+    // overflow also crosses the HTML boundary of an SVG foreignObject.
+    bool svg_chain = dom_element_is_svg(elem);
+    for (DomNode* parent = elem->parent; parent && parent->is_element(); parent = parent->parent) {
+        DomElement* ancestor = parent->as_element();
+        svg_chain = svg_chain && dom_element_is_svg(ancestor);
+        if (!dom_svg_point_is_within_viewport(ancestor, x, y) ||
+            (svg_chain && !dom_svg_clip_contains(ancestor, nullptr, x, y))) return nullptr;
+    }
+    return dom_svg_element_from_point_walk(elem, x, y);
 }

@@ -56,7 +56,10 @@ static void sim_input_turn_drain(EventSimContext* ctx, UiContext* uicon) {
     if (g_pending_input_turns <= 0) return;
     int turns = g_pending_input_turns;
     g_pending_input_turns = 0;
-    radiant_advance_js_event_loop(uicon, ctx->input_turn_ms * turns, turns);
+    // Several native primitives in one zero-latency task share a frame time.
+    // A frame callback requested by another frame needs a subsequent turn.
+    radiant_advance_js_event_loop(uicon, ctx->input_turn_ms * turns,
+        ctx->input_turn_ms == 0.0 ? 1 : turns);
 }
 
 // Forward declarations for callbacks (defined in window.cpp)
@@ -2099,6 +2102,12 @@ static SimEvent* parse_sim_event(EventSimContext* ctx, MapReader& reader) {
         ev->type = SIM_EVENT_ADVANCE_TIME;
         ev->wait_ms = reader.get("ms").asInt32();
         ev->advance_steps = reader.get("steps").asInt32();
+        ItemReader render = reader.get("render");
+        if (reader.has("render") && !render.isBool()) {
+            log_error("event_sim: advance_time render must be boolean");
+            return parse_sim_event_fail(ev);
+        }
+        ev->advance_render = !reader.has("render") || render.asBool();
         if (ev->wait_ms <= 0) {
             log_error("event_sim: advance_time requires positive 'ms' field");
             return parse_sim_event_fail(ev);
@@ -2974,8 +2983,9 @@ static void sim_mouse_move(UiContext* uicon, float x, float y, const SimEvent* p
 
 // Simulate a mouse button event
 static void sim_mouse_button(UiContext* uicon, float x, float y, int button, int mods, bool is_down,
-                             const SimEvent* pen = nullptr) {
-    sim_mouse_move(uicon, x, y, pen);
+                             const SimEvent* pen = nullptr, bool move = true) {
+    if (move) sim_mouse_move(uicon, x, y, pen);
+    else sim_input_turn_mark_pending();  // preserve the compound action's clock budget
     RdtEvent event = {};
     rdt_event_set_mouse_button(&event,
         is_down ? RDT_EVENT_MOUSE_DOWN : RDT_EVENT_MOUSE_UP,
@@ -4235,8 +4245,10 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             if (!resolve_click_target(ev, uicon, &x, &y)) break;
             log_info("event_sim: click at (%.2f, %.2f) button=%d", x, y, ev->button);
             sim_mouse_move(uicon, x, y);
-            sim_mouse_button(uicon, x, y, ev->button, ev->mods, true);
-            sim_mouse_button(uicon, x, y, ev->button, ev->mods, false);
+            // Position the pointer once. The button edges still resolve their
+            // targets against the DOM as it stands after the preceding edge.
+            sim_mouse_button(uicon, x, y, ev->button, ev->mods, true, nullptr, false);
+            sim_mouse_button(uicon, x, y, ev->button, ev->mods, false, nullptr, false);
 
             // No fallback toggle here. The harness used to synthesize the
             // activation when a click left checkedness unchanged, on the theory
@@ -4257,16 +4269,16 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             if (total_clicks < 2) total_clicks = 2;
             log_info("event_sim: %sclick at (%.2f, %.2f) total_clicks=%d",
                      total_clicks >= 3 ? "triple" : "dbl", x, y, total_clicks);
-            // First (total_clicks - 1) plain clicks via sim_mouse_button.
+            sim_mouse_move(uicon, x, y);
+            // First (total_clicks - 1) plain clicks share that pointer position.
             for (int c = 1; c < total_clicks; c++) {
-                sim_mouse_button(uicon, x, y, ev->button, ev->mods, true);
-                sim_mouse_button(uicon, x, y, ev->button, ev->mods, false);
+                sim_mouse_button(uicon, x, y, ev->button, ev->mods, true, nullptr, false);
+                sim_mouse_button(uicon, x, y, ev->button, ev->mods, false, nullptr, false);
             }
             // Final click carries clicks=total_clicks so handle_event can
             // dispatch dblclick/tripleclick semantics.
-            sim_mouse_move(uicon, x, y);
             {
-                RdtEvent event;
+                RdtEvent event = {};
                 event.mouse_button.type = RDT_EVENT_MOUSE_DOWN;
                 event.mouse_button.timestamp = get_monotonic_time();
                 event.mouse_button.x = x;
@@ -5788,8 +5800,8 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
                 // animations; embedded schedulers need the same final time.
                 radiant_tick_document_animations(doc, base_time + ms / 1000.0, false);
             }
-            // Re-render after advancing animation
-            event_sim_render_surface(uicon);
+            // Dedicated paint observations can request the frame themselves.
+            if (ev->advance_render) event_sim_render_surface(uicon);
             break;
         }
 

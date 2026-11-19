@@ -2496,7 +2496,7 @@ using CssomRefreshedMap = TypedHashMap<CssomRefreshedElement,
 static thread_local CssomCascadeQueryScope* s_cssom_cascade_scope = nullptr;
 
 CssomCascadeQueryScope::CssomCascadeQueryScope()
-    : previous(s_cssom_cascade_scope), refreshed(CssomRefreshedMap::create(32)) {
+    : previous(s_cssom_cascade_scope), refreshed(nullptr) {
     s_cssom_cascade_scope = this;
 }
 
@@ -2511,10 +2511,13 @@ static void cssom_refresh_cascade_chain(DomElement* element) {
     // inheritance and declaration-site variables need live ancestors before pointers are borrowed.
     SelectorMatcher matcher;
     selector_matcher_init(&matcher, element->doc->document_pool);
+    // Clean computed reads never allocate a query cache.
+    if (s_cssom_cascade_scope && !s_cssom_cascade_scope->refreshed)
+        s_cssom_cascade_scope->refreshed = CssomRefreshedMap::create(32);
+    HashMap* refreshed = s_cssom_cascade_scope ? s_cssom_cascade_scope->refreshed : nullptr;
     for (int index = ancestors->length; index > 0; index--) {
         DomElement* current = (DomElement*)ancestors->data[index - 1];
         CssomRefreshedElement query = {current, current->style_version, current->doc->mutation_epoch};
-        HashMap* refreshed = s_cssom_cascade_scope ? s_cssom_cascade_scope->refreshed : nullptr;
         const CssomRefreshedElement* cached = refreshed ? CssomRefreshedMap::get(refreshed, query) : nullptr;
         // D5.5.1: this synchronous borrow ends with the candidate walk. A
         // pending mutation must not recascade common ancestors per descendant.
@@ -2531,6 +2534,18 @@ static void cssom_refresh_cascade_chain(DomElement* element) {
     arraylist_free(ancestors);
 }
 
+bool dom_has_current_computed_style(DomElement* element) {
+    if (!element || !element->doc || element->doc->js.mutation_count) return false;
+    // the Range/Selection document stub above doc->root never participates in CSS resolution.
+    for (DomNode* node = element; node;
+         node = node == element->doc->root ? nullptr : node->parent.get()) {
+        if (node->layout_dirty || (node->is_element() &&
+            (!node->as_element()->styles_resolved() ||
+             node->as_element()->needs_style_recompute()))) return false;
+    }
+    return true;
+}
+
 bool dom_ensure_computed(DomElement* element, bool needs_used_value) {
     if (!element || !element->doc) return false;
     // A clean committed ViewTree already owns the used values. Re-reading a
@@ -2538,16 +2553,7 @@ bool dom_ensure_computed(DomElement* element, bool needs_used_value) {
     // unexpanded declaration tree (for example, `padding: 4px`).
     bool missing_used_value_snapshot = needs_used_value &&
         (!element->doc->view_tree || !element->doc->view_tree->root);
-    bool dirty = missing_used_value_snapshot || element->layout_dirty;
-    // the Range/Selection document stub above doc->root never participates in CSS resolution.
-    for (DomNode* node = element; node && !dirty;
-         node = node == element->doc->root ? nullptr : node->parent.get()) {
-        if (node->layout_dirty || (node->is_element() &&
-            (!node->as_element()->styles_resolved() ||
-             node->as_element()->needs_style_recompute()))) dirty = true;
-    }
-    dirty = dirty || element->doc->js.mutation_count > 0;
-    if (!dirty) return true;
+    if (!missing_used_value_snapshot && dom_has_current_computed_style(element)) return true;
 
     if (needs_used_value && s_cssom_used_value_sync &&
             s_cssom_used_value_sync(element->doc)) {

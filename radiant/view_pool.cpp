@@ -1670,11 +1670,17 @@ bool view_focus_is_hidden(View* view) {
     if (view_ruby_annotation_is_hidden(view)) return true;
     if (!view || !view->is_element()) return view_visibility_is_hidden(view);
     DomElement* element = view->as_element();
-    // dirty handlers observe the live cascade; pre-render empty reads retain the native default.
-    char visibility[16];
-    if (css_prop_serialize_computed(element, CSS_PROPERTY_VISIBILITY, 0,
-            visibility, sizeof(visibility)) && visibility[0]
-            ? strcmp(visibility, "visible") != 0 : view_visibility_is_hidden(view)) return true;
+    // Focus reads the committed enum directly. Pending cascade and visibility
+    // effects still use CSSOM's live value and animation sampling path.
+    if (dom_has_current_computed_style(element) &&
+        !css_animation_needs_computed_sample(element, CSS_PROPERTY_VISIBILITY)) {
+        if (view_visibility_is_hidden(view)) return true;
+    } else {
+        char visibility[16];
+        if (css_prop_serialize_computed(element, CSS_PROPERTY_VISIBILITY, 0,
+                visibility, sizeof(visibility)) && visibility[0]
+                ? strcmp(visibility, "visible") != 0 : view_visibility_is_hidden(view)) return true;
+    }
     // none suppresses flat-tree contents; the parser stub above the owned root supplies no CSS box.
     // Ensuring `element` refreshes its whole style-inheritance chain, so an
     // ancestor on that chain is already current; re-ensuring each one recascaded
@@ -1683,15 +1689,15 @@ bool view_focus_is_hidden(View* view) {
     DomElement* refreshed_chain = element;
     for (DomElement* current = element; current;
          current = element->doc && current == element->doc->root ? nullptr : dom_flat_tree_parent(current)) {
-        bool on_refreshed_chain = false;
-        for (DomElement* link = refreshed_chain; link && current != element; ) {
+        bool on_refreshed_chain = current == element;
+        for (DomElement* link = refreshed_chain; link && !on_refreshed_chain; ) {
             if (link == current) { on_refreshed_chain = true; break; }
             link = element->doc && link == element->doc->root ? nullptr : dom_parent_element(link);
         }
         if (!on_refreshed_chain) {
             dom_ensure_computed(current, false);
-            refreshed_chain = current;
         }
+        refreshed_chain = current;
         if (layout_display_is_none(resolve_display_value(current))) return true;
     }
     return false;
