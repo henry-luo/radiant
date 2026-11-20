@@ -1182,8 +1182,9 @@ static void collect_external_resource_urls(Element* elem, DomElement* dom_root, 
     }
 
 recurse:
-    for (int64_t i = 0; i < elem->length; i++) {
-        Item child_item = elem->items[i];
+    DomParsedChildren children = dom_parsed_children(dom_root ? dom_root->doc.get() : nullptr, elem);
+    for (int64_t i = 0; i < children.length(); i++) {
+        Item child_item = children.at(i);
         if (get_type_id(child_item) == LMD_TYPE_ELEMENT) {
             collect_external_resource_urls(child_item.element, dom_root, base_path,
                                             out_urls, out_count, out_capacity, kind, depth + 1);
@@ -1442,27 +1443,29 @@ static void collect_stylesheets_in_document_order(Element* elem, DomElement* dom
     if (depth > MAX_RADIANT_CSS_TREE_DEPTH || radiant_source_is_inert_template(dom_root, elem)) return;
 
     TypeElmt* type = (TypeElmt*)elem->type;
+    int first_sheet = *count;
+    DomElement* owner = nullptr;
     if (type) {
         if (str_ieq_cstr(type->name.str, "link")) {
-            int before = *count;
+            owner = dom_find_element_for_source(dom_root, elem);
             load_linked_stylesheet(elem, engine, base_path, pool,
                                    stylesheets, count, capacity);
-            if (linked_count && *count > before) {
-                *linked_count += *count - before;
+            if (linked_count && *count > first_sheet) {
+                *linked_count += *count - first_sheet;
             }
-            DomElement* owner = dom_find_element_for_source(dom_root, elem);
-            for (int i = before; i < *count; i++) {
+            for (int i = first_sheet; i < *count; i++) {
                 (*stylesheets)[i]->owner_element = owner;
             }
-            if (*count > before) {
+            if (*count > first_sheet) {
                 // retain the sheet for CSSOM enabling, but keep an initially
                 // disabled link and its imports out of the first cascade.
                 const char* title = extract_element_attribute(elem, "title", nullptr);
                 const char* rel = extract_element_attribute(elem, "rel", nullptr);
-                (*stylesheets)[before]->disabled = elem->has_attr("disabled") ||
+                (*stylesheets)[first_sheet]->disabled = elem->has_attr("disabled") ||
                     (title && *title && radiant_html_has_token(rel, "alternate"));
             }
         } else if (str_ieq_cstr(type->name.str, "style")) {
+            owner = dom_find_element_for_source(dom_root, elem);
             // media controls activation, not the existence of the CSSOM sheet.
             InlineStyleTextChunk* chunks = (InlineStyleTextChunk*)pool_alloc(
                 pool, (size_t)elem->length * sizeof(InlineStyleTextChunk));
@@ -1477,14 +1480,22 @@ static void collect_stylesheets_in_document_order(Element* elem, DomElement* dom
                     }
                 }
                 parse_inline_style_chunks(engine, chunks, chunk_count,
-                    dom_find_element_for_source(dom_root, elem), base_path, pool,
+                    owner, base_path, pool,
                     stylesheets, count, capacity);
             }
         }
     }
+    if (*count > first_sheet && owner && dom_shadow_root(owner)) {
+        // the primary sheet owns its imports. Expose that sheet only inside its root.
+        CssStylesheet* sheet = (*stylesheets)[first_sheet];
+        sheet->owner_document = owner->doc;
+        if (DomElementExt* state = owner->ensure_ext()) state->shadow_inline_stylesheet = lam::up(sheet);
+        *count = first_sheet;
+    }
 
-    for (int64_t i = 0; i < elem->length; i++) {
-        Item child_item = elem->items[i];
+    DomParsedChildren children = dom_parsed_children(dom_root ? dom_root->doc.get() : nullptr, elem);
+    for (int64_t i = 0; i < children.length(); i++) {
+        Item child_item = children.at(i);
         if (get_type_id(child_item) == LMD_TYPE_ELEMENT) {
             collect_stylesheets_in_document_order(child_item.element, dom_root, engine,
                                                   base_path, pool, stylesheets,
@@ -1711,9 +1722,9 @@ static bool css_cascade_memory_profile_enabled(void) {
     return enabled && strcmp(enabled, "1") == 0;
 }
 
-static bool css_cascade_memory_force_recascade(void) {
+static const char* css_cascade_memory_recascade_mode(void) {
     const char* enabled = getenv("RADIANT_CSS_CASCADE_MEMORY_FORCE_RECASCADE");
-    return css_cascade_memory_profile_enabled() && enabled && strcmp(enabled, "1") == 0;
+    return css_cascade_memory_profile_enabled() && enabled ? enabled : "";
 }
 
 static long long css_cascade_memory_delta(uint64_t after, uint64_t before) {
@@ -2424,7 +2435,8 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
     if (input) {
         input->ui_mode = true;
         Html5ParseOptions parse_opts = { .track_source_lines = track_source_lines,
-                                         .scripting_disabled = scripting_disabled };
+                                         .scripting_disabled = scripting_disabled,
+                                         .allow_declarative_shadow_roots = true };
         parsed_document = xhtml
             ? parse_xhtml_document(input, html_content, html_length, track_source_lines)
             : html5_parse_n(input, html_content, html_length, &parse_opts);
@@ -2619,7 +2631,11 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
     log_mem_stage("load_html: pre_script_cascade_done");
     auto t_initial_cascade = timing ? time_now_ns() : t_inline_style;
     auto t_post_script = t_initial_cascade;
-    bool profile_recascade_completed = css_cascade_memory_force_recascade();
+    const char* recascade_mode = css_cascade_memory_recascade_mode();
+    // A scoped diagnostic samples the same scripting-aware parse and both
+    // cascades. Guest scripts run after both samples and cannot affect them.
+    bool cascade_only = strcmp(recascade_mode, "cascade-only") == 0;
+    bool profile_recascade_completed = cascade_only || strcmp(recascade_mode, "1") == 0;
     if (profile_recascade_completed) {
         // The memory probe measures CSS reuse against the parsed DOM. Running
         // it after scripts would fold arbitrary page mutations into the sample.
@@ -2630,7 +2646,7 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
         log_mem_stage("load_html: profile_recascade_done");
     }
 
-    if (execute_scripts) {
+    if (execute_scripts && !cascade_only) {
         dom_doc->html_root = lam::up(html_root);
         run_html_document_scripts(dom_doc, pool, timing, script_timing,
                                   profile_recascade_completed, script_prefetch_count,
@@ -4920,12 +4936,6 @@ void rebuild_lambda_doc_incremental(UiContext* uicon, RetransformResult* results
         // Reactive templates rebuild result nodes; preserve view state for
         // structurally corresponding descendants before retiring the old tree.
         layout_preserve_rebuilt_owners(doc, old_dom, new_dom);
-
-        if (old_dom->is_popover_open() && new_dom->has_attribute("popover")) {
-            // Reconciliation replaces the DOM wrapper, but popover openness is
-            // live state and must survive an unrelated class/style mutation.
-            new_dom->set_popover_open(true);
-        }
 
         if (new_dom == old_dom) {
             new_dom->parent = lam::up(parent_dom);

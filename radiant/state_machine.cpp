@@ -534,9 +534,12 @@ static bool validate_registered_interaction_graphs(DocState* state, View** roots
     // this covers the same graph without visiting the document's stateless nodes.
     for (unsigned i = 0; i < INTERACTION_GRAPH_COUNT; ++i) {
         View* target = graph->targets[i];
-        if (!(requested & (1u << i)) || !roots[i] || !target ||
-            !view_geometry_is_descendant(target, roots[i])) continue;
-        for (View* node = target; node; node = node->parent) {
+        if (!(requested & (1u << i)) || !roots[i] || !target) continue;
+        bool connected = i == 0 ? dom_shadow_including_contains(roots[i], target)
+                                : view_geometry_is_descendant(target, roots[i]);
+        if (!connected) continue;
+        for (View* node = target; node; node = i == 0
+                 ? dom_flat_tree_parent(node->as_element()) : node->parent.get()) {
             if (!state_get_bool(state, node, interaction_graph_rules[i].ancestor_flag))
                 report_fail(report, interaction_graph_rules[i].ancestor_message);
             if (node == roots[i]) break;
@@ -556,12 +559,14 @@ static bool validate_registered_interaction_graphs(DocState* state, View** roots
         const ViewState* stored = entry->state;
         if (!stored->flags.focused && !stored->flags.hovered && !stored->flags.active) continue;
         View* node = view_state_entry_resolve_view(state, entry);
-        if (!node || !view_geometry_is_descendant(node, doc->root)) continue;
+        if (!node || !dom_shadow_including_contains(doc->root, node)) continue;
+        bool in_source_tree = view_geometry_is_descendant(node, doc->root);
         // multiple kinds may share a node; flags come from its canonical primary state.
         if (view_state_get(state, node) != stored) continue;
         bool flags[] = {stored->flags.focused != 0, stored->flags.hovered != 0, stored->flags.active != 0};
         for (unsigned i = 0; i < INTERACTION_GRAPH_COUNT; ++i) {
-            if (!(requested & (1u << i)) || !roots[i] || !flags[i]) continue;
+            if (!(requested & (1u << i)) || !roots[i] || !flags[i] ||
+                (i != 0 && !in_source_tree)) continue;
             graph->stored_counts[i]++;
             bool expected = i == 0 ? node == graph->targets[0]
                 : graph->targets[i] && view_geometry_is_descendant(graph->targets[i], node);
@@ -579,10 +584,17 @@ static bool validate_registered_interaction_graphs(DocState* state, View** roots
             if (!within && !visible) continue;
             View* node = (View*)entry->key.node;
             // generic state keys need not be DOM nodes; never dereference an unregistered key.
-            if (!dom_node_registry_owns(doc, node) || !view_geometry_is_descendant(node, roots[0])) continue;
-            bool expected = within
-                ? graph->targets[0] && view_geometry_is_descendant(graph->targets[0], node)
-                : node == graph->targets[0] && state->focus->focus_visible;
+            if (!dom_node_registry_owns(doc, node) ||
+                !dom_shadow_including_contains(roots[0], node)) continue;
+            bool expected = node == graph->targets[0] && state->focus->focus_visible;
+            if (within) {
+                expected = false;
+                View* target = graph->targets[0];
+                for (DomElement* ancestor = target ? target->as_element() : nullptr; ancestor;
+                     ancestor = dom_flat_tree_parent(ancestor)) {
+                    if (ancestor == node) { expected = true; break; }
+                }
+            }
             if (!expected) report_fail(report, within ? interaction_graph_rules[0].ancestor_message : ":focus-visible state is inconsistent");
         }
     }

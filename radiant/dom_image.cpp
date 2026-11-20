@@ -17,14 +17,20 @@ struct DomImageSource : DomDocumentResourceData {
     lam::Handle<ImageSurface> surface;
     NetworkResource* pending;
     char* pending_url;
+    char* url;
+    uint64_t generation;
 };
 static DomImageSource* image_sources;
 static bool image_source_pending(DomDocumentResourceData* data);
+static bool image_source_complete(DomElement* element, bool loaded) {
+    radiant_resource_image_complete(element, loaded);
+    return loaded;
+}
 static void image_source_destroy(DomDocumentResourceData* data) {
     auto* source=(DomImageSource*)data;
     auto** link=&image_sources;while(*link&&*link!=source) link=&(*link)->next;
     if(*link) *link=source->next;
-    mem_free(source->pending_url); mem_free(source);
+    mem_free(source->pending_url); mem_free(source->url); mem_free(source);
 }
 static DomImageSource* image_source_for(DomElement* element,bool create) {
     unsigned count=0;
@@ -67,7 +73,7 @@ static bool image_source_pending(DomDocumentResourceData* data) {
     source->surface = image ? image->self : lam::Handle<ImageSurface>{};
     if (element->embed) element->embed->img = lam::up(image);
     mem_free(source->pending_url); source->pending_url = nullptr;
-    radiant_resource_image_complete(element, image != nullptr);
+    image_source_complete(element, image != nullptr);
     return false;
 }
 
@@ -76,13 +82,22 @@ extern "C" bool dom_engine_set_image_source(DomElement* element,const char* name
     if(!element||!element->doc||element->tag()!=MARKUP_NAME_IMG||!name) return false;
     DomImageSource* source=image_source_for(element,true);if(!source) return false;
     source->pending = nullptr; mem_free(source->pending_url); source->pending_url = nullptr;
+    mem_free(source->url); source->url = nullptr; source->generation++;
     source->surface={};if(element->embed) element->embed->img=nullptr;
-    auto* ui=(UiContext*)element->doc->js.host_ui_context;if(!ui) return false;
+    if (!*name) return image_source_complete(element, false);
+    Url* resolved = dom_document_resolve_url(element->doc, name);
+    if (resolved) {
+        source->url = mem_strdup(url_get_href(resolved), MEM_CAT_RENDER);
+        url_destroy(resolved);
+    }
+    if (!source->url) return image_source_complete(element, false);
+    auto* ui=(UiContext*)element->doc->js.host_ui_context;
+    if(!ui) return image_source_complete(element, false);
     // A live cache miss queues the transfer; a warm image completes immediately.
     ImageSurface* image=load_document_image(element->doc,ui,name);
     if(image) {
         source->surface=image->self;if(element->embed) element->embed->img=lam::up(image);
-        return true;
+        return image_source_complete(element, true);
     }
     if (element->doc->resource_manager && document_dependency_admits(element->doc, name)) {
         Url* absolute = dom_document_resolve_url(element->doc, name);
@@ -94,12 +109,49 @@ extern "C" bool dom_engine_set_image_source(DomElement* element,const char* name
                 source->pending_url = mem_strdup(url_get_href(absolute), MEM_CAT_RENDER);
                 if (source->pending_url) { source->pending = resource; if (pending) *pending = true; }
                 url_destroy(absolute);
-                return false;
+                return source->pending ? false : image_source_complete(element, false);
             }
         }
         if (absolute) url_destroy(absolute);
     }
-    return false;
+    return image_source_complete(element, false);
+}
+extern "C" DomImageRequestInfo dom_engine_image_request_info(DomElement* element) {
+    if (!element || !element->doc || element->tag() != MARKUP_NAME_IMG) return {};
+    DomImageSource* source = image_source_for(element, false);
+    lam::Temp<char> selected(layout_resolve_replaced_image_source(element,
+        (CssEngine*)element->doc->services.cached_css_engine));
+    Url* resolved = selected.get() && *selected.get()
+        ? dom_document_resolve_url(element->doc, selected.get()) : nullptr;
+    const char* url = resolved ? url_get_href(resolved) : "";
+    if ((!source && *url) || (source && strcmp(source->url ? source->url : "", url))) {
+        // SSR and srcset selections use the same admitted decoder as scripted src writes.
+        bool pending = false;
+        dom_engine_set_image_source(element, url, &pending);
+        source = image_source_for(element, false);
+    }
+    if (resolved) url_destroy(resolved);
+    if (!source) return {};
+    if (source->pending) image_source_pending(source);
+    return {source->url, source->generation, source->pending != nullptr,
+        image_surface_lookup(source->surface) != nullptr};
+}
+extern "C" bool dom_engine_image_decode_request(DomElement* element, uint64_t generation) {
+    DomImageSource* source = element ? image_source_for(element, false) : nullptr;
+    if (!source || source->generation != generation || source->pending) return false;
+    ImageSurfaceReadScope scope;
+    ImageSurface* image = image_surface_lookup(source->surface);
+    if (!image) return false;
+    if (image->format == IMAGE_FORMAT_SVG) {
+#ifndef LAMBDA_HEADLESS
+        return !!image->pic;
+#else
+        return false;
+#endif
+    }
+    // a successful metadata probe is not a successful pixel decode.
+    image_surface_ensure_decoded(image, image->width, image->height);
+    return image->pixels != nullptr;
 }
 extern "C" bool dom_engine_image_natural_size(DomElement* element,int* width,int* height) {
     if(width) *width=0;if(height) *height=0;

@@ -1374,7 +1374,8 @@ bool dom_text_replace_data_contents(DocState* state, struct DomText* text,
                                     uint32_t offset, uint32_t count,
                                     const char* replacement,
                                     size_t replacement_bytes,
-                                    uint32_t replacement_u16_len);
+                                    uint32_t replacement_u16_len,
+                                    DomDocument* owner_document = nullptr);
 
 // Range methods —---------------------------------------------------------
 bool dom_range_delete_contents(DomRange* r, const char** out_exception);
@@ -3516,6 +3517,7 @@ bool focus_restore(DocState* state);
  * Get the currently focused element
  */
 View* focus_get(DocState* state);
+View* focus_get_previous(DocState* state);
 bool focus_has_current(DocState* state);
 View* focus_get_visible(DocState* state);
 

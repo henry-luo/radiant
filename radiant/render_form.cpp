@@ -1116,7 +1116,8 @@ static SelectOptionPaint select_option_paint(ViewBlock* select, DomElement* opti
         paint.background = listbox
             ? (disabled ? make_color(212, 212, 212) : make_color(0, 120, 215))
             : make_color(230, 230, 230);
-        if (listbox) paint.text = make_color(255, 255, 255);
+        // The popup's light selected-row fallback needs dark text even in a dark select.
+        paint.text = listbox ? make_color(255, 255, 255) : make_color(0, 0, 0);
     }
     if (disabled) paint.text = make_color(128, 128, 128);
     if (!option) return paint;

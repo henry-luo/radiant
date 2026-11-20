@@ -5,6 +5,7 @@
 #include <math.h>
 
 static bool multicol_has_vertical_inline_axis(ViewBlock* block);
+static bool multicol_has_direct_spanner_child(ViewBlock* child);
 static bool multicol_has_forced_break_descendant(View* view);
 static bool multicol_has_unconstrained_continuous_flow(ViewBlock* block);
 static bool multicol_uses_continuous_wrapped_slots(ViewBlock* parent, ViewBlock* child);
@@ -541,6 +542,13 @@ static void multicol_flow_margins(ViewBlock* container, ViewBlock* child,
         return;
     }
 
+    // in-flow descendants can supply an adjoining margin at the item's outer edge.
+    // escaping spanners carry their margins to the separate full-width flow.
+    if (!multicol_has_direct_spanner_child(child)) {
+        if (out_before) *out_before = layout_vertical_flow_effective_margin(child, WM_HORIZONTAL_TB, true);
+        if (out_after) *out_after = layout_vertical_flow_effective_margin(child, WM_HORIZONTAL_TB, false);
+        return;
+    }
     if (out_before) *out_before = margin->top;
     if (out_after) *out_after = margin->bottom;
 }
@@ -1750,9 +1758,11 @@ static bool multicol_rebuild_flattened_inline_span_union(
 
     float line_offset = found_fragmented_block
         ? 0.0f : multicol_normal_line_offset(line_advance, visual_height);
+    // a block-only split inline takes the projected block extent directly.
+    float line_height = found_fragmented_block && !found_inline_block ? 0.0f : visual_height;
     layout_extend_fragment_union(
         span, FRAGMENT_UNION_SPLIT_INLINE, min_x, max_x,
-        min_y + line_offset, max_y + line_offset + visual_height);
+        min_y + line_offset, max_y + line_offset + line_height);
     return true;
 }
 
@@ -1825,9 +1835,8 @@ static void multicol_finalize_fragmented_inline_continuations(View* view) {
                 break;
             }
         }
-        // CSS Ruby: an annotation inline box owns its line box; an atomic
-        // annotation child may overflow it and must not resize the box.
-        if (!layout_ruby_annotation_node(span) &&
+        // ruby containers and annotations already have line geometry from ruby layout.
+        if (span->tag() != MARKUP_NAME_RUBY && !layout_ruby_annotation_node(span) &&
             containing_block && is_multicol_container(containing_block)) {
             span->set_has_fragment_union(FRAGMENT_UNION_SPLIT_INLINE, false);
             bool used_block_geometry = false;
@@ -8192,8 +8201,9 @@ static float multicol_split_child_around_spanners(
             if (has_inline_text && current_y < inline_leading_extent) {
                 current_y = inline_leading_extent;
             }
-            float margin_top = spanner->bound ? spanner->boundary()->margin.top : 0;
-            float margin_bottom = spanner->bound ? spanner->boundary()->margin.bottom : 0;
+            // the spanner's margins belong to the full-width flow after it leaves the wrapper.
+            float margin_top = children[i].margin_before;
+            float margin_bottom = children[i].margin_after;
             float collapsed_margin = max(prev_margin_bottom, margin_top);
             current_y -= prev_margin_bottom;
             current_y += collapsed_margin;

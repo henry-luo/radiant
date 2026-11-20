@@ -1,4 +1,5 @@
 #include "css_resolved_style.hpp"
+#include "layout_anchor.hpp"
 #include "render.hpp"
 #include "lambda/input/css/css_parser.hpp"
 #include "tagged.hpp"
@@ -247,6 +248,8 @@ bool css_resolved_style_cache_allowed(LayoutContext* context, DomElement* elemen
     if (!context || !element || !context->doc || !context->pool ||
         !context->doc->view_tree || context->pool != context->doc->view_tree->prop_pool ||
         context->css_query_probe || context->selected_style ||
+        (context->anchor_frame && context->anchor_frame->active &&
+         context->anchor_frame->block == element) ||
         context->doc->view_tree->model || element->doc != context->doc ||
         element->scratch_lived() || element->is_table_fixup() ||
         // authored buttons size their DOM children; other controls also read native values.

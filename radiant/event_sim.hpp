@@ -408,6 +408,7 @@ struct SimEvent {
     float layer_max_mean;
     // Phase 7: advance_time fields
     int advance_steps;           // number of tick steps (0 = auto from ms/16)
+    bool advance_render;         // rasterize after advancing the clock
     // Phase 7: assert_style animated flag
     bool style_animated;         // read from live ViewSpan instead of CSS cascade
     float style_tolerance;       // tolerance for animated float comparison (default 0.05)

@@ -803,14 +803,19 @@ struct TextWrapBalanceProbe {
         query_width = width;
         clearance = 0.0f;
         // balance uses the same shortened intervals and float clearance as rendering.
-        float height = (has_boundaries || query_floats)
+        // balanced widths need the selected flow's contextual glyph advances;
+        // an estimate can undercount a word and silently add a final line.
+        float height = content && !has_boundaries && !query_floats
+            ? layout_measure_inline_flow_content_height(lycon, block, width) : -1.0f;
+        bool measured_flow = height >= 0.0f;
+        if (!measured_flow) height = (has_boundaries || query_floats)
             ? (paragraph ? compute_text_height_at_width(lycon, paragraph, length,
                 width, line_height, get_element_text_transform(block),
                 get_element_font_variant(block), false,
                 query_floats ? line_width : nullptr, this) : 0.0f)
             // the candidate is already this paragraph's content width, not its containing width.
             : calculate_max_content_height(lycon, block, width, false, true);
-        if (!has_boundaries && !query_floats) {
+        if (!measured_flow && !has_boundaries && !query_floats) {
             // The intrinsic query includes the border box; the line budget
             // counts only the paragraph's content line boxes.
             height -= layout_box_metrics(block).pad_border_v;
@@ -1506,6 +1511,46 @@ bool layout_generated_pseudo(const DomElement* element, uint8_t* pseudo, PseudoS
         return true;
     }
     return false;
+}
+
+DomElement* layout_top_layer_backdrop(DomElement* owner) {
+    for (DomNode* node = owner ? owner->last_child.get() : nullptr; node; node = node->prev_sibling) {
+        DomElement* element = node->as_element();
+        if (layout_is_backdrop(element)) return element;
+    }
+    return nullptr;
+}
+
+void layout_top_layer_backdrops(LayoutContext* lycon) {
+    DomDocument* document = lycon->doc;
+    for (size_t i = 0; i < dom_top_layer_count(document); i++) {
+        DomElement* owner = dom_top_layer_at(document, i);
+        if (!owner || !lam::view_as_block(owner)) continue;
+        StyleTree* style = owner->pseudo_style(PSEUDO_STYLE_BACKDROP);
+        CssDeclaration* content = style ? style_tree_get_declaration(style, CSS_PROPERTY_CONTENT) : nullptr;
+        DomElement* backdrop = layout_top_layer_backdrop(owner);
+        if ((!style && !owner->is_dialog_modal()) ||
+            (content && css_value_keyword_equals(content->value, CSS_VALUE_NONE))) {
+            if (backdrop) backdrop->view_type = RDT_VIEW_NONE;
+            continue;
+        }
+        if (!backdrop) {
+            backdrop = DomElement::create(document, "::backdrop", nullptr);
+            if (!backdrop) continue;
+            // keep lifetime ownership in the generated child chain, apart from flow.
+            insert_pseudo_into_dom(owner, backdrop, false);
+        }
+        if (!style && backdrop->specified_style_borrowed()) dom_element_clear(backdrop);
+        if (style) refresh_pseudo_element_style(lycon, owner, backdrop, PSEUDO_STYLE_BACKDROP, owner->font);
+        else backdrop->display = {CSS_VALUE_BLOCK, CSS_VALUE_FLOW};
+        if (layout_display_is_none(backdrop->display)) {
+            backdrop->view_type = RDT_VIEW_NONE;
+            continue;
+        }
+        backdrop->set_needs_style_recompute(true);
+        LayoutViewScope view_scope(lycon);
+        layout_block(lycon, backdrop, backdrop->display);
+    }
 }
 
 DomElement* layout_footnote_pseudo(LayoutContext* lycon, DomElement* note, bool call) {
@@ -4599,10 +4644,9 @@ void finalize_block_flow(LayoutContext* lycon, ViewBlock* block, CssEnum display
                         ratio_height = layout_apply_min_max_axis(block, ratio_height, false, false);
                         ratio_border_height = layout_border_size_from_content_box(block, ratio_height, false);
                     }
-                    bool overflow_not_visible = block->scroller &&
-                        (block->scroll()->overflow_x != CSS_VALUE_VISIBLE ||
-                         block->scroll()->overflow_y != CSS_VALUE_VISIBLE);
-                    if (!overflow_not_visible && block->tag_id == MARKUP_NAME_FIELDSET) {
+                    bool scrolls_in_ratio_axis = block->scroller &&
+                        layout_is_scrollable_overflow(block->scroll()->overflow_y);
+                    if (!scrolls_in_ratio_axis && block->tag_id == MARKUP_NAME_FIELDSET) {
                         DomElement* rendered_legend = find_fieldset_rendered_legend(block);
                         ViewBlock* legend_view = rendered_legend
                             ? lam::view_as_block(static_cast<View*>(rendered_legend)) : nullptr;
@@ -4615,7 +4659,7 @@ void finalize_block_flow(LayoutContext* lycon, ViewBlock* block, CssEnum display
                             final_height = max(final_height, ratio_border_height);
                         }
                     } else {
-                        if (preserve_ratio_height || overflow_not_visible) {
+                        if (preserve_ratio_height || scrolls_in_ratio_axis) {
                             final_height = ratio_border_height;
                         } else {
                             final_height = max(final_height, ratio_border_height);

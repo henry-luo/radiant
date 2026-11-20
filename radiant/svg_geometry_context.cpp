@@ -2,6 +2,7 @@
 #include "layout.hpp"
 #include "layout_host.hpp"
 #include "event.hpp"
+#include "radiant.hpp"
 #include "svg_animation.hpp"
 #include "lambda/input/css/dom_element.hpp"
 #include "lib/hashmap_typed.hpp"
@@ -25,26 +26,40 @@ using DomSvgHitGeometryMap = TypedHashMap<DomSvgHitGeometry,
 static thread_local DomSvgHitGeometryScope* g_dom_svg_hit_geometry = nullptr;
 
 DomSvgHitGeometryScope::DomSvgHitGeometryScope(DomElement* element) :
-    document(element ? element->doc : nullptr), entries(nullptr),
-    previous(g_dom_svg_hit_geometry), owner(document && (!previous || previous->document != document)) {
-    if (owner) {
-        entries = DomSvgHitGeometryMap::create(64);
-        g_dom_svg_hit_geometry = this;
-    }
+    document(element ? element->doc : nullptr), entries(nullptr), resource_base(nullptr),
+    previous(g_dom_svg_hit_geometry), resource_base_resolved(false),
+    owner(document && (!previous || previous->document != document)) {
+    if (owner) g_dom_svg_hit_geometry = this;
 }
 
 DomSvgHitGeometryScope::~DomSvgHitGeometryScope() {
     if (owner) {
         g_dom_svg_hit_geometry = previous;
         DomSvgHitGeometryMap::destroy(entries);
+        mem_free(resource_base);
     }
+}
+
+bool dom_svg_hit_resource_base(DomDocument* document, const char** base) {
+    auto* scope = g_dom_svg_hit_geometry;
+    if (!scope || scope->document != document) return false;
+    // resolving the active HTML base walks the source tree. A synchronous
+    // hit test can share it across all inline SVG text candidates.
+    if (!scope->resource_base_resolved) {
+        scope->resource_base = radiant_document_resource_base(document, MEM_CAT_FONT);
+        scope->resource_base_resolved = true;
+    }
+    *base = scope->resource_base;
+    return true;
 }
 
 DomSvgHitGeometry* dom_svg_hit_geometry(DomElement* element, bool create) {
     auto* scope = g_dom_svg_hit_geometry;
     // A use instance supplies a different font/viewport ancestry for the same source.
-    if (!element || !scope || !scope->entries || scope->document != element->doc ||
+    if (!element || !scope || scope->document != element->doc ||
         g_dom_svg_style_scope || svg_animation_is_sampling(element->doc)) return nullptr;
+    if (!scope->entries && create) scope->entries = DomSvgHitGeometryMap::create(64);
+    if (!scope->entries) return nullptr;
     DomSvgHitGeometry key = {}; key.element = element;
     DomSvgHitGeometry* entry = DomSvgHitGeometryMap::get(scope->entries, key);
     if (!entry && create) {

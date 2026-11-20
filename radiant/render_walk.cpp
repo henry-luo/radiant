@@ -67,7 +67,7 @@ static bool render_walk_block_effect_group(ViewBlock* block, float abs_x, float 
                      render_walk_blend_mode_effective(block->inl()->mix_blend_mode))
                     ? block->inl()->mix_blend_mode : (CssEnum)0;
     bool has_filter = render_walk_filter_effective(block->filter_prop());
-    bool has_backdrop_filter = render_walk_filter_effective(block->backdrop_filter_prop());
+    bool has_backdrop_filter = render_effect_has_visible_backdrop(block, block->backdrop_filter_prop());
     bool has_shadow = block->bound && block->boundary_mut()->box_shadow;
     RadialGradient* mask = block->bound && block->boundary()->mask ? block->boundary()->mask->radial_gradient.get() : nullptr;
     if (opacity >= 0.9995f && !blend && !has_filter &&
@@ -104,7 +104,7 @@ static bool render_walk_inline_effect_group(ViewSpan* span, PaintEffectGroup* gr
                      render_walk_blend_mode_effective(span->inl()->mix_blend_mode))
                     ? span->inl()->mix_blend_mode : (CssEnum)0;
     bool has_filter = render_walk_filter_effective(span->filter_prop());
-    bool has_backdrop_filter = render_walk_filter_effective(span->backdrop_filter_prop());
+    bool has_backdrop_filter = render_effect_has_visible_backdrop(span, span->backdrop_filter_prop());
     if (opacity >= 0.9995f && !blend && !has_filter && !has_backdrop_filter) {
         return false;
     }
@@ -140,7 +140,7 @@ static bool render_walk_block_begin(RenderPaintBlockDriver* ctx, ViewBlock* bloc
         }
     }
 
-    RdtLogicalPoint fixed = view_geometry_fixed_scroll_adjustment(block);
+    RdtLogicalPoint fixed = view_geometry_positioned_scroll_adjustment(block);
     state->x = p->pa_x + block->x + fixed.x;
     state->y = p->pa_y + block->y + fixed.y;
     // semantic export visits occur once, even when box paint scopes have several phases.
@@ -494,6 +494,29 @@ void render_walk_view_one(RenderBackend* backend, RenderWalkState* state, View* 
     render_walk_view(backend, state, view);
 }
 
+struct RenderWalkTopLayer {
+    RenderBackend* backend;
+    RenderWalkState* state;
+};
+
+static bool render_walk_top_layer_box(void* context, DomElement*, ViewBlock* box) {
+    auto* walk = (RenderWalkTopLayer*)context;
+    if (render_walk_aborted(walk->backend)) return false;
+    RenderWalkState saved = *walk->state;
+    RdtLogicalPoint offset = radiant_top_layer_offset(box);
+    walk->state->x += offset.x;
+    walk->state->y += offset.y;
+    render_walk_view(walk->backend, walk->state, box);
+    *walk->state = saved;
+    return true;
+}
+
+void render_walk_document(RenderBackend* backend, RenderWalkState* state, ViewTree* tree) {
+    if (!tree || !tree->root) return;
+    render_walk_view(backend, state, tree->root);
+    RenderWalkTopLayer walk = {backend, state};
+    radiant_visit_top_layer(tree, false, &walk, render_walk_top_layer_box);
+}
 // replay only the ancestry scopes, so lifted layers keep their local geometry and clipping.
 static void render_walk_stacking_path(RenderBackend* backend, RenderWalkState* state,
                                       View* owner, View* target, bool outline_only = false) {

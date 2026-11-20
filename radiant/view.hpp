@@ -122,6 +122,8 @@ bool css_prop_compute_numeric_value(DomElement* element, const CssValue* value, 
 // used shape/geometry consumers supply their own percentage reference.
 bool css_prop_compute_numeric_value(DomElement* element, const CssValue* value,
     CssMathResult* result, float percentage_base);
+bool css_prop_compute_scalar_value(DomElement* element, const CssValue* value,
+    int pseudo_type, bool (*compute)(const CssMathResult*, float*), float* result);
 // native consumers finish their borrow before temporary substituted values are released.
 bool css_prop_consume_cascaded_value(DomElement* element, CssPropertyCode id,
     bool (*consume)(DomElement*, const CssValue*, int, void*), void* result);
@@ -176,6 +178,7 @@ void view_get_visual_bounds(View* view, float* out_x, float* out_y,
 typedef bool (*RadiantCssomUsedValueSync)(DomDocument* doc);
 void radiant_set_cssom_used_value_sync(RadiantCssomUsedValueSync sync);
 bool dom_ensure_computed(DomElement* element, bool needs_used_value = false);
+bool dom_has_current_computed_style(DomElement* element);
 
 // synchronous declaration reads can share refreshed ancestors without committing layout.
 struct CssomCascadeQueryScope {
@@ -435,7 +438,7 @@ enum ContentVisibilityCheck { CONTENT_VISIBILITY_PAINT, CONTENT_VISIBILITY_USER_
 bool view_content_visibility_hides(DomElement* element, ContentVisibilityCheck check,
                                     bool include_self = false);
 bool view_is_viewport_fixed(View* view);
-RdtLogicalPoint view_geometry_fixed_scroll_adjustment(View* view);
+RdtLogicalPoint view_geometry_positioned_scroll_adjustment(View* view);
 bool rdt_matrix4_backface_visible(const RdtMatrix4* matrix);
 bool view_get_foreign_object_matrix(View* view, RdtMatrix* out_matrix, bool include_self_transform = true);
 // maps border-box local coordinates to the document viewport, including CSS/SVG transforms.
@@ -2055,6 +2058,9 @@ typedef struct PositionProp {
         bool inset_present[4];
     };  // which offsets are set
     bool has_custom_layout_z_index;
+    uint8_t anchor_scroll_axes;
+    DomNodeRef anchor_scroll_target;
+    RdtLogicalPoint anchor_scroll_origin;
     float inline_relative_x, inline_relative_y; // offsets already applied in the parent inline frame
     CssEnum clear;        // clear property for floats
     CssEnum float_prop;   // float property (left, right, none)
@@ -4398,6 +4404,7 @@ struct LayoutContext;
 float convert_lambda_length_to_px(const CssValue* value, LayoutContext* lycon,
                                    CssPropertyCode prop_id);
 Color resolve_color_value(LayoutContext* lycon, const CssValue* value);
+bool resolve_color_scheme_is_dark(LayoutContext* lycon, int pseudo_type = 0);
 Color resolve_text_color_value(LayoutContext* lycon, const CssValue* value);
 float resolve_css_opacity_value(LayoutContext* lycon, const CssValue* value);
 bool resolve_pseudo_color(LayoutContext* lycon, StyleTree* pseudo_style,
@@ -4465,6 +4472,7 @@ bool css_is_mathml_element(const DomElement* element);
 bool layout_resolve_contain_intrinsic_size(LayoutContext* lycon, DomElement* element,
                                            float* out_width, float* out_height);
 DisplayValue blockify_display(DisplayValue display);
+DisplayValue blockify_top_layer_display(DisplayValue display);
 bool css_display_is_ruby_internal(CssEnum display);
 bool css_display_is_ruby_role(CssEnum display);
 CssEnum css_ruby_compute_unicode_bidi(CssEnum value);

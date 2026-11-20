@@ -5526,14 +5526,16 @@ static bool scene3d_mesh_bounds(const Scene3dMesh* mesh, const Scene3dMatrix& vi
     }
     bool valid = true;
     if (billboard) return scene3d_billboard_bounds(mesh, view, a, b, lo, hi, maximum_scale);
-    for (unsigned k = 0; k < instances; k++)
+    const Scene3dMatrix world_to_view = scene3d_multiply(view, mesh->world);
+    for (unsigned k = 0; k < instances; k++) {
+        Scene3dMatrix instance_to_view = world_to_view;
+        if (mesh->instance_matrices) {
+            Scene3dMatrix instance;
+            memcpy(instance.v, mesh->instance_matrices + k * 16, sizeof(instance.v));
+            instance_to_view = scene3d_multiply(world_to_view, instance);
+        }
         for (unsigned pose = 0; pose < poses; pose++) {
-            Scene3dMatrix to = scene3d_multiply(view, mesh->world);
-            if (mesh->instance_matrices) {
-                Scene3dMatrix instance;
-                memcpy(instance.v, mesh->instance_matrices + k * 16, sizeof(instance.v));
-                to = scene3d_multiply(to, instance);
-            }
+            Scene3dMatrix to = instance_to_view;
             if (!mesh->authored_bounds && mesh->bone_count)
                 to = scene3d_multiply(to, mesh->bone_matrices[pose]);
             if (maximum_scale)
@@ -5548,6 +5550,7 @@ static bool scene3d_mesh_bounds(const Scene3dMesh* mesh, const Scene3dMatrix& vi
                 scene3d_include(q, lo, hi);
             }
         }
+    }
     return valid;
 }
 static bool scene3d_mesh_in_view(Scene3dEntry* entry, const Scene3dMesh* mesh, const Scene3dMatrix& lens,
@@ -5560,9 +5563,11 @@ static bool scene3d_mesh_in_view(Scene3dEntry* entry, const Scene3dMesh* mesh, c
     entry->stats.visibility_tests++;
     Scene3dVec lo = {FLT_MAX, FLT_MAX, FLT_MAX}, hi = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
     float scale = 0, mx = 0, my = 0;
-    if (!scene3d_mesh_bounds(mesh, view, &lo, &hi, &scale))
-        return true;
     auto kind = mesh->geometry->topology;
+    // Only world-sized points, lines and sprites expand their culling bounds by the transform scale.
+    bool needs_scale = kind != SCENE_TRIANGLES && !mesh->screen_size;
+    if (!scene3d_mesh_bounds(mesh, view, &lo, &hi, needs_scale ? &scale : nullptr))
+        return true;
     if (kind != SCENE_TRIANGLES) {
         bool line = kind == SCENE_LINE || kind == SCENE_SEGMENTS;
         float x = line ? mesh->drawable_size[0] * .5f

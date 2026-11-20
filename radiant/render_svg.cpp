@@ -214,7 +214,8 @@ static void render_text_view_svg(SvgRenderContext* ctx, ViewText* text) {
                            parent_elem->fontp()->text_shadow;
 
     if (parent_elem && render_paint_text_background(svg_active_paint_list(ctx), ctx->ui_context,
-            parent_elem, &run, {ctx->block.x, ctx->block.y, parent_elem->width, parent_elem->height})) {
+            parent_elem, &run, render_text_background_border_box(
+                parent_elem, ctx->block.x, ctx->block.y, 1.0f))) {
         svg_lower_paint_list(ctx);
     }
     // an inline element's own background and border, one box per fragment (as raster paints it)
@@ -997,7 +998,8 @@ static RenderBackend svg_make_backend(SvgRenderContext* ctx) {
 static void calculate_visible_content_bounds(View* view, Bound clip,
                                                RdtMatrix transform,
                                                bool apply_clips, Bound* extent) {
-    if (!view) return;
+    // top-layer geometry is painted against the viewport and adds no document overflow.
+    if (!view || layout_is_top_layer_box(view->as_element())) return;
     RdtLogicalPoint origin = {};
     // inline descendants already use their flow's coordinates; their inline ancestors add no translation.
     view_get_layout_position(view, nullptr, &origin.x, &origin.y);
@@ -1135,7 +1137,10 @@ char* render_view_tree_to_svg(UiContext* uicon, View* root_view, float width, fl
     walk_state.ui_context = lam::up(uicon);
 
     if (root_view->view_type == RDT_VIEW_BLOCK) {
-        render_walk_block(&backend, &walk_state, lam::view_require_block(root_view));
+        ViewBlock* root = lam::view_require_block(root_view);
+        ViewTree* tree = root->doc ? root->doc->view_tree.get() : nullptr;
+        if (tree && tree->root == root_view) render_walk_document(&backend, &walk_state, tree);
+        else render_walk_block(&backend, &walk_state, root);
     } else {
         render_walk_children(&backend, &walk_state, root_view);
     }

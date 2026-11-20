@@ -395,8 +395,6 @@ struct CssomValueTarget {
     bool (*consume)(DomElement*, const CssValue*, int, void*);
     void* result;
 };
-static bool cssom_compute_scalar_value(DomElement* element, const CssValue* value,
-    int pseudo_type, CssomScalarPolicy compute, float* result);
 static bool format_cssom_scalar_value(DomElement* element, const CssValue* value,
     StringBuf* output, int pseudo_type, CssomScalarPolicy compute);
 static bool format_cssom_length_value(DomElement* element, const CssValue* value,
@@ -418,6 +416,8 @@ static bool format_css_value(DomElement* element, CssPropertyCode id,
     if (id == CSS_PROPERTY_GRID_TEMPLATE_COLUMNS || id == CSS_PROPERTY_GRID_TEMPLATE_ROWS ||
         id == CSS_PROPERTY_GRID_AUTO_COLUMNS || id == CSS_PROPERTY_GRID_AUTO_ROWS)
         return format_grid_computed_value(element, value, out, id, pseudo_type);
+    if (id == CSS_PROPERTY_POSITION_AREA &&
+        css_anchor_serialize_position_area(out, value, true)) return true;
     if (id == CSS_PROPERTY_OVERFLOW_CLIP_MARGIN)
         return format_overflow_clip_margin_computed_value(element, value, out, pseudo_type);
     if (id == CSS_PROPERTY_LINE_CLAMP || id == CSS_PROPERTY_WEBKIT_LINE_CLAMP)
@@ -654,7 +654,9 @@ static bool consume_inherited_decl(DomElement* element, CssPropertyCode id,
                     serialized->chars, serialized->len, scratch) : nullptr;
                 if (!source || !css_color_compute(source->value, &current)) return false;
             }
-            if (!css_color_compute(value, &computed_color, &current)) return false;
+            LayoutContext scheme_context = cssom_value_context(element, scratch_pool());
+            bool dark = resolve_color_scheme_is_dark(&scheme_context, pseudo_type);
+            if (!css_color_compute(value, &computed_color, &current, &dark)) return false;
             // CSSOM's temporary tree belongs to this read; authored and registered expressions stay immutable.
             value = css_value_create_computed_color(scratch_pool(), &computed_color);
             if (!value) return false;
@@ -786,7 +788,7 @@ uint8_t css_prop_compute_cascaded_containment(DomElement* element) {
 
 static bool cssom_consume_flex_factor(DomElement* element, const CssValue* value,
         int pseudo_type, void* result) {
-    return cssom_compute_scalar_value(element, value, pseudo_type,
+    return css_prop_compute_scalar_value(element, value, pseudo_type,
         css_compute_nonnegative_number_result, (float*)result);
 }
 
@@ -1094,7 +1096,7 @@ static bool cssom_compute_integer_value(DomElement* element, const CssValue* val
         css_compute_integer_result(value, &math, minimum, maximum, result);
 }
 
-static bool cssom_compute_scalar_value(DomElement* element, const CssValue* value,
+bool css_prop_compute_scalar_value(DomElement* element, const CssValue* value,
         int pseudo_type, CssomScalarPolicy compute, float* result) {
     CssMathResult math;
     return cssom_compute_numeric_value(element, value, &math, pseudo_type, true) &&
@@ -1105,7 +1107,7 @@ static bool format_cssom_scalar_value(DomElement* element, const CssValue* value
         StringBuf* output, int pseudo_type, CssomScalarPolicy compute) {
     float number = 0.0f;
     // dirty and pseudo reads use declaration font state, with the same range policy as layout.
-    return cssom_compute_scalar_value(element, value, pseudo_type, compute, &number) &&
+    return css_prop_compute_scalar_value(element, value, pseudo_type, compute, &number) &&
         format_number(output, number, "");
 }
 
@@ -1694,10 +1696,20 @@ static bool serialize_cursor(const CssPropAccessor*, DomElement* element, int ps
     return true;
 }
 
-static bool serialize_display(const CssPropAccessor*, DomElement* element, int pseudo_type,
+static bool serialize_display(const CssPropAccessor* accessor, DomElement* element, int pseudo_type,
                               StringBuf* out) {
-    if (!element || pseudo_type != 0) return false;
-    DisplayValue display = resolve_display_value(element);
+    if (!element) return false;
+    DisplayValue display;
+    if (pseudo_type == 0) display = resolve_display_value(element);
+    else if (pseudo_type == PSEUDO_ELEMENT_BACKDROP && element->is_in_top_layer()) {
+        display = {CSS_VALUE_BLOCK, CSS_VALUE_FLOW};
+        // computed backdrop display uses the same blockification before a box exists.
+        CssomValueTarget target = {[](DomElement* declaring, const CssValue* value, int, void* result) {
+            return value && css_resolve_display_css_value(declaring, value, static_cast<DisplayValue*>(result));
+        }, &display};
+        consume_cascaded_value(element, CSS_PROPERTY_DISPLAY, pseudo_type, nullptr, false, &target);
+        display = blockify_top_layer_display(display);
+    } else return serialize_decl(accessor, element, pseudo_type, out);
     const char* special = css_display_special_name(display);
     if (special) return copy_text(out, special);
     if (display.outer == CSS_VALUE_NONE) return copy_text(out, "none");
@@ -2266,8 +2278,13 @@ static const CssPropAccessor CSS_PROP_ROWS[] = {
     DERIVED_ROW(CSS_PROPERTY_COLOR_INTERPOLATION, serialize_svg_paint, CSS_PROP_ACCESSOR_CASCADE_RESOLVED),
     DERIVED_ROW(CSS_PROPERTY_COLOR_INTERPOLATION_FILTERS, serialize_svg_paint, CSS_PROP_ACCESSOR_CASCADE_RESOLVED),
     DERIVED_ROW(CSS_PROPERTY_TEXT_ANCHOR, serialize_svg_paint, CSS_PROP_ACCESSOR_CASCADE_RESOLVED),
-    DERIVED_ROW(CSS_PROPERTY_DISPLAY, serialize_display, CSS_PROP_ACCESSOR_CASCADE_RESOLVED),
+    DERIVED_ROW(CSS_PROPERTY_DISPLAY, serialize_display,
+                CSS_PROP_ACCESSOR_CASCADE_RESOLVED | CSS_PROP_ACCESSOR_PSEUDO_RESOLVED),
     DIRECT_ROW(CSS_PROPERTY_POSITION, PROP_GROUP_POSITION, PositionProp, position, CSS_PROP_VALUE_ENUM, 0),
+    DERIVED_ROW(CSS_PROPERTY_ANCHOR_NAME, serialize_decl, CSS_PROP_ACCESSOR_CASCADE_RESOLVED),
+    DERIVED_ROW(CSS_PROPERTY_ANCHOR_SCOPE, serialize_decl, CSS_PROP_ACCESSOR_CASCADE_RESOLVED),
+    DERIVED_ROW(CSS_PROPERTY_POSITION_ANCHOR, serialize_decl, CSS_PROP_ACCESSOR_CASCADE_RESOLVED),
+    DERIVED_ROW(CSS_PROPERTY_POSITION_AREA, serialize_decl, CSS_PROP_ACCESSOR_CASCADE_RESOLVED),
     DERIVED_ROW(CSS_PROPERTY_TOP, serialize_inset, CSS_PROP_ACCESSOR_USED_VALUE),
     DERIVED_ROW(CSS_PROPERTY_RIGHT, serialize_inset, CSS_PROP_ACCESSOR_USED_VALUE),
     DERIVED_ROW(CSS_PROPERTY_BOTTOM, serialize_inset, CSS_PROP_ACCESSOR_USED_VALUE),
@@ -2362,6 +2379,7 @@ static const CssPropAccessor CSS_PROP_ROWS[] = {
     DECL_ROW(CSS_PROPERTY_FLEX_DIRECTION),
     DECL_ROW(CSS_PROPERTY_FLEX_WRAP),
     DECL_ROW(CSS_PROPERTY_JUSTIFY_CONTENT),
+    DECL_ROW(CSS_PROPERTY_JUSTIFY_ITEMS),
     DECL_ROW(CSS_PROPERTY_ALIGN_ITEMS),
     DECL_ROW(CSS_PROPERTY_ALIGN_CONTENT),
     DERIVED_ROW(CSS_PROPERTY_PLACE_CONTENT, serialize_place_content, 0),
@@ -2478,7 +2496,7 @@ using CssomRefreshedMap = TypedHashMap<CssomRefreshedElement,
 static thread_local CssomCascadeQueryScope* s_cssom_cascade_scope = nullptr;
 
 CssomCascadeQueryScope::CssomCascadeQueryScope()
-    : previous(s_cssom_cascade_scope), refreshed(CssomRefreshedMap::create(32)) {
+    : previous(s_cssom_cascade_scope), refreshed(nullptr) {
     s_cssom_cascade_scope = this;
 }
 
@@ -2493,10 +2511,13 @@ static void cssom_refresh_cascade_chain(DomElement* element) {
     // inheritance and declaration-site variables need live ancestors before pointers are borrowed.
     SelectorMatcher matcher;
     selector_matcher_init(&matcher, element->doc->document_pool);
+    // Clean computed reads never allocate a query cache.
+    if (s_cssom_cascade_scope && !s_cssom_cascade_scope->refreshed)
+        s_cssom_cascade_scope->refreshed = CssomRefreshedMap::create(32);
+    HashMap* refreshed = s_cssom_cascade_scope ? s_cssom_cascade_scope->refreshed : nullptr;
     for (int index = ancestors->length; index > 0; index--) {
         DomElement* current = (DomElement*)ancestors->data[index - 1];
         CssomRefreshedElement query = {current, current->style_version, current->doc->mutation_epoch};
-        HashMap* refreshed = s_cssom_cascade_scope ? s_cssom_cascade_scope->refreshed : nullptr;
         const CssomRefreshedElement* cached = refreshed ? CssomRefreshedMap::get(refreshed, query) : nullptr;
         // D5.5.1: this synchronous borrow ends with the candidate walk. A
         // pending mutation must not recascade common ancestors per descendant.
@@ -2513,6 +2534,18 @@ static void cssom_refresh_cascade_chain(DomElement* element) {
     arraylist_free(ancestors);
 }
 
+bool dom_has_current_computed_style(DomElement* element) {
+    if (!element || !element->doc || element->doc->js.mutation_count) return false;
+    // the Range/Selection document stub above doc->root never participates in CSS resolution.
+    for (DomNode* node = element; node;
+         node = node == element->doc->root ? nullptr : node->parent.get()) {
+        if (node->layout_dirty || (node->is_element() &&
+            (!node->as_element()->styles_resolved() ||
+             node->as_element()->needs_style_recompute()))) return false;
+    }
+    return true;
+}
+
 bool dom_ensure_computed(DomElement* element, bool needs_used_value) {
     if (!element || !element->doc) return false;
     // A clean committed ViewTree already owns the used values. Re-reading a
@@ -2520,16 +2553,7 @@ bool dom_ensure_computed(DomElement* element, bool needs_used_value) {
     // unexpanded declaration tree (for example, `padding: 4px`).
     bool missing_used_value_snapshot = needs_used_value &&
         (!element->doc->view_tree || !element->doc->view_tree->root);
-    bool dirty = missing_used_value_snapshot || element->layout_dirty;
-    // the Range/Selection document stub above doc->root never participates in CSS resolution.
-    for (DomNode* node = element; node && !dirty;
-         node = node == element->doc->root ? nullptr : node->parent.get()) {
-        if (node->layout_dirty || (node->is_element() &&
-            (!node->as_element()->styles_resolved() ||
-             node->as_element()->needs_style_recompute()))) dirty = true;
-    }
-    dirty = dirty || element->doc->js.mutation_count > 0;
-    if (!dirty) return true;
+    if (!missing_used_value_snapshot && dom_has_current_computed_style(element)) return true;
 
     if (needs_used_value && s_cssom_used_value_sync &&
             s_cssom_used_value_sync(element->doc)) {

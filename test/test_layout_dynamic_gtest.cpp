@@ -1953,17 +1953,26 @@ TEST_F(DynamicLayoutTest, NestedColumnIntrinsicHeightRetainsInlineForcedBreaks) 
          "<div id='wrap'><div id='title'><h1 id='heading'><span>AAAA AAAA AAAA AAAA</span>"
          "<span id='break'><br></span><span>BBBB</span></h1></div></div>"
          "<p>first line<br>second line</p></div><div id='button'></div></div></div></div>");
-    for (bool show_break : {true, false, true}) {
-        SCOPED_TRACE(show_break);
-        ASSERT_TRUE(element("break")->set_attribute("style", show_break ? "" : "display:none"));
-        radiant_recascade_document(document);
-        layout_html_doc(&ui, document, false);
-        EXPECT_NEAR(element("heading")->height, show_break ? 108.0f : 72.0f, 0.1f);
-        EXPECT_NEAR(element("column")->height, show_break ? 334.0f : 298.0f, 0.1f);
-        EXPECT_NEAR(element("row")->height, element("column")->height, 0.1f);
-        EXPECT_NEAR(element("column")->y, 0.0f, 0.1f);
-        EXPECT_NEAR(element("button")->y + element("button")->height,
-                    element("column")->height, 0.1f);
+    for (const char* alignment : {"stretch", "flex-start", "stretch"}) {
+        SCOPED_TRACE(alignment);
+        StrBuf* style = strbuf_new();
+        strbuf_append_format(style, "align-items:%s", alignment);
+        for (const char* id : {"column", "group", "title"})
+            ASSERT_TRUE(element(id)->set_attribute("style", style->str));
+        strbuf_free(style);
+        ASSERT_TRUE(element("row")->set_attribute("style", "height:min-content"));
+        for (bool show_break : {true, false, true}) {
+            SCOPED_TRACE(show_break);
+            ASSERT_TRUE(element("break")->set_attribute("style", show_break ? "" : "display:none"));
+            radiant_recascade_document(document);
+            layout_html_doc(&ui, document, false);
+            EXPECT_NEAR(element("heading")->height, show_break ? 108.0f : 72.0f, 0.1f);
+            EXPECT_NEAR(element("column")->height, show_break ? 334.0f : 298.0f, 0.1f);
+            EXPECT_NEAR(element("row")->height, element("column")->height, 0.1f);
+            EXPECT_NEAR(element("column")->y, 0.0f, 0.1f);
+            EXPECT_NEAR(element("button")->y + element("button")->height,
+                        element("column")->height, 0.1f);
+        }
     }
     DomNode* selected_text = element("heading")->first_child->as_element()->first_child;
     float x = selected_text->x, y = selected_text->y;
@@ -2746,6 +2755,20 @@ TEST_F(DynamicLayoutTest, InheritedAxisSizesKeepComputedPercentagesAndLengths) {
     EXPECT_NEAR(element("heightgrandchild")->height, 10.0f, 0.1f);
 }
 
+TEST_F(DynamicLayoutTest, GridMeasuresFlexItemBeforeAssigningRowHeight) {
+    load("<!doctype html><style>body{margin:0}"
+         ".grid{display:grid;grid-template-columns:200px}"
+         ".tile{display:flex;flex-direction:column;border:1px solid;overflow:hidden}"
+         ".part{height:80px;flex:none}</style>"
+         "<div class='grid' id='auto'><div class='tile' id='tile'>"
+         "<div class='part'></div><div class='part'></div></div></div>"
+         "<div class='grid' style='grid-template-rows:100px'><div class='tile' id='fixed'>"
+         "<div class='part'></div><div class='part'></div></div></div>");
+    EXPECT_NEAR(element("auto")->height, 162.0f, 0.1f);
+    EXPECT_NEAR(element("tile")->height, 162.0f, 0.1f);
+    EXPECT_NEAR(element("fixed")->height, 100.0f, 0.1f);
+}
+
 TEST_F(DynamicLayoutTest, SvgPercentageViewportDimensionsDoNotInflateIntrinsicRows) {
     struct Case {float icon, percentage, ratio, svg_size, height; const char* extra;};
     const Case cases[] = {
@@ -3220,6 +3243,209 @@ TEST_F(DynamicLayoutTest, InlineButtonWhitespaceStaysInsideItsAtomicContext) {
         EXPECT_NEAR(element("button")->y,0.0f,0.01f);
         EXPECT_NEAR(element("row")->height,47.0f,0.01f);
         EXPECT_GT(element("button")->x,element("field")->x);
+    }
+}
+
+TEST_F(DynamicLayoutTest, IntrinsicInlineSeparatorsCrossTransparentWrappers) {
+    load("<!doctype html><style>body{margin:0;font-family:Arial}"
+         "section{width:1000px;display:flex;flex-direction:column;align-items:center}"
+         "h1{margin:0;width:max-content;max-width:100%;font-size:120px;font-weight:400;"
+         "letter-spacing:-.07em;line-height:108px}"
+         "i{font-style:normal;display:inline-block;overflow-wrap:anywhere;max-width:100%}"
+         "</style><section><h1 id='reference'>Built for Finance</h1>"
+         "<h1 id='leading'><span><i>Built</i></span><span> <i>for</i></span>"
+         "<span> <i>Finance</i></span></h1>"
+         "<h1 id='trailing'><span><i>Built</i> </span><span><i>for</i> </span>"
+         "<span><i>Finance</i></span></h1>"
+         "<h1 id='duplicates'><span><i>Built</i> </span><span> <i>for</i> </span>"
+         "<span> <i>Finance</i></span></h1>"
+         "<h1 id='atomic'><i> Built </i> <i> for </i> <i> Finance </i></h1>"
+         "<h1 id='comments'>Built<!-- --> <!-- -->for<!-- --> <!-- -->Finance</h1>"
+         "<h1 id='trailing-comments'>Built <!-- -->for <!-- -->Finance</h1></section>");
+    for (const char* id : {"leading", "trailing", "duplicates", "atomic", "comments", "trailing-comments"}) {
+        SCOPED_TRACE(id);
+        ASSERT_NE(element(id), nullptr);
+        EXPECT_NEAR(element(id)->width, element("reference")->width, 0.25f);
+        EXPECT_FLOAT_EQ(element(id)->height, 108.0f);
+    }
+}
+
+TEST_F(DynamicLayoutTest, ColumnGrowRetainsIndefinitePercentageHeightUntilParentIsDefinite) {
+    load("<!doctype html><style>body{margin:0}#outer,#inner{display:flex;flex-direction:column}"
+         "#inner{flex-grow:1;min-height:0}#fixed{height:100px;flex-shrink:0}"
+         "#percent{height:100%;flex-shrink:0}#content{height:20px}</style>"
+         "<div id='outer'><div id='inner'><div id='fixed'></div>"
+         "<div id='percent'><div id='content'></div></div></div></div>");
+    struct State { const char* style; float inner_height; float percentage_height; };
+    const State states[] = {{"height:auto",120.0f,20.0f},
+        {"height:400px",400.0f,400.0f},{"height:auto",120.0f,20.0f}};
+    for (const State& state : states) {
+        SCOPED_TRACE(state.style);
+        ASSERT_TRUE(element("outer")->set_attribute("style",state.style));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui,document,false);
+        EXPECT_FLOAT_EQ(element("inner")->height,state.inner_height);
+        EXPECT_FLOAT_EQ(element("percent")->height,state.percentage_height);
+    }
+}
+
+TEST_F(DynamicLayoutTest, ColumnGrowAutomaticMinimumOmitsCyclicPercentageHeight) {
+    load("<!doctype html><style>body{margin:0}#outer,#inner{display:flex;flex-direction:column}"
+         "#inner{flex-grow:1}#fixed{height:100px;flex-shrink:0}"
+         "#percent{height:100%;flex-shrink:0}#content{height:20px}</style>"
+         "<div id='outer'><div id='inner'><div id='fixed'></div>"
+         "<div id='percent'><div id='content'></div></div></div></div>");
+    struct State {
+        const char* style; const char* item_style;
+        float inner_height; float percentage_height;
+    };
+    const State states[] = {{"height:auto","",120.0f,20.0f},
+        {"height:400px","",400.0f,400.0f},{"height:auto","",120.0f,20.0f},
+        {"height:300px","",300.0f,300.0f},
+        {"height:100px","height:400px",120.0f,120.0f},
+        {"height:100px","height:400px;overflow:clip",120.0f,120.0f},
+        {"height:100px","height:400px;min-height:0",100.0f,100.0f},
+        {"height:100px","height:400px;overflow:auto",100.0f,100.0f},
+        {"height:100px","height:400px;overflow:hidden",100.0f,100.0f},
+        {"height:100px","height:400px;max-height:110px",110.0f,110.0f},
+        {"height:100px","height:400px;min-height:140px",140.0f,140.0f},
+        {"height:auto","",120.0f,20.0f}};
+    for (const State& state : states) {
+        SCOPED_TRACE(state.style);
+        SCOPED_TRACE(state.item_style);
+        ASSERT_TRUE(element("outer")->set_attribute("style",state.style));
+        ASSERT_TRUE(element("inner")->set_attribute("style",state.item_style));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui,document,false);
+        EXPECT_FLOAT_EQ(element("inner")->height,state.inner_height);
+        EXPECT_FLOAT_EQ(element("percent")->height,state.percentage_height);
+    }
+    for (bool empty : {true, false, true}) {
+        SCOPED_TRACE(empty);
+        ASSERT_TRUE(element("outer")->set_attribute("style","height:100px"));
+        ASSERT_TRUE(element("inner")->set_attribute("style","height:400px"));
+        ASSERT_TRUE(element("fixed")->set_attribute("style",empty ? "height:0" : "height:100px"));
+        ASSERT_TRUE(element("content")->set_attribute("style",empty ? "height:0" : "height:20px"));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui,document,false);
+        EXPECT_FLOAT_EQ(element("inner")->height,empty ? 100.0f : 120.0f);
+        EXPECT_FLOAT_EQ(element("percent")->height,element("inner")->height);
+    }
+}
+
+TEST_F(DynamicLayoutTest, RatioDependentAutomaticCrossMinimumRetainsContent) {
+    load("<!doctype html><style>body{margin:0}#outer{display:flex;align-items:flex-start;"
+         "width:400px;height:400px}#item{flex:none;aspect-ratio:1}"
+         "#content{display:inline-block;width:200px;height:200px}</style>"
+         "<div id='outer'><div id='item'><span id='content'></span></div></div>");
+    struct State { const char* height; const char* width; float cross_height; float cross_width; };
+    const State states[] = {
+        {"","",204.0f,200.0f}, {"min-height:0","min-width:0",100.0f,100.0f},
+        {"overflow:auto","overflow:auto",100.0f,100.0f},
+        {"overflow:hidden","overflow:hidden",100.0f,100.0f},
+        {"overflow:clip","overflow:clip",204.0f,200.0f},
+        {"max-height:150px","max-width:150px",150.0f,150.0f},
+        {"min-height:40px","min-width:40px",100.0f,100.0f},
+        {"","",204.0f,200.0f}
+    };
+    for (bool horizontal : {true, false}) for (const State& state : states) {
+        SCOPED_TRACE(horizontal);
+        SCOPED_TRACE(horizontal ? state.height : state.width);
+        ASSERT_TRUE(element("outer")->set_attribute("style",
+            horizontal ? "flex-direction:row" : "flex-direction:column"));
+        char style[160];
+        snprintf(style, sizeof(style), "%s;%s",
+            horizontal ? "width:100px" : "height:100px",
+            horizontal ? state.height : state.width);
+        ASSERT_TRUE(element("item")->set_attribute("style",style));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui,document,false);
+        SCOPED_TRACE(::testing::Message() << "hypothetical=" << element("item")->fi->hypothetical_cross_size
+            << "intrinsic_min_width=" << element("item")->fi->intrinsic_width.min_content);
+        EXPECT_FLOAT_EQ(horizontal ? element("item")->height : element("item")->width,
+            horizontal ? state.cross_height : state.cross_width);
+        EXPECT_FLOAT_EQ(horizontal ? element("item")->width : element("item")->height,100.0f);
+    }
+}
+
+TEST_F(DynamicLayoutTest, RatioAutoHeightClipIsNonScrollingInFlowAndPositionedBoxes) {
+    load("<!doctype html><style>body{margin:0}#outer{position:relative;width:400px;height:400px}"
+         "#item{width:100px;aspect-ratio:1}#content{display:inline-block;width:200px;height:200px}"
+         "</style><div id='outer'><div id='item'><span id='content'></span></div></div>");
+    struct State { const char* overflow; float height; };
+    const State states[] = {{"visible",204.0f},{"clip",204.0f},
+        {"hidden",100.0f},{"auto",100.0f},{"clip",204.0f}};
+    for (bool positioned : {false,true}) for (const State& state : states) {
+        SCOPED_TRACE(positioned);
+        SCOPED_TRACE(state.overflow);
+        char style[160];
+        snprintf(style,sizeof(style),"overflow:%s;%s",state.overflow,
+            positioned ? "position:absolute;top:0;left:0" : "");
+        ASSERT_TRUE(element("item")->set_attribute("style",style));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui,document,false);
+        EXPECT_FLOAT_EQ(element("item")->width,100.0f);
+        EXPECT_FLOAT_EQ(element("item")->height,state.height);
+    }
+}
+
+TEST_F(DynamicLayoutTest, RatioFlexHeightSeparatesPercentageBasisFromNaturalExtent) {
+    load("<!doctype html><style>body{margin:0}#outer{display:flex;align-items:flex-start}"
+         ".item{display:flex;flex:none;width:32px;aspect-ratio:2}"
+         "#column{flex-direction:column}.fixed{width:1px;height:40px;flex-shrink:1;min-height:0}"
+         "</style><div id='outer'><div id='percentage' class='item'>"
+         "<svg width='100%' height='100%' viewBox='0 0 16 16'><rect width='16' height='16'/></svg></div>"
+         "<div id='row' class='item'><div class='fixed'></div></div>"
+         "<div id='column' class='item'><div class='fixed'></div></div></div>");
+    EXPECT_FLOAT_EQ(element("percentage")->height,16.0f);
+    EXPECT_FLOAT_EQ(element("row")->height,40.0f);
+    EXPECT_FLOAT_EQ(element("column")->height,40.0f);
+}
+
+TEST_F(DynamicLayoutTest, ExplicitFlexBasesUseTheirAuthoredSizingBoxInBothAxes) {
+    load("<!doctype html><style>body{margin:0}#outer{display:flex;width:400px;height:400px}"
+         "#item{flex:0 0 100px;min-width:0;min-height:0;padding:10px;border:2px solid}"
+         "</style><div id='outer'><div id='item'></div></div>");
+    struct Basis { const char* text; float size; };
+    const Basis bases[] = {{"100px",100.0f},{"50%",200.0f}};
+    for (bool horizontal : {true,false}) for (bool border_box : {false,true})
+        for (const Basis& basis : bases) {
+            SCOPED_TRACE(horizontal);
+            SCOPED_TRACE(border_box);
+            SCOPED_TRACE(basis.text);
+            ASSERT_TRUE(element("outer")->set_attribute("style",
+                horizontal ? "flex-direction:row" : "flex-direction:column"));
+            char style[96];
+            snprintf(style,sizeof(style),"box-sizing:%s;flex-basis:%s",
+                border_box ? "border-box" : "content-box",basis.text);
+            ASSERT_TRUE(element("item")->set_attribute("style",style));
+            radiant_recascade_document(document);
+            layout_html_doc(&ui,document,false);
+            EXPECT_FLOAT_EQ(horizontal ? element("item")->width : element("item")->height,
+                basis.size + (border_box ? 0.0f : 24.0f));
+        }
+}
+
+TEST_F(DynamicLayoutTest, IntrinsicRatioFlexBasesRetainCrossAxisMinMaxTransfers) {
+    load("<!doctype html><style>body{margin:0}#column{display:flex;flex-direction:column;"
+         "align-items:start;width:0}#square{aspect-ratio:1;flex:0 0 auto;min-height:0;min-width:100px}"
+         ".row{display:flex}.ratio{aspect-ratio:2;flex:0 0 auto}"
+         "#minimum{min-height:50px;min-width:0}#maximum{max-height:50px}"
+         "#content{width:200px}</style><div id='column'><div id='square'>\n </div></div>"
+         "<div class='row'><div id='minimum' class='ratio'></div></div>"
+         "<div class='row'><div id='maximum' class='ratio'><div id='content'></div></div></div>");
+    for (const char* basis : {"flex-basis:auto","flex-basis:content"}) {
+        SCOPED_TRACE(basis);
+        ASSERT_TRUE(element("square")->set_attribute("style",basis));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui,document,false);
+        EXPECT_FLOAT_EQ(element("square")->width,100.0f);
+        EXPECT_FLOAT_EQ(element("square")->height,100.0f);
+        for (const char* id : {"minimum","maximum"}) {
+            SCOPED_TRACE(id);
+            EXPECT_FLOAT_EQ(element(id)->width,100.0f);
+            EXPECT_FLOAT_EQ(element(id)->height,50.0f);
+        }
     }
 }
 

@@ -2492,11 +2492,8 @@ static uint32_t view_state_resolve_id(View* view) {
 }
 
 static bool view_state_view_is_connected(DomDocument* doc, View* view) {
-    if (!doc || !doc->root || !view) return false;
-    for (DomNode* node = static_cast<DomNode*>(view); node; node = node->parent) {
-        if (node == doc->root) return true;
-    }
-    return false;
+    // Shadow descendants are state owners even though their source chain ends at the root.
+    return doc && doc->root && dom_shadow_including_contains(doc->root, view);
 }
 
 View* view_state_entry_resolve_view(DocState* state, const ViewStateEntry* entry) {
@@ -2953,12 +2950,12 @@ static bool state_store_tree_contains_node(DomDocument* doc, DomNode* root, void
     return view_tree_contains_view(root, view);
 }
 
-static bool editing_surface_is_stale(DomNode* root,
+static bool editing_surface_is_stale(DomDocument* doc, DomNode* root,
                                      const EditingSurface* surface) {
     if (!surface || surface->kind == EDIT_SURFACE_NONE) return false;
     if (!surface->owner || !surface->view) return true;
-    if (!view_tree_contains_view(root, static_cast<View*>(surface->owner)) ||
-        !view_tree_contains_view(root, surface->view)) {
+    if (!state_store_tree_contains_node(doc, root, surface->owner) ||
+        !state_store_tree_contains_node(doc, root, surface->view)) {
         return true;
     }
 
@@ -3090,7 +3087,7 @@ static uint32_t state_map_sync_focus_path(DocState* state, View* focused,
     uint32_t changed = 0;
     changed += state_map_delete_entries_for_name(state, STATE_FOCUS_WITHIN);
     changed += state_map_delete_entries_for_name(state, STATE_FOCUS_VISIBLE);
-    for (View* node = focused; node; node = static_cast<View*>(node->parent)) {
+    for (DomElement* node = focused->as_element(); node; node = dom_flat_tree_parent(node)) {
         changed += state_map_set_bool_no_assert(state, node, STATE_FOCUS_WITHIN, true);
     }
     if (focus_visible) {
@@ -3148,27 +3145,26 @@ static uint32_t view_state_sync_interaction_flag_path(DocState* state, DomNode* 
 
 static uint32_t doc_state_prune_stale_transient_owners(DocState* state, DomNode* root) {
     if (!state || !root) return 0;
+    DomDocument* doc = state->owner_store ? state->owner_store->document : nullptr;
     uint32_t changed = 0;
     bool clear_focus_flags = false;
 
+    // reflow keeps focused shadow descendants alive through their connected host.
     if (state->focus && state->focus->current &&
-        !view_tree_contains_view(root, state->focus->current)) {
+        !state_store_tree_contains_node(doc, root, state->focus->current)) {
         View* old_focus = state->focus->current;
         state->focus->previous = NULL;
         state->focus->current = NULL;
         state->focus->from_keyboard = false;
         state->focus->from_mouse = false;
         state->focus->focus_visible = false;
-        if (old_focus->is_element()) {
-            DomElement* elem = lam::dom_require_element(old_focus);
-            if (state->active_text_control == elem) state->active_text_control = NULL;
-            if (state->last_focused_text_control == elem) state->last_focused_text_control = NULL;
-        }
+        if (state->active_text_control == old_focus) state->active_text_control = NULL;
+        if (state->last_focused_text_control == old_focus) state->last_focused_text_control = NULL;
         changed++;
         clear_focus_flags = true;
     }
     if (state->focus && state->focus->previous &&
-        !view_tree_contains_view(root, state->focus->previous)) {
+        !state_store_tree_contains_node(doc, root, state->focus->previous)) {
         // A reactive replacement can retire the last focused button after blur.
         state->focus->previous = NULL;
         changed++;
@@ -3249,32 +3245,31 @@ static uint32_t doc_state_prune_stale_transient_owners(DocState* state, DomNode*
         }
     }
     if (state->sel.kind == EDIT_SEL_TEXT_CONTROL && state->sel.control &&
-        !view_tree_contains_view(root, static_cast<View*>(state->sel.control))) {
+        !state_store_tree_contains_node(doc, root, state->sel.control)) {
         // blurred controls can still own selection; release that pointer before subtree retirement.
         state_store_refresh_editing_selection_shadow(state);
         selection_refresh_presentation(state);
         changed++;
     }
-    if (state->active_text_control && !view_tree_contains_view(root, static_cast<View*>(state->active_text_control))) {
+    if (state->active_text_control && !state_store_tree_contains_node(doc, root, state->active_text_control)) {
         state->active_text_control = NULL;
         changed++;
     }
-    if (state->last_focused_text_control && !view_tree_contains_view(root, static_cast<View*>(state->last_focused_text_control))) {
+    if (state->last_focused_text_control && !state_store_tree_contains_node(doc, root, state->last_focused_text_control)) {
         state->last_focused_text_control = NULL;
         changed++;
     }
     bool stale_active_surface = state->editing.has_active_surface &&
-        editing_surface_is_stale(root, &state->editing.active_surface);
+        editing_surface_is_stale(doc, root, &state->editing.active_surface);
     bool stale_composition_surface = state->editing.composition.active &&
-        (editing_surface_is_stale(root, &state->editing.composition.surface) ||
+        (editing_surface_is_stale(doc, root, &state->editing.composition.surface) ||
          (state->editing.composition.anchor_view &&
-          !view_tree_contains_view(root, state->editing.composition.anchor_view)));
+          !state_store_tree_contains_node(doc, root, state->editing.composition.anchor_view)));
     if (stale_active_surface || stale_composition_surface) {
         doc_state_clear_editing_interaction_surface(state);
         changed++;
     }
-    if (state->focus && state->focus->current &&
-        view_tree_contains_view(root, state->focus->current)) {
+    if (state->focus && state->focus->current) {
         (void)state_map_sync_focus_path(state, state->focus->current,
             state->focus->focus_visible);
     }
@@ -4160,8 +4155,7 @@ void view_state_set_focused(DocState* state, View* view, bool focused) {
 
 static uint32_t view_state_sync_focus_flag(DocState* state, DomNode* root,
                                            View* focused) {
-    if (!state || !root || !focused || !state->view_state_map ||
-        !view_tree_contains_view(root, focused)) {
+    if (!state || !root || !focused || !state->view_state_map) {
         return 0;
     }
 
@@ -4390,10 +4384,12 @@ void doc_state_mark_dirty(DocState* state) {
 void doc_state_request_repaint(DocState* state) {
     if (!state) return;
     state->full_repaint_requests++;
-    bool changed = !state->needs_repaint || !state->is_dirty;
+    // Animation channels can request the same repaint within a frame. Validate
+    // the document when the request changes its pending render state.
+    if (state->needs_repaint && state->is_dirty) return;
     state->needs_repaint = true;
     state->is_dirty = true;
-    if (changed) state_bump_render_version(state);
+    state_bump_render_version(state);
     state_assert_after_mutation(state, "doc_state_request_repaint");
 }
 
@@ -8239,11 +8235,10 @@ static void focus_set_pseudo(DocState* state, View* view,
 }
 
 static void focus_set_within_chain(DocState* state, View* view, bool set) {
-    View* node = view;
-    while (node) {
+    for (DomElement* node = view ? view->as_element() : nullptr; node;
+         node = dom_flat_tree_parent(node)) {
         focus_set_pseudo(state, node, STATE_FOCUS_WITHIN,
                          PSEUDO_STATE_FOCUS_WITHIN, set);
-        node = static_cast<View*>(node->parent);
     }
 }
 
@@ -8536,13 +8531,11 @@ static void focus_collect_candidates_inner(View* view, ArrayList* list, bool seq
     if (focusable) {
         arraylist_append(list, view);
     }
-    // recurse into children (only element nodes have children)
+    // candidate order follows the same slot projection as focus and modal inertness.
     if (view->is_element()) {
         DomElement* elem = lam::dom_require_element(view);
-        DomNode* child = elem->first_child;
-        while (child) {
+        for (DomNode* child = layout_paint_first_child(elem); child; child = layout_paint_next(child)) {
             focus_collect_candidates_inner(static_cast<View*>(child), list, sequential_only);
-            child = child->next_sibling;
         }
     }
 }
@@ -8619,6 +8612,10 @@ bool focus_restore(DocState* state) {
 View* focus_get(DocState* state) {
     if (!state || !state->focus) return NULL;
     return state->focus->current;
+}
+
+View* focus_get_previous(DocState* state) {
+    return state && state->focus ? state->focus->previous : nullptr;
 }
 
 bool focus_has_current(DocState* state) {

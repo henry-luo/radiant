@@ -14,6 +14,7 @@ double radiant_html_gauge_fraction(const HtmlGaugeValues& gauge);
 
 // These native queries are shared with the Lambda DOM adapter.
 const char* radiant_form_control_type(DomElement* element);
+const char* radiant_form_button_type(DomElement* button);
 bool radiant_form_control_disabled(DomElement* element);
 DomElement* radiant_input_datalist(DomElement* input);
 DomElement* radiant_form_owner(DomElement* control);

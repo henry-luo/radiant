@@ -825,8 +825,8 @@ static void render_native_cluster_emit(RenderNativeTextCluster* cluster,
     if (!render_glyph_bitmap_has_ink(source)) return;
     RasterRenderContext* raster = cluster->raster;
     if (background && cluster->background && cluster->parent) {
-        Rect border = {raster->block.x, raster->block.y,
-            cluster->parent->width * cluster->scale, cluster->parent->height * cluster->scale};
+        Rect border = render_text_background_border_box(cluster->parent,
+            raster->block.x, raster->block.y, cluster->scale);
         render_paint_text_background_glyph(raster, cluster->parent, border, source, x, y);
     }
     x += cluster->offset_x; y += cluster->offset_y;
@@ -1163,8 +1163,8 @@ void render_text_view(RasterRenderContext* rdcon, ViewText* text_view) {
                         uint64_t t3 = time_now_ns();
 
                         if (parent_elem && !shadow_prepass) {
-                            Rect border = {rdcon->block.x, rdcon->block.y,
-                                parent_elem->width * s, parent_elem->height * s};
+                            Rect border = render_text_background_border_box(
+                                parent_elem, rdcon->block.x, rdcon->block.y, s);
                             render_paint_text_background_glyph(rdcon, parent_elem, border, &glyph->bitmap,
                                 roundf(x + glyph->bitmap.bearing_x), roundf(y + ascend - glyph->bitmap.bearing_y));
                         }
@@ -1470,8 +1470,8 @@ static bool render_text_paint_background_and_shadows(RasterRenderContext* rdcon,
                 // blank glyphs still advance the pen, but have no mask to record in the shadow.
                 if (render_glyph_bitmap_has_ink(&s_glyph->bitmap)) {
                     if (!background_painted && parent_elem) {
-                        Rect border = {rdcon->block.x, rdcon->block.y,
-                            parent_elem->width * s, parent_elem->height * s};
+                        Rect border = render_text_background_border_box(
+                            parent_elem, rdcon->block.x, rdcon->block.y, s);
                         render_paint_text_background_glyph(rdcon, parent_elem, border, &s_glyph->bitmap, glyph_x, glyph_y);
                     }
                     float sx = glyph_x + roundf(shadow->offset_x * s);

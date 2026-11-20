@@ -1,0 +1,3 @@
+# keep native policy checks independent of a parent checkout's custom languages.
+ruleDirs:
+  - scripts/lint_rules

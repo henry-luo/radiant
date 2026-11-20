@@ -1,4 +1,5 @@
 #include "layout.hpp"
+#include "layout_anchor.hpp"
 #include "layout_ruby.hpp"
 #include "css_resolved_style.hpp"
 #include "layout_paged.hpp"
@@ -962,6 +963,16 @@ static void reset_background_style_cache(LayoutContext* lycon, ViewSpan* view) {
         // retained recascade retires the old ordered payload before rebuilding style.
         view_release_background_images(layout_context_view_tree(lycon), bg);
         static_cast<BackgroundGeometry&>(*bg) = {};
+    }
+}
+
+static void layout_prepare_background_images(LayoutContext* context, DomElement* element) {
+    BackgroundProp* background = element->bound ? element->boundary()->background.get() : nullptr;
+    if (!background || !context->ui_context || !context->doc) return;
+    // image clocks must exist before the host advances its frame timeline, rather than at first paint.
+    for (int index = 0; index < max(1, background->layer_count); index++) {
+        BackgroundLayer* layer = background->layer_count > 0 ? &background->layers[index] : background;
+        if (layer->image) load_document_image(context->doc, context->ui_context, layer->image);
     }
 }
 
@@ -2435,6 +2446,23 @@ void dom_node_resolve_style(DomNode* node, LayoutContext* lycon) {
                 }
 
                 resolve_css_styles(dom_elem, lycon);
+                if (layout_is_top_layer_box(dom_elem)) {
+                    ViewSpan* span = lam::view_require_element(lycon->view);
+                    span->ensure_position(lycon);
+                    PositionProp* position = span->position;
+                    if (position->position != CSS_VALUE_FIXED)
+                        position->position = CSS_VALUE_ABSOLUTE;
+                    position->float_prop = CSS_VALUE_NONE;
+                    // the hypothetical box starts at the initial containing block origin.
+                    if (!position->has_left && !position->has_right) {
+                        position->has_left = true;
+                        position->left = 0.0f;
+                    }
+                    if (!position->has_top && !position->has_bottom) {
+                        position->has_top = true;
+                        position->top = 0.0f;
+                    }
+                }
                 radiant_native_resolved(lycon, dom_elem);
                 // HTML Rendering sizes native meter/progress widgets in em units;
                 // apply the computed font after the author cascade has resolved.
@@ -2454,6 +2482,8 @@ void dom_node_resolve_style(DomNode* node, LayoutContext* lycon) {
                 // untouched body sides so authored margins remain cascade winners.
                 layout_refresh_html_body_ua_margin(lycon, dom_elem);
 
+                // resolve UA em spacing with the current zoom, including changes on ancestors.
+                layout_refresh_font_used_zoom(static_cast<View*>(dom_elem), lycon);
                 if (dom_elem->bound) {
                     ViewSpan* span = lam::view_require_element(static_cast<View*>(dom_elem));
                     float used_font_size = (span->font && span->fontp()->font_size > 0)
@@ -2462,7 +2492,6 @@ void dom_node_resolve_style(DomNode* node, LayoutContext* lycon) {
                     layout_apply_html_ua_spacing(lycon, dom_elem, used_font_size);
                 }
 
-                layout_refresh_font_used_zoom(static_cast<View*>(dom_elem), lycon);
                 record.commit();
             }
 
@@ -2471,6 +2500,7 @@ void dom_node_resolve_style(DomNode* node, LayoutContext* lycon) {
                 // before those queries so each property need not rematch every stylesheet.
                 dom_elem->set_styles_resolved(true);
                 dom_elem->set_needs_style_recompute(false);
+                if (!lycon->css_query_probe) layout_prepare_background_images(lycon, dom_elem);
             }
 
             // ordered-effect preparation cannot publish motion baselines from provisional boxes.
@@ -4541,6 +4571,8 @@ static DomElement* layout_projection_slot(DomNode* node) {
 
 ViewElement* layout_render_parent(DomNode* node) {
     if (!node) return nullptr;
+    // paint and visual geometry must stop at the top-layer boundary.
+    if (layout_is_top_layer_box(node->as_element())) return nullptr;
     DomNode* parent = layout_projection_slot(node);
     if (!parent) parent = node->parent;
     while (layout_is_shadow_slot(parent)) {
@@ -4571,7 +4603,12 @@ static DomNode* layout_paint_source_sibling(DomNode* node, bool forward) {
 }
 
 static DomNode* layout_paint_expand_slot(DomNode* node, bool forward) {
-    while (layout_is_shadow_slot(node)) {
+    while (node) {
+        if (layout_is_backdrop(node->as_element())) {
+            node = layout_paint_source_sibling(node, forward);
+            continue;
+        }
+        if (!layout_is_shadow_slot(node)) break;
         DomElement* slot = node->as_element();
         DomNode* first = nullptr;
         // display:none suppresses both assigned and fallback descendants.
@@ -6576,6 +6613,7 @@ void layout_html_doc(UiContext* uicon, DomDocument *doc, bool is_reflow, PagedFl
     }
     LayoutContainerMeasurements previous = engine && engine->container_dependencies
         ? layout_container_measurements(root_node) : LayoutContainerMeasurements{};
+    LayoutAnchorPass anchor_pass;
     LayoutPassScope layout_scope(&lycon, doc, uicon);
     lycon.paged = lam::up(paged);
     bool visibility_dependencies = false;
@@ -6595,6 +6633,7 @@ void layout_html_doc(UiContext* uicon, DomDocument *doc, bool is_reflow, PagedFl
         // convergence diagnostics must survive a root that never finishes layout.
         uint64_t flow_start = lycon.profiler.enabled ? time_now_ns() : 0;
         ++flow_pass;
+        anchor_pass.begin(&lycon);
         // a repeated page-flow pass rewinds the pages of the one it replaces
         if (lycon.paged && !paged_flow_pass_begin(&lycon)) break;
         if (!layout_prepare_generated_effects(&lycon, root_node)) {
@@ -6602,6 +6641,7 @@ void layout_html_doc(UiContext* uicon, DomDocument *doc, bool is_reflow, PagedFl
             return;
         }
         layout_html_root(&lycon, root_node);
+        if (!lycon.paged) layout_top_layer_backdrops(&lycon);
         if (lycon.paged && !paged_flow_pass_settle(&lycon)) break;
         ViewBlock* viewport = lam::view_as_block(doc->view_tree->root);
         if (viewport && viewport->scroller && viewport->scroll()->pane) {
@@ -6634,7 +6674,7 @@ void layout_html_doc(UiContext* uicon, DomDocument *doc, bool is_reflow, PagedFl
                 log_error("content visibility: cannot retain post-scroll relevance");
                 return;
             }
-            if (!visibility_changed) break;
+            if (!visibility_changed && !anchor_pass.settle(&lycon, doc->view_tree->root)) break;
         }
         if (visibility_changed && ++visibility_pass > doc->view_tree->max_content_visibility_passes) {
             log_error("content visibility: relevance dependencies failed to converge after %zu passes", visibility_pass);

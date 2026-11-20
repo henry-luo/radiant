@@ -113,7 +113,9 @@ bool flex_container_axis_is_fixed(FlexContainerLayout* flex,
     }
     bool is_grid_item = container->parent_item_kind() == DomElement::PARENT_ITEM_GRID &&
         container->gi && container->gi->computed_grid_row_start > 0;
-    if (!fixed && is_grid_item && container->height > 0.0f) fixed = true;
+    // Intrinsic measurement starts with a provisional border box, not a grid-assigned height.
+    if (!fixed && is_grid_item && container->height > 0.0f &&
+        (!flex->lycon || flex->lycon->natural_flex_height_root != container)) fixed = true;
     if (!fixed && container->height > 0.0f &&
         flex_height_is_parent_constrained(flex->lycon, container, true, main_axis)) {
         fixed = true;
@@ -491,11 +493,19 @@ bool flex_item_has_content_flex_basis(ViewElement* item) {
 static float flex_item_resolved_basis(ViewElement* item, FlexContainerLayout* flex_layout) {
     if (!item || !item->fi) return -1.0f;
     const FlexItemProp* prop = item->fi;
-    if (!prop->flex_basis_is_percent) return prop->flex_basis;
+    float basis = prop->flex_basis;
     // percentage calculations stay deferred across intrinsic probes and retained reflow.
-    if (!flex_layout || flex_layout->main_axis_is_indefinite) return -1.0f;
-    return max(0.0f, prop->flex_basis * flex_layout->main_axis_size / 100.0f +
-        prop->flex_basis_offset);
+    if (prop->flex_basis_is_percent) {
+        if (!flex_layout || flex_layout->main_axis_is_indefinite) return -1.0f;
+        basis = max(0.0f, basis * flex_layout->main_axis_size / 100.0f +
+            prop->flex_basis_offset);
+    }
+    if (basis < 0.0f) return basis;
+    // flex sizing and intrinsic contributions share border-box extents;
+    // an explicit content-box basis must retain its padding and border too.
+    return layout_css_size_to_border_box(item->bound,
+        layout_box_sizing(lam::view_as_block(item)), basis,
+        flex_layout ? is_main_axis_horizontal(flex_layout) : false);
 }
 
 static float flex_item_replaced_natural_aspect_ratio(ViewElement* item) {
@@ -837,7 +847,7 @@ void init_flex_container(LayoutContext* lycon, ViewBlock* container) {
                 bool parent_is_row = (parent_dir == CSS_VALUE_ROW || parent_dir == CSS_VALUE_ROW_REVERSE);
                 if (container->fi->main_size_from_flex ||
                     (!parent_is_row && (container->fi->flex_basis >= 0 ||
-                                         container->fi->flex_grow > 0.0f))) {
+                        flex_height_is_parent_constrained(lycon, container, false, false, parent_layout)))) {
                     height_assigned_by_parent = true;
                 } else if (container->fi->aspect_ratio > 0.0f) {
                     // the parent's ratio-derived block size also constrains nested content.
@@ -1524,7 +1534,7 @@ static void flex_apply_explicit_axis_size(ViewElement* item, bool horizontal) {
     layout_axis_set_size(item, horizontal ? LAYOUT_AXIS_X : LAYOUT_AXIS_Y, target);
 }
 
-static int collect_flex_item_nodes(LayoutContext* lycon, ViewBlock* container,
+int collect_flex_item_nodes(LayoutContext* lycon, ViewBlock* container,
                                    DomNode* first_child, DomNode** nodes,
                                    int capacity, DomElement* rendered_legend) {
     LayoutFlattenedItemPolicy policy = {};
@@ -1918,6 +1928,23 @@ static bool flex_item_has_stretch_minmax_constraint(ViewElement* item, bool hori
     return minimum == CSS_VALUE_STRETCH || maximum == CSS_VALUE_STRETCH;
 }
 
+static bool flex_item_minimum_is_auto(ViewElement* item, bool horizontal) {
+    ViewBlock* block = lam::view_as_block(item);
+    return !(layout_explicit_min_axis_or(block, horizontal, -1.0f) >= 0.0f) &&
+        layout_intrinsic_min_size_keyword(block, horizontal) == CSS_VALUE__UNDEF &&
+        !flex_item_has_stretch_minmax_constraint(item, horizontal);
+}
+
+bool flex_item_has_content_based_auto_minimum(ViewElement* item,
+        FlexContainerLayout* flex_layout, bool horizontal) {
+    if (!item || !flex_layout || horizontal != is_main_axis_horizontal(flex_layout) ||
+        !flex_item_minimum_is_auto(item, horizontal)) return false;
+    CssEnum overflow = item->scroller
+        ? (horizontal ? item->scroll()->overflow_x : item->scroll()->overflow_y)
+        : CSS_VALUE_VISIBLE;
+    return !layout_is_scrollable_overflow(overflow);
+}
+
 static void flex_resolve_stretch_minmax_border_sizes(ViewElement* item, bool horizontal,
                                                      float available_margin_box_size,
                                                      bool available_size_is_definite,
@@ -2140,54 +2167,17 @@ float calculate_flex_basis(ViewElement* item, FlexContainerLayout* flex_layout) 
         return is_horizontal ? stretch_cross_size * replaced_natural_aspect_ratio
                              : stretch_cross_size / replaced_natural_aspect_ratio;
     }
-    // Case 2c: aspect-ratio with inferred cross-axis size
-    // CSS Sizing Level 4 §7.2: transferred constraints from cross axis to main axis.
-    // When an item has aspect-ratio and no explicit main/cross sizes, but has:
-    if (item->fi && item->fi->aspect_ratio > 0.0f) {
-        float r = item->fi->aspect_ratio;
+    // only a definite stretched cross size supplies a ratio-derived flex base.
+    // min/max constraints clamp intrinsic sizing; they are not preferred sizes.
+    if (item->fi && item->fi->aspect_ratio > 0.0f &&
+        flex_layout->has_definite_cross_size &&
+        flex_item_will_stretch_cross_axis(item, flex_layout) &&
+        flex_layout->cross_axis_size > 0.0f) {
         ViewBlock* item_block = lam::view_as_block(item);
-
-        bool cross_is_horizontal = !is_horizontal;
-        float cross_min = layout_positive_min_axis(item_block, cross_is_horizontal);
-        float cross_max = layout_positive_max_axis_or(item_block, cross_is_horizontal, -1.0f);
-
-        bool is_stretch = flex_item_will_stretch_cross_axis(item, flex_layout);
-
-        float effective_cross = 0.0f;
-
-        if (is_stretch && flex_layout->cross_axis_size > 0) {
-            effective_cross = flex_layout->cross_axis_size;
-            // An item with max-height (or max-width for column) cannot exceed that
-            // limit even when stretched, per CSS Flexbox spec §9.4.
-            if (cross_max > 0.0f && effective_cross > cross_max) {
-                effective_cross = cross_max;
-            }
-            if (cross_min > 0.0f && effective_cross < cross_min) {
-                effective_cross = cross_min;
-            }
-        } else {
-            // Non-stretch: use explicit cross-axis CSS min/max constraints.
-            // Also consider main-axis max/min constraints transferred via aspect-ratio,
-            // per CSS Sizing Level 4 §8.5: a max constraint on one axis transfers via
-            if (cross_max > 0.0f) {
-                effective_cross = cross_max;
-            } else if (cross_min > 0.0f) {
-                effective_cross = cross_min;
-            } else if (item_block) {
-                float main_max = layout_positive_max_axis_or(item_block, is_horizontal, -1.0f);
-                float main_min = layout_positive_min_axis(item_block, is_horizontal);
-                if (main_max > 0.0f) {
-                    effective_cross = is_horizontal ? main_max / r : main_max * r;
-                } else if (main_min > 0.0f) {
-                    effective_cross = is_horizontal ? main_min / r : main_min * r;
-                }
-            }
-        }
-
-        if (effective_cross > 0.0f) {
-            float derived_basis = is_horizontal ? effective_cross * r : effective_cross / r;
-            return derived_basis;
-        }
+        float cross_size = layout_apply_min_max_axis(item_block,
+            flex_layout->cross_axis_size, !is_horizontal, true);
+        return flex_item_main_border_size_from_cross_border_size(
+            item, cross_size, is_horizontal, item->fi->aspect_ratio);
     }
 
     LayoutAxisRefs main(item, is_horizontal);
@@ -2207,7 +2197,11 @@ float calculate_flex_basis(ViewElement* item, FlexContainerLayout* flex_layout) 
         ? main.intrinsic()->max_content : 0.0f;
 
     basis += layout_boundary_padding_border_axis(item->bound, is_horizontal);
-
+    // intrinsic auto/content bases retain cross-axis min/max transfers even
+    // when neither preferred size supplies a definite ratio input.
+    if (item->fi->aspect_ratio > 0.0f)
+        basis = flex_item_clamp_content_suggestion_by_ratio(
+            item, basis, is_horizontal, item->fi->aspect_ratio);
     return basis;
 }
 // This is used for line breaking decisions per CSS Flexbox spec 9.3
@@ -2224,18 +2218,11 @@ float calculate_hypothetical_main_size(ViewElement* item, FlexContainerLayout* f
 static float flex_resolve_auto_minimum(ViewElement* item,
                                        FlexContainerLayout* flex_layout,
                                        bool horizontal,
-                                       bool main_axis_horizontal,
                                        float max_size,
                                        float specified_suggestion,
                                        float automatic_minimum_aspect_ratio) {
     if (!item || !flex_layout || !item->fi) return 0.0f;
-    if (horizontal != main_axis_horizontal) {
-        return 0.0f;
-    }
-
-    bool overflow_visible = !item->scroller ||
-        (horizontal ? item->scroll()->overflow_x : item->scroll()->overflow_y) == CSS_VALUE_VISIBLE;
-    if (!overflow_visible) {
+    if (!flex_item_has_content_based_auto_minimum(item, flex_layout, horizontal)) {
         return 0.0f;
     }
 
@@ -2305,10 +2292,7 @@ void resolve_flex_item_constraints(ViewElement* item, FlexContainerLayout* flex_
             axis->specified_suggestion = stretch_suggestion;
         }
         // CSS Flexbox §4.5: an unresolved minimum is auto; zero is explicit.
-        axis->minimum_is_auto =
-            !(layout_explicit_min_axis_or(item_block, axis->horizontal, -1.0f) >= 0.0f) &&
-            axis->minimum_keyword == CSS_VALUE__UNDEF &&
-            !flex_item_has_stretch_minmax_constraint(item, axis->horizontal);
+        axis->minimum_is_auto = flex_item_minimum_is_auto(item, axis->horizontal);
     }
 
     if (item->tag() == MARKUP_NAME_IMG &&
@@ -2321,7 +2305,7 @@ void resolve_flex_item_constraints(ViewElement* item, FlexContainerLayout* flex_
         FlexResolvedAxis* axis = &axes[layout_axis];
         if (axis->minimum_is_auto) {
             axis->minimum = flex_resolve_auto_minimum(
-                item, flex_layout, axis->horizontal, is_horizontal,
+                item, flex_layout, axis->horizontal,
                 axis->maximum, axis->specified_suggestion,
                 automatic_minimum_aspect_ratio);
         }
@@ -3861,6 +3845,17 @@ static float flex_finalize_hypothetical_cross(ViewElement* item,
         if (main_size > 0.0f) {
             hypothetical_cross = flex_item_main_border_size_from_cross_border_size(
                 item, main_size, cross_is_horizontal, ratio);
+            CssEnum overflow = item->scroller
+                ? (cross_is_horizontal ? item->scroll()->overflow_x : item->scroll()->overflow_y)
+                : CSS_VALUE_VISIBLE;
+            if (!layout_element_is_replaced(item->as_element()) &&
+                !layout_is_scrollable_overflow(overflow) &&
+                flex_item_minimum_is_auto(item, cross_is_horizontal)) {
+                // sizing 4 §4.3: a non-scrolling ratio-dependent auto minimum retains content.
+                float content_minimum = flex_item_intrinsic_border_size(
+                    item, flex_layout, cross_is_horizontal, CSS_VALUE_MIN_CONTENT);
+                hypothetical_cross = max(hypothetical_cross, content_minimum);
+            }
             cross.set_size(hypothetical_cross);
         } else if (hypothetical_cross > 0.0f) {
             main.set_size(main.horizontal()
@@ -3888,6 +3883,14 @@ static void determine_hypothetical_cross_sizes(LayoutContext* lycon, FlexContain
         percentage_height_basis = flex_layout->cross_axis_size;
     } else if (!is_horizontal && !flex_layout->main_axis_is_indefinite) {
         percentage_height_basis = flex_layout->main_axis_size;
+    }
+    ViewBlock* container = flex_layout->container;
+    if (percentage_height_basis < 0.0f && container && container->blk &&
+        container->block()->aspect_ratio_auto_height &&
+        container->block()->given_height >= 0.0f) {
+        // an auto natural extent does not erase the ratio's definite percentage reference.
+        percentage_height_basis = layout_css_size_to_content_box(container->bound,
+            layout_box_sizing(container), container->block()->given_height, false);
     }
     LayoutContainingBlockScope percentage_height_scope(
         lycon, LAYOUT_AXIS_Y, percentage_height_basis);
@@ -3971,9 +3974,20 @@ static void determine_hypothetical_cross_sizes(LayoutContext* lycon, FlexContain
                 item, cross_is_horizontal);
 
             LayoutAxisRefs cross(item, cross_axis);
+            float svg_percentage_cross = -1.0f;
+            bool has_svg_percentage_cross = layout_is_svg_viewport(item->tag()) &&
+                cross.axis == LAYOUT_AXIS_Y &&
+                layout_svg_percentage_axis_content_size(lycon, item_block,
+                    item->as_element(), false, &svg_percentage_cross);
+            has_explicit_cross_size = has_explicit_cross_size || has_svg_percentage_cross;
             IntrinsicSize direct_text_size = {};
             if (intrinsic_preferred_cross >= 0.0f) {
                 hypothetical_cross = intrinsic_preferred_cross;
+            } else if (has_svg_percentage_cross) {
+                // resolved geometry percentages precede a cached natural-ratio contribution.
+                hypothetical_cross = layout_border_size_from_content_box(
+                    item_block, svg_percentage_cross, false);
+                cross.set_size(hypothetical_cross);
             } else if (has_given_cross) {
                 hypothetical_cross = layout_css_size_to_border_box(
                     item->bound, layout_box_sizing(item_block), given_cross, cross_is_horizontal);

@@ -285,9 +285,12 @@ static FlexChildExplicitSizes flex_measure_child_explicit_sizes(LayoutContext* l
     bool width_is_percentage = layout_axis_size_is_percentage(
         child_view->as_element(), true) ||
         layout_axis_size_is_percentage(lam::view_as_block(child_view), true);
+    bool height_is_percentage = layout_axis_size_is_percentage(
+        child_view->as_element(), false) ||
+        layout_axis_size_is_percentage(lam::view_as_block(child_view), false);
     FlexChildExplicitSizes sizes = {
         !width_is_percentage && child_view->blk && child_view->block_mut()->given_width >= 0.0f,
-        child_view->blk && child_view->block_mut()->given_height >= 0.0f,
+        !height_is_percentage && child_view->blk && child_view->block_mut()->given_height >= 0.0f,
         child_view->blk ? child_view->block()->given_width : -1.0f,
         child_view->blk ? child_view->block()->given_height : -1.0f
     };
@@ -867,12 +870,11 @@ static bool flex_measure_pseudo_contents(LayoutContext* lycon, DomElement* item,
 
 // The content height of a column-flex item, measured at the width it will get:
 // a stretched item uses the container cross size, a non-stretch item its
-// max-content cross size (the container width would transfer an arbitrary
-// size through aspect-ratio into its flex base size). Outside a column flex
+// fit-content cross size. Outside a column flex
 // the width is effectively unconstrained.
 static void flex_measure_item_height_at_cross_width(LayoutContext* lycon, ViewElement* item,
                                                     FlexContainerLayout* flex_layout,
-                                                    float max_content_width,
+                                                    float min_content_width, float max_content_width,
                                                     float* min_height, float* max_height) {
     float available_width = 10000.0f;
     float percentage_containing_width = -1.0f;
@@ -887,9 +889,14 @@ static void flex_measure_item_height_at_cross_width(LayoutContext* lycon, ViewEl
                     item->boundary()->margin.right;
             }
         } else {
-            // the common clamp/subtraction below expects a border-box budget, not content width.
-            available_width = layout_border_size_from_content_box(
-                lam::view_as_block(item), max_content_width, true);
+            ViewBlock* block = lam::view_as_block(item);
+            float margin = item->bound
+                ? item->boundary()->margin.left + item->boundary()->margin.right : 0.0f;
+            // the flex base must wrap at the same fit-content width as final cross sizing.
+            available_width = layout_resolve_intrinsic_size_keyword(CSS_VALUE_FIT_CONTENT,
+                layout_border_size_from_content_box(block, min_content_width, true),
+                layout_border_size_from_content_box(block, max_content_width, true),
+                max(0.0f, flex_layout->cross_axis_size - margin));
         }
 
         if (item->blk) {
@@ -1111,6 +1118,8 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
         // the cache for the axis that doesn't have an explicit size.
         MeasurementCacheEntry* cached = get_from_measurement_cache(static_cast<DomNode*>(item));
         bool has_explicit_height = layout_axis_has_given_size(item, false);
+        bool content_minimum_height = flex_item_has_content_based_auto_minimum(
+            item, flex_layout, false);
         // Check if this item is a row flex container
         // For row flex containers, the cached height from measure_flex_child_content might be incorrect
         // because it sums child heights instead of taking the max
@@ -1136,7 +1145,7 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
             max_width = layout_content_size_from_border_box(lam::view_as_block(item), max_width, true);
             // height queries use their actual wrapping constraint, when that axis is requested.
             if (!width_only) {
-                flex_measure_item_height_at_cross_width(lycon, item, flex_layout, max_width,
+                flex_measure_item_height_at_cross_width(lycon, item, flex_layout, min_width, max_width,
                                                         &min_height, &max_height);
             }
             // both module queries already return physical dimensions, including vertical text.
@@ -1159,19 +1168,34 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
             LayoutContainingBlockScope width_scope(lycon, LAYOUT_AXIS_X, -1.0f,
                 layout_block_has_automatic_size(lam::view_as_block(item), true) ||
                 layout_axis_size_is_percentage(lam::view_as_block(item), true));
-            DomNode* c = child;
+            ScratchScope child_scope(lycon ? &lycon->scratch : nullptr);
+            int node_count = 0;
+            DomNode** nodes = nullptr;
+            if (lycon) {
+                int capacity = layout_count_flattened_item_nodes(item, true);
+                if (capacity > 0) {
+                    nodes = child_scope.array_zero<DomNode*>((size_t)capacity);
+                    if (!nodes) return;
+                    // intrinsic contributions use the same flattened boxes as final flex collection.
+                    node_count = collect_flex_item_nodes(
+                        lycon, lam::view_as_block(item), child, nodes, capacity, nullptr);
+                }
+            }
+            DomNode* c = nodes ? (node_count > 0 ? nodes[0] : nullptr) : child;
             // Set up parent context with item's height so children with percentage heights
             // and aspect-ratio can compute their intrinsic width
             float item_height = -1.0f;
-            if (lycon) {
+            if (lycon && !content_minimum_height) {
                 item_height = layout_axis_has_given_size(item, false)
                     ? item->block()->given_height
                     : get_explicit_css_length(lycon, item, CSS_PROPERTY_HEIGHT);
             }
+            // a content-based auto minimum makes this axis indefinite even with a preferred height.
             LayoutContainingBlockScope item_height_scope(
-                lycon, LAYOUT_AXIS_Y, item_height, item_height > 0.0f);
+                lycon, LAYOUT_AXIS_Y, item_height);
 
-            while (c) {
+            for (int index = 0; c; c = nodes
+                    ? (++index < node_count ? nodes[index] : nullptr) : c->next_sibling) {
                 if (layout_text_node_has_content(c)) {
                     const char* text = (const char*)c->text_data();
                     size_t text_len = strlen(text);
@@ -1201,7 +1225,6 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
                         // elements are not flex items and should not contribute to intrinsic sizing.
                         DisplayValue child_display = layout_resolved_display((void*)c);
                         if (flex_measurement_child_is_skipped_flex_item(child_view, child_display)) {
-                            c = c->next_sibling;
                             continue;
                         }
 
@@ -1290,7 +1313,6 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
 
                     }
                 }
-                c = c->next_sibling;
             }
             if (is_flex_container && children.count > 1) {
                 LayoutFlexStyleInfo style = layout_flex_style_info(lycon, item);
@@ -1341,15 +1363,18 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
             flex_layout && !is_main_axis_horizontal(flex_layout) && flex_layout->cross_axis_size > 0;
         if (wrapped_height) {
             flex_measure_item_height_at_cross_width(lycon, item, flex_layout,
+                layout_content_size_from_border_box(lam::view_as_block(item), min_width, true),
                 layout_content_size_from_border_box(lam::view_as_block(item), max_width, true),
                 &min_height, &max_height);
-        } else if (cached && cached->has_height && cached->measured_height > 0 && has_explicit_height) {
+        } else if (cached && cached->has_height && cached->measured_height > 0 &&
+                   has_explicit_height && !content_minimum_height) {
             min_height = layout_content_size_from_border_box(lam::view_as_block(item), cached->measured_height, false);
             max_height = min_height;
         } else if (children.height > 0.0f) {
             min_height = children.height;
             max_height = children.height;
-        } else if (cached && cached->has_height && cached->measured_height > 0) {
+        } else if (cached && cached->has_height && cached->measured_height > 0 &&
+                   !content_minimum_height) {
             // Fallback to cache without explicit height requirement
             min_height = layout_content_size_from_border_box(lam::view_as_block(item), cached->measured_height, false);
             max_height = min_height;
