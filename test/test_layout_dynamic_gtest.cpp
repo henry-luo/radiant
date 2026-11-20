@@ -2584,6 +2584,20 @@ TEST_F(DynamicLayoutTest, InheritedAxisSizesKeepComputedPercentagesAndLengths) {
     EXPECT_NEAR(element("heightgrandchild")->height, 10.0f, 0.1f);
 }
 
+TEST_F(DynamicLayoutTest, GridMeasuresFlexItemBeforeAssigningRowHeight) {
+    load("<!doctype html><style>body{margin:0}"
+         ".grid{display:grid;grid-template-columns:200px}"
+         ".tile{display:flex;flex-direction:column;border:1px solid;overflow:hidden}"
+         ".part{height:80px;flex:none}</style>"
+         "<div class='grid' id='auto'><div class='tile' id='tile'>"
+         "<div class='part'></div><div class='part'></div></div></div>"
+         "<div class='grid' style='grid-template-rows:100px'><div class='tile' id='fixed'>"
+         "<div class='part'></div><div class='part'></div></div></div>");
+    EXPECT_NEAR(element("auto")->height, 162.0f, 0.1f);
+    EXPECT_NEAR(element("tile")->height, 162.0f, 0.1f);
+    EXPECT_NEAR(element("fixed")->height, 100.0f, 0.1f);
+}
+
 TEST_F(DynamicLayoutTest, SvgPercentageViewportDimensionsDoNotInflateIntrinsicRows) {
     struct Case {float icon, percentage, ratio, svg_size, height; const char* extra;};
     const Case cases[] = {

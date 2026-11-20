@@ -113,7 +113,9 @@ bool flex_container_axis_is_fixed(FlexContainerLayout* flex,
     }
     bool is_grid_item = container->parent_item_kind() == DomElement::PARENT_ITEM_GRID &&
         container->gi && container->gi->computed_grid_row_start > 0;
-    if (!fixed && is_grid_item && container->height > 0.0f) fixed = true;
+    // Intrinsic measurement starts with a provisional border box, not a grid-assigned height.
+    if (!fixed && is_grid_item && container->height > 0.0f &&
+        (!flex->lycon || flex->lycon->natural_flex_height_root != container)) fixed = true;
     if (!fixed && container->height > 0.0f &&
         flex_height_is_parent_constrained(flex->lycon, container, true, main_axis)) {
         fixed = true;
