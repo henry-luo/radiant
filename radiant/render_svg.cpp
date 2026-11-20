@@ -214,7 +214,8 @@ static void render_text_view_svg(SvgRenderContext* ctx, ViewText* text) {
                            parent_elem->fontp()->text_shadow;
 
     if (parent_elem && render_paint_text_background(svg_active_paint_list(ctx), ctx->ui_context,
-            parent_elem, &run, {ctx->block.x, ctx->block.y, parent_elem->width, parent_elem->height})) {
+            parent_elem, &run, render_text_background_border_box(
+                parent_elem, ctx->block.x, ctx->block.y, 1.0f))) {
         svg_lower_paint_list(ctx);
     }
     // an inline element's own background and border, one box per fragment (as raster paints it)

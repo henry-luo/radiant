@@ -523,8 +523,10 @@ struct SvgStyleContext {
     SvgStyleContext* resource_owner;
     SvgResourceDocument* resource_document;
     SvgResourceDocument* resources;
-    lam::Own<UiContext> isolated_ui;   // headless shell for isolated HTML layout
+    lam::Own<UiContext> isolated_ui;   // headless shell for isolated layout and CSS motion
     ImageSurface* isolated_surface;
+    FontContext* isolated_fonts;
+    bool isolated_html_laid_out;
     bool has_foreign_object;         // host-wide: cross-root references can paint embedded HTML
 };
 
@@ -638,9 +640,15 @@ static void svg_style_destroy(SvgStyleContext* style) {
         view_tree_shell_destroy(style->isolated_document, style->isolated_document->view_tree);
         if (style->isolated_ui) image_cache_cleanup(style->isolated_ui);
         if (style->isolated_surface) image_surface_destroy(style->isolated_surface);
-        lam::free_owned(style->isolated_ui);
         if (style->isolated_document->url) url_destroy(style->isolated_document->url);
+        // animation state borrows this UI through document teardown.
         dom_document_destroy(style->isolated_document);
+        if (style->isolated_ui) {
+            font_prop_release_handle(&style->isolated_ui->default_font);
+            font_prop_release_handle(&style->isolated_ui->legacy_default_font);
+        }
+        lam::free_owned(style->isolated_ui);
+        if (style->isolated_fonts) font_context_destroy(style->isolated_fonts);
     }
     if (style->pool) mem_pool_destroy(style->pool);
     *style = {};
@@ -811,13 +819,70 @@ static SvgStyleContext* svg_paint_host_style(Element* svg_element) {
     return &shared->style;
 }
 
+static FontContext* svg_style_font_context(SvgStyleContext* style, const char* source_path,
+    float raster_scale, bool image_document, FontContext* parent_fonts);
+
+static UiContext* svg_style_isolated_ui(SvgStyleContext* style, float width,
+        float height, FontContext* fonts, float scale) {
+    if (!style || !style->isolated_document) return nullptr;
+    if (style->isolated_ui) return style->isolated_ui;
+    lam::Temp<UiContext> owned_ui((UiContext*)mem_calloc(1, sizeof(UiContext), MEM_CAT_RENDER)); // OBJ_HEAP_OK: the isolated style context owns the UI until its document animations are destroyed
+    DomDocument* doc = style->isolated_document;
+    lam::Own<ViewTree> tree = view_tree_shell_create(doc);
+    if (!owned_ui || !tree) { lam::free_owned(tree); return nullptr; }
+    UiContext* ui = owned_ui.get();
+    style->isolated_ui = lam::own(owned_ui.release());
+    doc->view_tree = tree; tree->init((MemContext*)doc->services.mem_ctx);
+    if (!fonts) {
+        style->isolated_fonts = svg_style_font_context(style,
+            doc->url ? url_get_href(doc->url) : nullptr, scale, true, nullptr);
+        fonts = style->isolated_fonts;
+    }
+    ui->document = lam::up(doc); ui->font_ctx = lam::up(fonts); ui->headless = true;
+    ui->viewport_width = width; ui->viewport_height = height;
+    ui->device_scale = ui->device_scale_x = ui->device_scale_y = scale;
+    ui_context_init_default_fonts(ui);
+    radiant_apply_css_stylesheets_to_tree(doc, doc->root, doc->stylesheets,
+        doc->stylesheet_count, doc->document_pool, style->engine, style->matcher);
+    return ui;
+}
+
+static bool svg_style_resolve_motion(View* view, void* context) {
+    LayoutContext* layout = (LayoutContext*)context;
+    layout->view = lam::up(view);
+    css_animation_resolve(static_cast<DomElement*>(view), layout);
+    return true;
+}
+
+static bool svg_style_sample_css_motion(SvgStyleContext* style, float width,
+        float height, double seconds, FontContext* fonts = nullptr, float scale = 1.0f) {
+    DomDocument* doc = style ? style->isolated_document : nullptr;
+    if (!doc) return false;
+    if (!doc->services.keyframe_registry)
+        doc->services.keyframe_registry = keyframe_registry_create(doc, doc->document_pool);
+    auto* keyframes = (KeyframeRegistry*)doc->services.keyframe_registry;
+    if (!keyframes || !keyframes->count) return false;
+    UiContext* ui = svg_style_isolated_ui(style, width, height, fonts, scale);
+    if (!ui || !state_store_create(doc)) return false;
+    // each image paint owns a fresh document: create effects at zero, then sample its image clock.
+    LayoutContext layout;
+    LayoutPassScope pass(&layout, doc, ui);
+    SvgAnimationSourceScope sources(doc);
+    view_geometry_walk_elements(static_cast<View*>(doc->root.get()), svg_style_resolve_motion, &layout);
+    AnimationScheduler* scheduler = doc->state->animation_scheduler;
+    bool animated = scheduler->count > 0;
+    animation_scheduler_tick(scheduler, seconds, nullptr, true);
+    return animated;
+}
+
 bool render_svg_picture_has_animation(RdtPicture* picture) {
     Element* root = rdt_picture_get_svg_root(picture);
     if (!root) return false;
     float width = 0, height = 0; rdt_picture_get_size(picture, &width, &height);
     SvgStyleContext style = {};
     if (!svg_style_init(&style, root, width, height, nullptr, rdt_picture_get_source_path(picture), true)) return false;
-    bool animated = style.document && svg_animation_has_elements(style.document->root);
+    bool css_motion = svg_style_sample_css_motion(&style, width, height, 0.0);
+    bool animated = css_motion || (style.document && svg_animation_has_elements(style.document->root));
     svg_style_destroy(&style);
     return animated;
 }
@@ -6839,24 +6904,16 @@ struct SvgHtmlScratchScope {
 
 static UiContext* svg_style_layout_html(SvgInlineRenderContext* ctx, SvgStyleContext* style) {
     if (!style || !style->isolated_document) return nullptr;
-    if (style->isolated_ui) return style->isolated_ui;
-    lam::Temp<UiContext> owned_ui((UiContext*)mem_calloc(1, sizeof(UiContext), MEM_CAT_RENDER)); // OBJ_HEAP_OK: the SVG style context owns the isolated layout's headless UI shell; svg_style_destroy releases it
-    lam::Own<ViewTree> tree = view_tree_shell_create(style->isolated_document);
-    if (!owned_ui || !tree) { lam::free_owned(tree); return nullptr; }
-    UiContext* ui = owned_ui.get();
-    style->isolated_ui = lam::own(owned_ui.release());
+    if (style->isolated_html_laid_out) return style->isolated_ui;
+    UiContext* ui = svg_style_isolated_ui(style, ctx->current_viewport_w,
+        ctx->current_viewport_h, ctx->font_ctx, ctx->raster_scale);
+    if (!ui) return nullptr;
     DomDocument* doc = style->isolated_document;
-    ui->document = lam::up(doc); ui->font_ctx = ctx->font_ctx; ui->headless = true;
-    ui->viewport_width = ctx->current_viewport_w; ui->viewport_height = ctx->current_viewport_h;
-    ui->device_scale = ui->device_scale_x = ui->device_scale_y = ctx->raster_scale;
-    ui_context_init_default_fonts(ui);
-    doc->view_tree = tree; tree->init((MemContext*)doc->services.mem_ctx);
-    radiant_apply_css_stylesheets_to_tree(doc, doc->root, doc->stylesheets,
-        doc->stylesheet_count, doc->document_pool, style->engine, style->matcher);
     // isolated layout never runs document scripts or publishes host observer callbacks.
     LayoutContext layout;
     LayoutPassScope pass(&layout, doc, ui);
     layout_html_root(&layout, doc->root);
+    style->isolated_html_laid_out = true;
     return ui;
 }
 
@@ -7859,8 +7916,11 @@ static void render_svg_to_display_list_primitives(Element* svg_element, float vi
     SvgAnimationSourceScope animation_sources(style.document);
     // the shared host context prepares SMIL once per pass
     if (!shared_style && style.document && style.document->root) svg_animation_prepare(style.document->root);
-    if (style.isolated_document && style.document->root)
+    if (style.isolated_document && style.document->root) {
         svg_animation_set_document_time(style.document, image_time);
+        if (image_document) svg_style_sample_css_motion(&style, viewport_width,
+            viewport_height, image_time, font_ctx, raster_scale);
+    }
 
     // parse viewBox
     const char* viewbox_attr = get_svg_attr(svg_element, "viewBox");
@@ -8315,6 +8375,7 @@ bool render_svg_picture_snapshot(RdtPicture* picture, StrBuf* output) {
     SvgAnimationSourceScope scope(style.document);
     svg_animation_prepare(style.document->root);
     svg_animation_set_document_time(style.document, rdt_picture_animation_time(picture));
+    svg_style_sample_css_motion(&style, width, height, rdt_picture_animation_time(picture));
     bool success = render_svg_dom_snapshot(style.document->root, output);
     svg_style_destroy(&style);
     return success;

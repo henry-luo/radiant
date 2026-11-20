@@ -511,6 +511,8 @@ float compute_text_height_at_width(LayoutContext* lycon,
                                     void* line_width_context = nullptr,
                                     bool allow_soft_wrap = true);
 StrBuf* layout_collect_inline_text(DomElement* element, bool allow_inline_descendants);
+float layout_measure_inline_flow_content_height(LayoutContext* context,
+    ViewBlock* block, float width, float content_height = -1.0f);
 StrBuf* layout_normalize_inline_text(const char* text, size_t length, CssEnum white_space,
                                     bool collapse_segment_breaks = false,
                                     bool preserve_initial_space = false,
@@ -644,6 +646,8 @@ bool layout_replaced_intrinsic_axis_size(LayoutContext* lycon, ViewBlock* block,
                                          DomElement* element, bool horizontal,
                                          float opposite_size, float* out_size);
 bool layout_svg_percentage_attribute(DomElement* element, bool horizontal, float* percentage);
+bool layout_svg_percentage_axis_content_size(LayoutContext* context, ViewBlock* view,
+    DomElement* element, bool horizontal, float* out_size);
 ReplacedSvgIntrinsicSize layout_replaced_svg_intrinsic_size(DomElement* element,
                                                             float constrained_width = -1.0f);
 IntrinsicSize layout_measure_replaced(LayoutContext* lycon, ViewBlock* block, AvailableSpace space);
@@ -2948,6 +2952,8 @@ typedef struct FlexContainerLayout : FlexProp {
 } FlexContainerLayout;
 
 bool flex_item_will_stretch_cross_axis(ViewElement* item, FlexContainerLayout* flex_layout);
+bool flex_item_has_content_based_auto_minimum(ViewElement* item,
+    FlexContainerLayout* flex_layout, bool horizontal);
 bool flex_item_has_content_flex_basis(ViewElement* item);
 bool flex_item_is_anonymous_text(ViewElement* item);
 bool flex_item_contains_anonymous_text(ViewElement* item, DomText* text);
@@ -2961,10 +2967,13 @@ void apply_anonymous_flex_text_geometry(FlexContainerLayout* flex_layout);
 float flex_measure_intrinsic_max_height(LayoutContext* lycon, DomNode* node, float width,
                                         float percentage_containing_width = -1.0f,
                                         bool width_is_used_size = false);
+float measure_flex_height_at_width(LayoutContext* lycon, ViewBlock* container, float width,
+                                  float ratio_block_basis);
 float flex_item_explicit_ratio_basis(ViewElement* item, bool main_is_horizontal);
 bool flex_height_is_parent_constrained(LayoutContext* context, ViewBlock* container,
                                        bool include_column_main_size,
-                                       bool include_row_cross_stretch);
+                                      bool include_row_cross_stretch,
+                                      const FlexContainerLayout* parent_layout = nullptr);
 
 typedef enum LayoutTextRunMode {
     LAYOUT_TEXT_RUN_RAW,
@@ -5143,6 +5152,9 @@ int layout_collect_flattened_item_nodes(LayoutContext* lycon,
                                         DomNode** nodes, int capacity,
                                         const LayoutFlattenedItemPolicy* policy);
 int layout_count_flattened_item_nodes(DomElement* container, bool include_text);
+int collect_flex_item_nodes(LayoutContext* lycon, ViewBlock* container,
+    DomNode* first_child, DomNode** nodes, int capacity, DomElement* rendered_legend);
+bool layout_is_scrollable_overflow(CssEnum overflow);
 
 inline bool layout_dom_text_has_non_whitespace(DomText* text) {
     if (!text || !text->text || text->length == 0) return false;

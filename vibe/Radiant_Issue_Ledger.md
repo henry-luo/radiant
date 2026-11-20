@@ -20,10 +20,200 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
-### RI-149 — FIXED
+<a id="ri-164"></a>
+### RI-164 — FIXED
 
 Duplicate Scene3D repaint requests skip document-wide validation once repaint
-is pending. See the [fixed record](<Radiant_Issue_Ledger (fixed).md#ri-149>).
+is pending. See the [fixed record](<Radiant_Issue_Ledger (fixed).md#ri-164>).
+
+<a id="ri-163"></a>
+### RI-163 — Background image clocks begin after a snapshot's selected interval
+
+**Root cause confirmed; repair qualification pending.** The first committed
+layout establishes CSS animation timelines, but background images were loaded
+only when painted. A data-URI SVG background therefore acquired its image clock
+after the host had already advanced its selected interval. The same file-backed
+background advances correctly when an interactive first paint precedes clock
+advancement. Committed style resolution now prepares selected background images,
+excluding measurement and CSS query passes. The new image-motion PNG control
+and existing SVG/SMIL UI replays retain the failure visibly until qualified.
+Native ownership **D9.1.1v4 / D9.1.3v2**, resource ownership **D5.5.1**, frame
+selection **D10.1.7**. Evidence: Lambda `../../temp/online-visual-round105/`.
+
+<a id="ri-162"></a>
+### RI-162 — Isolated SVG images do not connect CSS effects to their image clock
+
+**Root cause confirmed; repair qualification pending.** Highnote's large orb
+image has zero-opacity rings revealed through CSS keyframes. Isolated images
+already retain an image clock and share CSS presentation consumers, but only
+SMIL participates in image animation detection/preparation. A small bridge now
+applies the image's own cascade, reconciles existing CSS effects at zero and
+samples their actual image time for paint and frozen source export. The isolated
+UI, view shell and font resources outlive their animation state. No new
+interpolator, script execution, endpoint seek or image-specific override is
+added. CSS-image opacity/midpoint/transform controls reproduce the failure.
+Native ownership **D9.1.1v4 / D9.1.3v2**, lifetime **D5.5.1**, frame selection
+**D10.1.7**. Evidence: Lambda `../../temp/online-visual-round105/`.
+
+<a id="ri-161"></a>
+### RI-161 — FIXED for inline text background coordinates
+
+Text-clipped inline backgrounds use their owner's containing-block position;
+ancestor paint keeps its own coordinate system. See the
+[inline background repair](<Radiant_Issue_Ledger (fixed).md#ri-161>).
+
+<a id="ri-160"></a>
+### RI-160 — FIXED for implicit opacity endpoints
+
+CSS animation restyles read underlying opacity from the unanimated cascade,
+rather than their own previous sample. See the
+[opacity endpoint repair](<Radiant_Issue_Ledger (fixed).md#ri-160>).
+
+<a id="ri-159"></a>
+### RI-159 — FIXED for content-based column minima
+
+The automatic content-minimum query keeps its block axis indefinite even with
+a definite preferred height, and excludes cached used heights, including for
+zero content. The shared policy also preserves clip's non-scrolling minimum.
+See the [definiteness repair](<Radiant_Issue_Ledger (fixed).md#ri-159>).
+
+<a id="ri-158"></a>
+### RI-158 — FIXED
+
+Non-stretched column flex items measure their content height at the same
+fit-content cross width used by final sizing. All nine previously failing
+inline-break PNG controls now pass. See the
+[wrapping-width repair](<Radiant_Issue_Ledger (fixed).md#ri-158>).
+
+<a id="ri-157"></a>
+### RI-157 — FIXED for ratio-dependent automatic content minima
+
+Non-replaced ratio-dependent flex sizes retain their automatic content minimum;
+`overflow:clip` does not create a scroll container. Natural flex probes retain
+the ratio-derived percentage basis, and SVG geometry percentages precede stale
+natural contributions. See the [ratio sizing repair](<Radiant_Issue_Ledger (fixed).md#ri-157>).
+
+<a id="ri-156"></a>
+### RI-156 — FIXED
+
+Intrinsic flex contributions flatten display-contents descendants through the
+existing flex item collector. See the [collection repair](<Radiant_Issue_Ledger (fixed).md#ri-156>).
+
+<a id="ri-155"></a>
+### RI-155 — FIXED for native image completion
+
+Initial parsed images now enter the same admitted request and completion path
+as scripted source writes. See the [completion repair](<Radiant_Issue_Ledger (fixed).md#ri-155>).
+
+<a id="ri-154"></a>
+### RI-154 — FIXED
+
+Intrinsic sizing retains spaces between text nodes separated by comments.
+See the [comment boundary repair](<Radiant_Issue_Ledger (fixed).md#ri-154>).
+
+<a id="ri-153"></a>
+### RI-153 — FIXED for the recorded percentage-height controls
+
+Automatic flex minima omit cyclic percentage heights instead of borrowing an
+ancestor's definite height. See the [percentage contribution repair](<Radiant_Issue_Ledger (fixed).md#ri-153>).
+The separate definite-height shrinking control is now repaired under RI-159:
+it stops at Chromium's 120px minimum instead of staying 400px. Its percentage
+child re-resolves against the final 120px size. Evidence: Lambda
+../../temp/online-visual-round102/fixed-height-final-view.json.
+
+<a id="ri-152"></a>
+### RI-152 — FIXED
+
+Intrinsic auto/content flex bases retain aspect-ratio transfers from cross-axis
+bounds. See the [transfer repair](<Radiant_Issue_Ledger (fixed).md#ri-152>).
+
+<a id="ri-151"></a>
+### RI-151 — FIXED for known parent passes
+
+Auto-column growth preserves indefinite percentage constraints and explicit
+flex bases retain their authored sizing-box edges. See the
+[parent constraint repair](<Radiant_Issue_Ledger (fixed).md#ri-151>).
+
+<a id="ri-150"></a>
+### RI-150 — FIXED
+
+Intrinsic max-content sizing retains separators across transparent inline
+wrappers. See the [nested separator repair](<Radiant_Issue_Ledger (fixed).md#ri-150>).
+
+<a id="ri-149"></a>
+### RI-149 — FIXED
+
+Hidden boxes no longer sample the backdrop; explicitly visible descendants
+retain ordinary subtree effects. See the [visibility repair](<Radiant_Issue_Ledger (fixed).md#ri-149>).
+
+<a id="ri-148"></a>
+### RI-148 — Hero geometry repaired; navigation clipping and stale flow trial remain
+
+The previously failing `NestedColumnIntrinsicHeightRetainsInlineForcedBreaks`
+case now passes: the nested column retains the full 334px contribution instead
+of 226px. RI-156 confirms and repairs omitted display-contents descendants.
+The nine separate inline-break PNG failures are now repaired by RI-158:
+non-stretched column items used an unconstrained text width for height
+measurement before final cross sizing wrapped their content. Expectations
+remain unchanged. Evidence: Lambda `../../temp/online-visual-round101/`.
+
+
+**Partial, 2026-11-20.** Native ownership **D9.1.1v4 / D9.1.3v2**;
+selected-fragment ownership **D5.5.1**. No formal ruling changes.
+
+Confirmed repairs: automatic flex bases no longer treat min/max bounds as
+preferred cross sizes; content-only width queries omit the box's own limits;
+horizontal flex-item content enters shared paragraph setup. Intrinsic flex
+height now uses the existing collection/sizing stages, with selected flow and
+counter rollback, instead of final descendant flow. The initial full-flow trial
+reached1,452MB and the traversal limit; qualified live capture is15.47s/513MB,
+compared with round91's17.10s/525MB, without a traversal-limit hit.
+
+The line-count estimator omitted separator tracking/kerning. Its three space
+paths now share the existing character-spacing helper. Balance queries for
+collected text without floats or paragraph boundaries reuse contextual inline
+flow rather than estimating whether a shaped word fits; existing float/boundary
+paths and same-owner recursion guards remain.49 focused PNG controls pass,
+including five new tracking cases that fail before repair. The actual variable
+font reduction and break-word variant now have two lines, agreeing with the
+independent Chromium reference.14 existing flex geometry reference controls
+remain applicable. The text baseline is895 pass/84 partial/one failure of980;
+`boundary-shaping-006` reproduces with the saved renderer and is not repaired.
+
+Superhuman's heading, portrait and main overlays now align, clearing its major
+review in published round92. Small sign-in clipping remains unconfirmed.
+One nonfatal `flex height: selected flow restoration failed` warning also
+persists from the round92 candidate: the selected snapshot is rejected during
+initial sizing; its invalidation cause remains unconfirmed. Do not suppress the
+warning or bypass the ownership guard. No authored source, tolerance, URL,
+resource deadline or1000ms capture request changed. Evidence:
+`../../temp/online-visual-round93/{checkpoint.md,qualification.json,pin.json}`.
+Agiloft's independent live startup remains blank and is not imported.
+
+<a id="ri-147"></a>
+### RI-147 — Automatic UA palette changes for color-scheme remain unsupported
+
+**Partial, 2026-11-19.** Native ownership **D9.1.1v4 / D9.1.3v2**.
+RI-146 supplies authored contextual colors and CSSOM with the selected scheme.
+It does not retheme initial Canvas/CanvasText, default document backdrops,
+form controls or scrollbars. The generic initial foreground remains black;
+color-scheme's dispatch intentionally stores no new UA theme state. This is
+a separate missing UI palette capability, not a reason to override authored
+colors. [CSS Color Adjustment](https://www.w3.org/TR/css-color-adjust-1/#color-scheme-effect)
+defines the broader UA effects. No blocker for independent native fixes.
+
+<a id="ri-146"></a>
+### RI-146 — FIXED
+
+Contextual color consumers share authored scheme selection and inherit the
+parent's computed foreground. See the [fixed record](<Radiant_Issue_Ledger (fixed).md#ri-146>).
+
+
+<a id="ri-145"></a>
+
+### RI-145 — FIXED
+
+Detached text replacement accepts its registered allocation owner; see the [fixed record](<Radiant_Issue_Ledger (fixed).md#ri-145>).
 
 ### RI-144 — FIXED
 

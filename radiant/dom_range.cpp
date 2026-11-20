@@ -1394,7 +1394,7 @@ DomText* dom_text_split_at(DocState* state, DomText* original, uint32_t offset) 
 bool dom_text_replace_data_contents(DocState* st, DomText* t,
                                     uint32_t u16_offset, uint32_t u16_count,
                                     const char* repl_chars, size_t repl_bytes,
-                                    uint32_t repl_u16_len) {
+                                    uint32_t repl_u16_len, DomDocument* owner_document) {
     if (!t || (!repl_chars && repl_bytes > 0)) return false;
     uint32_t u8_off = dom_text_utf16_to_utf8(t, u16_offset);
     uint32_t u8_end = dom_text_utf16_to_utf8(t, u16_offset + u16_count);
@@ -1409,6 +1409,9 @@ bool dom_text_replace_data_contents(DocState* st, DomText* t,
     if (!buf) return false;
 
     DomDocument* doc = dom_node_ancestor_document(static_cast<DomNode*>(t));
+    // detached text retains its registry owner even without an ancestor box.
+    if (!doc && owner_document && dom_node_registry_owns(owner_document, t))
+        doc = owner_document;
     String* s = dom_document_create_string(doc, buf, new_len);
     mem_free(buf);
     if (!s) return false;

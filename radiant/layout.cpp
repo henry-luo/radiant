@@ -964,6 +964,16 @@ static void reset_background_style_cache(LayoutContext* lycon, ViewSpan* view) {
     }
 }
 
+static void layout_prepare_background_images(LayoutContext* context, DomElement* element) {
+    BackgroundProp* background = element->bound ? element->boundary()->background.get() : nullptr;
+    if (!background || !context->ui_context || !context->doc) return;
+    // image clocks must exist before the host advances its frame timeline, rather than at first paint.
+    for (int index = 0; index < max(1, background->layer_count); index++) {
+        BackgroundLayer* layer = background->layer_count > 0 ? &background->layers[index] : background;
+        if (layer->image) load_document_image(context->doc, context->ui_context, layer->image);
+    }
+}
+
 void layout_reset_color_background_style_cache(LayoutContext* lycon, ViewSpan* view) {
     if (!lycon || !view) return;
 
@@ -2490,6 +2500,7 @@ void dom_node_resolve_style(DomNode* node, LayoutContext* lycon) {
                 // before those queries so each property need not rematch every stylesheet.
                 dom_elem->set_styles_resolved(true);
                 dom_elem->set_needs_style_recompute(false);
+                if (!lycon->css_query_probe) layout_prepare_background_images(lycon, dom_elem);
             }
 
             // ordered-effect preparation cannot publish motion baselines from provisional boxes.

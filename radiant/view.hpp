@@ -122,6 +122,8 @@ bool css_prop_compute_numeric_value(DomElement* element, const CssValue* value, 
 // used shape/geometry consumers supply their own percentage reference.
 bool css_prop_compute_numeric_value(DomElement* element, const CssValue* value,
     CssMathResult* result, float percentage_base);
+bool css_prop_compute_scalar_value(DomElement* element, const CssValue* value,
+    int pseudo_type, bool (*compute)(const CssMathResult*, float*), float* result);
 // native consumers finish their borrow before temporary substituted values are released.
 bool css_prop_consume_cascaded_value(DomElement* element, CssPropertyCode id,
     bool (*consume)(DomElement*, const CssValue*, int, void*), void* result);
@@ -4353,6 +4355,7 @@ struct LayoutContext;
 float convert_lambda_length_to_px(const CssValue* value, LayoutContext* lycon,
                                    CssPropertyCode prop_id);
 Color resolve_color_value(LayoutContext* lycon, const CssValue* value);
+bool resolve_color_scheme_is_dark(LayoutContext* lycon, int pseudo_type = 0);
 Color resolve_text_color_value(LayoutContext* lycon, const CssValue* value);
 float resolve_css_opacity_value(LayoutContext* lycon, const CssValue* value);
 bool resolve_pseudo_color(LayoutContext* lycon, StyleTree* pseudo_style,

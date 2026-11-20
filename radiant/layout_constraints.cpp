@@ -1,6 +1,12 @@
 #include "layout.hpp"
-
 #include "tagged.hpp"
+
+bool layout_is_scrollable_overflow(CssEnum overflow) {
+    // clip suppresses painting without creating a scroll container.
+    return overflow == CSS_VALUE_AUTO || overflow == CSS_VALUE_SCROLL ||
+        overflow == CSS_VALUE_HIDDEN;
+}
+
 // Advanced constraint policy depends on formatting-context and writing-mode
 // helpers, so it stays separate from primitive box geometry used by lightweight clients.
 static bool layout_stretch_fit_block_margins_can_adjoin(ViewBlock* block, bool horizontal) {

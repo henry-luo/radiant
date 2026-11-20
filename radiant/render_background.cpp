@@ -2261,6 +2261,16 @@ static bool background_has_text_clip(const DomElement* parent) {
     return false;
 }
 
+Rect render_text_background_border_box(const DomElement* parent, float block_x,
+        float block_y, float scale) {
+    // inline positions already use their containing block, rather than the enclosing inline.
+    if (parent->view_type == RDT_VIEW_INLINE) {
+        block_x += parent->x * scale;
+        block_y += parent->y * scale;
+    }
+    return {block_x, block_y, parent->width * scale, parent->height * scale};
+}
+
 template<typename PaintOwner>
 static bool background_for_each_text_owner(DomElement* owner, DomElement* leaf,
         Rect leaf_border, float scale, PaintOwner& paint_owner) {
@@ -2275,6 +2285,12 @@ static bool background_for_each_text_owner(DomElement* owner, DomElement* leaf,
         // the glyph origin follows its containing block, ignoring intervening inline wrappers.
         RdtLogicalPoint offset = view_geometry_ancestor_offset(
             static_cast<View*>(leaf), static_cast<View*>(owner), true);
+        if (leaf->view_type == RDT_VIEW_INLINE) {
+            offset.x += leaf->x; offset.y += leaf->y;
+        }
+        if (owner->view_type == RDT_VIEW_INLINE) {
+            offset.x -= owner->x; offset.y -= owner->y;
+        }
         border = {leaf_border.x - offset.x * scale, leaf_border.y - offset.y * scale,
             owner->width * scale, owner->height * scale};
     }

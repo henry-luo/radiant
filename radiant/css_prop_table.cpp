@@ -395,8 +395,6 @@ struct CssomValueTarget {
     bool (*consume)(DomElement*, const CssValue*, int, void*);
     void* result;
 };
-static bool cssom_compute_scalar_value(DomElement* element, const CssValue* value,
-    int pseudo_type, CssomScalarPolicy compute, float* result);
 static bool format_cssom_scalar_value(DomElement* element, const CssValue* value,
     StringBuf* output, int pseudo_type, CssomScalarPolicy compute);
 static bool format_cssom_length_value(DomElement* element, const CssValue* value,
@@ -656,7 +654,9 @@ static bool consume_inherited_decl(DomElement* element, CssPropertyCode id,
                     serialized->chars, serialized->len, scratch) : nullptr;
                 if (!source || !css_color_compute(source->value, &current)) return false;
             }
-            if (!css_color_compute(value, &computed_color, &current)) return false;
+            LayoutContext scheme_context = cssom_value_context(element, scratch_pool());
+            bool dark = resolve_color_scheme_is_dark(&scheme_context, pseudo_type);
+            if (!css_color_compute(value, &computed_color, &current, &dark)) return false;
             // CSSOM's temporary tree belongs to this read; authored and registered expressions stay immutable.
             value = css_value_create_computed_color(scratch_pool(), &computed_color);
             if (!value) return false;
@@ -788,7 +788,7 @@ uint8_t css_prop_compute_cascaded_containment(DomElement* element) {
 
 static bool cssom_consume_flex_factor(DomElement* element, const CssValue* value,
         int pseudo_type, void* result) {
-    return cssom_compute_scalar_value(element, value, pseudo_type,
+    return css_prop_compute_scalar_value(element, value, pseudo_type,
         css_compute_nonnegative_number_result, (float*)result);
 }
 
@@ -1096,7 +1096,7 @@ static bool cssom_compute_integer_value(DomElement* element, const CssValue* val
         css_compute_integer_result(value, &math, minimum, maximum, result);
 }
 
-static bool cssom_compute_scalar_value(DomElement* element, const CssValue* value,
+bool css_prop_compute_scalar_value(DomElement* element, const CssValue* value,
         int pseudo_type, CssomScalarPolicy compute, float* result) {
     CssMathResult math;
     return cssom_compute_numeric_value(element, value, &math, pseudo_type, true) &&
@@ -1107,7 +1107,7 @@ static bool format_cssom_scalar_value(DomElement* element, const CssValue* value
         StringBuf* output, int pseudo_type, CssomScalarPolicy compute) {
     float number = 0.0f;
     // dirty and pseudo reads use declaration font state, with the same range policy as layout.
-    return cssom_compute_scalar_value(element, value, pseudo_type, compute, &number) &&
+    return css_prop_compute_scalar_value(element, value, pseudo_type, compute, &number) &&
         format_number(output, number, "");
 }
 

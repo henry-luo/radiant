@@ -14,7 +14,11 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
-### RI-149 — Scene3D repaint repeats document validation at each sampled channel
+<a id="ri-164"></a>
+### RI-164 — Scene3D repaint repeats document validation at each sampled channel
+
+First recorded as RI-149 on the Midtown branch; renumbered when that branch merged with
+the one whose RI-149 is the hidden-backdrop fix.
 
 **Fixed 2026-11-20.** In the Midtown debug replay, the animation mixer
 requested a document repaint for each channel it sampled. The state store
@@ -27,6 +31,410 @@ At 1280×800 on an Apple M3, the first matched native debug pair rose from
 zero damage and no speed cap. The headless controls and animation replays
 exercise the same state transitions. Midtown's separate 50 fps goal remains
 open.
+
+<a id="ri-161"></a>
+### RI-161 — Text-clipped inline backgrounds paint at the block origin
+
+**Fixed for the covered inline coordinate paths, 2026-11-20.** Native paint
+ownership **D9.1.1v4 / D9.1.3v2**, presentation ownership **D5.5.1**.
+No design ruling changes.
+
+PNPM's orange headline words remained absent after RI-160 restored its hero.
+The reduction `AAAA<br>AAAA<br><span class=clip>MMMM</span>` places glyphs at
+the inline owner's correct position, but the clipped background rectangle used
+the containing block's origin with the inline owner's dimensions. Its mask
+therefore missed the paint. First-line and block-owner controls passed.
+
+A shared border-box helper now includes an inline owner's block-relative
+position in the three raster glyph paths and SVG recording. Ancestor traversal
+converts that leaf rectangle back to each owner's coordinate system, preserving
+the earlier RI-130 ordering and hard-stop gradient positioning. The paged
+caller already supplied the inline position and is not offset a second time.
+No fallback text color or forced inline-block box is introduced. General
+fragment slicing and PDF output are not independently qualified by this fix.
+
+Both new PNG reductions fail before and pass after; the eight existing ancestor
+controls also pass. Four SVG exports cover both new reductions, nested owners
+and an offset hard-stop gradient. Together with RI-160 and related clipping/
+opacity controls, **46 PNG checks**, **58 animation tests** and integer lint
+pass. No broad baseline rerun is claimed. PNPM's live gradient words return.
+Evidence: Lambda `../../temp/online-visual-round104/`.
+
+<a id="ri-160"></a>
+### RI-160 — Implicit opacity endpoints reuse an animation's own sample
+
+**Fixed for CSS animation reconciliation, 2026-11-20.** Native ownership
+**D9.1.1v4 / D9.1.3v2**; measurement/presentation separation **D5.5.1**.
+No design ruling changes.
+
+PNPM's hero was transparent with a valid layout box. Its CSS fade specifies
+only a zero-opacity start. CSS restyling repeatedly captured live InlineProp
+opacity after intrinsic replay, when it already held the animation's own zero
+sample. The omitted final keyframe consequently targeted zero. Script-free
+nested flex/grid reductions fail; direct-block and explicit-endpoint controls
+pass. CSS Animations §3 requires omitted endpoints to use computed values:
+https://www.w3.org/TR/css-animations-1/#keyframes.
+
+CSS reconciliation now reads underlying opacity from the cascade through the
+existing declaration consumer. The promoted scalar evaluator preserves number,
+percentage and variable computation. Explicit inheritance retains the immediate
+parent's computed opacity. Public native animation creation continues accepting
+its caller-supplied computed baseline. There is no clock, visibility, endpoint
+or resource-budget override.
+
+The native repeated-restyle regression covers default, authored, percentage
+variable and declaration removal. All **58 AnimationTickTest cases pass**.
+Fifteen final PNG controls cover block/flex/grid with implicit, explicit,
+authored, variable and inherited opacity; the two implicit flex/grid cases fail
+before and all fifteen pass after. PNPM's identical script-free source and live
+page restore the hero; RI-161 separately repairs the gradient words. Matched
+1000ms live comparison error falls **25.27% → 11.45%**. Its client-created
+navigation remains absent, so the page stays high through explicit visual
+review. No high-severity page clearance or full-baseline rerun is claimed.
+Evidence: Lambda `../../temp/online-visual-round104/`.
+
+<a id="ri-159"></a>
+### RI-159 — A preferred height inflates the automatic content minimum
+
+**Fixed for the covered column paths, 2026-11-20.** Native ownership
+**D9.1.1v4 / D9.1.3v2**; measurement ownership **D5.5.1**. No ruling changes.
+
+A shrinking 400px column in a 100px parent contains a fixed 100px item and a
+100%-height item with 20px of content. Intrinsic accumulation retained the
+preferred 400px percentage basis, then capped the inflated automatic minimum
+at the specified height. A cached used height could also replace the actual
+content contribution. The column consequently stayed 400px instead of 120px.
+
+[CSS Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto)
+makes a content-based automatic minimum's axis indefinite for intrinsic sizing,
+even when the preferred size is definite. A shared predicate now owns this
+main-axis/automatic-minimum/non-scrolling policy in both flex constraints and
+measurement. Its scope clears the child's percentage basis, and used-height
+cache paths are excluded from that contribution. Zero content is retained as
+a valid zero minimum. Clip now shares visible overflow's content minimum;
+auto/scroll/hidden retain zero automatic minima.
+
+The expanded native mutation test preserves the earlier growing-column cases
+and covers the shrinking preferred-height case, clip, scrolling, explicit
+minima, a maximum, and empty/content/empty changes. Seven independent Chromium
+controls agree. All 53 focused native tests and 56 PNG checks pass; the release
+host also produces the exact 100/120/100/120/20px box-height sequence for the
+original reduction. Integer lint passes. No broad baseline rerun is claimed.
+The separate online animation-frame calibration is not attributed to this
+native repair. Evidence: Lambda `../../temp/online-visual-round102/`.
+
+<a id="ri-158"></a>
+### RI-158 — Non-stretched column items undercount wrapped content height
+
+**Fixed 2026-11-20.** Native ownership **D9.1.1v4 / D9.1.3v2**;
+measurement ownership **D5.5.1**. No ruling changes.
+
+Column flex intrinsic measurement used a non-stretched item's max-content
+width to obtain its height. Final cross sizing used fit-content instead. A
+heading consequently contributed 72px before wrapping to 108px; the enclosing
+column retained 298px instead of 334px and its action overflowed the hero.
+[CSS Flexbox §9.2](https://www.w3.org/TR/css-flexbox-1/#algo-main-item)
+requires the fit-content cross size when an automatic cross axis is needed
+to determine the flex base. The existing measurement helper now receives both
+intrinsic width bounds and reuses the shared fit-content keyword resolver,
+retaining the existing explicit size, min/max and box conversion stages.
+
+All nine previously failing inline-break PNG controls pass with unchanged
+expectations, including nested and display-contents wrappers, mixed fonts,
+preserved whitespace, consecutive breaks and hidden breaks. The full focused
+PNG selection passes 56/56. The existing native column test now exercises
+stretch/flex-start/stretch mutations with height:min-content on its row;
+the 53-case native selection passes. Layout integer lint passes. The previous
+milestone's 776-case sizing baseline was not repeated for this focused repair.
+Evidence: Lambda `../../temp/online-visual-round101/`.
+
+<a id="ri-157"></a>
+### RI-157 — Ratio transfers erase automatic content minima and percentage bases
+
+**Fixed for the covered layout paths, 2026-11-20.** Native ownership
+**D9.1.1v4 / D9.1.3v2**; measurement ownership **D5.5.1**. No ruling changes.
+
+Flex cross sizing unconditionally replaced measured content with the preferred
+aspect-ratio transfer. The existing image-growth control consequently produced
+95px instead of 432px. Non-replaced, non-scrolling items with an automatic
+cross minimum now reuse the shared min-content contribution before existing
+min/max clamping. Explicit minima and scrolling retain their existing behavior.
+[CSS Sizing 4 §4.3](https://www.w3.org/TR/css-sizing-4/#aspect-ratio-minimum)
+defines this minimum. A shared overflow predicate excludes clip; the previous
+intrinsic-width and flow/positioned-height paths classified it as scrolling.
+
+Natural flex probes had also cleared the ratio-derived percentage basis. They
+now retain that basis without making the natural extent definite. Flex SVG
+cross sizing reuses the existing geometry-percentage resolver before cached
+natural sizes. This preserves a 32×16px percentage SVG after a ratio mutation,
+while fixed 40px content can still exceed a 16px preferred ratio height.
+
+Three new native cases cover 16 flex axis/minimum/overflow states, ten flow and
+positioned overflow states, and percentage versus fixed natural extents.
+All 53 focused native cases and 28 focused PNG checks pass, including the
+previously failing 432px image-growth control. The sizing milestone baseline
+passes all 776 cases with unchanged references and tolerance. This does not
+claim the separate definite-height shrinking observation in RI-153 is fixed.
+Evidence: Lambda `../../temp/online-visual-round100/`.
+
+<a id="ri-156"></a>
+### RI-156 — Intrinsic flex collection omits display-contents descendants
+
+**Fixed 2026-11-20.** Native ownership **D9.1.1v4 / D9.1.3v2**;
+measurement ownership **D5.5.1**. No ruling changes.
+
+Intrinsic child accumulation walked direct DOM siblings while final flex
+collection flattened display-contents wrappers. A nested column therefore
+omitted its 108px heading and contributed 226px instead of 334px. Measurement
+now calls the same promoted flex item collector using scoped scratch storage;
+no parallel collector or final descendant-flow trial was introduced.
+
+The existing `NestedColumnIntrinsicHeightRetainsInlineForcedBreaks` test now
+passes without changing its expectation or selected text-geometry checks.
+The 53-case native selection and 776-case sizing baseline pass. Nine other
+inline-break PNG controls fail with both the prior and current renderer and
+remain unresolved under RI-148; their expectations are preserved.
+Evidence: Lambda `../../temp/online-visual-round100/`.
+
+<a id="ri-155"></a>
+### RI-155 — Initial images omit resource completion notifications
+
+**Fixed for the native image profile, 2026-11-20.** Native boundary
+**D9.1.3v2 / D9.5.6v2**, ownership **D5.5.1 / D5.5.2**.
+
+Parsed local/data images bypassed async discovery, and the network image
+processor did not notify DOM load handlers. Scripted src writes had a separate
+completion path. The host load boundary now prepares connected image requests
+through the existing native selector and decoder, and native request completion
+notifies for both immediate and asynchronous results. The DOM-side duplicate
+notification is removed. Current-source queries reuse the request record,
+preserve its generation and share picture/srcset selection and resource policy.
+
+Decode promises now require actual raster pixel decoding or a parsed SVG
+picture; metadata alone cannot report success. The public native image seam
+exposes only native request state and generation. Eight focused local image and
+three HTTP image checks pass, including initial completion exactly once,
+pending-source replacement and corrupt pixel data. The 14 HTTP session controls
+pass. The wider local group has 15 passes and one pre-existing image-growth
+failure, reproduced with the prior renderer. An unchanged Gatsby reveal-script
+reduction agrees with Chromium; the actual Mode capture remains byte-identical
+and high severity. No live page clearance is attributed. See Lambda
+../../temp/online-visual-round99/ and JS13-L16 in its LambdaJS issue ledger.
+
+<a id="ri-154"></a>
+### RI-154 — Intrinsic sizing drops spaces around comment-separated text
+
+**Fixed 2026-11-20.** Native ownership **D9.1.1v4 / D9.1.3v2**;
+measurement ownership **D5.5.1**. No formal ruling changes.
+
+Mode's three shrink-wrapped hero headings broke onto two lines. Its SSR text
+uses comment boundaries, such as `Business<!-- --> <!-- -->Intelligence`.
+Intrinsic normalization retained trailing whitespace only before an immediate
+inline element; comments and following text made it trim real inter-word spaces.
+The resulting box fit the words without their separator, so actual inline flow
+wrapped. The shared inline-boundary query now owns lookahead for text as well as
+transparent wrappers, comments and forced breaks. The duplicate sibling scan is
+removed. [CSS Text §4.1.1](https://www.w3.org/TR/css-text-3/#white-space-phase-1)
+defines the whitespace processing contract.
+
+Four new PNG checks fail before repair and pass after; all 47 focused PNG checks
+pass. The native separator test also checks comment-separated and trailing-space
+variants against an unsplit control. Independent Chromium measures the reduced
+heading at 724.328px by 108px; native gives 724.3px by 108px. Current Mode restores
+all three single-line headings, reducing coarse error from 27.15% to 19.53%.
+Missing hero media and navigation styling remain major; no full-page clearance
+is claimed. The 50-test native selection has 49 passes and the pre-existing
+forced-break allocation failure described below. Evidence:
+Lambda `../../temp/online-visual-round98/`.
+
+<a id="ri-153"></a>
+### RI-153 — Automatic column minima borrow an ancestor's percentage height
+
+**Fixed for auto-height growing columns, 2026-11-20.** Native ownership **D9.1.1v4 / D9.1.3v2**;
+measurement ownership **D5.5.1**. No formal ruling changes.
+
+A growing auto-height column in a definite 400px column contains a 100px child
+and a non-shrinking 100% child with 20px of content. Intrinsic measurement left
+the ancestor's definite containing height active when the item's own height
+was indefinite, and trusted persisted percentage heights as explicit child
+sizes. Its automatic minimum therefore became 500px rather than 120px, which
+prevented the 400px allocation. The item-height scope now actively clears that
+ancestor context; percentage used heights are excluded from explicit intrinsic
+child sizes. [CSS Sizing §5.2](https://www.w3.org/TR/css-sizing-3/#cyclic-percentage-contribution)
+defines cyclic percentage contributions.
+
+The new native test fails before and passes after across auto/400px/auto/300px
+mutations, without an authored zero minimum. Existing definite/indefinite and
+explicit-basis controls pass. The wider native selection has 49 passes and one
+pre-existing `NestedColumnIntrinsicHeightRetainsInlineForcedBreaks` failure:
+the nested column is 226px instead of 334px. The exact static fixture's view tree
+is identical with the prior qualified renderer and the final renderer. That
+separate allocation observation remains open under RI-148; its root cause is
+unconfirmed and its expectation is unchanged. A separate explicit-height shrinking control remains 400px instead of
+Chromium's 120px; its prior and final view trees are identical and its root cause
+is unconfirmed. No live high-severity page clearance is attributed to
+RI-153. All 47 focused PNG controls and layout integer lint pass. No broad
+baseline rerun is claimed. Evidence: Lambda `../../temp/online-visual-round98/`.
+
+<a id="ri-152"></a>
+### RI-152 — Intrinsic flex bases omit aspect-ratio transfers from cross bounds
+
+**Fixed 2026-11-20.** Native ownership **D9.1.1v4 / D9.1.3v2**;
+selected measurement ownership **D5.5.1**. No formal ruling changes.
+
+The broader layout check found four sizing regressions already present in the
+previous qualified renderer: `flex-aspect-ratio-034/035/036/039`. Auto/content
+flex bases used raw max-content contributions without transferring cross-axis
+min/max bounds through the preferred aspect ratio. An empty column item with
+`min-width:100px;aspect-ratio:1` became only 18px tall; a row item with 200px
+content and `max-height:50px;aspect-ratio:2` stayed 200px wide instead of 100px.
+The final intrinsic-basis path now reuses the existing ratio/bounds transfer
+helper. Bounds constrain the intrinsic contribution; they do not become an
+invented preferred cross size. See [CSS Flexbox §9.2](https://www.w3.org/TR/css-flexbox-1/#algo-main-item).
+
+All four WPT cases recover their recorded baseline result; the sizing baseline
+passes 776/776. A new native test covers empty column items, auto/content bases
+and row min/max transfers. The final focused run passes 36 native tests and
+52 PNG checks. Across 17 configured layout categories, 5,609 pass and 294 are
+partial; only the independently reproduced pre-existing `boundary-shaping-006`
+text failure remains. This is not a full green Radiant gate: the separate
+native input-event executable was not rebuilt in this layout-only check.
+References and tolerances are unchanged. Evidence: Lambda `../../temp/online-visual-round97/`.
+
+<a id="ri-151"></a>
+### RI-151 — Auto-column growth freezes provisional heights and loses basis edges
+
+**Fixed for known parent passes, 2026-11-20.** Native ownership
+**D9.1.1v4 / D9.1.3v2**, pass-local ownership **D5.5.1**. No formal ruling changes.
+
+Circle's static hero resolved `height:calc(100vh - 80px)` to 720px but used 600px
+when followed by an auto-height flex section. The recent sizing-only measurement
+path exposed an older constraint error: positive `flex-grow` alone marked a
+nested auto-height column's provisional allocation definite. A smaller intrinsic
+estimate therefore caused real shrinkage instead of allowing natural content
+flow to complete. The prior renderer kept 720px on the identical saved source.
+
+The shared constraint query now receives the live parent-pass state where the
+current context has already switched to the child. Growth in an indefinite
+column does not establish a definite block constraint. Existing row policy and
+calls without known parent-pass state retain their prior behavior. Explicit
+CSS flex bases also pass through the shared authored-box conversion: their
+content-box padding and borders were previously supplied accidentally by false
+free-space distribution. The stored algorithm/contribution sizes now agree
+without that compensation. [CSS Flexbox §9.8](https://www.w3.org/TR/css-flexbox-1/#definite-sizes)
+and [§7.2.3](https://www.w3.org/TR/css-flexbox-1/#flex-basis-property) describe these contracts.
+
+The same saved Circle section returns to 720px. A reduced 100% descendant of an
+auto-height growing column returns to its 20px content height; a definite 400px
+parent retains a 400px percentage basis. Two Chromium controls confirm those
+states. Native tests cover auto/definite/auto mutation and eight numeric/percentage
+basis states across both axes and sizing boxes. All 36 focused native tests and
+52 PNG checks pass, including existing constrained-height, ratio, grid assignment,
+heading and whitespace controls. Layout integer lint has no violations.
+
+A separate pre-existing automatic-minimum/percentage cycle remains observed
+under RI-153; the new definiteness test uses an authored zero minimum to isolate
+this contract. No page-specific dimensions, clock/budget changes, visibility
+styles, vendor edits or tolerance changes are introduced. Evidence: Lambda
+`../../temp/online-visual-round97/`; live qualification and reference maintenance
+are recorded separately in the comparison report.
+
+<a id="ri-150"></a>
+### RI-150 — Intrinsic sizing drops nested whitespace-only separators
+
+**Fixed 2026-11-20.** Native ownership **D9.1.1v4 / D9.1.3v2**;
+selected layout ownership **D5.5.1**. No formal ruling changes.
+
+Rogo's heading nests each atomic word inside a transparent inline wrapper.
+A leading whitespace-only child had preceding inline content outside its
+wrapper, but the intrinsic aggregation accepted separators only after local
+content. Two missing spaces reduced the Arial control's max-content width
+from approximately 724.3px to 674.4px, forcing a second line in both ordinary
+and balanced text. The existing directional boundary query now admits that
+separator across transparent wrappers. The existing edge-collapse rule still
+counts adjacent spaces once; atomic and floated contexts remain isolated.
+
+Ten PNG controls pass (four fail before repair), with 20 existing heading
+controls and 4 atomic inline controls. Five native whitespace tests pass,
+including the new live-layout comparison of leading, trailing, duplicate
+and atomic edge spaces against plain text. Independent Chromium leading
+and duplicate-edge controls confirm one 108px line. Integer lint checks 89
+casts with 0 unmarked. Broad baselines are not repeated for this increment.
+
+The live 1000ms capture confirms Rogo's heading now fits one line. Its omitted
+navigation and patterned background remain unresolved, so the manual high
+review is retained in report round94. No authored
+styles, capture clock, reference, admission budget or vendor code changes.
+Evidence: Lambda `../../temp/online-visual-round96/`.
+
+<a id="ri-149"></a>
+### RI-149 — Hidden boxes still applied backdrop filters
+
+**Fixed 2026-11-20.** Native ownership **D9.1.1v4 / D9.1.3v2**. No formal
+ruling changes. [CSS2.2 §11.2](https://www.w3.org/TR/CSS22/visufx.html#visibility)
+keeps hidden boxes unpainted while allowing explicitly visible descendants.
+Effect groups previously sampled the backdrop before the own-box visibility
+check. A shared visible-backdrop predicate now guards raster and PaintIR
+block/inline groups; ordinary filters and opacity remain subtree effects.
+
+Ten new PNG controls pass (three fail before repair), together with16 existing
+positioned-opacity controls. Three independent Chromium controls confirm the
+hidden box, hidden ancestor and visible-child cases. Two SVG controls no longer
+introduce the hidden backdrop's raster fallback. Integer lint passes89casts
+with0unmarked. No broad baseline is repeated for this bounded paint change.
+
+This is not established as a live high-page repair: Metronome's before/after
+PNG bytes are identical, and Influx remains blank with both renderers. Those
+major reviews remain open; Draftbit's known composite-mask gap is unchanged.
+No website source, opacity override, capture window, tolerance, URL or vendor
+code changes. Evidence: `../../temp/online-visual-round95/`.
+
+<a id="ri-146"></a>
+### RI-146 — Contextual colors use no scheme and inherited colors replay declarations
+
+**Fixed 2026-11-19.** Native ownership follows **D9.1.1v4 / D9.1.3v2**;
+computed-value ownership follows **D5.5.1**. No formal ruling changes.
+
+The color consumer now supplies the used authored scheme from cascaded ancestry,
+resolving variable offers at their declaration owner and respecting normal,
+inheritance, reset and pseudo contexts. CSSOM shares that resolver. Implicit
+foreground inheritance previously replayed a parent's expression at each child;
+it now reuses the existing computed-color inheritance path. A light parent and
+dark child retain the parent's red foreground. CurrentColor mixes and shadowed
+custom variables likewise compute once at their actual owner.
+
+Seven Input tests and25 focused PNG controls pass (20 new contextual controls,
+five existing Lab controls). Nineteen of20 new controls fail the saved renderer;
+all20 agree with Chromium. Computed-style mirrors cover19 flat-color controls.
+Integer lint passes89casts with0unmarked. No frame, budget, vendor or page
+condition changes. No broad baseline is repeated for this bounded milestone.
+
+Superhuman's white/light text and borders are restored at its existing1000ms
+request. Mean error falls10.73% to8.79%, changed area23.88% to19.56%. The page
+remains high for portrait/overlay placement and clipped navigation (RI-148).
+Automatic UA dark palettes/form themes are not implemented (RI-147); this
+qualification covers authored contextual colors. Evidence: Lambda round91.
+
+<a id="ri-145"></a>
+### RI-145 — Detached text replacement loses its allocation document
+
+**Status:** FIXED, 2026-11-19. **D5.5.1** requires allocation
+in the node's actual owner; native boundaries follow **D9.1.1v4 / D9.1.3v2**.
+
+A detached Text.data or replaceData write returns without changing content.
+The replacement helper walks ancestors for its document and therefore passes
+null to dom_document_create_string. It now accepts the DOM caller's registered
+owner as a fallback, checking registry membership before allocating. Connected
+nodes retain ancestor resolution; no synthetic parent or layout state is added.
+Main and foreign-document regressions cover repeated writes and observer
+oldValues. All21 focused native controls pass; qualification is recorded with LR12-64
+in Lambda's round90 evidence.
+
+The required integer lint initially inherited Lambda's parent sgconfig and
+failed on its absent custom Lambda grammar library. Radiant now has its own
+native-rule config, preserving standalone/submodule policy independence.
+The owner make lint command checks89casts with0unmarked.
+
 
 <a id="ri-144"></a>
 

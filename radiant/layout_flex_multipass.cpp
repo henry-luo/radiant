@@ -776,7 +776,8 @@ static float flex_auto_container_content_extent(LayoutContext* lycon,
 
 bool flex_height_is_parent_constrained(LayoutContext* context, ViewBlock* container,
                                        bool include_column_main_size,
-                                       bool include_row_cross_stretch) {
+                                       bool include_row_cross_stretch,
+                                       const FlexContainerLayout* parent_layout) {
     // natural cross-size flow precedes parent stretch; its provisional box is not a constraint.
     if (context && context->natural_flex_height_root == container) return false;
     // a normal-flow vertical block has a definite inline size before its flex algorithm runs.
@@ -789,7 +790,14 @@ bool flex_height_is_parent_constrained(LayoutContext* context, ViewBlock* contai
     ViewBlock* parent = lam::view_as_block(parent_element);
     CssEnum direction = layout_flex_direction(parent);
     bool parent_is_row = direction == CSS_VALUE_ROW || direction == CSS_VALUE_ROW_REVERSE;
-    if (container->fi->main_size_from_flex || container->fi->flex_grow > 0.0f) {
+    if (!parent_layout && context && context->flex_container &&
+        context->flex_container->container == parent)
+        parent_layout = context->flex_container;
+    // growing in an auto-height column does not make its estimated block size
+    // definite; descendants must still resolve their natural height.
+    bool grow_assigns_height = container->fi->flex_grow > 0.0f &&
+        (parent_is_row || !parent_layout || parent_layout->main_axis_available_size_is_definite);
+    if (container->fi->main_size_from_flex || grow_assigns_height) {
         return true;
     }
     // The parent's ratio transfer also uses stretched or min/max-constrained
@@ -1489,8 +1497,13 @@ static void layout_flex_item_content_pass(LayoutContext* lycon, ViewBlock* flex_
         setup_inline(lycon, flex_item);
         layout_block_inner_content(lycon, flex_item);
     } else {
-        // flex-item flow bypasses setup_inline, so initialize its own clamp counter here.
-        layout_setup_line_clamp(lycon, flex_item, &saved_context.block);
+        if (canonical_horizontal_flow) {
+            // assigned flex widths still need the shared paragraph setup,
+            // including balanced wrapping and first-line state.
+            setup_inline(lycon, flex_item);
+        } else {
+            layout_setup_line_clamp(lycon, flex_item, &saved_context.block);
+        }
         // CRITICAL FIX: Generate pseudo-element content for flex items with ::before/::after
         if (flex_item->is_element()) {
             layout_materialize_pseudo_content(lycon, flex_item);
@@ -2173,6 +2186,63 @@ void layout_final_flex_content(LayoutContext* lycon, ViewBlock* flex_container) 
 
     heights_scope.end();
     log_leave();
+}
+
+float measure_flex_height_at_width(LayoutContext* lycon, ViewBlock* container, float width,
+                                  float ratio_block_basis) {
+    if (!lycon || !container || width < 0.0f) return 0.0f;
+    // intrinsic block contributions need solved flex widths before ratio transfer
+    // and text wrapping; the containing width is not every item's used width.
+    ScratchScope counter_scratch(&lycon->scratch);
+    CounterCheckpoint counters;
+    if (!counters.enter(lycon->counter_context, &lycon->scratch, &counter_scratch.mark))
+        return -1.0f;
+    radiant::LayoutFlowResult* selected = radiant::layout_flow_result_capture(lycon, container);
+    if (!selected) return -1.0f;
+    radiant::LayoutMeasureScope measure_scope(lycon, container, true);
+    LayoutViewScope view_scope(lycon);
+    lycon->view = lam::up(static_cast<View*>(container));
+    lycon->elmt = lam::up(static_cast<DomNode*>(container));
+    lycon->available_space = AvailableSpace::make_indefinite();
+    lycon->available_space.width = AvailableSize::make_definite(width);
+    lycon->block.given_width = lycon->block.content_width = width;
+    lycon->block.given_height = -1.0f;
+    lycon->block.content_height = 0.0f;
+    lycon->block.used_size_owner = nullptr;
+    ViewBlock* previous_natural_root = lycon->natural_flex_height_root;
+    lycon->natural_flex_height_root = lam::up(container);
+    container->view_type = RDT_VIEW_BLOCK;
+    container->width = layout_border_size_from_content_box(container, width, true);
+    float initial_height = max(ratio_block_basis, 0.0f);
+    lycon->block.content_height = initial_height;
+    container->height = layout_border_size_from_content_box(container, initial_height, false);
+    container->content_width = width;
+    container->content_height = initial_height;
+    if (ratio_block_basis >= 0.0f && container->blk) {
+        // a preferred ratio supplies descendant percentages without fixing the natural content extent.
+        float css_height = layout_used_css_size_from_border_box(
+            container, container->height, false);
+        layout_store_given_axis(lycon, container, css_height, false, false);
+        container->block_mut()->aspect_ratio_auto_height = true;
+    }
+    alloc_flex_prop(lycon, container);
+    {
+        FlexLayoutScope flex_scope(lycon, container);
+        collect_and_prepare_flex_items(lycon, lycon->flex_container, container);
+        // the sizing stages solve widths and cross sizes; final descendant
+        // flow would repeat speculative layout and consume the traversal budget.
+        layout_flex_container(lycon, container);
+    }
+    float height = layout_content_size_from_border_box(container, container->height, false);
+    lycon->natural_flex_height_root = lam::up(previous_natural_root);
+    // trial flex flow owns text fragments too; scalar box rollback cannot
+    // prevent measured runs from leaking into the selected paint result.
+    if (!radiant::layout_flow_result_apply(lycon, selected)) {
+        log_error("flex height: selected flow restoration failed");
+        height = -1.0f;
+    }
+    radiant::layout_flow_result_release(lycon->pool, selected);
+    return height;
 }
 
 void layout_flex_content(LayoutContext* lycon, ViewBlock* block) {
