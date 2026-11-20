@@ -20,6 +20,11 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+### RI-149 — FIXED
+
+Duplicate Scene3D repaint requests skip document-wide validation once repaint
+is pending. See the [fixed record](<Radiant_Issue_Ledger (fixed).md#ri-149>).
+
 ### RI-144 — FIXED
 
 Direct `:focus` and `:focus-visible` selectors recascade the affected focus

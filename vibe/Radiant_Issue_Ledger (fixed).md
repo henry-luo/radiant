@@ -14,6 +14,20 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+### RI-149 — Scene3D repaint repeats document validation at each sampled channel
+
+**Fixed 2026-11-20.** In the Midtown debug replay, the animation mixer
+requested a document repaint for each channel it sampled. The state store
+validated the focused document even after a repaint was already pending. It
+now validates when the flags change and continues to count each request
+(D5.5.3 and D9.1.1v4).
+
+At 1280×800 on an Apple M3, the first matched native debug pair rose from
+13.4 to 26.1 fps over the manual drive. The tuned run reached 163.3 km/h with
+zero damage and no speed cap. The headless controls and animation replays
+exercise the same state transitions. Midtown's separate 50 fps goal remains
+open.
+
 <a id="ri-144"></a>
 
 ### RI-144 — Focus changes recascade unrelated subtrees

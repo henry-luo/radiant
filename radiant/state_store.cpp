@@ -4384,10 +4384,12 @@ void doc_state_mark_dirty(DocState* state) {
 void doc_state_request_repaint(DocState* state) {
     if (!state) return;
     state->full_repaint_requests++;
-    bool changed = !state->needs_repaint || !state->is_dirty;
+    // Animation channels can request the same repaint within a frame. Validate
+    // the document when the request changes its pending render state.
+    if (state->needs_repaint && state->is_dirty) return;
     state->needs_repaint = true;
     state->is_dirty = true;
-    if (changed) state_bump_render_version(state);
+    state_bump_render_version(state);
     state_assert_after_mutation(state, "doc_state_request_repaint");
 }
 
