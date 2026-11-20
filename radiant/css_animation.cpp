@@ -637,8 +637,27 @@ static void css_animation_refresh_priority(CssAnimState* state) {
     }
 }
 
+struct CssAnimationOpacityBase {
+    DomElement* target;
+    float value;
+};
+
+static bool capture_cascaded_opacity(DomElement* declaring, const CssValue* value,
+                                     int, void* result) {
+    auto* base = (CssAnimationOpacityBase*)result;
+    if (declaring != base->target) {
+        // explicit inheritance uses the immediate parent's current computed opacity.
+        DomElement* parent = dom_parent_element(base->target);
+        base->value = parent && parent->in_line ? parent->inl()->opacity : INLINE_PROP_DEFAULT.opacity;
+        return true;
+    }
+    return css_prop_compute_scalar_value(declaring, value, 0,
+        css_compute_opacity_result, &base->value);
+}
+
 static bool capture_underlying_value(DomElement* element, CssPropertyCode property,
-                                     CssAnimatedProp* out, const bool* svg = nullptr);
+                                     CssAnimatedProp* out, const bool* svg = nullptr,
+                                     bool declared_opacity = false);
 
 
 static FilterFunction filter_identity(FilterFunctionType type) {
@@ -1339,7 +1358,7 @@ static CssAnimationColorSlot css_animation_color_slot(DomElement* element,
 }
 
 static bool capture_underlying_value(DomElement* element, CssPropertyCode property,
-                                     CssAnimatedProp* out, const bool* svg) {
+                                     CssAnimatedProp* out, const bool* svg, bool declared_opacity) {
     if (!element || !out) return false;
     out->property_code = property;
     out->value_type = property_value_type(property);
@@ -1382,9 +1401,18 @@ static bool capture_underlying_value(DomElement* element, CssPropertyCode proper
             return capture_underlying_aspect_ratio(element, out);
         case ANIM_VAL_DISPLAY:
             return capture_underlying_display(element, out);
-        case ANIM_VAL_FLOAT:
-            out->value.f = element->in_line ? element->in_line->opacity : 1.0f;
-            return true;
+        case ANIM_VAL_FLOAT: {
+            if (!declared_opacity) {
+                out->value.f = element->in_line ? element->in_line->opacity : INLINE_PROP_DEFAULT.opacity;
+                return true;
+            }
+            // intrinsic replays can retain a sampled InlineProp; it is not the unanimated base.
+            CssAnimationOpacityBase base = {element, INLINE_PROP_DEFAULT.opacity};
+            bool valid = css_prop_consume_cascaded_value(
+                element, property, capture_cascaded_opacity, &base);
+            out->value.f = base.value;
+            return valid;
+        }
         case ANIM_VAL_BACKGROUND_POSITION: {
             BackgroundProp* background = element->bound ? element->bound->background.get() : nullptr;
             out->value.background_position = {};
@@ -2092,7 +2120,7 @@ static void css_animation_cancel(AnimationInstance* anim) {
 // CSS Animation Creation
 // ============================================================================
 
-static void capture_animation_underlying(CssAnimState* state) {
+static void capture_animation_underlying(CssAnimState* state, bool declared_opacity = false) {
     if (!state || !state->element || !state->keyframes) return;
     CssAnimatedProp* previous_image = find_underlying_prop(state, CSS_PROPERTY_BACKGROUND_IMAGE);
     char* retired_image = previous_image ? previous_image->value.image : nullptr;
@@ -2113,7 +2141,8 @@ static void capture_animation_underlying(CssAnimState* state) {
                 if (!state->custom_underlying_pool) state->custom_underlying_pool = mem_pool_create(nullptr, MEM_ROLE_CSS, "css.animation.custom-base");
                 if (!state->custom_underlying_pool) continue;
                 captured.value.custom = css_compute_custom_property_base(state->custom_underlying_pool, state->element, key->custom_name);
-            } else if (!capture_underlying_value(state->element, id, &captured)) continue;
+            } else if (!capture_underlying_value(state->element, id, &captured, nullptr,
+                                                  declared_opacity)) continue;
             // reserve before cloning so allocation failure cannot orphan an owned snapshot.
             if (!lam::pool_grow_array(state->pool, &state->underlying,
                     &state->underlying_capacity, state->underlying_count + 1, 8)) {
@@ -2719,7 +2748,7 @@ void css_animation_resolve(DomElement* element, LayoutContext* lycon) {
         sample->keyframes = keyframes;
         css_animation_refresh_priority(sample);
         css_animation_refresh_value_samples(sample, lycon);
-        capture_animation_underlying(sample);
+        capture_animation_underlying(sample, true);
         instances[index] = instance;
     }
     AnimationInstance* before = nullptr;

@@ -3826,6 +3826,8 @@ bool render_paint_text_shadows(PaintList* paint, UiContext* ui, const PaintGlyph
 float render_filter_blur_support(float physical_sigma);
 FilterProp* dl_capture_filter_lengths(DisplayList* list, FilterProp* filter, float scale);
 float render_box_blur_half_width(float blur_radius);
+Rect render_text_background_border_box(const DomElement* parent, float block_x,
+    float block_y, float scale);
 bool render_paint_text_background_glyph(RasterRenderContext* context, DomElement* parent,
     Rect physical_border, const GlyphBitmap* bitmap, float x, float y);
 // shared positioning and paint boxes keep text clipping in the background owner's coordinates.
@@ -4498,6 +4500,7 @@ typedef struct RenderEffectGroup {
     int source_start;
 } RenderEffectGroup;
 
+bool render_effect_has_visible_backdrop(View* view, const FilterProp* filter);
 RenderEffectGroup render_effect_group_begin(RasterRenderContext* rdcon,
                                             ViewBlock* block,
                                             const BlockBlot* parent_block);

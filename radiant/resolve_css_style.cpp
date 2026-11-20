@@ -5100,10 +5100,8 @@ bool layout_compute_scroll_keyword_axes(LayoutContext* lycon, StyleTree* style,
     CssEnum x_value = x ? scroll_axis_keyword_value(lycon, x, true, overscroll, inherited_x) : *out_x;
     CssEnum y_value = y ? scroll_axis_keyword_value(lycon, y, false, overscroll, inherited_y) : *out_y;
     // CSS Overflow 3 §3.1 computes visible/clip against a scrollable opposite axis.
-    bool x_scrollable = !overscroll && (x_value == CSS_VALUE_AUTO || x_value == CSS_VALUE_SCROLL ||
-        x_value == CSS_VALUE_HIDDEN);
-    bool y_scrollable = !overscroll && (y_value == CSS_VALUE_AUTO || y_value == CSS_VALUE_SCROLL ||
-        y_value == CSS_VALUE_HIDDEN);
+    bool x_scrollable = !overscroll && layout_is_scrollable_overflow(x_value);
+    bool y_scrollable = !overscroll && layout_is_scrollable_overflow(y_value);
     if (y_scrollable && x_value == CSS_VALUE_VISIBLE) x_value = CSS_VALUE_AUTO;
     if (x_scrollable && y_value == CSS_VALUE_VISIBLE) y_value = CSS_VALUE_AUTO;
     if (y_scrollable && x_value == CSS_VALUE_CLIP) x_value = CSS_VALUE_HIDDEN;

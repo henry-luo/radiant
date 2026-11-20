@@ -2829,11 +2829,10 @@ static void layout_abs_block_internal(LayoutContext* lycon, DomNode *elmt,
                 block, flow_height + trailing_height, false, true);
 
             if (ratio_auto_height) {
-                bool overflow_not_visible = block->scroller &&
-                    (block->scroll()->overflow_x != CSS_VALUE_VISIBLE ||
-                     block->scroll()->overflow_y != CSS_VALUE_VISIBLE);
-                // CSS Sizing's ratio transfer is a preferred minimum for visible
-                if (overflow_not_visible) {
+                bool scrolls_in_ratio_axis = block->scroller &&
+                    layout_is_scrollable_overflow(block->scroll()->overflow_y);
+                // the preferred ratio retains an auto content minimum outside scroll containers.
+                if (scrolls_in_ratio_axis) {
                     block->height = ratio_auto_height_floor;
                 } else if (layout_explicit_min_axis_or(block, false, -1.0f) >= 0.0f) {
                     float min_height = layout_explicit_min_axis_or(block, false, 0.0f);

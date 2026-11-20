@@ -122,6 +122,8 @@ bool css_prop_compute_numeric_value(DomElement* element, const CssValue* value, 
 // used shape/geometry consumers supply their own percentage reference.
 bool css_prop_compute_numeric_value(DomElement* element, const CssValue* value,
     CssMathResult* result, float percentage_base);
+bool css_prop_compute_scalar_value(DomElement* element, const CssValue* value,
+    int pseudo_type, bool (*compute)(const CssMathResult*, float*), float* result);
 // native consumers finish their borrow before temporary substituted values are released.
 bool css_prop_consume_cascaded_value(DomElement* element, CssPropertyCode id,
     bool (*consume)(DomElement*, const CssValue*, int, void*), void* result);

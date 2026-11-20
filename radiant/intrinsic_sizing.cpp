@@ -1427,6 +1427,11 @@ static float intrinsic_table_structure_height(LayoutContext* lycon, DomElement* 
     return total_height;
 }
 
+static float intrinsic_space_advance(LayoutContext* lycon, float kerning = 0.0f) {
+    return layout_measure_space_advance(lycon, font_box_handle(&lycon->font), lycon->font.style) +
+        text_character_spacing(lycon->font.style, 0x20) + kerning;
+}
+
 static float intrinsic_loaded_glyph_advance(LayoutContext* lycon,
                                             uint32_t codepoint,
                                             bool small_caps_lower,
@@ -1464,12 +1469,7 @@ static float measure_preserved_line_width_with_tabs(LayoutContext* lycon, const 
         }
 
         if (ch == ' ' || ch == '\r' || ch == '\n') {
-            float space_width = layout_measure_space_advance(
-                lycon, font_box_handle(&lycon->font), lycon->font.style);
-            if (lycon->font.style) {
-                space_width += lycon->font.style->word_spacing;
-                space_width += lycon->font.style->letter_spacing;
-            }
+            float space_width = intrinsic_space_advance(lycon);
             width += space_width;
             is_word_start = true;
             i++;
@@ -1861,14 +1861,7 @@ static TextIntrinsicWidths measure_text_intrinsic_segments(LayoutContext* lycon,
                 kerning_adj = font_get_kerning(font_box_handle(&lycon->font), prev_codepoint, (uint32_t)ch);
             }
 
-            float space_width = layout_measure_space_advance(
-                lycon, font_box_handle(&lycon->font), lycon->font.style);
-            if (lycon->font.style) {
-                space_width += lycon->font.style->word_spacing;
-            }
-            if (lycon->font.style) {
-                space_width += lycon->font.style->letter_spacing;
-            }
+            float space_width = intrinsic_space_advance(lycon);
 
             if (white_space == CSS_VALUE_BREAK_SPACES) {
                 // CSS Text 3 §4.2.2: break-spaces — preserved spaces are not hangable
@@ -2451,12 +2444,11 @@ float compute_text_height_at_width(LayoutContext* lycon,
         // Regular space/whitespace - break opportunity
         if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') {
             flush_word(i);
-            // add space width
-            float space_width = layout_measure_space_advance(
-                lycon, font_box_handle(&lycon->font), lycon->font.style);
-            if (lycon->font.style) {
-                space_width += lycon->font.style->word_spacing;
-            }
+            // line probes must retain separator tracking and kerning, or a
+            // balanced width can fit the estimate but add a line in final flow.
+            float kerning = has_font && has_kerning && prev_codepoint
+                ? font_get_kerning(font_box_handle(&lycon->font), prev_codepoint, (uint32_t)ch) : 0.0f;
+            float space_width = intrinsic_space_advance(lycon, kerning);
             packing.advance += space_width;
             prev_codepoint = (uint32_t)ch;
             is_word_start = true;
@@ -3156,7 +3148,7 @@ float layout_child_intrinsic_height_contribution(LayoutContext* lycon,
         float contribution = basis.value + decoration;
         CssEnum overflow_x = CSS_VALUE_VISIBLE, overflow_y = CSS_VALUE_VISIBLE;
         css_prop_compute_declared_overflow(element, &overflow_x, &overflow_y);
-        if (minimum < 0.0f && (overflow_y == CSS_VALUE_VISIBLE || overflow_y == CSS_VALUE_CLIP)) {
+        if (minimum < 0.0f && !layout_is_scrollable_overflow(overflow_y)) {
             contribution = max(contribution, height);
         }
         float maximum = intrinsic_resolved_height_limit_or(lycon, element, view, false);
@@ -3205,7 +3197,7 @@ static bool intrinsic_svg_is_ratio_only(DomElement* element, ViewBlock* view) {
         (intrinsic.has_intrinsic_aspect_ratio || preferred_ratio > 0.0f);
 }
 
-static bool intrinsic_svg_percentage_axis_content_size(LayoutContext* context,
+bool layout_svg_percentage_axis_content_size(LayoutContext* context,
         ViewBlock* view, DomElement* element, bool horizontal, float* out_size) {
     if (!context || !context->block.parent || !out_size) return false;
     BlockContext* containing = context->block.parent;
@@ -3228,9 +3220,9 @@ static bool intrinsic_replaced_height_from_shared_facts(
         float query_width, float* out_height) {
     if (!element || !out_height) return false;
     if (layout_is_svg_viewport(element->tag())) {
-        if (intrinsic_svg_percentage_axis_content_size(
+        if (layout_svg_percentage_axis_content_size(
                 lycon, view, element, false, out_height)) return true;
-        (void)intrinsic_svg_percentage_axis_content_size(
+        (void)layout_svg_percentage_axis_content_size(
             lycon, view, element, true, &query_width);
         if (intrinsic_svg_is_ratio_only(element, view) && query_width <= 0.0f) {
             *out_height = 0.0f;
@@ -4477,7 +4469,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
 
         bool is_scroll_container = !layout_element_is_replaced(element) &&
             view_block_for_aspect->scroller &&
-            view_block_for_aspect->scroll()->overflow_x != CSS_VALUE_VISIBLE;
+            layout_is_scrollable_overflow(view_block_for_aspect->scroll()->overflow_x);
         if (height > 0) {
             aspect_ratio_width_uses_border_box =
                 !layout_aspect_ratio_uses_content_box(view_block_for_aspect) &&
@@ -5708,6 +5700,9 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     bool explicit_box_decoration_inline =
         intrinsic_element_has_explicit_box_decoration_break(element);
     bool explicit_box_decoration_run_sizing = false;
+    bool propagates_inline_edge_space = is_inline_level_element(element) &&
+        !layout_intrinsic_element_is_atomic_inline(element) &&
+        !layout_element_is_floated(element);
     bool vertical_block_sequence = intrinsic_is_vertical_block_sequence(element);
     // intrinsic percentage-margin bases may differ from provisional used values (D5.5.1).
     radiant::LayoutMeasureScope vertical_margin_scope(vertical_block_sequence ? lycon : nullptr, element);
@@ -5779,12 +5774,8 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
                         }
                     }
                     // css 2.1 §9.7 blockifies floats, isolating their line-edge trimming.
-                    bool propagates_inline_edge_space =
-                        is_inline_level_element(element) &&
-                        !layout_intrinsic_element_is_atomic_inline(element) &&
-                        !layout_element_is_floated(element) &&
-                        !white_space_preserves_space_advance(ws);
                     bool has_preceding_boundary = propagates_inline_edge_space &&
+                        !white_space_preserves_space_advance(ws) &&
                         intrinsic_has_inline_boundary_content_in_direction(element, false);
                     // css text 3 §4.1.1: max-content retains one collapsed separator
                     // between inline boxes, even though it remains a min-content break.
@@ -5809,28 +5800,11 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
                     // Only trim trailing whitespace if there's no inline content after this text node.
                     // Trailing whitespace before an inline sibling (like <a>) should be preserved
                     // as it contributes to the inter-word spacing.
-                    bool has_inline_after = false;
-                    if (child->next_sibling) {
-                        DomNode* next = child->next_sibling;
-                        // Skip whitespace-only text nodes
-                        while (next && next->is_text()) {
-                            const char* next_text = (const char*)next->text_data();
-                            bool all_ws = str_all(next_text, next_text ? strlen(next_text) : 0,
-                                                  str_is_html_space);
-                            if (!all_ws) break;
-                            next = next->next_sibling;
-                        }
-                        if (next && next->is_element()) {
-                            // Table-cell boxes inside inline content are wrapped in anonymous
-                            // inline-table boxes, so preceding collapsed spaces still render.
-                            has_inline_after = !layout_intrinsic_node_has_forced_break_at_edge(next, false) &&
-                                (is_inline_level_element(next->as_element()) ||
-                                (is_inline_level_element(element) &&
-                                 !layout_intrinsic_element_is_atomic_inline(element) &&
-                                 node_is_table_cell_like(next)));
-                        }
-                    }
+                    // comments generate no boxes; text beyond them still retains this separator.
+                    bool has_inline_after =
+                        intrinsic_has_inline_boundary_content_in_direction(child, true);
                     bool has_following_boundary = propagates_inline_edge_space &&
+                        !white_space_preserves_space_advance(ws) &&
                         intrinsic_has_inline_boundary_content_in_direction(element, true);
                     // A child intrinsic query cannot see the containing line's next
                     // inline boundary; retain its trailing separator for that parent.
@@ -5985,7 +5959,12 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
                 layout_intrinsic_break_min_run(&inline_min_run);
                 // Recursive inline measurement trims edge spaces inside each inline
                 // box, so the parent must own collapsed whitespace runs across boxes.
-                if (inline_max_sum > 0.0f && !inline_run_ends_with_collapsible_space &&
+                // a transparent wrapper's first separator can follow content
+                // outside that wrapper; it still belongs to the same inline run.
+                bool has_inline_before = inline_max_sum > 0.0f ||
+                    (propagates_inline_edge_space &&
+                     intrinsic_has_inline_boundary_content_in_direction(child, false));
+                if (has_inline_before && !inline_run_ends_with_collapsible_space &&
                     intrinsic_has_inline_boundary_content_in_direction(child, true)) {
                     inline_max_sum += layout_intrinsic_collapsed_space_width(lycon, child);
                     inline_run_ends_with_collapsible_space = true;
@@ -7284,12 +7263,12 @@ float layout_resolve_preferred_intrinsic_inline_size(LayoutContext* lycon, ViewB
     return layout_used_css_size_from_border_box(block, border_size, horizontal);
 }
 
-static float intrinsic_inline_flow_content_height(LayoutContext* context,
-                                                   DomElement* element,
-                                                   ViewBlock* block, float width, float content_height) {
+float layout_measure_inline_flow_content_height(LayoutContext* context,
+                                                ViewBlock* block, float width, float content_height) {
     if (!context->ui_context || context->paged || layout_block_inline_axis_is_vertical(block) ||
         context->node_count >= context->node_limit || context->depth >= MAX_LAYOUT_DEPTH)
         return -1.0f;
+    DomElement* element = block->as_element();
     // mixed inline fonts and forced breaks share line boxes; reuse flow rather
     // than taking a maximum of independently measured spans (CSS 2.1 §9.4.2).
     ScratchScope counter_scratch(&context->scratch);
@@ -7335,7 +7314,7 @@ static float intrinsic_text_br_content_height(LayoutContext* lycon, DomElement* 
     if (!text) {
         // atomic inlines can contain block descendants; their surrounding line
         // still includes the parent's strut and baseline (CSS 2.1 §10.8).
-        return intrinsic_inline_flow_content_height(lycon, element, view, width, content_height);
+        return layout_measure_inline_flow_content_height(lycon, view, width, content_height);
     }
 
     float line_height = intrinsic_element_line_height(lycon, element, view);
@@ -7457,7 +7436,7 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
     if (svg_relative_height) {
         float svg_height = 0.0f;
         // resolve geometry before cached used heights or natural-ratio fallbacks consume this query.
-        if (intrinsic_svg_percentage_axis_content_size(lycon, view, element, false, &svg_height))
+        if (layout_svg_percentage_axis_content_size(lycon, view, element, false, &svg_height))
             return layout_border_size_from_content_box(view, svg_height, false);
     }
     bool replaced_intrinsic_width_query = ignore_definite_block_size && view->blk &&
@@ -7976,7 +7955,8 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
         height = measure_grid_height_at_width(lycon, view, content_w);
     } else if (is_flex_container && content_w > 0.0f &&
                !layout_block_inline_axis_is_vertical(view)) {
-        height = measure_flex_height_at_width(lycon, view, content_w);
+        height = measure_flex_height_at_width(lycon, view, content_w,
+            aspect_ratio_min_height > 0.0f ? child_height_basis : -1.0f);
     } else if (is_grid_container && grid_column_count > 1) {
         // Collect child heights
         int child_count = 0;
