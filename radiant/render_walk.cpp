@@ -148,12 +148,12 @@ static bool render_walk_block_begin(RenderPaintBlockDriver* ctx, ViewBlock* bloc
         backend->visit_element(backend->ctx, block, state->x, state->y);
     }
 
-    bool has_transform = transform_has_functions(block->transform);
+    bool has_transform = transform_has_functions(block->transform_prop());
     p->opened_transform = has_transform && backend->begin_transform && backend->end_transform;
     if (p->opened_transform) {
         backend->begin_transform(backend->ctx, block, state->x, state->y);
         RdtMatrix local;
-        if (render_geometry_transform_matrix(block->transform, state->x, state->y,
+        if (render_geometry_transform_matrix(block->transform_prop(), state->x, state->y,
                 block->width, block->height, &local)) {
             // the finite end of a visible overflow strip follows the same nested paint transforms.
             backend->ctx->overflow_clip_transform = p->pa_has_clip_transform

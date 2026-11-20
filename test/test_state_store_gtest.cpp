@@ -291,7 +291,7 @@ TEST(NativeEditingWithoutScriptHost, RemovingOptionRestoresLiveSelectionOnAbort)
     form.control_type = FORM_CONTROL_SELECT;
     form.option_count = 2;
     select->set_role_kind(DomElement::ROLE_FORM);
-    select->form = lam::view_prop(&form);
+    ASSERT_TRUE(select->set_form_storage(&form));
     first->set_option_selectedness(true);
     ASSERT_FALSE(second->has_option_selectedness());
     radiant_select_sync_native_index(select, 0, 2);
@@ -327,7 +327,7 @@ TEST(NativeEditingWithoutScriptHost, RemovingOptionRestoresLiveSelectionOnAbort)
     EXPECT_TRUE(dom_option_is_selected(second));
     EXPECT_EQ(form.option_count, 1);
     EXPECT_EQ(form_control_get_selected_index(state, select), 0);
-    select->form = nullptr;
+    select->set_form_storage(nullptr);
     state_store_destroy(document);
 }
 
@@ -750,20 +750,20 @@ TEST(StateStoreDomLifetimeTest, DetachedControlValueSurvivesLayoutReleaseUntilRe
     control->view_type = RDT_VIEW_BLOCK;
     FormControlProp original{}, rebuilt{};
     original.control_type = rebuilt.control_type = FORM_CONTROL_TEXT;
-    control->form = lam::view_prop(&original);  // test-owned prop
+    ASSERT_TRUE(control->set_form_storage(&original));  // test-owned prop
     ASSERT_TRUE(form_control_store_text_value(doc.state, static_cast<View*>(control), "svg", 3, 3));
     ASSERT_TRUE(root->remove_child(control));
     // D5.5.1: layout properties are temporary; the registered DOM control owns its value.
-    control->form = nullptr; control->view_type = RDT_VIEW_NONE;
+    control->set_form_storage(nullptr); control->view_type = RDT_VIEW_NONE;
     state_store_prune_after_reflow(doc.state);
     uint32_t length = 0;
     EXPECT_STREQ(form_control_get_value(doc.state, static_cast<View*>(control), &length), "svg");
     EXPECT_EQ(length, 3u);
     ASSERT_TRUE(static_cast<DomNode*>(root)->append_child(control));
-    control->view_type = RDT_VIEW_BLOCK; control->form = lam::view_prop(&rebuilt);
+    control->view_type = RDT_VIEW_BLOCK; ASSERT_TRUE(control->set_form_storage(&rebuilt));
     state_store_prune_after_reflow(doc.state);
     EXPECT_STREQ(form_control_get_value(doc.state, static_cast<View*>(control), nullptr), "svg");
-    control->form = nullptr;
+    control->set_form_storage(nullptr);
     DomNodeRef detached_ref = dom_node_ref(control);
     ASSERT_TRUE(root->remove_child(control));
     ASSERT_EQ(dom_retire_sweep(&doc), 1u);
@@ -900,28 +900,28 @@ TEST_F(StateStoreDomMutationTest, TextControlValueIsViewStateOwnedAcrossPropRebu
     FormControlProp* original_prop = new FormControlProp{};
     ASSERT_NE(original_prop, nullptr);
     original_prop->control_type = FORM_CONTROL_TEXT;
-    live->form = lam::view_prop(original_prop);
+    ASSERT_TRUE(live->set_form_storage(original_prop));
     ASSERT_TRUE(form_control_store_text_value(doc_state, static_cast<View*>(live),
                                               "state-owned", 11, 11));
 
     ViewState* view_state = view_state_get(doc_state, static_cast<View*>(live));
     ASSERT_NE(view_state, nullptr);
     ASSERT_TRUE(view_state->data.form.has_current_value);
-    ASSERT_NE(live->form, nullptr);
-    EXPECT_EQ(live->form->current_value, view_state->data.form.current_value);
-    EXPECT_STREQ(live->form->current_value, "state-owned");
+    ASSERT_NE(live->form_storage(), nullptr);
+    EXPECT_EQ(live->form_storage()->current_value, view_state->data.form.current_value);
+    EXPECT_STREQ(live->form_storage()->current_value, "state-owned");
 
     FormControlProp* rebuilt_prop = new FormControlProp{};
     ASSERT_NE(rebuilt_prop, nullptr);
     rebuilt_prop->control_type = FORM_CONTROL_TEXT;
-    live->form = lam::view_prop(rebuilt_prop);
+    ASSERT_TRUE(live->set_form_storage(rebuilt_prop));
 
     // Reflow must rebind the newly pooled prop without allocating a second value.
     state_store_prune_after_reflow(doc_state);
-    EXPECT_EQ(live->form->current_value, view_state->data.form.current_value);
-    EXPECT_STREQ(live->form->current_value, "state-owned");
+    EXPECT_EQ(live->form_storage()->current_value, view_state->data.form.current_value);
+    EXPECT_STREQ(live->form_storage()->current_value, "state-owned");
 
-    live->form = nullptr;
+    live->set_form_storage(nullptr);
     delete rebuilt_prop;
     delete original_prop;
 }
@@ -948,8 +948,8 @@ TEST_F(StateStoreDomMutationTest, RegeneratedTextControlKeepsNativeValueOnlyForS
     live->tag_name = orphan->tag_name = lam::up("input");
     live->tag_id = orphan->tag_id = MARKUP_NAME_INPUT;
     live->id = orphan->id = lam::up("field");
-    live->form = lam::view_prop(&old_prop);
-    orphan->form = lam::view_prop(&new_prop);
+    ASSERT_TRUE(live->set_form_storage(&old_prop));
+    ASSERT_TRUE(orphan->set_form_storage(&new_prop));
     ASSERT_TRUE(form_control_store_text_value(state(), live, "typed", 5, 5));
     ASSERT_TRUE(form_control_store_focus_value(state(), live, "", 0));
     ViewState* before = view_state_get(state(), live);
@@ -968,7 +968,8 @@ TEST_F(StateStoreDomMutationTest, RegeneratedTextControlKeepsNativeValueOnlyForS
     view_state_preserve_subtree_identity(state(), orphan, live);
     EXPECT_EQ(view_state_get(state(), orphan), before);
     EXPECT_EQ(view_state_get(state(), live), nullptr);
-    live->form = orphan->form = nullptr;
+    live->set_form_storage(nullptr);
+    orphan->set_form_storage(nullptr);
 }
 
 TEST_F(StateStoreDomMutationTest, DropdownScrollClampsRevealsAndReleasesCapture) {
@@ -976,7 +977,7 @@ TEST_F(StateStoreDomMutationTest, DropdownScrollClampsRevealsAndReleasesCapture)
     form.control_type = FORM_CONTROL_SELECT;
     form.option_count = 40;
     form.intrinsic_height = 20.0f;
-    live->form = lam::view_prop(&form);
+    ASSERT_TRUE(live->set_form_storage(&form));
     doc_state_open_dropdown(state(), live);
     doc_state_set_dropdown_geometry(state(), 10.0f, 30.0f, 160.0f, 200.0f);
     SelectDropdownGeometry geometry = select_dropdown_geometry(state(), &form);
@@ -1018,7 +1019,7 @@ TEST_F(StateStoreDomMutationTest, DropdownScrollClampsRevealsAndReleasesCapture)
     EXPECT_FLOAT_EQ(geometry.scrollbar_width, 0.0f);
     EXPECT_FLOAT_EQ(geometry.scroll_max, 0.0f);
     doc_state_close_dropdown(state(), live);
-    live->form = nullptr;
+    live->set_form_storage(nullptr);
 }
 
 TEST_F(StateStoreDomMutationTest, HiddenSelectUpdatesRetainedSelectionWithoutLayoutBox) {
@@ -1028,7 +1029,7 @@ TEST_F(StateStoreDomMutationTest, HiddenSelectUpdatesRetainedSelectionWithoutLay
     live->tag_name = lam::up("select");
     live->tag_id = MARKUP_NAME_SELECT;
     live->set_role_kind(DomElement::ROLE_FORM);
-    live->form = lam::view_prop(&form);
+    ASSERT_TRUE(live->set_form_storage(&form));
     form_control_set_selected_index(state(), live, 0);
     ASSERT_EQ(form_control_get_selected_index(state(), live), 0);
 
@@ -1037,13 +1038,13 @@ TEST_F(StateStoreDomMutationTest, HiddenSelectUpdatesRetainedSelectionWithoutLay
     radiant_select_sync_native_index(live, 2, 5);
     EXPECT_EQ(form.option_count, 5);
     EXPECT_EQ(form_control_get_selected_index(state(), live), 2);
-    live->form = nullptr;
+    live->set_form_storage(nullptr);
     form_control_set_selected_index(state(), live, 1);
     EXPECT_EQ(form_control_get_selected_index(state(), live), 1);
     live->view_type = RDT_VIEW_BLOCK;
-    live->form = lam::view_prop(&form);
+    ASSERT_TRUE(live->set_form_storage(&form));
     EXPECT_EQ(form_control_get_selected_index(state(), live), 1);
-    live->form = nullptr;
+    live->set_form_storage(nullptr);
 }
 
 struct MediaLifetimeProbe { unsigned released, paused; };
@@ -1166,8 +1167,8 @@ TEST_F(StateStoreDomMutationTest, RegeneratedControlAppliesConstraintsAndKeepsNa
     live->tag_name = orphan->tag_name = lam::up("input");
     live->tag_id = orphan->tag_id = MARKUP_NAME_INPUT;
     live->id = orphan->id = lam::up("field");
-    live->form = lam::view_prop(&old_prop);
-    orphan->form = lam::view_prop(&new_prop);
+    ASSERT_TRUE(live->set_form_storage(&old_prop));
+    ASSERT_TRUE(orphan->set_form_storage(&new_prop));
     ASSERT_TRUE(form_control_store_text_value(state(), live, "typed", 5, 5));
     ViewState* before = view_state_get(state(), live);
     ASSERT_NE(before, nullptr);
@@ -1190,7 +1191,8 @@ TEST_F(StateStoreDomMutationTest, RegeneratedControlAppliesConstraintsAndKeepsNa
     EXPECT_TRUE(form_control_is_readonly(state(), live));
     EXPECT_FALSE(form_control_is_required(state(), live));
     EXPECT_STREQ(form_control_get_value(state(), live, nullptr), "typed");
-    live->form = orphan->form = nullptr;
+    live->set_form_storage(nullptr);
+    orphan->set_form_storage(nullptr);
 }
 
 TEST_F(StateStoreDomMutationTest, RetiredBlurredTextControlReleasesCanonicalSelection) {
@@ -1258,7 +1260,7 @@ TEST_F(StateStoreDomMutationTest, DetachedTextControlRetainsValueAcrossReflow) {
     orphan->tag_id = MARKUP_NAME_INPUT;
     FormControlProp* form = new FormControlProp{};
     form->control_type = FORM_CONTROL_TEXT;
-    orphan->form = lam::view_prop(form);
+    ASSERT_TRUE(orphan->set_form_storage(form));
     ASSERT_TRUE(root->remove_child(orphan));
     ASSERT_TRUE(form_control_store_text_value(doc_state, static_cast<View*>(orphan),
                                                "detached value", 14, 14));
@@ -1275,7 +1277,7 @@ TEST_F(StateStoreDomMutationTest, DetachedTextControlRetainsValueAcrossReflow) {
     state_store_prune_after_reflow(doc_state);
     EXPECT_EQ(view_state_get(doc_state, static_cast<View*>(orphan)), value_state);
     EXPECT_STREQ(form->current_value, "detached value");
-    orphan->form = nullptr;
+    orphan->set_form_storage(nullptr);
     delete form;
 }
 

@@ -22,7 +22,7 @@ RenderTransformScope render_state_push_transform(RasterRenderContext* rdcon, Vie
         block->transformp(), elem_x, elem_y, block->width, block->height);
     RdtMatrix4 local = radiant::compute_transform_matrix_3d(block->transformp(),
         block->width, block->height, origin.x, origin.y,
-        block->transform ? block->transformp()->origin_z : 0.0f);
+        block->transform_prop() ? block->transformp()->origin_z : 0.0f);
     RdtMatrix4 parent = scope.previous_has_transform_3d
         ? scope.previous_children_transform_3d : rdt_matrix4_identity();
     if (!scope.previous_has_transform_3d && scope.previous_has_transform) {
@@ -49,7 +49,7 @@ RenderTransformScope render_state_push_transform(RasterRenderContext* rdcon, Vie
     next_transform.e32 /= scale;
 
     rdcon->transform = next_transform;
-    rdcon->has_transform = scope.previous_has_transform || transform_has_functions(block->transform) ||
+    rdcon->has_transform = scope.previous_has_transform || transform_has_functions(block->transform_prop()) ||
         next_transform.e11 != 1.0f || next_transform.e22 != 1.0f || next_transform.e33 != 1.0f ||
         next_transform.e12 != 0.0f || next_transform.e13 != 0.0f || next_transform.e21 != 0.0f ||
         next_transform.e23 != 0.0f || next_transform.e31 != 0.0f || next_transform.e32 != 0.0f;

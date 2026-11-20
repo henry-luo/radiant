@@ -42,7 +42,7 @@ static void render_caret(RasterRenderContext* rdcon, DocState* state) {
 
     if (view->is_element()) {
         DomElement* elem = lam::dom_require_element(lam::view_dom_node(view));
-        if (elem->form_control() && form_control_is_text_editable(elem->form)) {
+        if (elem->form_control() && form_control_is_text_editable(elem->form_storage())) {
             return;
         }
     }

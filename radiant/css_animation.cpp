@@ -1434,11 +1434,13 @@ static bool capture_underlying_value(DomElement* element, CssPropertyCode proper
             return true;
         case ANIM_VAL_TRANSFORM:
             out->value.transform = nullptr;
-            if (element->transform) {
+            if (element->transform_prop()) {
                 int slot = animation_transform_slot(property);
-                if (slot == 0) out->value.transform = element->transform->functions.get();
-                else if (element->transform->individual[slot - 1].type != TRANSFORM_NONE)
-                    out->value.transform = &element->transform->individual[slot - 1];
+                if (slot == 0) out->value.transform = element->transform_prop()->functions.get();
+                else if (IndividualTransformProp* individual = element->transform_prop()->individual) {
+                    TransformFunction& value = individual->values[slot - 1];
+                    if (value.type != TRANSFORM_NONE) out->value.transform = &value;
+                }
             }
             return true;
         case ANIM_VAL_COLOR: {
@@ -1591,26 +1593,33 @@ static bool apply_animated_value(DomElement* element, CssAnimatedProp* prop) {
         case CSS_PROPERTY_TRANSLATE:
         case CSS_PROPERTY_ROTATE:
         case CSS_PROPERTY_SCALE: {
-            if (!span->transform) {
+            if (!span->transform_prop()) {
                 if (element->doc && element->doc->view_tree)
                     span->ensure_transform(element->doc->view_tree);
             }
-            if (span->transform) {
+            if (span->transform_prop()) {
                 int slot = animation_transform_slot(prop->property_code);
                 if (slot > 0) {
-                    span->transform->individual[slot - 1] = prop->value.transform ? *prop->value.transform : TransformFunction{};
-                    span->transform->individual_sample[slot - 1] = prop->value.transform;
+                    if (!prop->value.transform && !span->transform_prop()->individual) break;
+                    Pool* pool = element->doc && element->doc->view_tree
+                        ? element->doc->view_tree->prop_pool.get() : nullptr;
+                    IndividualTransformProp* individual = ensure_individual_transform(
+                        element, span->transform_prop(), pool);
+                    if (individual) {
+                        individual->replace(pool, slot - 1, prop->value.transform
+                            ? *prop->value.transform : TransformFunction{}, prop->value.transform);
+                    }
                     break;
                 }
-                if (span->transform->functions_owner == TRANSFORM_FUNCTIONS_VIEW_POOL &&
+                if (span->transform_prop()->functions_owner == TRANSFORM_FUNCTIONS_VIEW_POOL &&
                     element->doc && element->doc->view_tree) {
                     radiant::destroy_transform_list(element->doc->view_tree->prop_pool,
-                        span->transform->functions);
+                        span->transform_prop()->functions);
                 }
-                span->transform->functions = lam::shared(prop->value.transform);
+                span->transform_prop()->functions = lam::shared(prop->value.transform);
                 // Keyframe lists are document-owned and may be sampled again
                 // after a retained view-pool reset.
-                span->transform->functions_owner = TRANSFORM_FUNCTIONS_DOCUMENT_POOL;
+                span->transform_prop()->functions_owner = TRANSFORM_FUNCTIONS_DOCUMENT_POOL;
             }
             break;
         }
@@ -2033,24 +2042,26 @@ void css_animation_finish(AnimationInstance* anim) {
 }
 
 static void css_animation_restore_underlying_transform(CssAnimState* state) {
-    if (state->element && state->element->transform &&
+    if (state->element && state->element->transform_prop() &&
         state->sampled_transform[0] &&
-        state->element->transform->functions.get() == state->sampled_transform[0].get()) {
+        state->element->transform_prop()->functions.get() == state->sampled_transform[0].get()) {
         ViewTree* tree = state->element->doc ? state->element->doc->view_tree.get() : nullptr;
         Pool* target_pool = tree ? tree->prop_pool : state->pool;
-        state->element->transform->functions = lam::shared(
+        state->element->transform_prop()->functions = lam::shared(
             radiant::clone_transform_list(target_pool, state->underlying_transform[0]));
-        state->element->transform->functions_owner = TRANSFORM_FUNCTIONS_VIEW_POOL;
+        state->element->transform_prop()->functions_owner = TRANSFORM_FUNCTIONS_VIEW_POOL;
     }
     // cancellation and later seeks must release live borrows for individual transforms too.
+    IndividualTransformProp* individual = state->element && state->element->transform_prop()
+        ? state->element->transform_prop()->individual.get() : nullptr;
+    if (!individual) return;
     for (int slot = 1; slot < 4; slot++) {
-        if (state->element && state->element->transform && state->sampled_transform[slot] &&
-            state->element->transform->individual_sample[slot - 1] == state->sampled_transform[slot].get()) {
+        if (state->sampled_transform[slot] &&
+            individual->samples[slot - 1] == state->sampled_transform[slot].get()) {
             ViewTree* tree = state->element->doc ? state->element->doc->view_tree.get() : nullptr;
-            Pool* target_pool = tree ? tree->prop_pool.get() : state->pool;
-            TransformFunction* restored = radiant::clone_transform_list(target_pool, state->underlying_transform[slot]);
-            state->element->transform->individual[slot - 1] = restored ? *restored : TransformFunction{};
-            state->element->transform->individual_sample[slot - 1] = nullptr;
+            Pool* pool = tree ? tree->prop_pool.get() : state->pool;
+            individual->replace(pool, slot - 1,
+                copy_individual_transform(pool, state->underlying_transform[slot]));
         }
     }
 }

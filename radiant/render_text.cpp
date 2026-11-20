@@ -2009,11 +2009,11 @@ static bool render_text_overflow_visit(View* view, bool entering, void* pointer)
     for (DomNode* parent = text->parent; parent && parent != context->owner; parent = parent->parent) {
         if (!parent->is_element()) continue;
         DomElement* element = lam::dom_require_element(parent);
-        if (transform_has_functions(element->transform)) {
+        if (transform_has_functions(element->transform_prop())) {
             context->overflow = true;
             return false;
         }
-        if ((element->blk && element->block()->contain_paint) ||
+        if ((element->blk && element->block()->containment().contain_paint) ||
             (element->scroller && (element->scroll()->overflow_x != CSS_VALUE_VISIBLE ||
                 element->scroll()->overflow_y != CSS_VALUE_VISIBLE))) return true;
     }

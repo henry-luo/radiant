@@ -45,7 +45,7 @@ bool layout_block_is_replaced_baseline(ViewBlock* block, bool include_select_lis
         return true;
     }
     return include_select_listbox && tag == MARKUP_NAME_SELECT &&
-        (!block->form || block->form->multiple || block->form->select_size > 1);
+        (!block->form_storage() || block->form_storage()->multiple || block->form_storage()->select_size > 1);
 }
 
 bool layout_overflow_establishes_scroll_container(CssEnum overflow) {
@@ -229,7 +229,7 @@ static bool content_visibility_commit_motion(DomNode* node, void* context) {
     ContentVisibilityEntry entry = content_visibility_entry(lycon, element);
     bool skipped = view_content_visibility_hides(element, CONTENT_VISIBILITY_PAINT);
     ViewBlock* block = lam::view_as_block(element);
-    bool automatic = block && block->blk && block->block()->content_visibility == CSS_VALUE_AUTO &&
+    bool automatic = block && block->blk && block->block()->containment().content_visibility == CSS_VALUE_AUTO &&
         view_size_containment_applies(block->display);
     bool state_changed = automatic && (!entry.auto_observed || entry.auto_skipped != entry.skipped);
     if (entry.motion_skipped == skipped && !state_changed) return true;
@@ -334,7 +334,7 @@ struct ContentVisibilitySettle {
 static bool content_visibility_measure(DomNode* node, void* context) {
     ContentVisibilitySettle* pass = (ContentVisibilitySettle*)context;
     ViewBlock* block = lam::view_as_block(node);
-    if (!block || !block->blk || block->block()->content_visibility != CSS_VALUE_AUTO) return true;
+    if (!block || !block->blk || block->block()->containment().content_visibility != CSS_VALUE_AUTO) return true;
     if (!view_size_containment_applies(block->display)) return true;
     ContentVisibilityState* state = content_visibility_state(pass->lycon, true);
     if (!state) return false;
@@ -659,12 +659,14 @@ static float layout_scroll_into_view_axis(LayoutContext* lycon,
                                           bool center, bool if_needed) {
     int start_side = horizontal ? CSS_BOX_SIDE_LEFT : CSS_BOX_SIDE_TOP;
     int end_side = horizontal ? CSS_BOX_SIDE_RIGHT : CSS_BOX_SIDE_BOTTOM;
-    float margin_start = target_style->scroll_margin[start_side].pixels;
-    float margin_end = target_style->scroll_margin[end_side].pixels;
+    const ScrollSnapProp& target_snap = target_style->snap_style();
+    const ScrollSnapProp& port_snap = scrollport_style->snap_style();
+    float margin_start = target_snap.scroll_margin[start_side].pixels;
+    float margin_end = target_snap.scroll_margin[end_side].pixels;
     float padding_start = layout_scroll_spacing_used(lycon, scrollport_owner,
-        scrollport_style->scroll_padding[start_side], scrollport_size);
+        port_snap.scroll_padding[start_side], scrollport_size);
     float padding_end = layout_scroll_spacing_used(lycon, scrollport_owner,
-        scrollport_style->scroll_padding[end_side], scrollport_size);
+        port_snap.scroll_padding[end_side], scrollport_size);
     // Scroll Snap 1 uses the expanded target area and the inset optimal view
     // region for scrollIntoView, even when snapping itself is disabled.
     float expanded_start = target_start - margin_start;
@@ -1051,16 +1053,12 @@ static void reset_non_inherited_style_cache(LayoutContext* lycon, ViewSpan* view
         view->scroller->resize = SCROLL_PROP_DEFAULT.resize;
         view->scroller->overflow_clip_box = SCROLL_PROP_DEFAULT.overflow_clip_box;
         view->scroller->overflow_clip_margin = SCROLL_PROP_DEFAULT.overflow_clip_margin;
-        view->scroller->snap_axis = SCROLL_PROP_DEFAULT.snap_axis;
-        view->scroller->snap_align_block = SCROLL_PROP_DEFAULT.snap_align_block;
-        view->scroller->snap_align_inline = SCROLL_PROP_DEFAULT.snap_align_inline;
-        view->scroller->snap_mandatory = SCROLL_PROP_DEFAULT.snap_mandatory;
-        view->scroller->snap_strictness_explicit =
-            SCROLL_PROP_DEFAULT.snap_strictness_explicit;
-        memcpy(view->scroller->scroll_margin, SCROLL_PROP_DEFAULT.scroll_margin,
-               sizeof(view->scroller->scroll_margin));
-        memcpy(view->scroller->scroll_padding, SCROLL_PROP_DEFAULT.scroll_padding,
-               sizeof(view->scroller->scroll_padding));
+        release_scroll_snap(view->scroller, layout_prop_pool(lycon));
+    }
+
+    if (view->transform_prop() && view->transform_prop()->individual) {
+        // An omitted longhand must not leave a retained translate, rotate, or scale.
+        release_individual_transform(view->transform_prop(), layout_prop_pool(lycon));
     }
 
     if (view->position) {
@@ -1112,6 +1110,7 @@ static void reset_css_all_visual_style(LayoutContext* lycon, ViewSpan* view) {
         // CSS Cascade excludes direction and unicode-bidi from `all`.
         CssEnum direction = view->block()->direction;
         CssEnum unicode_bidi = view->block()->unicode_bidi;
+        release_block_prop_groups(view->blk, layout_prop_pool(lycon));
         memcpy(view->blk, &BLOCK_PROP_DEFAULT, sizeof(BlockProp));
         view->blk->direction = direction;
         view->blk->unicode_bidi = unicode_bidi;
@@ -1150,6 +1149,7 @@ static void reset_css_all_visual_style(LayoutContext* lycon, ViewSpan* view) {
     }
     if (view->scroller) {
         ScrollPane* pane = view->scroller->pane;
+        release_scroll_snap(view->scroller, layout_prop_pool(lycon));
         memcpy(view->scroller, &SCROLL_PROP_DEFAULT, sizeof(ScrollProp));
         view->scroller->pane = lam::own(pane);
     }
@@ -1730,8 +1730,8 @@ bool layout_inherit_table_border_spacing(LayoutContext* lycon, DomNode* element,
         }
 
         if (ancestor_element->table_prop()) {
-            *spacing_h = ancestor_element->tb->border_spacing_h;
-            *spacing_v = ancestor_element->tb->border_spacing_v;
+            *spacing_h = ancestor_element->table_storage()->border_spacing_h;
+            *spacing_v = ancestor_element->table_storage()->border_spacing_v;
             return true;
         }
         if (ancestor_element->tag() == MARKUP_NAME_TABLE) {
@@ -3173,9 +3173,9 @@ float layout_button_orthogonal_baseline(ViewBlock* parent, ViewBlock* block) {
 
 bool layout_replaced_inline_synthesizes_baseline(ViewBlock* block) {
     if (!block || block->display.inner != RDT_DISPLAY_REPLACED) return false;
-    if (!block->form) return true;
+    if (!block->form_storage()) return true;
     // checkable widgets supply an alphabetic baseline, but need a synthesized central one.
-    return form_input_has_capability(block->form->input_type, FORM_INPUT_CAP_CHECKABLE) &&
+    return form_input_has_capability(block->form_storage()->input_type, FORM_INPUT_CAP_CHECKABLE) &&
         layout_block_uses_central_baseline(layout_nearest_block_ancestor(block->parent_view()));
 }
 
@@ -4297,9 +4297,9 @@ void line_align(LayoutContext* lycon) {
             : lycon->block.establishing_element);
     // css lists 3 §3.5: an outside marker is separate from the principal block;
     // keep its line alignment in the list item's inherited direction.
-    bool has_outside_list_marker = line_block && line_block->pseudo &&
-        line_block->pseudo->marker && layout_marker_is_outside(
-            static_cast<View*>(line_block->pseudo->marker));
+    bool has_outside_list_marker = line_block && line_block->pseudo_prop() &&
+        line_block->pseudo_prop()->marker && layout_marker_is_outside(
+            static_cast<View*>(line_block->pseudo_prop()->marker));
     if (line_block && line_block->blk &&
         line_block->block()->unicode_bidi == CSS_VALUE_PLAINTEXT &&
         !has_outside_list_marker) {
@@ -5264,11 +5264,11 @@ void layout_flow_node(LayoutContext* lycon, DomNode *node) {
                 // computed font while participating in the parent flow.
                 setup_font(lycon->ui_context, &lycon->font, elem->font);
             }
-            if (elem->pseudo) {
+            if (elem->pseudo_prop()) {
                 layout_move_display_contents_pseudo_to_edge(
-                    elem, elem->pseudo->before, true);
+                    elem, elem->pseudo_prop()->before, true);
                 layout_move_display_contents_pseudo_to_edge(
-                    elem, elem->pseudo->after, false);
+                    elem, elem->pseudo_prop()->after, false);
             }
             // CSS Shadow DOM: display:contents flattens the host's rendered
             // tree, so a shadow root replaces light-DOM children here.
@@ -6267,9 +6267,9 @@ static bool layout_provide_size_container(void* context, DomElement* target,
             block->display.outer == CSS_VALUE_CONTENTS) continue;
         // ordinary ancestors cannot answer size queries; avoid repeatedly walking
         // their inherited writing-mode chain before reaching an eligible container.
-        if (axes && !block->block()->container_axes) continue;
+        if (axes && !block->block()->containment().container_axes) continue;
         bool vertical = layout_element_inline_axis_is_vertical(ancestor);
-        if (!css_container_matches(block->block()->container_names, block->block()->container_axes,
+        if (!css_container_matches(block->block()->containment().container_names, block->block()->containment().container_axes,
             vertical, name, axes)) continue;
         layout_container_metrics(document, ancestor, block, result);
         return true;
@@ -6289,18 +6289,18 @@ static bool layout_collect_container_measurements(DomNode* node, void* data) {
     ++measurements->elements;
     DomElement* element = node->as_element();
     ViewBlock* block = lam::view_as_block(element);
-    if (!block || !block->blk || (!block->block()->container_axes &&
-        !block->block()->container_names)) return true;
+    if (!block || !block->blk || (!block->block()->containment().container_axes &&
+        !block->block()->containment().container_names)) return true;
     CssContainerMetrics box = {};
     layout_container_metrics(element->doc, element, block, &box);
-    measurements->key = hash_combine_u64(measurements->key, block->block()->container_axes);
+    measurements->key = hash_combine_u64(measurements->key, block->block()->containment().container_axes);
     // an uncontained block axis cannot answer size queries; generated content
     // or motion may change it between probe and commit without another cascade.
     measurements->key = hash_combine_u64(measurements->key,
-        css_container_geometry_key(&box, block->block()->container_axes));
+        css_container_geometry_key(&box, block->block()->containment().container_axes));
     if (element->font) measurements->key = hash_combine_u64(measurements->key,
         hash_fnv1a_64(&element->font->font_size, sizeof(float)));
-    const CssValue* names = block->block()->container_names;
+    const CssValue* names = block->block()->containment().container_names;
     int count = names && names->type == CSS_VALUE_TYPE_LIST ? names->data.list.count : names ? 1 : 0;
     for (int i = 0; i < count; i++) {
         const char* name = css_value_identifier_name(names->type == CSS_VALUE_TYPE_LIST ? names->data.list.values[i] : names);
@@ -6309,7 +6309,7 @@ static bool layout_collect_container_measurements(DomNode* node, void* data) {
     if (measurements->trace) {
         const char* classes = element->get_attribute("class");
         log_notice("[LAYOUT_PROFILE] container: node=%p tag=%s class=%.100s axes=%u width=%.3f height=%.3f font=%.3f key=%llu",
-            element, element->node_name(), classes ? classes : "", block->block()->container_axes,
+            element, element->node_name(), classes ? classes : "", block->block()->containment().container_axes,
             box.width, box.height, element->font ? element->font->font_size : 0.0f,
             (unsigned long long)measurements->key);
     }

@@ -1247,7 +1247,7 @@ extern "C" bool state_store_editing_selection_shadow_matches(DocState* state) {
         DomElement* control = shadow->control;
         if (!tc_is_text_control(control)) return false;
         tc_ensure_init(control);
-        FormControlProp* form = control->form;
+        FormControlProp* form = control->form_storage();
         if (!form) return false;
         DomSelectionDirection direction = editing_direction_from_text_control(
             form->selection_start, form->selection_end, form->selection_direction);
@@ -1468,7 +1468,7 @@ extern "C" void state_store_set_text_control_selection(DocState* state,
                                                         uint8_t direction) {
     if (!state || !control || !tc_is_text_control(control)) return;
     tc_ensure_init(control);
-    FormControlProp* form = control->form;
+    FormControlProp* form = control->form_storage();
     if (!form) return;
 
     uint32_t max_u16 = form->current_value_u16_len;
@@ -1599,7 +1599,7 @@ static DomBoundary boundary_from_view_offset(View* view, int byte_offset) {
     } else if (selection_is_text_control_view(view)) {
         DomElement* elem = lam::dom_require_element(view);
         tc_ensure_init(elem);
-        FormControlProp* form = elem->form;
+        FormControlProp* form = elem->form_storage();
         uint32_t value_len = form && form->current_value ? form->current_value_len : 0;
         uint32_t bo = byte_offset < 0 ? 0 : (uint32_t)byte_offset;
         if (bo > value_len) bo = value_len;
@@ -1643,7 +1643,7 @@ static bool text_control_set_selection_from_byte_offsets(DocState* state,
     if (!state || !selection_is_text_control_view(view)) return false;
     DomElement* elem = lam::dom_require_element(view);
     tc_ensure_init(elem);
-    FormControlProp* form = elem->form;
+    FormControlProp* form = elem->form_storage();
     if (!form) return false;
     form->state_ref = state;
 
@@ -1777,7 +1777,7 @@ extern "C" void selection_refresh_presentation(DocState* state) {
         EditingSelection* current = &state->sel;
         DomElement* control = current->control;
         tc_ensure_init(control);
-        FormControlProp* form = control->form;
+        FormControlProp* form = control->form_storage();
         if (!form) return;
 
         // fallback relayout may restore stale form fields; StateStore remains
@@ -2510,7 +2510,7 @@ View* view_state_entry_resolve_view(DocState* state, const ViewStateEntry* entry
             // Registered controls and media keep durable values until node retirement.
             if (entry->kind == VIEW_STATE_FORM_CONTROL && owner->is_element()) {
                 DomElement* element = lam::dom_require_element(owner);
-                if (element && (element->form || is_form_control(element))) return static_cast<View*>(owner);
+                if (element && (element->form_storage() || is_form_control(element))) return static_cast<View*>(owner);
             }
             if (entry->kind == VIEW_STATE_MEDIA && owner->is_element()) return static_cast<View*>(owner);
             // layout may wrap the DOM root in a synthetic view; connection is
@@ -2727,7 +2727,7 @@ bool view_state_ref_follow_rebuild(DomDocument* doc, DomNodeRef* owner,
 static bool view_state_is_text_control(View* view) {
     if (!view || !view->is_element()) return false;
     DomElement* elem = lam::dom_require_element(view);
-    return elem && form_control_is_text_editable(elem->form);
+    return elem && form_control_is_text_editable(elem->form_storage());
 }
 
 static bool view_state_text_default_unchanged(View* old_view, View* new_view) {
@@ -2922,9 +2922,9 @@ static uint32_t view_state_detach_node(DocState* state, DomNode* node) {
     view->view_state_ref = NULL;
     if (view->is_element()) {
         DomElement* elem = lam::dom_require_element(view);
-        if (elem && elem->form) {
-            elem->form->form_state_ref = NULL;
-            elem->form->scroll_state_ref = NULL;
+        if (elem && elem->form_storage()) {
+            elem->form_storage()->form_state_ref = NULL;
+            elem->form_storage()->scroll_state_ref = NULL;
         }
     }
 
@@ -3297,7 +3297,7 @@ uint32_t view_state_prune_orphans(DocState* state) {
             if (entry->state && key_live && entry->kind == VIEW_STATE_FORM_CONTROL) {
                 DomElement* elem = key_live->is_element() ? lam::dom_require_element(key_live) : NULL;
                 // D5.5.1: clearing pass-local form properties does not retire the DOM value owner.
-                invalid_live_kind = !elem || (!elem->form && !is_form_control(elem));
+                invalid_live_kind = !elem || (!elem->form_storage() && !is_form_control(elem));
             }
             if (!entry->state || !key_live || !state_live || invalid_live_kind) {
                 return true;
@@ -3316,11 +3316,11 @@ uint32_t view_state_prune_orphans(DocState* state) {
             view_state_primary_cache(key_live, entry->state);
             if (key_live->is_element()) {
                 DomElement* elem = lam::dom_require_element(key_live);
-                if (elem && elem->form) {
+                if (elem && elem->form_storage()) {
                     if (entry->kind == VIEW_STATE_FORM_CONTROL) {
-                        form_control_bind_text_value_cache(elem->form, entry->state);
+                        form_control_bind_text_value_cache(elem->form_storage(), entry->state);
                     } else if (entry->kind == VIEW_STATE_SCROLL) {
-                        elem->form->scroll_state_ref = entry->state;
+                        elem->form_storage()->scroll_state_ref = entry->state;
                     }
                 }
             }
@@ -3679,17 +3679,17 @@ static FormControlProp* form_prop_for_view(View* view) {
     if (!view) return NULL;
     if (view->is_element()) {
         DomElement* elem = lam::dom_require_element(view);
-        return elem ? elem->form : NULL;
+        return elem ? elem->form_storage() : NULL;
     }
     if (!view->is_block()) return NULL;
     ViewBlock* block = lam::view_require_block(view);
-    return block->form;
+    return block->form_storage();
 }
 
 static ViewBlock* form_block_for_view(View* view) {
     if (!view || !view->is_block()) return NULL;
     ViewBlock* block = lam::view_require_block(view);
-    return block->form ? block : NULL;
+    return block->form_storage() ? block : NULL;
 }
 
 static bool view_element_has_attr(View* view, const char* attr_name) {
@@ -3796,8 +3796,8 @@ static ViewState* form_view_state_get(DocState* state, View* view) {
     ViewState* view_state = view_state_get_for_kind(state, view, VIEW_STATE_FORM_CONTROL);
     if (view_state && view && view->is_element()) {
         DomElement* elem = lam::dom_require_element(view);
-        if (elem && elem->form) {
-            form_control_bind_text_value_cache(elem->form, view_state);
+        if (elem && elem->form_storage()) {
+            form_control_bind_text_value_cache(elem->form_storage(), view_state);
         }
     }
     return view_state;
@@ -4024,8 +4024,8 @@ static void form_control_bind_text_value_cache(FormControlProp* form,
 static void form_control_clear_text_value_cache(View* view, ViewState* view_state) {
     if (!view || !view->is_element() || !view_state) return;
     DomElement* elem = lam::dom_require_element(view);
-    if (!elem || !elem->form || elem->form->form_state_ref != view_state) return;
-    form_control_bind_text_value_cache(elem->form, NULL);
+    if (!elem || !elem->form_storage() || elem->form_storage()->form_state_ref != view_state) return;
+    form_control_bind_text_value_cache(elem->form_storage(), NULL);
 }
 
 static ViewState* form_view_state_get_or_create(DocState* state, View* view, FormControlProp* form) {
@@ -4384,10 +4384,12 @@ void doc_state_mark_dirty(DocState* state) {
 void doc_state_request_repaint(DocState* state) {
     if (!state) return;
     state->full_repaint_requests++;
-    bool changed = !state->needs_repaint || !state->is_dirty;
+    // Animation channels can request the same repaint within a frame. Validate
+    // the document when the request changes its pending render state.
+    if (state->needs_repaint && state->is_dirty) return;
     state->needs_repaint = true;
     state->is_dirty = true;
-    if (changed) state_bump_render_version(state);
+    state_bump_render_version(state);
     state_assert_after_mutation(state, "doc_state_request_repaint");
 }
 
@@ -4634,7 +4636,7 @@ static ViewState* scroll_view_state_get_or_create(DocState* state, View* view, S
     }
     if (view->is_element()) {
         DomElement* elem = lam::dom_require_element(view);
-        if (elem && elem->form) elem->form->scroll_state_ref = view_state;
+        if (elem && elem->form_storage()) elem->form_storage()->scroll_state_ref = view_state;
     }
 
     if (created) {
@@ -5081,9 +5083,9 @@ const char* form_control_get_value(DocState* state, View* view, uint32_t* out_le
     if (!view || !view->is_block()) return nullptr;
 
     ViewBlock* block = lam::view_require_block(view);
-    if (!block->form) return nullptr;
+    if (!block->form_storage()) return nullptr;
 
-    FormControlProp* form = block->form;
+    FormControlProp* form = block->form_storage();
     if (out_len) *out_len = form->current_value_len;
     return form->current_value;
 }
@@ -5095,7 +5097,7 @@ bool form_control_store_text_value(DocState* state, View* view,
     // JS may write a detached createElement() control before layout gives it
     // block geometry; its ViewState remains the same canonical value owner.
     DomElement* element = lam::dom_require_element(view);
-    FormControlProp* form = element ? element->form : NULL;
+    FormControlProp* form = element ? element->form_storage() : NULL;
     if (!form) return false;
 
     ViewState* view_state = form_view_state_get_or_create(state, view, form);
@@ -5119,7 +5121,7 @@ bool form_control_restore_text_control_state(DocState* state, View* view) {
 
     DomElement* elem = lam::dom_require_element(view);
     if (!elem || !tc_is_text_control(elem)) return false;
-    FormControlProp* form = elem->form;
+    FormControlProp* form = elem->form_storage();
     if (!form) return false;
 
     form_control_bind_text_value_cache(form, view_state);
@@ -5157,7 +5159,7 @@ void form_control_peek_selection(DocState* state, View* view,
     if (view && view->is_element()) {
         DomElement* elem = lam::dom_require_element(view);
         if (elem && tc_is_text_control(elem)) {
-            FormControlProp* form = elem->form;
+            FormControlProp* form = elem->form_storage();
             if (!form) return;
             if (state && state->sel.kind == EDIT_SEL_TEXT_CONTROL &&
                 state->sel.control == elem) {
@@ -5184,7 +5186,7 @@ void form_control_peek_selection(DocState* state, View* view,
     ViewBlock* block = form_block_for_view(view);
     if (!block) return;
 
-    FormControlProp* form = block->form;
+    FormControlProp* form = block->form_storage();
     if (out_start) *out_start = form->selection_start;
     if (out_end) *out_end = form->selection_end;
     if (out_direction) *out_direction = form->selection_direction;
@@ -5216,7 +5218,7 @@ void form_control_set_selection(DocState* state, View* view,
         DomElement* elem = lam::dom_require_element(view);
         if (elem && tc_is_text_control(elem)) {
             tc_ensure_init(elem);
-            FormControlProp* form = elem->form;
+            FormControlProp* form = elem->form_storage();
             if (!form) return;
             form->state_ref = state;
             tc_set_selection_range(elem, start, end, direction);
@@ -5234,10 +5236,10 @@ void form_control_set_selection(DocState* state, View* view,
     if (!view->is_block()) return;
 
     ViewBlock* block = lam::view_require_block(view);
-    if (!block->form) return;
+    if (!block->form_storage()) return;
 
     DomElement* elem = lam::dom_require_element(block);
-    FormControlProp* form = block->form;
+    FormControlProp* form = block->form_storage();
     form->state_ref = state;
 
     // For text controls, route through tc_set_selection_range to ensure
@@ -5267,7 +5269,7 @@ void form_control_sync_text_control_state(DocState* state, View* view) {
     // Detached JS controls have no block geometry yet, but selection must
     // still publish alongside their ViewState-owned value.
     DomElement* element = lam::dom_require_element(view);
-    FormControlProp* form = element ? element->form : NULL;
+    FormControlProp* form = element ? element->form_storage() : NULL;
     if (!form) return;
 
     form->state_ref = state;
@@ -5343,7 +5345,7 @@ void form_control_set_selected_index(DocState* state, View* view, int index) {
 void radiant_select_sync_native_index(DomElement* select, int selected_index, int option_count) {
     if (!select || !select->tag_name || str_icmp_cstr(select->tag_name, "select") != 0) return;
     // Option changes can precede a form-control rebuild, so update its bounds first.
-    if (select->form_control()) select->form->option_count = option_count;
+    if (select->form_control()) select->form_storage()->option_count = option_count;
     if (select->doc && select->doc->state)
         form_control_set_selected_index(select->doc->state, static_cast<View*>(select), selected_index);
 }
@@ -5361,7 +5363,7 @@ void form_control_set_range_value(DocState* state, View* view, float value) {
     if (!block) return;
     SmTransitionGuard sm_guard(state, SM_FAMILY_FORM_RANGE, SM_EV_FORM_SET_RANGE_VALUE, view);
 
-    FormControlProp* form = block->form;
+    FormControlProp* form = block->form_storage();
     form->state_ref = state;
 
     value = clamp_unit(value);
@@ -5434,7 +5436,7 @@ static void form_control_set_constraint(DocState* state, View* view, bool value,
         ? form_control_schema_family_for_readonly(view)
         : form_control_schema_family_for_view(view);
     SmTransitionGuard sm_guard(state, family, event, view);
-    FormControlProp* form = block->form;
+    FormControlProp* form = block->form_storage();
     form->state_ref = state;
     ViewState* view_state = form_view_state_get_or_create(state, view, form);
     bool old_value = view_state
@@ -5579,7 +5581,7 @@ void doc_state_set_dropdown_geometry(DocState* state,
     state->dropdown_height = height;
     if (state->open_dropdown) {
         ViewBlock* select = form_block_for_view(state->open_dropdown);
-        if (select) state->dropdown_scroll_y = select_dropdown_geometry(state, select->form).scroll_y;
+        if (select) state->dropdown_scroll_y = select_dropdown_geometry(state, select->form_storage()).scroll_y;
     }
     state->full_repaint_requests++; state->is_dirty = true;
     state->needs_repaint = true;
@@ -5626,7 +5628,7 @@ void doc_state_set_dropdown_scroll(DocState* state, float y) {
     if (!state || !state->open_dropdown) return;
     ViewBlock* select = form_block_for_view(state->open_dropdown);
     if (!select) return;
-    float next = min(max(y, 0.0f), select_dropdown_geometry(state, select->form).scroll_max);
+    float next = min(max(y, 0.0f), select_dropdown_geometry(state, select->form_storage()).scroll_max);
     if (next == state->dropdown_scroll_y) return;
     SmTransitionGuard sm_guard(state, SM_FAMILY_DROPDOWN, SM_EV_DROPDOWN_SCROLL,
                                state->open_dropdown);
@@ -5651,8 +5653,8 @@ void doc_state_set_dropdown_scrollbar_press(DocState* state, bool pressed, bool 
 void doc_state_reveal_dropdown_option(DocState* state, int index) {
     if (!state || !state->open_dropdown || index < 0) return;
     ViewBlock* select = form_block_for_view(state->open_dropdown);
-    if (!select || index >= select->form->option_count) return;
-    SelectDropdownGeometry geometry = select_dropdown_geometry(state, select->form);
+    if (!select || index >= select->form_storage()->option_count) return;
+    SelectDropdownGeometry geometry = select_dropdown_geometry(state, select->form_storage());
     float top = index * geometry.row_height;
     if (top < geometry.scroll_y) doc_state_set_dropdown_scroll(state, top);
     else if (top + geometry.row_height > geometry.scroll_y + state->dropdown_height)
@@ -5727,7 +5729,7 @@ void form_control_open_dropdown(DocState* state, View* view) {
     if (!block) return;
     SmTransitionGuard sm_guard(state, SM_FAMILY_FORM_SELECT, SM_EV_DROPDOWN_OPEN, view);
 
-    FormControlProp* form = block->form;
+    FormControlProp* form = block->form_storage();
     form->state_ref = state;
     ViewState* view_state = form_view_state_get_or_create(state, view, form);
     bool old_open = view_state ? view_state->data.form.dropdown_open != 0 : false;
@@ -5748,7 +5750,7 @@ void form_control_close_dropdown(DocState* state, View* view) {
     if (!block) return;
     SmTransitionGuard sm_guard(state, SM_FAMILY_FORM_SELECT, SM_EV_DROPDOWN_CLOSE, view);
 
-    FormControlProp* form = block->form;
+    FormControlProp* form = block->form_storage();
     form->state_ref = state;
     ViewState* view_state = form_view_state_get_or_create(state, view, form);
     bool old_open = view_state ? view_state->data.form.dropdown_open != 0 : false;
@@ -5768,7 +5770,7 @@ void form_control_set_hover_index(DocState* state, View* view, int index, bool r
     if (!block) return;
     SmTransitionGuard sm_guard(state, SM_FAMILY_FORM_SELECT, SM_EV_FORM_SET_HOVER_INDEX, view);
 
-    FormControlProp* form = block->form;
+    FormControlProp* form = block->form_storage();
     form->state_ref = state;
 
     // Clamp index to valid range
@@ -7372,7 +7374,7 @@ static bool caret_get_text_control_projection(DocState* state,
         state->sel.control && tc_is_text_control(state->sel.control)) {
         DomElement* control = state->sel.control;
         tc_ensure_init(control);
-        FormControlProp* form = control->form;
+        FormControlProp* form = control->form_storage();
         if (form) {
             uint32_t focus_u16 = state->sel.direction == DOM_SEL_DIR_BACKWARD ?
                 state->sel.start_u16 : state->sel.end_u16;
@@ -7793,10 +7795,10 @@ void state_store_selection_select_all(DocState* state) {
         DomElement* elem = lam::dom_require_element(snapshot.view);
         tc_ensure_init(elem);
         uint32_t len = 0;
-        if (elem->form && elem->form->current_value) {
-            len = elem->form->current_value_len;
-        } else if (elem->form && elem->form->value) {
-            len = (uint32_t)strlen(elem->form->value);
+        if (elem->form_storage() && elem->form_storage()->current_value) {
+            len = elem->form_storage()->current_value_len;
+        } else if (elem->form_storage() && elem->form_storage()->value) {
+            len = (uint32_t)strlen(elem->form_storage()->value);
         }
         if (!text_control_set_selection_from_byte_offsets(state, static_cast<View*>(elem),
                 0, static_cast<int>(len), "selection_select_all")) { // INT_CAST_OK: StateStore selection API uses int byte offsets.
@@ -8000,7 +8002,7 @@ static bool selection_read_snapshot_fields(DocState* state, SelectionSnapshotFie
     if (state->sel.kind == EDIT_SEL_TEXT_CONTROL && state->sel.control) {
         DomElement* control = state->sel.control;
         tc_ensure_init(control);
-        FormControlProp* form = control->form;
+        FormControlProp* form = control->form_storage();
         if (!form) return false;
         uint32_t start_byte = text_control_u16_offset_to_byte(form, state->sel.start_u16);
         uint32_t end_byte = text_control_u16_offset_to_byte(form, state->sel.end_u16);
@@ -8190,7 +8192,7 @@ void selection_get_range(DocState* state, int* start, int* end) {
     if (state->sel.kind == EDIT_SEL_TEXT_CONTROL && state->sel.control) {
         DomElement* control = state->sel.control;
         tc_ensure_init(control);
-        FormControlProp* form = control->form;
+        FormControlProp* form = control->form_storage();
         if (!form) return;
         uint32_t start_byte = text_control_u16_offset_to_byte(form, state->sel.start_u16);
         uint32_t end_byte = text_control_u16_offset_to_byte(form, state->sel.end_u16);
@@ -8325,7 +8327,7 @@ static void focus_sync_text_control_state(DocState* state, View* view) {
     if (view && view->is_element() && tc_is_text_control(lam::dom_require_element(view))) {
         DomElement* elem = lam::dom_require_element(view);
         tc_ensure_init(elem);
-        FormControlProp* form = elem->form;
+        FormControlProp* form = elem->form_storage();
         tc_set_active_element(state, elem);
         tc_set_last_focused_text_control(state, elem);
         if (!form) return;
@@ -8860,7 +8862,7 @@ static char* extract_text_control_selection_to_arena(DocState* state,
     DomElement* control = state->sel.control;
     if (!tc_is_text_control(control)) return NULL;
     tc_ensure_init(control);
-    FormControlProp* form = control->form;
+    FormControlProp* form = control->form_storage();
     if (!form) return NULL;
 
     uint32_t start_u16 = state->sel.start_u16;

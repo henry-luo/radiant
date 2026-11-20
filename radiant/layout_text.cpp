@@ -1060,9 +1060,9 @@ static uint32_t inline_text_edge_in_scope(DomNode* node, bool backwards,
                      display.outer != CSS_VALUE_CONTENTS)) return boundary('\n');
                 if (layout_is_inline_math_box(node)) return boundary(0xFFFC);
                 bool pending_before = dom_element_has_before_content(elmt) &&
-                    (!elmt->pseudo || !elmt->pseudo->before_generated);
+                    (!elmt->pseudo_prop() || !elmt->pseudo_prop()->before_generated);
                 bool pending_after = dom_element_has_after_content(elmt) &&
-                    (!elmt->pseudo || !elmt->pseudo->after_generated);
+                    (!elmt->pseudo_prop() || !elmt->pseudo_prop()->after_generated);
                 // generated text needs its own counter/quote scope; slot content
                 // needs its projection. Neither is absent before that layout.
                 if (pending_before || pending_after || layout_is_shadow_slot(node)) return 0xFFFC;

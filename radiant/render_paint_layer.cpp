@@ -198,7 +198,7 @@ static bool paint_layer_has_presentation_transform(View* view) {
 // preserve-3d context, any ancestor's up to the context root (the plane moves with it). Its
 // own opacity is drawn with the layer; a presentation filter would change the captured pixels.
 static bool paint_layer_root(ViewBlock* block, Css3dPaintContext* context) {
-    if (!transform_has_functions(block->transform) && !context) return false;
+    if (!transform_has_functions(block->transform_prop()) && !context) return false;
     if (radiant::transform_preserves_3d(block)) return false;
     DomElement* self = static_cast<DomNode*>(static_cast<View*>(block))->as_element();
     if (self->specified_style && style_tree_get_presentation_declaration(self->specified_style, CSS_PROPERTY_FILTER))
@@ -278,7 +278,7 @@ static bool paint_layer_capture(RasterRenderContext* rdcon, ViewBlock* block,
     RdtLogicalPoint origin = radiant::transform_origin(block->transformp(), elem_x, elem_y,
         block->width, block->height);
     RdtMatrix4 local = radiant::compute_transform_matrix_3d(block->transformp(), block->width,
-        block->height, origin.x, origin.y, block->transform ? block->transformp()->origin_z : 0.0f);
+        block->height, origin.x, origin.y, block->transform_prop() ? block->transformp()->origin_z : 0.0f);
     RdtMatrix4 inverse;
     if (!rdt_matrix4_invert(&local, &inverse)) return false;
     RdtMatrix4 offset = rdt_matrix4_translate(-left / scale, -top / scale, 0.0f);

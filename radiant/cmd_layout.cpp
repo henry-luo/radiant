@@ -4498,7 +4498,7 @@ static View* restore_lambda_focus(DomDocument* doc, DocState* state, bool had_fo
     if (focused && restore->fallback_tag) {
         DomElement* elem = focused->is_element()
             ? lam::dom_require_element(focused) : nullptr;
-        bool is_matching_text_control = elem && elem->form_control() && elem->form &&
+        bool is_matching_text_control = elem && elem->form_control() && elem->form_storage() &&
             tc_is_text_control(elem) && elem->tag_name &&
             strcmp(elem->tag_name, restore->fallback_tag) == 0 &&
             (!restore->fallback_class || elem->has_class(restore->fallback_class)) &&

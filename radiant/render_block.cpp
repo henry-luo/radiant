@@ -46,7 +46,7 @@ static bool render_block_fully_transparent(ViewBlock* block) {
 
 static bool render_block_has_visible_child_overflow(RasterRenderContext* rdcon, ViewBlock* block) {
     if (!block || !block->is_element() || !layout_paint_first_child(block)) return false;
-    if (block->blk && block->block()->contain_paint) return false;
+    if (block->blk && block->block()->containment().contain_paint) return false;
     if (block->scroller &&
         (block->scroll()->overflow_x != CSS_VALUE_VISIBLE ||
          block->scroll()->overflow_y != CSS_VALUE_VISIBLE)) {
@@ -82,7 +82,7 @@ bool render_block_dirty_misses(RasterRenderContext* rdcon, ViewBlock* block) {
         rdcon->dirty_union.bottom * s
     };
     bool has_transform = rdcon->has_transform ||
-        transform_has_functions(block->transform);
+        transform_has_functions(block->transform_prop());
     return !has_transform &&
         !view_geometry_bounds_intersect(view_geometry_rect_to_bound(marker_rect), dirty) &&
         !render_block_has_visible_child_overflow(rdcon, block);
@@ -96,7 +96,7 @@ bool render_block_viewport_misses(RasterRenderContext* rdcon, ViewBlock* block) 
     if (block->tag_id == MARKUP_NAME_HTML || block->tag_id == MARKUP_NAME_BODY) return false;
 
     bool has_transform = rdcon->has_transform ||
-        transform_has_functions(block->transform);
+        transform_has_functions(block->transform_prop());
     if (has_transform) return false;
 
     if (block->position && block->positionp()->first_abs_child) {
@@ -128,12 +128,12 @@ static bool render_block_solid_box(RasterRenderContext* rdcon, ViewBlock* block,
         rdcon->block.has_clip_radius || rdcon->clip_shape_depth || rdcon->vector_clip_depth ||
         (block->view_type != RDT_VIEW_BLOCK && block->view_type != RDT_VIEW_INLINE_BLOCK) ||
         block->tag_id == MARKUP_NAME_HTML || block->tag_id == MARKUP_NAME_BODY || !block->parent ||
-        layout_paint_first_child(block) || block->transform || block->scroller || block->embed ||
+        layout_paint_first_child(block) || block->transform_prop() || block->scroller || block->embed ||
         block->form_control() || block->vector_path() || block->custom_layout_paint_prop() ||
         block->filter_prop() || block->backdrop_filter_prop() || block->layout_fragment_list() ||
         view_visibility_is_hidden(block) ||
         (block->position && block->positionp()->first_abs_child) ||
-        (block->blk && block->block()->list_style_type) ||
+        (block->blk && block->block()->extras().list_style_type) ||
         (block->in_line && (block->inl()->opacity != 1.0f ||
             (block->inl()->mix_blend_mode && block->inl()->mix_blend_mode != CSS_VALUE_NORMAL)))) return false;
     if (css_display_element_is_replaced(block)) return false;
@@ -554,7 +554,7 @@ static RenderBlockChildrenPhase render_block_begin_children_phase(RasterRenderCo
     }
 
     float origin_x = rdcon->block.x, origin_y = rdcon->block.y;
-    if (block->scroller || (block->blk && block->block()->contain_paint)) {
+    if (block->scroller || (block->blk && block->block()->containment().contain_paint)) {
         setup_scroller(rdcon, block);
     }
 

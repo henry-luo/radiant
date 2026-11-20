@@ -15,7 +15,6 @@
 // Headless/no-JS builds get the no-op weak fallback below.
 extern "C" __attribute__((weak)) void dom_queue_textcontrol_selectionchange(DomElement* elem);
 extern "C" __attribute__((weak)) void dom_queue_textcontrol_selectionchange(DomElement* /*elem*/) {}
-extern void font_prop_release_handle(FontProp* fprop);
 
 void tc_notify_selection_changed(DomElement* elem) {
     if (!elem) return;
@@ -34,7 +33,7 @@ bool tc_is_text_control(DomElement* elem) {
     if (str_icmp_cstr(elem->tag_name, "input") == 0) {
         // Button/select form props can temporarily lack input_type; HTML's
         // missing-value default is text only for input elements.
-        const char* input_type = elem->form_control() ? elem->form->input_type
+        const char* input_type = elem->form_control() ? elem->form_storage()->input_type
                                                        : elem->get_attribute("type");
         return form_input_has_capability(input_type,
             FORM_INPUT_CAP_TEXT_CONTROL);
@@ -55,9 +54,31 @@ void form_control_prop_init(FormControlProp* f) {
     f->range_value = 0.5f;
     f->selected_index = -1;
     f->hover_index = -1;
-    f->placeholder_opacity = 1.0f;
     f->caret_on = 1;
     f->caret_scroll_pending = 1;
+}
+
+template <typename PaintProp>
+static void release_form_paint(Pool* pool, lam::Own<PaintProp>& paint) {
+    if (!paint) return;
+    FontProp* font = paint->font;
+    font_prop_release_handle(font);
+    if (pool) {
+        if (font) {
+            lam::free_owned_list(pool, font->text_shadow);
+            pool_free(pool, font);
+        }
+        lam::free_owned(pool, paint);
+    }
+    paint = nullptr;
+}
+
+void release_form_placeholder(FormControlProp* form, Pool* pool) {
+    release_form_paint(pool, form->placeholder_paint);
+}
+
+void release_form_file_button(FormControlProp* form, Pool* pool) {
+    release_form_paint(pool, form->file_button_paint);
 }
 
 void form_control_prop_release(DomElement* elem, FormControlProp* f) {
@@ -69,7 +90,7 @@ void form_control_prop_release(DomElement* elem, FormControlProp* f) {
     if (state && elem && elem->doc && elem->doc->state == state && state->open_dropdown) {
         View* owner = state->open_dropdown;
         DomElement* owner_elem = owner->is_element() ? owner->as_element() : nullptr;
-        if (owner_elem && owner_elem->form == f) {
+        if (owner_elem && owner_elem->form_storage() == f) {
             doc_state_close_dropdown(state, owner);
         }
     }
@@ -85,7 +106,7 @@ void form_control_prop_release(DomElement* elem, FormControlProp* f) {
 
 FormControlProp* tc_get_or_create_form(DomElement* elem) {
     if (!elem) return nullptr;
-    if (elem->form) return elem->form;
+    if (elem->form_storage()) return elem->form_storage();
     FormControlProp* f = (FormControlProp*)mem_calloc(1, sizeof(FormControlProp), MEM_CAT_LAYOUT);
     if (!f) return nullptr;
     form_control_prop_init(f);
@@ -111,7 +132,10 @@ FormControlProp* tc_get_or_create_form(DomElement* elem) {
         mem_free(f);
         return nullptr;
     }
-    elem->form = lam::view_prop(f);
+    if (!elem->set_form_storage(f)) {
+        mem_free(f);
+        return nullptr;
+    }
     if (f->control_type != FORM_CONTROL_NONE &&
         elem->role_kind() == DomElement::ROLE_NONE) {
         elem->set_role_kind(DomElement::ROLE_FORM);
@@ -120,20 +144,21 @@ FormControlProp* tc_get_or_create_form(DomElement* elem) {
 }
 
 void form_control_release_prop(DomElement* elem) {
-    if (!elem || !elem->form) {
+    if (!elem || !elem->form_storage()) {
         return;
     }
 
-    FormControlProp* form = elem->form;
-    if (form->placeholder_font) {
-        font_prop_release_handle(form->placeholder_font);
-        form->placeholder_font = nullptr;
-    }
+    FormControlProp* form = elem->form_storage();
+    ViewTree* tree = elem->doc ? elem->doc->view_tree.get() : nullptr;
+    Pool* pool = tree ? tree->prop_pool.get() : nullptr;
+    release_form_placeholder(form, pool);
+    release_form_file_button(form, pool);
     form_control_prop_release(elem, form);
     if (form->heap_allocated) {
         mem_free(form);
     }
-    elem->form = nullptr;
+    elem->set_form_storage(nullptr);
+    if (elem->prop_ext && elem->prop_ext->empty()) elem->release_prop_ext();
     if (elem->role_kind() == DomElement::ROLE_FORM) {
         elem->set_role_kind(DomElement::ROLE_NONE);
     }
@@ -386,7 +411,7 @@ void tc_sync_selection_to_form(DomElement* elem, DocState* state) {
     if (!elem || !state) return;
     if (!tc_is_text_control(elem)) return;
     tc_ensure_init(elem);
-    FormControlProp* f = elem->form;
+    FormControlProp* f = elem->form_storage();
     if (!f || !f->current_value) return;
     uint32_t blen = f->current_value_len;
     f->value = f->current_value;
@@ -496,7 +521,7 @@ const char* tc_active_selected_text(DocState* state, uint32_t* out_byte_len) {
         tc = active;
     }
     tc_ensure_init(tc);
-    FormControlProp* f = tc->form;
+    FormControlProp* f = tc->form_storage();
     if (f->selection_start >= f->selection_end) return nullptr;
     uint32_t a8 = tc_utf16_to_utf8_offset(f->current_value, f->current_value_len,
                                           f->selection_start);

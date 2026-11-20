@@ -614,15 +614,15 @@ bool ruby_has_text_box_trim_ancestor(const ViewSpan* ruby, uint8_t trim) {
 }
 
 void layout_apply_ruby_column_geometry(ViewSpan* span) {
-    if (!span || !span->ext || !span->ext->has_ruby_column_geometry ||
+    if (!span || !span->fragment_geometry() || !span->fragment_geometry()->has_ruby_column_geometry ||
         (span->display.inner != CSS_VALUE_RUBY &&
          !css_display_is_ruby_internal(span->display.inner))) return;
     // the inset is relative to freshly collected child bounds, so line alignment
     // can translate the whole ruby without stale absolute column anchors.
-    span->x += span->ext->ruby_column_start_offset;
-    span->width += span->ext->ruby_column_end_offset - span->ext->ruby_column_start_offset;
-    if (span->ext->has_empty_ruby_base) {
-        span->height = max(span->height, span->ext->ruby_empty_base_block_size);
+    span->x += span->fragment_geometry()->ruby_column_start_offset;
+    span->width += span->fragment_geometry()->ruby_column_end_offset - span->fragment_geometry()->ruby_column_start_offset;
+    if (span->fragment_geometry()->has_empty_ruby_base) {
+        span->height = max(span->height, span->fragment_geometry()->ruby_empty_base_block_size);
     }
 }
 
@@ -666,7 +666,7 @@ static void ruby_publish_geometry(DomElement* element, float start, float width,
         bool column_allocation = false) {
     ViewSpan* span = lam::view_as<RDT_VIEW_INLINE>(element);
     if (!span) return;
-    DomElementExt* ext = element->ensure_ext();
+    DomFragmentGeometry* ext = element->ensure_fragment_geometry();
     if (!ext) return;
     if (column_allocation) {
         // an allocated column includes external margins; source CSSOM geometry excludes them.
@@ -1176,10 +1176,10 @@ static void ruby_flow_sources(LayoutContext* context, LayoutRubyModel* model, in
 }
 
 static void ruby_clear_element_geometry(DomElement* element) {
-    if (!element || !element->ext) return;
-    element->ext->has_ruby_column_geometry = false;
-    element->ext->has_empty_ruby_base = false;
-    element->ext->has_ruby_parallel_fragments = false;
+    if (!element || !element->fragment_geometry()) return;
+    element->fragment_geometry()->has_ruby_column_geometry = false;
+    element->fragment_geometry()->has_empty_ruby_base = false;
+    element->fragment_geometry()->has_ruby_parallel_fragments = false;
 }
 
 static void ruby_clear_level_geometry(LayoutRubyLevel* level) {
@@ -1274,7 +1274,7 @@ static void ruby_align_annotation_model(ViewSpan* ruby, LayoutRubyModel* model,
         if (segment == previous) continue;
         previous = segment;
         if (selected && (!segment->placed || segment->line_number != line_number)) continue;
-        if (ruby->ext && ruby->ext->has_ruby_parallel_fragments)
+        if (ruby->fragment_geometry() && ruby->fragment_geometry()->has_ruby_parallel_fragments)
             ruby_select_segment_line(segment, line_number);
         bool on_line = false;
         for (LayoutRubyBox* box = segment->base.first; box; box = box->next) {
@@ -1799,7 +1799,8 @@ static bool ruby_flow_parallel_text(LayoutContext* context, ViewSpan* ruby,
         });
     ruby_resolve_break_groups(context, model, true, true);
     LayoutRubyFlowScope selected(context, ruby, model);
-    ruby->ensure_ext()->has_ruby_parallel_fragments = true;
+    if (DomFragmentGeometry* geometry = ruby->ensure_fragment_geometry())
+        geometry->has_ruby_parallel_fragments = true;
     LayoutRubySegment* previous = nullptr;
     int source = 0;
     for (LayoutRubySegment* segment = model->first; segment; segment = segment->next) {
@@ -1921,7 +1922,7 @@ void layout_ruby_children(LayoutContext* context, ViewSpan* ruby) {
     ScratchScope scope(&context->scratch);
     LayoutRubyModel model = layout_ruby_build_model(context, ruby, &scope);
     if (model.failed) { log_error("ruby model: used normalization allocation failed"); return; }
-    DomElementExt* ext = ruby->ensure_ext();
+    DomFragmentGeometry* ext = ruby->ensure_fragment_geometry();
     ruby_clear_element_geometry(ruby);
     bool inline_root = ruby->view_type == RDT_VIEW_INLINE;
     float start = context->line.advance_x;
@@ -2082,10 +2083,10 @@ View* layout_ruby_trim_trailing_space(LayoutContext* context, ViewText* text, Te
             break;
         }
     }
-    if (!ruby || !ruby->ext || context->block.direction != CSS_VALUE_LTR ||
+    if (!ruby || !ruby->fragment_geometry() || context->block.direction != CSS_VALUE_LTR ||
             layout_element_writing_mode(ruby) != WM_HORIZONTAL_TB ||
             dom_element_has_before_content(ruby) || dom_element_has_after_content(ruby) ||
-            (!ruby->ext->has_ruby_column_geometry && !ruby->ext->has_ruby_parallel_fragments)) return nullptr;
+            (!ruby->fragment_geometry()->has_ruby_column_geometry && !ruby->fragment_geometry()->has_ruby_parallel_fragments)) return nullptr;
     for (LayoutRubyFlowScope* flow = context->active_ruby_flow.get(); flow; flow = flow->previous) {
         if (flow->ruby != ruby) continue;
         bool placed = false;
@@ -2145,7 +2146,7 @@ View* layout_ruby_trim_trailing_space(LayoutContext* context, ViewText* text, Te
         float after = layout_inline_span_edge_extent(ruby, false, false, false);
         ruby_publish_geometry(ruby, start - before, cursor - start + before + after);
     } else {
-        ruby->ext->has_ruby_column_geometry = false;
+        ruby->fragment_geometry()->has_ruby_column_geometry = false;
         ruby_refresh_inline_bounds(ruby, 0);
     }
     layout_inline_record_advance(context, ruby, start, cursor);

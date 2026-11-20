@@ -915,7 +915,7 @@ bool layout_inline_visit_fragments(ViewSpan* span, LayoutInlineFragmentFn visito
     if (!view_geometry_walk_dom_tree(span, inline_paint_line_collect, &collected)) return false;
     if (collected.lines.empty()) return visitor(context, {span->x, span->y, span->width, span->height}, true, true, 0.0f, span->width);
     const BoundaryProp* boundary = span->boundary();
-    bool clone = span->blk && span->block()->box_decoration_break == CSS_VALUE_CLONE;
+    bool clone = span->blk && span->block()->extras().box_decoration_break == CSS_VALUE_CLONE;
     float extent = 0.0f;
     for (size_t index = 0; index < collected.lines.size(); index++) {
         bool first = index == 0, last = index + 1 == collected.lines.size();

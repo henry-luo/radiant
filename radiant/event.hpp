@@ -1917,7 +1917,7 @@ struct DocState;
 // Identification ---------------------------------------------------------
 
 // Treat element as a text control (text-like <input> or <textarea>) without
-// requiring Radiant layout to have populated elem->form. Mirrors HTML §4.10.5.1.
+// requiring Radiant layout to have populated elem->form_storage(). Mirrors HTML §4.10.5.1.
 bool tc_is_text_control(DomElement* elem);
 
 // Lazy-allocate FormControlProp + control_type for JS-only paths

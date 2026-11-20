@@ -518,7 +518,7 @@ static int resolve_grid_item_self_alignment(const ViewBlock* item,
         ((self_alignment == CSS_VALUE_AUTO || self_alignment == CSS_VALUE__UNDEF) &&
          container_alignment == CSS_VALUE_NORMAL);
     if (resolves_from_normal && item->display.inner == RDT_DISPLAY_REPLACED &&
-        !item->form) {
+        !item->form_storage()) {
         // Native controls use the replaced layout path internally, but their outer
         // widget boxes still stretch under normal grid alignment in browsers.
         return CSS_VALUE_START;

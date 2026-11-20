@@ -739,13 +739,13 @@ void measure_flex_child_content(LayoutContext* lycon, DomNode* child, bool width
             measured_width = content_width;
             measured_height = layout_border_size_from_content_box(
                 lam::view_as_block(item), content_height, false);
-            if (item->form->control_type == FORM_CONTROL_BUTTON) {
+            if (item->form_storage()->control_type == FORM_CONTROL_BUTTON) {
                 // Preserve the button's flow-label contribution for flex main
                 // sizing; cross-axis sizing applies it separately in §9.4.
                 float flow_content_width = form_button_flow_content_intrinsic_width(
                     lycon, lam::view_as_block(item));
                 if (flow_content_width > 0.0f) {
-                    item->form->intrinsic_width = flow_content_width;
+                    item->form_storage()->intrinsic_width = flow_content_width;
                     content_width = measured_width = flow_content_width;
                 }
             }
@@ -1261,7 +1261,7 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
                             child_max_width = child_sizes.max_content;
                             // cyclic preferred percentages behave as auto for intrinsic contributions.
                         } else if (layout_form_control_has_native_intrinsic_size(child_view)) {
-                            child_min_width = child_max_width = child_view->form->intrinsic_width;
+                            child_min_width = child_max_width = child_view->form_storage()->intrinsic_width;
                         }
                         if (!width_only) {
                             // Get child height - explicit (from View or DOM) or intrinsic
@@ -1274,7 +1274,7 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
                                     lycon, c, item, child_view, flex_layout);
                             } else if (child_view->form_control()) {
                                 child_height = layout_form_control_has_native_intrinsic_size(child_view)
-                                    ? child_view->form->intrinsic_height : 0.0f;
+                                    ? child_view->form_storage()->intrinsic_height : 0.0f;
                                 if (child_height <= 0.0f && lycon) {
                                     child_height = flex_measure_intrinsic_max_height(lycon, c, child_max_width);
                                 }

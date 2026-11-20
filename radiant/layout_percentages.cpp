@@ -452,7 +452,7 @@ WritingMode layout_writing_mode_from_css(CssEnum writing_mode) {
 static bool layout_element_has_containment(DomElement* element) {
     if (!element) return false;
     if (element->blk && element->styles_resolved() && !element->needs_style_recompute())
-        return element->block()->computed_containment != 0;
+        return element->block()->containment().computed_containment != 0;
     return css_prop_compute_cascaded_containment(element) != 0;
 }
 
@@ -606,8 +606,8 @@ bool layout_block_inline_axis_is_vertical(ViewBlock* block) {
 
 bool layout_block_has_size_containment_in_axis(ViewBlock* block, bool horizontal) {
     if (!block || !block->blk) return false;
-    if (block->block()->contain_size || block->block()->content_visibility_skipped) return true;
-    if (!block->block()->contain_inline_size) return false;
+    if (block->block()->containment().contain_size || block->block()->containment().content_visibility_skipped) return true;
+    if (!block->block()->containment().contain_inline_size) return false;
 
     bool inline_axis_is_vertical = layout_block_inline_axis_is_vertical(block);
     // Inline-size containment applies size containment only to the logical
@@ -618,10 +618,10 @@ bool layout_block_has_size_containment_in_axis(ViewBlock* block, bool horizontal
 float layout_block_empty_content_size_in_axis(ViewBlock* block, bool horizontal) {
     if (!block) return 0.0f;
 
-    if (block->form && block->block()->content_visibility_skipped &&
-        block->form->control_type == FORM_CONTROL_SELECT) {
-        bool is_listbox = block->form->multiple || block->has_attribute("multiple") ||
-            block->form->select_size > 1;
+    if (block->form_storage() && block->block()->containment().content_visibility_skipped &&
+        block->form_storage()->control_type == FORM_CONTROL_SELECT) {
+        bool is_listbox = block->form_storage()->multiple || block->has_attribute("multiple") ||
+            block->form_storage()->select_size > 1;
         if (horizontal) {
             if (is_listbox) return 0.0f;
             float empty_combo_border_width = FormDefaults::SELECT_HEIGHT + 3.0f;
@@ -630,8 +630,8 @@ float layout_block_empty_content_size_in_axis(ViewBlock* block, bool horizontal)
         if (!is_listbox) {
             return FormDefaults::SELECT_HEIGHT - 2.0f * FormDefaults::SELECT_BORDER;
         }
-        int visible_rows = block->form->select_size > 0 ? block->form->select_size
-            : (block->form->multiple ? 4 : 1);
+        int visible_rows = block->form_storage()->select_size > 0 ? block->form_storage()->select_size
+            : (block->form_storage()->multiple ? 4 : 1);
         // Hidden selects retain their native control chrome, but option text and
         // rows are skipped; the listbox uses its anonymous empty-row metric.
         return visible_rows * FormDefaults::SELECT_EMPTY_LISTBOX_ROW_HEIGHT;

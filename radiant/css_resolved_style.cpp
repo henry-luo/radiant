@@ -203,16 +203,17 @@ static const char* css_inherited_identity(LayoutContext* context, DomElement* el
     BLOCK_ID(text_autospace); BLOCK_ID(text_autospace_is_set); BLOCK_ID(tab_size); BLOCK_ID(tab_size_length);
     BLOCK_ID(text_indent); BLOCK_ID(text_indent_percent); BLOCK_ID(text_indent_calc);
     BLOCK_ID(text_indent_hanging); BLOCK_ID(text_indent_each_line); BLOCK_ID(dominant_baseline);
-    BLOCK_ID(list_style_type); BLOCK_ID(list_style_position);
 #undef BLOCK_ID
+    const BlockPropExt& extras = block->extras();
+    identity.add(extras.list_style_type); identity.add(extras.list_style_position);
     identity.text(block->hyphenate_character);
-    identity.text(block->list_style_type_string);
-    identity.text(block->list_style_image.url);
-    identity.add(block->list_style_image.gradient_type);
-    identity.add(block->list_style_image.linear_gradient.get());
-    identity.add(block->list_style_image.radial_gradient.get());
-    identity.add(block->list_style_image.conic_gradient.get());
-    identity.add(block->list_style_image.resolution);
+    identity.text(extras.list_style_type_string);
+    identity.text(extras.list_style_image.url);
+    identity.add(extras.list_style_image.gradient_type);
+    identity.add(extras.list_style_image.linear_gradient.get());
+    identity.add(extras.list_style_image.radial_gradient.get());
+    identity.add(extras.list_style_image.conic_gradient.get());
+    identity.add(extras.list_style_image.resolution);
     const CssValue* leading = block->line_height ? block->line_height.get() : css_line_height_normal_value();
     identity.add(leading->type);
     if (leading->type == CSS_VALUE_TYPE_KEYWORD) identity.add(leading->data.keyword);
@@ -551,8 +552,8 @@ void CssStyleRecordScope::commit() {
     if (!recording) return;
     DomElement* element = recording->element;
     // these consumers can change computed inputs during sizing, not just used box lengths.
-    if ((element->blk && (element->block()->container_axes ||
-        element->block()->content_visibility != CSS_VALUE_VISIBLE)) ||
+    if ((element->blk && (element->block()->containment().container_axes ||
+        element->block()->containment().content_visibility != CSS_VALUE_VISIBLE)) ||
         (element->font && element->font->initial_letter_computed_font_size > 0.0f) ||
         element->web_animation_state()) css_style_unsupported(recording, CSS_STYLE_EFFECT);
     recording->specified = element->specified_style;

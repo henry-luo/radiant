@@ -114,6 +114,115 @@ static void view_memory_root_domain_add(ViewMemoryDomain* domain,
     view_memory_domain_add(domain, sample);
 }
 
+static void view_memory_element_census(JsonWriter* writer, DomElement* root) {
+    const char* names[] = {"ext", "block", "flex_item", "grid_item", "table", "cell",
+        "form", "transform", "scroll", "pseudo"};
+    constexpr size_t slot_count = sizeof(names) / sizeof(names[0]);
+    constexpr size_t first_move_slot = 2;
+    uint64_t present[slot_count] = {};
+    uint64_t with_ext[slot_count] = {};
+    uint64_t authored = 0, synthetic = 0, move_union = 0, move_union_with_ext = 0;
+    uint64_t attribute_state_elements = 0, fragment_groups = 0, pseudo_style_groups = 0;
+    uint64_t shared_pseudo_reset_elements = 0;
+    uint64_t block_extras = 0, block_containment = 0;
+    uint64_t prop_extensions = 0;
+    uint64_t scroll_snap_groups = 0, individual_transform_groups = 0;
+    uint64_t form_placeholder_groups = 0, form_file_button_groups = 0;
+    uint64_t layout_caches = 0, measurement_arrays = 0, intrinsic_array_users = 0;
+    // census walks the connected tree once, outside the layout timing path.
+    for (DomNode* node = root; node;) {
+        DomElement* elem = node->is_element() ? node->as_element() : nullptr;
+        if (elem) {
+            if (elem->is_synthetic()) synthetic++;
+            else authored++;
+            prop_extensions += elem->prop_ext != nullptr;
+            bool slots[] = {elem->ext != nullptr, elem->blk != nullptr,
+                elem->parent_item_kind() == DomElement::PARENT_ITEM_FLEX && elem->fi,
+                elem->parent_item_kind() == DomElement::PARENT_ITEM_GRID && elem->gi,
+                elem->table_storage() != nullptr, elem->td != nullptr, elem->form_storage() != nullptr,
+                elem->transform_prop() != nullptr, elem->scroller != nullptr, elem->pseudo_prop() != nullptr};
+            static_assert(sizeof(slots) / sizeof(slots[0]) == slot_count, "slot census mismatch");
+            bool any_move = false;
+            for (size_t i = 0; i < slot_count; i++) {
+                if (!slots[i]) continue;
+                present[i]++;
+                if (slots[0]) with_ext[i]++;
+                if (i >= first_move_slot) any_move = true;
+            }
+            if (any_move) {
+                move_union++;
+                if (slots[0]) move_union_with_ext++;
+            }
+            if (elem->ext) {
+                attribute_state_elements += elem->ext->attributes != nullptr;
+                fragment_groups += elem->ext->fragment_geometry != nullptr;
+            }
+            pseudo_style_groups += elem->pseudo_style_group() != nullptr;
+            shared_pseudo_reset_elements += elem->shared_pseudo_reset_slots != 0;
+            if (elem->blk) {
+                block_extras += elem->blk->ext != nullptr;
+                block_containment += elem->blk->containment_props != nullptr;
+            }
+            if (elem->scroller) scroll_snap_groups += elem->scroller->snap != nullptr;
+            if (elem->transform_prop()) individual_transform_groups += elem->transform_prop()->individual != nullptr;
+            if (elem->form_storage()) {
+                form_placeholder_groups += elem->form_storage()->placeholder_paint != nullptr;
+                form_file_button_groups += elem->form_storage()->file_button_paint != nullptr;
+            }
+            if (elem->layout_cache) {
+                layout_caches++;
+                for (const auto& result : elem->layout_cache->measure_entries) {
+                    if (!result.valid) continue;
+                    measurement_arrays++;
+                    break;
+                }
+                for (const auto& query : elem->layout_cache->intrinsic_widths) {
+                    if (!query.context.valid) continue;
+                    intrinsic_array_users++;
+                    break;
+                }
+            }
+        }
+        node = elem && elem->first_child ? elem->first_child.get() : dom_next_after_subtree(root, node);
+    }
+    jw_key(writer, "connected_elements");
+    jw_obj_begin(writer);
+        jw_kv_uint(writer, "authored", authored);
+        jw_kv_uint(writer, "synthetic", synthetic);
+        jw_kv_uint(writer, "element_size", sizeof(DomElement));
+        jw_kv_uint(writer, "ext_size", sizeof(DomElementExt));
+        jw_kv_uint(writer, "prop_ext_size", sizeof(DomPropExt));
+        jw_kv_uint(writer, "prop_extensions", prop_extensions);
+        jw_kv_uint(writer, "block_size", sizeof(BlockProp));
+        jw_kv_uint(writer, "move_union", move_union);
+        jw_kv_uint(writer, "move_union_with_ext", move_union_with_ext);
+        jw_kv_uint(writer, "attribute_state_elements", attribute_state_elements);
+        jw_kv_uint(writer, "fragment_groups", fragment_groups);
+        jw_kv_uint(writer, "pseudo_style_groups", pseudo_style_groups);
+        jw_kv_uint(writer, "shared_pseudo_reset_elements", shared_pseudo_reset_elements);
+        jw_kv_uint(writer, "block_extras", block_extras);
+        jw_kv_uint(writer, "block_containment", block_containment);
+        jw_kv_uint(writer, "scroll_snap_groups", scroll_snap_groups);
+        jw_kv_uint(writer, "individual_transform_groups", individual_transform_groups);
+        jw_kv_uint(writer, "form_placeholder_groups", form_placeholder_groups);
+        jw_kv_uint(writer, "form_file_button_groups", form_file_button_groups);
+        jw_kv_uint(writer, "layout_caches", layout_caches);
+        jw_kv_uint(writer, "layout_cache_size", sizeof(radiant::LayoutCache));
+        jw_kv_uint(writer, "measurement_arrays", measurement_arrays);
+        jw_kv_uint(writer, "intrinsic_array_users", intrinsic_array_users);
+        jw_key(writer, "slots");
+        jw_obj_begin(writer);
+        for (size_t i = 0; i < slot_count; i++) {
+            jw_key(writer, names[i]);
+            jw_obj_begin(writer);
+            jw_kv_uint(writer, "present", present[i]);
+            jw_kv_uint(writer, "with_ext", with_ext[i]);
+            jw_obj_end(writer);
+        }
+        jw_obj_end(writer);
+    jw_obj_end(writer);
+}
+
 bool view_memory_profile_write(DomDocument* doc, const char* input_file,
                                const char* output_path) {
     if (!doc || !doc->view_tree || !output_path) return false;
@@ -183,6 +292,7 @@ bool view_memory_profile_write(DomDocument* doc, const char* input_file,
         jw_kv_str(&writer, "file", input_file ? input_file : "");
         jw_kv_uint(&writer, "doc_id", doc_id);
         jw_kv_uint(&writer, "layout_generation", doc->view_tree->layout_generation);
+    view_memory_element_census(&writer, doc->root);
         jw_key(&writer, "process_physical_total");
         jw_obj_begin(&writer);
             jw_kv_uint(&writer, "reserved_bytes", snapshot->physical_total_reserved);

@@ -564,7 +564,7 @@ static void bidi_fill_views(LayoutContext* lycon, View* view, int line_number, i
                 span_info->flow_start_edge = 0.0f;
                 Rect bounds = {span->x, span->y, span->width, span->height};
                 // a published single column includes alignment space around atomic base content.
-                if (!span->ext || !span->ext->has_ruby_column_geometry ||
+                if (!span->fragment_geometry() || !span->fragment_geometry()->has_ruby_column_geometry ||
                         inline_span_has_multiple_line_fragments(span))
                     layout_inline_line_bounds(lycon, span, line_number, &bounds);
                 BidiCharFragment* fragment = bidi_append_atomic_fragment(

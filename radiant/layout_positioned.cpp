@@ -541,12 +541,12 @@ static ViewBlock* containment_positioning_block(ViewElement* ancestor) {
     if (!ancestor) return nullptr;
     if (ancestor->view_type == RDT_VIEW_INLINE) {
         ViewSpan* span = lam::view_require<RDT_VIEW_INLINE>(ancestor);
-        if (span->blk && span->block()->contain_positioning) {
+        if (span->blk && span->block()->containment().contain_positioning) {
             return lam::unsafe_view_block_api_span(span);
         }
     } else if (ancestor->is_block()) {
         ViewBlock* block = lam::view_require_block(ancestor);
-        if (block->blk && block->block()->contain_positioning) {
+        if (block->blk && block->block()->containment().contain_positioning) {
             return block;
         }
     }
@@ -1859,7 +1859,7 @@ void calculate_absolute_position(LayoutContext* lycon, ViewBlock* block, ViewBlo
         // aspect-ratio constraint before the absolute box is finalized.
         layout_store_given_axis(lycon, block, content_width, true);
     } else if (is_replaced && layout_form_control_has_native_intrinsic_size(block) &&
-               block->form->intrinsic_width > 0) {
+               block->form_storage()->intrinsic_width > 0) {
         // HTML buttons need shrink-to-fit flow, not a cached form-label width (CSS 2.1 §10.3.7).
         IntrinsicSize form_size = layout_measure_form_control(lycon, block, lycon->available_space);
         content_width = form_size.max_width;
@@ -2005,7 +2005,7 @@ void calculate_absolute_position(LayoutContext* lycon, ViewBlock* block, ViewBlo
         layout_store_given_axis(lycon, block, content_height, false);
         block->blk->aspect_ratio_auto_height = block->first_child != nullptr;
     } else if (is_replaced && block->form_control() &&
-               block->form->intrinsic_height > 0) {
+               block->form_storage()->intrinsic_height > 0) {
         // CSS 2.1 §10.6.5: replaced form control with auto height → use intrinsic height
         IntrinsicSize form_size = layout_measure_form_control(lycon, block, lycon->available_space);
         content_height = form_size.max_height;

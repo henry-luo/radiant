@@ -50,7 +50,7 @@ static const char* tc_buffer(FormControlProp* f, uint32_t* out_len) {
 }
 
 static bool te_is_password_control(DomElement* elem) {
-    return elem && elem->form && form_input_kind_is(elem->form->input_type,
+    return elem && elem->form_storage() && form_input_kind_is(elem->form_storage()->input_type,
         FORM_INPUT_KIND_PASSWORD);
 }
 
@@ -83,9 +83,9 @@ static bool te_prepare_scan(const char* buf, uint32_t buf_len, uint32_t byte_off
 // ---------- word boundary ----------------------------------------------
 
 bool te_password_reveal_clear(DomElement* elem) {
-    if (!elem || !elem->form || !te_is_password_control(elem)) return false;
-    DocState* state = elem->form->state_ref
-        ? elem->form->state_ref
+    if (!elem || !elem->form_storage() || !te_is_password_control(elem)) return false;
+    DocState* state = elem->form_storage()->state_ref
+        ? elem->form_storage()->state_ref
         : (elem->doc ? (DocState*)elem->doc->state : nullptr);
     return form_control_password_reveal_clear(state, (View*)elem);
 }
@@ -209,7 +209,7 @@ bool te_replace_byte_range_no_events(DomElement* elem, DocState* state, void* ta
                                      const char* repl, uint32_t repl_len) {
     if (!elem || !state || !target) return false;
     if (!tc_is_text_control(elem)) return false;
-    FormControlProp* f = elem->form;
+    FormControlProp* f = elem->form_storage();
     uint32_t old_len = 0;
     const char* old_buf = tc_buffer(f, &old_len);
     if (!old_buf && old_len > 0) return false;
@@ -250,7 +250,7 @@ void te_focus_capture_value(DomElement* elem) {
     // Lazy-init so newly-focused, never-edited controls still snapshot
     // their initial value.
     tc_ensure_init(elem);
-    FormControlProp* f = elem->form;
+    FormControlProp* f = elem->form_storage();
     if (!f) return;
 
     uint32_t blen = 0;
@@ -333,7 +333,7 @@ static EditHistory* tc_get_or_create_history(DomElement* elem) {
 
 static DocState* te_history_state(DomElement* elem) {
     if (!elem) return nullptr;
-    if (elem->form && elem->form->state_ref) return elem->form->state_ref;
+    if (elem->form_storage() && elem->form_storage()->state_ref) return elem->form_storage()->state_ref;
     return elem->doc ? (DocState*)elem->doc->state : nullptr;
 }
 
@@ -350,7 +350,7 @@ void te_history_input_type_restore(DocState* state, const char* previous) {
 
 void te_history_push(DomElement* elem) {
     if (!elem || !tc_is_text_control(elem)) return;
-    FormControlProp* f = elem->form;
+    FormControlProp* f = elem->form_storage();
     if (!f) return;
     EditHistory* h = tc_get_or_create_history(elem);
     if (!h || !h->ring || h->cap == 0) return;
@@ -477,7 +477,7 @@ bool te_prepare_paste_range(DomElement* elem, DocState* state,
     if (out_end) *out_end = 0;
     if (!elem || !state || !out_start || !out_end) return false;
     if (!tc_is_text_control(elem)) return false;
-    FormControlProp* f = elem->form;
+    FormControlProp* f = elem->form_storage();
     // one predicate for "the user may not alter this control" — the readonly
     // attribute or disabled, which HTML treats alike for editing (F6)
     if (!f || form_control_is_user_readonly(state, (View*)elem)) return false;
@@ -509,7 +509,7 @@ bool te_ime_commit_prepare(DomElement* elem, DocState* state,
     if (out_end) *out_end = 0;
     if (out_should_mutate) *out_should_mutate = false;
     if (!elem || !tc_is_text_control(elem)) return false;
-    FormControlProp* f = elem->form;
+    FormControlProp* f = elem->form_storage();
     if (!f || !out_start || !out_end || !out_should_mutate) return false;
 
     // The preedit is dropped by the session template on compositionend; this

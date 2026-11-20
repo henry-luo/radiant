@@ -28,8 +28,8 @@ static inline Color make_color(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255)
 
 static FontProp* form_render_font(ViewBlock* block, FormControlProp* form,
                                   bool is_placeholder) {
-    if (is_placeholder && form && form->placeholder_font) {
-        return form->placeholder_font;
+    if (is_placeholder && form && form->placeholder_paint && form->placeholder_paint->font) {
+        return form->placeholder_paint->font;
     }
     return block ? block->font : nullptr;
 }
@@ -38,15 +38,10 @@ static Color form_text_color(ViewBlock* block, FormControlProp* form,
                              bool is_placeholder) {
     Color text_color;
     if (is_placeholder) {
-        text_color = (form && form->placeholder_has_color)
-            ? make_color(form->placeholder_color_r,
-                         form->placeholder_color_g,
-                         form->placeholder_color_b,
-                         form->placeholder_color_a)
-            : make_color(117, 117, 117);
-        if (form && form->placeholder_has_opacity) {
-            text_color.a = clamp_byte_round(
-                (float)text_color.a * form->placeholder_opacity);
+        const FormPlaceholderProp* paint = form ? form->placeholder_paint.get() : nullptr;
+        text_color = (paint && paint->has_color) ? paint->color : make_color(117, 117, 117);
+        if (paint && paint->has_opacity) {
+            text_color.a = clamp_byte_round((float)text_color.a * paint->opacity);
         }
     } else if (block && block->in_line && block->inl()->has_color) {
         text_color.r = block->inl()->color.r;
@@ -301,7 +296,7 @@ static bool form_control_has_focus(const FormControlBox* box, ViewBlock* block) 
 static void paint_default_text_control_box(RasterRenderContext* rdcon, ViewBlock* block,
                                            const FormControlBox* box) {
     if (!rdcon || !block || !box) return;
-    if (block->form && block->form->appearance_none) return;
+    if (block->form_storage() && block->form_storage()->appearance_none) return;
 
     // author borders are already painted; the fallback must follow their inner curve.
     if (!box->has_css_background) {
@@ -1042,8 +1037,9 @@ static void render_button(RasterRenderContext* rdcon, ViewBlock* block, FormCont
 static void render_file_input(RasterRenderContext* rdcon, ViewBlock* block,
                               FormControlProp* form) {
     FormControlBox fc = form_control_box(rdcon, block);
-    FontProp* button_font = form->file_button_font
-        ? form->file_button_font : block->font;
+    const FormFileButtonProp& paint = form->file_button_paint
+        ? *form->file_button_paint : FORM_FILE_BUTTON_DEFAULT;
+    FontProp* button_font = paint.font ? paint.font : block->font;
     const char* button_label = "Choose File";
     const char* file_label = form->value && *form->value
         ? form->value : "No file chosen";
@@ -1052,18 +1048,18 @@ static void render_file_input(RasterRenderContext* rdcon, ViewBlock* block,
     // The button is the file input's own paint target, not the host box.
     float label_width = measure_input_text_width(rdcon, button_font,
         button_label, (int)strlen(button_label)) * fc.s; // INT_CAST_OK: glyph API uses byte-count ints.
-    float border_width = form->file_button_draw_border
-        ? form->file_button_border_width * fc.s : 0.0f;
+    float border_width = paint.draw_border
+        ? paint.border_width * fc.s : 0.0f;
     float button_width = label_width +
-        (form->file_button_padding_left + form->file_button_padding_right) * fc.s +
+        (paint.padding_left + paint.padding_right) * fc.s +
         2.0f * border_width;
     if (button_width > fc.w) button_width = fc.w;
-    Color background = form->file_button_has_background_color
-        ? form->file_button_background_color
+    Color background = paint.has_background_color
+        ? paint.background_color
         : make_color(239, 239, 239);
     fill_rect(rdcon, fc.x, fc.y, button_width, fc.h, background);
     if (border_width > 0.0f) {
-        Color border_color = form->file_button_border_color;
+        Color border_color = paint.border_color;
         fill_rect(rdcon, fc.x, fc.y, button_width, border_width, border_color);
         fill_rect(rdcon, fc.x, fc.y + fc.h - border_width,
                   button_width, border_width, border_color);
@@ -1072,12 +1068,12 @@ static void render_file_input(RasterRenderContext* rdcon, ViewBlock* block,
                   border_width, fc.h, border_color);
     }
 
-    Color button_color = form->file_button_has_color
-        ? form->file_button_color
+    Color button_color = paint.has_color
+        ? paint.color
         : form_text_color(block, form, false);
     float button_text_y = fc.y + (fc.h - button_font->font_size * fc.s) * 0.5f;
     render_simple_string(rdcon, button_label,
-        fc.x + border_width + form->file_button_padding_left * fc.s,
+        fc.x + border_width + paint.padding_left * fc.s,
         button_text_y, button_font, button_color);
     if (block->font && fc.w > button_width + 4.0f * fc.s) {
         render_simple_string(rdcon, file_label,
@@ -1110,7 +1106,7 @@ static SelectOptionPaint select_option_paint(ViewBlock* select, DomElement* opti
                                              bool disabled, bool listbox) {
     SelectOptionPaint paint = {};
     paint.font = option && option->font ? option->font.get() : select->font.get();
-    paint.text = form_text_color(select, select->form, false);
+    paint.text = form_text_color(select, select->form_storage(), false);
     paint.padding = select->bound ? select->boundary()->padding.left : 6.0f;
     // UA highlights remain fallbacks; an option's computed author colors win.
     if (hovered && !disabled) {
@@ -1120,14 +1116,15 @@ static SelectOptionPaint select_option_paint(ViewBlock* select, DomElement* opti
         paint.background = listbox
             ? (disabled ? make_color(212, 212, 212) : make_color(0, 120, 215))
             : make_color(230, 230, 230);
-        if (listbox) paint.text = make_color(255, 255, 255);
+        // The popup's light selected-row fallback needs dark text even in a dark select.
+        paint.text = listbox ? make_color(255, 255, 255) : make_color(0, 0, 0);
     }
     if (disabled) paint.text = make_color(128, 128, 128);
     if (!option) return paint;
     if (form_has_background_declaration(option)) {
         paint.background = form_background_color(lam::view_require_block(option));
         paint.text = option->in_line && option->inl()->has_color
-            ? option->inl()->color : form_text_color(select, select->form, false);
+            ? option->inl()->color : form_text_color(select, select->form_storage(), false);
     } else if (option->specified_style &&
                style_tree_get_declaration(option->specified_style, CSS_PROPERTY_COLOR) &&
                option->in_line && option->inl()->has_color) {
@@ -1329,9 +1326,9 @@ static void render_select(RasterRenderContext* rdcon, ViewBlock* block, FormCont
  */
 void render_select_dropdown(RasterRenderContext* rdcon, ViewBlock* select, DocState* state) {
     if (!state) return;
-    if (!select || !select->form || !form_control_is_dropdown_open(state, static_cast<View*>(select))) return;
+    if (!select || !select->form_storage() || !form_control_is_dropdown_open(state, static_cast<View*>(select))) return;
 
-    FormControlProp* form = select->form;
+    FormControlProp* form = select->form_storage();
     int selected_index = form_control_get_selected_index(state, static_cast<View*>(select));
     int hover_index = form_control_get_hover_index(state, static_cast<View*>(select));
 
@@ -1799,7 +1796,7 @@ void render_form_control(RasterRenderContext* rdcon, ViewBlock* block) {
         return;
     }
 
-    FormControlProp* form = block->form;
+    FormControlProp* form = block->form_storage();
 
     // CSS paints focus outlines through the cascade, including appearance:none.
     // Native glyphs, tracks and thumbs must not cover author-painted contents.

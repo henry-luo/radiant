@@ -6,6 +6,10 @@
 #include "radiant/render.hpp"
 #include "radiant/event_hit_test.hpp"
 #include "radiant/event.hpp"
+#include "radiant/dom_backed_tree.hpp"
+#include "lambda/input/css/dom_lifecycle.hpp"
+#include "test_native_input_document.hpp"
+#include "radiant/scroll_request.hpp"
 #include "radiant/network_integration.h"
 #include "lambda/input/input.hpp"
 #include "lambda/network/enhanced_file_cache.h"
@@ -45,6 +49,38 @@ TEST(LayoutCacheTest, ZeroDimensionsRemainDistinctFromAutoCacheKeys) {
             radiant::RunMode::ComputeSize, &result));
         radiant::layout_cache_init(&cache);
     }
+}
+
+TEST(NativeEditingWithoutScriptHost, FormDirectoryIsLazyAndReclaimedBeforeLayout) {
+    NativeInputDocument fixture;
+    DomDocument* document = fixture.document;
+    ASSERT_NE(document, nullptr);
+    DomElement* host = dom_create_backed_element_identity(document, "div", nullptr, false);
+    DomElement* control = dom_create_backed_element_identity(document, "input", nullptr, false);
+    ASSERT_TRUE(host && control);
+    document->root = lam::up(host);
+    ASSERT_TRUE(host->DomNode::append_child(control));
+    EXPECT_FALSE(host->prop_ext);
+    EXPECT_FALSE(control->prop_ext);
+    EXPECT_FALSE(document->view_tree);
+
+    FormControlProp* form = tc_get_or_create_form(control);
+    ASSERT_NE(form, nullptr);
+    EXPECT_TRUE(form->heap_allocated);
+    EXPECT_EQ(control->form_control(), form);
+    EXPECT_EQ(tc_get_or_create_form(control), form);
+    ASSERT_TRUE(control->prop_ext);
+    EXPECT_FALSE(control->prop_ext->tb);
+    EXPECT_FALSE(control->prop_ext->transform);
+    EXPECT_FALSE(control->prop_ext->pseudo);
+
+    form_control_release_prop(control);
+    EXPECT_FALSE(control->prop_ext);
+    ASSERT_NE(tc_get_or_create_form(control), nullptr);
+    DomNodeRef detached = dom_node_ref(control);
+    ASSERT_TRUE(host->remove_child(control));
+    ASSERT_EQ(dom_retire_sweep(document), 1u);
+    EXPECT_EQ(dom_node_ref_validate(document, detached), nullptr);
 }
 
 class DynamicLayoutTest : public ::testing::Test {
@@ -480,6 +516,94 @@ TEST_F(DynamicLayoutTest, LegacyClipResolvesLengthsInheritanceAndAutoEdgesAfterS
     radiant_recascade_document(document);
     layout_html_doc(&ui, document, true);
     EXPECT_FALSE(render_clip_legacy_geometry(lam::view_require_block(child), &clip));
+}
+
+TEST_F(DynamicLayoutTest, OptionalViewGroupsFollowRetainedStyleAndInputTypeChanges) {
+    load("<!doctype html><style>"
+         "input[type=text]::placeholder{color:red;opacity:.5;font-size:20px}"
+         "input[type=file]::file-selector-button{color:blue;padding:2px}"
+         "</style><div id='port' style='overflow:auto;width:100px;height:60px'>"
+         "<div style='height:80px'></div><div id='target' "
+         "style='height:60px;transform:translateX(5px)'></div></div>"
+         "<input id='control' type='text' placeholder='Example'>");
+    ASSERT_NE(document, nullptr);
+    DomElement* port = element("port");
+    DomElement* target = element("target");
+    DomElement* control = element("control");
+    ASSERT_NE(port, nullptr);
+    ASSERT_NE(target, nullptr);
+    ASSERT_NE(control, nullptr);
+    ASSERT_NE(state_store_create(document), nullptr);
+    ASSERT_NE(port->scroller, nullptr);
+    ASSERT_NE(target->transform_prop(), nullptr);
+    ASSERT_NE(control->form_storage(), nullptr);
+    EXPECT_FALSE(port->scroll()->snap);
+    EXPECT_FALSE(target->transformp()->individual);
+    ASSERT_TRUE(control->form_storage()->placeholder_paint);
+    EXPECT_TRUE(control->form_storage()->placeholder_paint->has_color);
+    EXPECT_FLOAT_EQ(control->form_storage()->placeholder_paint->opacity, 0.5f);
+    EXPECT_FALSE(control->form_storage()->file_button_paint);
+
+    ASSERT_TRUE(port->set_attribute("style", "overflow:auto;width:100px;height:60px;scroll-padding-top:10%"));
+    ASSERT_TRUE(target->set_attribute("style", "height:60px;scroll-margin-top:5px;translate:8px"));
+    ASSERT_TRUE(control->set_attribute("type", "file"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, true);
+
+    ASSERT_TRUE(port->scroll()->snap);
+    EXPECT_EQ(port->scroll()->snap_style().snap_axis, SCROLL_SNAP_AXIS_NONE);
+    EXPECT_FLOAT_EQ(port->scroll()->snap_style().scroll_padding[CSS_BOX_SIDE_TOP].percent, 0.1f);
+    ASSERT_TRUE(target->scroll()->snap);
+    EXPECT_FLOAT_EQ(target->scroll()->snap_style().scroll_margin[CSS_BOX_SIDE_TOP].pixels, 5.0f);
+    radiant_queue_scroll_into_view(document, target, false, false, DOM_SCROLL_ALIGN_START,
+        DOM_SCROLL_ALIGN_NEAREST, DOM_SCROLL_BEHAVIOR_AUTO);
+    ASSERT_TRUE(layout_scroll_into_view_without_relayout(&ui, document));
+    float scroll_y = 0.0f;
+    scroll_state_get_position_for_view(document->state, static_cast<View*>(port), port->scroll()->pane,
+        nullptr, &scroll_y, nullptr, nullptr);
+    EXPECT_FLOAT_EQ(scroll_y, 69.0f);
+    ASSERT_TRUE(target->transformp()->individual);
+    EXPECT_FLOAT_EQ(target->transformp()->individual->values[0].params.translate.x, 8.0f);
+    EXPECT_FALSE(control->form_storage()->placeholder_paint);
+    ASSERT_TRUE(control->form_storage()->file_button_paint);
+    EXPECT_FLOAT_EQ(control->form_storage()->file_button_paint->padding_left, 2.0f);
+
+    ASSERT_TRUE(port->set_attribute("style", "overflow:auto;width:100px;height:60px"));
+    ASSERT_TRUE(target->set_attribute("style", "height:60px;transform:translateX(5px)"));
+    ASSERT_TRUE(control->set_attribute("type", "text"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, true);
+
+    EXPECT_FALSE(port->scroll()->snap);
+    EXPECT_FALSE(target->scroll()->snap);
+    EXPECT_FALSE(target->transformp()->individual);
+    EXPECT_TRUE(transform_has_functions(target->transform_prop()));
+    EXPECT_TRUE(control->form_storage()->placeholder_paint);
+    EXPECT_FALSE(control->form_storage()->file_button_paint);
+}
+
+TEST_F(DynamicLayoutTest, AnimationAllocatesAndReleasesIndividualTransformGroup) {
+    load("<!doctype html><style>@keyframes move{from{translate:0px}to{translate:40px}}</style>"
+         "<div id='target' style='transform:scale(2)'></div>");
+    ASSERT_NE(document, nullptr);
+    DomElement* target = element("target");
+    ASSERT_NE(target, nullptr);
+    ASSERT_NE(state_store_create(document), nullptr);
+    ASSERT_TRUE(target->set_attribute("style", "transform:scale(2);animation:move 1s linear -.5s both paused"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, true);
+
+    ASSERT_TRUE(target->transformp()->individual);
+    EXPECT_NE(target->transformp()->individual->samples[0], nullptr);
+    EXPECT_FLOAT_EQ(target->transformp()->individual->values[0].params.translate.x, 20.0f);
+    EXPECT_TRUE(target->transformp()->functions);
+
+    ASSERT_TRUE(target->set_attribute("style", "transform:scale(2)"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, true);
+
+    EXPECT_FALSE(target->transformp()->individual);
+    EXPECT_TRUE(target->transformp()->functions);
 }
 
 TEST_F(DynamicLayoutTest, ColumnFlexMeasuresNestedWrappingRows) {
@@ -1190,8 +1314,8 @@ TEST_F(DynamicLayoutTest, GeneratedTableCellsKeepOriginatingCountersAcrossReflow
     ASSERT_NE(document, nullptr);
     for (int pass = 0; pass < 2; pass++) {
         DomElement* actual = element("actual");
-        ASSERT_NE(actual->pseudo, nullptr);
-        DomElement* generated[] = {actual->pseudo->before, actual->pseudo->after};
+        ASSERT_NE(actual->pseudo_prop(), nullptr);
+        DomElement* generated[] = {actual->pseudo_prop()->before, actual->pseudo_prop()->after};
         const char* expected[] = {"8", "9"};
         for (int i = 0; i < 2; i++) {
             ASSERT_NE(generated[i], nullptr);
@@ -1357,8 +1481,8 @@ TEST_F(DynamicLayoutTest, BoxlessElementsDoNotModifyCounters) {
          "<span style='display:contents;counter-set:x 666'></span>"
          "<span id='result' style='counter-increment:x'></span></div>");
     ASSERT_NE(document, nullptr);
-    ASSERT_NE(element("result")->pseudo, nullptr);
-    DomElement* before = element("result")->pseudo->before;
+    ASSERT_NE(element("result")->pseudo_prop(), nullptr);
+    DomElement* before = element("result")->pseudo_prop()->before;
     ASSERT_NE(before, nullptr);
     ASSERT_NE(before->first_child, nullptr);
     EXPECT_STREQ(before->first_child->as_text()->text, "7");
@@ -1491,9 +1615,9 @@ TEST_F(DynamicLayoutTest, ReversedCounterIncludesFollowingSiblingScope) {
          "<div style='counter-reset:other'></div>"
          "<ol></ol><div><li id='again'></li><li></li><li></li></div>");
     ASSERT_NE(document, nullptr);
-    EXPECT_STREQ(element("first")->pseudo->before->first_child->as_text()->text, "6");
-    EXPECT_STREQ(element("last")->pseudo->before->first_child->as_text()->text, "2");
-    EXPECT_STREQ(element("again")->pseudo->before->first_child->as_text()->text, "6");
+    EXPECT_STREQ(element("first")->pseudo_prop()->before->first_child->as_text()->text, "6");
+    EXPECT_STREQ(element("last")->pseudo_prop()->before->first_child->as_text()->text, "2");
+    EXPECT_STREQ(element("again")->pseudo_prop()->before->first_child->as_text()->text, "6");
 }
 
 TEST_F(DynamicLayoutTest, ClearanceUsesFloatMarginBottom) {
@@ -1520,7 +1644,7 @@ TEST_F(DynamicLayoutTest, ReversedCounterIncludesOwnIncrement) {
          "<div><span id='reset'></span><span></span><span id='result'></span>"
          "<span></span><span></span><span></span><span></span></div>");
     ASSERT_NE(document, nullptr);
-    EXPECT_STREQ(element("result")->pseudo->before->first_child->as_text()->text, "10");
+    EXPECT_STREQ(element("result")->pseudo_prop()->before->first_child->as_text()->text, "10");
 }
 
 TEST_F(DynamicLayoutTest, FlexSvgAutomaticCrossSizeUsesFlexedMainSize) {
@@ -1750,8 +1874,8 @@ TEST_F(DynamicLayoutTest, GeneratedStyleRefreshLeavesAuthoredHostInputsUnchanged
          "<li><a id='other'>Why</a></li></ul><section data-layout='grid'></section>");
     DomElement* item = element("item");
     DomElement* link = element("link");
-    ASSERT_NE(link->pseudo, nullptr);
-    DomElement* pseudo = link->pseudo->before;
+    ASSERT_NE(link->pseudo_prop(), nullptr);
+    DomElement* pseudo = link->pseudo_prop()->before;
     ASSERT_NE(pseudo, nullptr);
     uint32_t revision = item->intrinsic_input_revision;
     StyleTree* original = link->pseudo_style(PSEUDO_STYLE_BEFORE);
@@ -1768,6 +1892,53 @@ TEST_F(DynamicLayoutTest, GeneratedStyleRefreshLeavesAuthoredHostInputsUnchanged
     }
     ASSERT_TRUE(link->set_attribute("style", "font-size:24px"));
     EXPECT_NE(item->intrinsic_input_revision, revision);
+}
+
+TEST_F(DynamicLayoutTest, UniversalPseudoResetSharesStylesUntilOverridden) {
+    load("<!doctype html><style id='reset'>*::before,::after{box-sizing:border-box!important}</style>"
+         "<style>.generated::before{box-sizing:content-box;content:'label';display:block}</style>"
+         "<div id='plain'></div><div id='other'></div><div id='host' class='generated'></div>");
+    DomElement* plain = element("plain");
+    DomElement* other = element("other");
+    DomElement* host = element("host");
+    ASSERT_TRUE(plain && other && host);
+    StyleTree* shared = plain->pseudo_style(PSEUDO_STYLE_BEFORE);
+    ASSERT_NE(shared, nullptr);
+    EXPECT_EQ(other->pseudo_style(PSEUDO_STYLE_BEFORE), shared);
+    EXPECT_FALSE(plain->prop_ext);
+    EXPECT_FALSE(plain->ext);
+    EXPECT_FALSE(other->pseudo_prop());
+    ASSERT_NE(host->pseudo_prop(), nullptr);
+    ASSERT_NE(host->pseudo_prop()->before, nullptr);
+    EXPECT_NE(host->pseudo_style(PSEUDO_STYLE_BEFORE), shared);
+    EXPECT_EQ(host->pseudo_prop()->before->specified_style, host->pseudo_style(PSEUDO_STYLE_BEFORE));
+
+    char value[32];
+    for (DomElement* node : {plain, host}) {
+        ASSERT_TRUE(css_prop_serialize_computed(node, CSS_PROPERTY_BOX_SIZING,
+            PSEUDO_ELEMENT_BEFORE, value, sizeof(value)));
+        EXPECT_STREQ(value, "border-box");
+    }
+    ASSERT_TRUE(host->remove_attribute("class"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, false);
+    EXPECT_EQ(host->pseudo_style(PSEUDO_STYLE_BEFORE), shared);
+    EXPECT_FALSE(host->pseudo_style_group());
+
+    CssStylesheet* reset = nullptr;
+    for (int i = 0; i < document->stylesheet_count; i++) {
+        if (document->stylesheets[i]->owner_element == element("reset"))
+            reset = document->stylesheets[i];
+    }
+    ASSERT_NE(reset, nullptr);
+    reset->disabled = true;
+    radiant_recascade_document(document);
+    EXPECT_EQ(plain->pseudo_style(PSEUDO_STYLE_BEFORE), nullptr);
+    EXPECT_EQ(plain->pseudo_style(PSEUDO_STYLE_AFTER), nullptr);
+    EXPECT_FALSE(plain->prop_ext);
+    ASSERT_TRUE(css_prop_serialize_computed(plain, CSS_PROPERTY_BOX_SIZING,
+        PSEUDO_ELEMENT_BEFORE, value, sizeof(value)));
+    EXPECT_STREQ(value, "content-box");
 }
 
 TEST_F(DynamicLayoutTest, NestedColumnIntrinsicHeightRetainsInlineForcedBreaks) {
@@ -2582,6 +2753,20 @@ TEST_F(DynamicLayoutTest, InheritedAxisSizesKeepComputedPercentagesAndLengths) {
     EXPECT_NEAR(element("heightparent")->height, 180.0f, 0.1f);
     EXPECT_NEAR(element("heightchild")->height, 60.0f, 0.1f);
     EXPECT_NEAR(element("heightgrandchild")->height, 10.0f, 0.1f);
+}
+
+TEST_F(DynamicLayoutTest, GridMeasuresFlexItemBeforeAssigningRowHeight) {
+    load("<!doctype html><style>body{margin:0}"
+         ".grid{display:grid;grid-template-columns:200px}"
+         ".tile{display:flex;flex-direction:column;border:1px solid;overflow:hidden}"
+         ".part{height:80px;flex:none}</style>"
+         "<div class='grid' id='auto'><div class='tile' id='tile'>"
+         "<div class='part'></div><div class='part'></div></div></div>"
+         "<div class='grid' style='grid-template-rows:100px'><div class='tile' id='fixed'>"
+         "<div class='part'></div><div class='part'></div></div></div>");
+    EXPECT_NEAR(element("auto")->height, 162.0f, 0.1f);
+    EXPECT_NEAR(element("tile")->height, 162.0f, 0.1f);
+    EXPECT_NEAR(element("fixed")->height, 100.0f, 0.1f);
 }
 
 TEST_F(DynamicLayoutTest, SvgPercentageViewportDimensionsDoNotInflateIntrinsicRows) {

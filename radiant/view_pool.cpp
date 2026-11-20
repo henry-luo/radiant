@@ -202,11 +202,21 @@ DEFINE_VIEW_PROP_ACCESSORS(blk)
 DEFINE_VIEW_PROP_ACCESSORS(scroller)
 DEFINE_VIEW_PROP_ACCESSORS(embed)
 DEFINE_VIEW_PROP_ACCESSORS(position)
-DEFINE_VIEW_PROP_ACCESSORS(transform)
-DEFINE_VIEW_PROP_ACCESSORS(pseudo)
 DEFINE_VIEW_PROP_ACCESSORS(layout_cache)
 
 #undef DEFINE_VIEW_PROP_ACCESSORS
+
+#define DEFINE_DIRECTORY_PROP_ACCESSORS(field) \
+static void* view_prop_get_##field(DomElement* elem) { \
+    return elem ? elem->field##_prop() : nullptr; \
+} \
+static void view_prop_clear_##field(DomElement* elem, ViewTree*) { \
+    if (elem && elem->prop_ext) elem->prop_ext->field = nullptr; \
+}
+
+DEFINE_DIRECTORY_PROP_ACCESSORS(transform)
+DEFINE_DIRECTORY_PROP_ACCESSORS(pseudo)
+#undef DEFINE_DIRECTORY_PROP_ACCESSORS
 
 static void* view_prop_get_filter(DomElement* elem) {
     return elem ? (void*)elem->filter_prop() : nullptr;
@@ -259,10 +269,18 @@ static void release_element_font_prop(DomElement* elem, ViewTree*) {
     release_font_prop(elem ? elem->font : nullptr);
 }
 
+void release_block_prop_groups(BlockProp* block, Pool* pool) {
+    if (!block || !pool) return;
+    // container names and the cold property groups have the same pool as the block.
+    if (block->containment_props) {
+        css_value_destroy_owned(block->containment_props->container_names, pool);
+        lam::free_owned(pool, block->containment_props);
+    }
+    lam::free_owned(pool, block->ext);
+}
+
 static void free_block_container_payload(DomElement* elem, ViewTree* tree) {
-    if (!elem || !elem->blk || !tree || !tree->prop_pool) return;
-    css_value_destroy_owned(elem->blk->container_names, tree->prop_pool);
-    elem->blk->container_names = nullptr;
+    if (elem && tree) release_block_prop_groups(elem->blk, tree->prop_pool);
 }
 
 static void free_element_font_payload(DomElement* elem, ViewTree* tree) {
@@ -340,11 +358,17 @@ static void free_boundary_payload(DomElement* elem, ViewTree* tree) {
 }
 
 void view_release_transform_functions(DomElement* elem, ViewTree* tree) {
-    if (!elem || !elem->transform) return;
-    if (elem->transform->functions_owner == TRANSFORM_FUNCTIONS_DOCUMENT_POOL) return;
+    if (!elem || !elem->transform_prop()) return;
+    if (elem->transform_prop()->functions_owner == TRANSFORM_FUNCTIONS_DOCUMENT_POOL) return;
     if (!tree || !tree->prop_pool) return;
-    radiant::destroy_transform_list(tree->prop_pool, elem->transform->functions);
-    elem->transform->functions = nullptr;
+    radiant::destroy_transform_list(tree->prop_pool, elem->transform_prop()->functions);
+    elem->transform_prop()->functions = nullptr;
+}
+
+static void free_transform_payload(DomElement* elem, ViewTree* tree) {
+    if (!elem || !elem->transform_prop()) return;
+    view_release_transform_functions(elem, tree);
+    release_individual_transform(elem->transform_prop(), tree ? tree->prop_pool.get() : nullptr);
 }
 
 static void free_filter_chain(ViewTree* tree, FilterProp* filter) {
@@ -473,34 +497,31 @@ static void reset_embed_prop(DomElement* elem, ViewTree* tree) {
 static void free_scroll_payload(DomElement* elem, ViewTree* tree) {
     if (!elem || !elem->scroller) return;
     view_pool_free(tree, elem->scroller->pane);
+    release_scroll_snap(elem->scroller, tree ? tree->prop_pool.get() : nullptr);
 }
 
-static void release_form_prop_fonts(DomElement* elem, ViewTree*) {
-    if (!elem || !elem->form) {
-        return;
-    }
+void release_scroll_snap(ScrollProp* scroll, Pool* pool) {
+    if (pool) lam::free_owned(pool, scroll->snap);
+}
 
-    FormControlProp* form = elem->form;
-    if (form->placeholder_font) {
-        font_prop_release_handle(form->placeholder_font);
-        form->placeholder_font = nullptr;
-    }
-    if (form->file_button_font) {
-        font_prop_release_handle(form->file_button_font);
-        form->file_button_font = nullptr;
-    }
+static void release_form_prop_paint(DomElement* elem, ViewTree* tree) {
+    if (!elem || !elem->form_storage()) return;
+    FormControlProp* form = elem->form_storage();
+    Pool* pool = tree ? tree->prop_pool.get() : nullptr;
+    release_form_placeholder(form, pool);
+    release_form_file_button(form, pool);
 }
 
 static void release_form_prop(DomElement* elem, ViewTree* tree) {
-    release_form_prop_fonts(elem, tree);
-    if (!elem || !elem->form) return;
-    FormControlProp* form = elem->form;
+    release_form_prop_paint(elem, tree);
+    if (!elem || !elem->form_storage()) return;
+    FormControlProp* form = elem->form_storage();
     form_control_prop_release(elem, form);
     // a heap form prop (heap_allocated) is the one view slot whose storage is
     // not the view tree's pool; the release hands it over here
     if (form->heap_allocated) {
-        lam::Temp<FormControlProp> heap_form((FormControlProp*)elem->form);
-        elem->form = nullptr;
+        lam::Temp<FormControlProp> heap_form((FormControlProp*)elem->form_storage());
+        elem->prop_ext->form = nullptr;
     }
 }
 
@@ -508,9 +529,11 @@ static void clear_item_prop(DomElement* elem, ViewTree*) {
     if (!elem) return;
     elem->fi = nullptr;
     elem->gi = nullptr;
-    elem->tb = nullptr;
     elem->td = nullptr;
-    elem->form = nullptr;
+    if (elem->prop_ext) {
+        elem->prop_ext->tb = nullptr;
+        elem->prop_ext->form = nullptr;
+    }
     elem->set_parent_item_kind(DomElement::PARENT_ITEM_NONE);
     elem->set_role_kind(DomElement::ROLE_NONE);
 }
@@ -547,20 +570,23 @@ void layout_set_parent_item_kind(LayoutContext* lycon, DomElement* elem,
 static void free_item_prop_storage(DomElement* elem, ViewTree* tree, bool preserve_form) {
     if (!elem) return;
     free_parent_item_prop_storage(elem, tree);
-    view_pool_free(tree, elem->tb);
+    if (elem->prop_ext) {
+        view_pool_free(tree, elem->prop_ext->tb);
+        elem->prop_ext->tb = nullptr;
+    }
     view_pool_free(tree, elem->td);
     // script-created form state survives restyling; full teardown releases
     // its heap storage through release_form_prop before clearing this slot.
     if (!preserve_form) {
-        if (elem->form && !elem->form->heap_allocated) view_pool_free(tree, elem->form);
-        elem->form = nullptr;
+        if (elem->form_storage() && !elem->form_storage()->heap_allocated)
+            view_pool_free(tree, elem->prop_ext->form);
+        if (elem->prop_ext) elem->prop_ext->form = nullptr;
     }
     elem->fi = nullptr;
     elem->gi = nullptr;
-    elem->tb = nullptr;
     elem->td = nullptr;
     elem->set_parent_item_kind(DomElement::PARENT_ITEM_NONE);
-    elem->set_role_kind(elem->form ? DomElement::ROLE_FORM : DomElement::ROLE_NONE);
+    elem->set_role_kind(elem->form_storage() ? DomElement::ROLE_FORM : DomElement::ROLE_NONE);
 }
 
 static void free_item_prop(DomElement* elem, ViewTree* tree) {
@@ -644,14 +670,18 @@ static void view_prop_free_##name(DomElement* elem, ViewTree* tree) { \
 static void view_prop_free_##name(DomElement* elem, ViewTree* tree) { \
     if (elem && elem->ext) view_pool_free(tree, elem->ext->field); \
 }
+#define DEFINE_DIRECTORY_PROP_FREE(field) \
+static void view_prop_free_##field(DomElement* elem, ViewTree* tree) { \
+    if (elem && elem->prop_ext) view_pool_free(tree, elem->prop_ext->field); \
+}
 DEFINE_VIEW_PROP_FREE(font, font)
 DEFINE_VIEW_PROP_FREE(bound, bound)
 DEFINE_VIEW_PROP_FREE(blk, blk)
 DEFINE_VIEW_PROP_FREE(scroller, scroller)
 DEFINE_VIEW_PROP_FREE(embed, embed)
 DEFINE_VIEW_PROP_FREE(position, position)
-DEFINE_VIEW_PROP_FREE(transform, transform)
-DEFINE_VIEW_PROP_FREE(pseudo, pseudo)
+DEFINE_DIRECTORY_PROP_FREE(transform)
+DEFINE_DIRECTORY_PROP_FREE(pseudo)
 DEFINE_VIEW_PROP_FREE(layout_cache, layout_cache)
 DEFINE_VIEW_EXT_PROP_FREE(filter, filter)
 DEFINE_VIEW_EXT_PROP_FREE(backdrop_filter, backdrop_filter)
@@ -660,6 +690,7 @@ DEFINE_VIEW_EXT_PROP_FREE(marker, marker)
 DEFINE_VIEW_EXT_PROP_FREE(vpath, vpath)
 #undef DEFINE_VIEW_PROP_FREE
 #undef DEFINE_VIEW_EXT_PROP_FREE
+#undef DEFINE_DIRECTORY_PROP_FREE
 
 static const ViewPropTeardownEntry VIEW_PROP_TEARDOWN[] = {
     { "font", release_element_font_prop, free_element_font_payload, view_prop_get_font, view_prop_clear_font, view_prop_free_font, nullptr, nullptr, &FONT_PROP_DEFAULT, sizeof(FontProp), nullptr },
@@ -670,12 +701,12 @@ static const ViewPropTeardownEntry VIEW_PROP_TEARDOWN[] = {
     { "scroll", nullptr, free_scroll_payload, view_prop_get_scroller, view_prop_clear_scroller, view_prop_free_scroller, nullptr, nullptr, &SCROLL_PROP_DEFAULT, sizeof(ScrollProp), nullptr },
     { "embed", release_embed_prop_entry, free_embed_payload, view_prop_get_embed, view_prop_clear_embed, view_prop_free_embed, nullptr, nullptr, &EMBED_PROP_DEFAULT, sizeof(EmbedProp), reset_embed_prop, release_embed_prop_for_reset },
     { "position", nullptr, nullptr, view_prop_get_position, view_prop_clear_position, view_prop_free_position, nullptr, nullptr, &POSITION_PROP_DEFAULT, sizeof(PositionProp), nullptr },
-    { "transform", nullptr, view_release_transform_functions, view_prop_get_transform, view_prop_clear_transform, view_prop_free_transform, nullptr, nullptr, &TRANSFORM_PROP_DEFAULT, sizeof(TransformProp), nullptr },
+    { "transform", nullptr, free_transform_payload, view_prop_get_transform, view_prop_clear_transform, view_prop_free_transform, nullptr, nullptr, &TRANSFORM_PROP_DEFAULT, sizeof(TransformProp), nullptr },
     { "filter", release_filter_external, free_filter_payload, view_prop_get_filter, view_prop_clear_filter, view_prop_free_filter, nullptr, nullptr, &FILTER_PROP_DEFAULT, sizeof(FilterProp), nullptr },
     { "backdrop-filter", release_backdrop_filter_external, free_backdrop_filter_payload, view_prop_get_backdrop_filter, view_prop_clear_backdrop_filter, view_prop_free_backdrop_filter, nullptr, nullptr, &FILTER_PROP_DEFAULT, sizeof(FilterProp), nullptr },
     { "multicol", nullptr, nullptr, view_prop_get_multicol, view_prop_clear_multicol, view_prop_free_multicol, nullptr, nullptr, &MULTICOL_PROP_DEFAULT, sizeof(MultiColumnProp), nullptr },
-    // retained restyles rebuild font caches without ending the control's live session.
-    { "form", release_form_prop, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, release_form_prop_fonts },
+    // retained restyles rebuild pseudo paint without ending the control's live session.
+    { "form", release_form_prop, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, release_form_prop_paint },
     { "item", nullptr, nullptr, nullptr, nullptr, nullptr, clear_item_prop, free_item_prop, nullptr, 0, reset_item_prop },
     { "pseudo", nullptr, nullptr, view_prop_get_pseudo, view_prop_clear_pseudo, view_prop_free_pseudo, nullptr, nullptr, &PSEUDO_CONTENT_PROP_DEFAULT, sizeof(PseudoContentProp), reset_pseudo_content_prop },
     { "vector-path", nullptr, free_vector_path_payload, view_prop_get_vpath, view_prop_clear_vpath, view_prop_free_vpath, nullptr, nullptr, &VECTOR_PATH_PROP_DEFAULT, sizeof(VectorPathProp), nullptr },
@@ -739,14 +770,14 @@ static const void* view_slot_value(const DomElement* elem, DomViewSlot slot) {
         case DomViewSlot::scroller:         return elem->scroller;
         case DomViewSlot::embed:            return elem->embed;
         case DomViewSlot::position:         return elem->position;
-        case DomViewSlot::transform:        return elem->transform;
-        case DomViewSlot::pseudo:           return elem->pseudo;
+        case DomViewSlot::transform:        return elem->transform_prop();
+        case DomViewSlot::pseudo:           return elem->pseudo_prop();
         case DomViewSlot::layout_cache:     return elem->layout_cache;
         case DomViewSlot::fi:               return elem->fi;
         case DomViewSlot::gi:               return elem->gi;
-        case DomViewSlot::tb:               return elem->tb;
+        case DomViewSlot::tb:               return elem->table_storage();
         case DomViewSlot::td:               return elem->td;
-        case DomViewSlot::form:             return elem->form;
+        case DomViewSlot::form:             return elem->form_storage();
         case DomViewSlot::multicol:         return ext ? (const void*)ext->multicol : nullptr;
         case DomViewSlot::vpath:            return ext ? (const void*)ext->vpath : nullptr;
         case DomViewSlot::filter:           return ext ? (const void*)ext->filter : nullptr;
@@ -857,6 +888,7 @@ static void view_teardown_apply_table(ViewTree* tree,
             }
         }
     }
+    if (elem->prop_ext && elem->prop_ext->empty()) elem->release_prop_ext();
 #ifndef NDEBUG
     // a pointer-clearing teardown leaves no element pointer into view-tree storage
     if ((flags & VIEW_TEARDOWN_CLEAR_POINTERS) && !(flags & VIEW_TEARDOWN_RESET_IN_PLACE)) {
@@ -921,7 +953,7 @@ static void view_teardown_visit_node(ViewTree* tree,
         DomNode* next = include_siblings ? node->next_sibling : nullptr;
         if (node->is_element()) {
             DomElement* elem = node->as_element();
-            PseudoContentProp* pseudo = elem->pseudo;
+            PseudoContentProp* pseudo = elem->pseudo_prop();
             DomNode* first_child = elem->first_child;
             view_teardown_visit_pseudo(tree, elem, pseudo, flags);
             // non-rendering fallback children can still own script-created
@@ -1052,7 +1084,7 @@ void reset_flex_item_prop_for_style(LayoutContext* lycon, ViewSpan* span) {
 void alloc_flex_item_prop(LayoutContext* lycon, ViewSpan* span) {
     log_debug("alloc_flex_item_prop: span=%p, parent_kind=%d, role_kind=%d, fi=%p, form=%p",
               span, span ? span->parent_item_kind() : -1, span ? span->role_kind() : -1,
-              span ? span->fi : nullptr, span ? span->form : nullptr);
+              span ? span->fi : nullptr, span ? span->form_storage() : nullptr);
     // Don't overwrite grid item properties - fi and gi share a union, so allocating
     // fi would destroy gi placement data. Flex properties (flex-grow, flex-shrink, etc.)
     // are irrelevant on grid items per CSS Grid spec.
@@ -1378,7 +1410,7 @@ bool view_is_viewport_fixed(View* view) {
     return block && root && block->position && block->positionp()->position == CSS_VALUE_FIXED &&
         find_containing_block(block, CSS_VALUE_FIXED) == root &&
         !radiant::transform_establishes_containing_block(root) &&
-        !(root->blk && root->block()->contain_positioning);
+        !(root->blk && root->block()->containment().contain_positioning);
 }
 
 RdtLogicalPoint view_geometry_positioned_scroll_adjustment(View* view) {
@@ -1540,7 +1572,7 @@ static bool get_transform_matrix_for_view(View* view, RdtMatrix* out_matrix, Vie
     if (!view || !view->is_block()) return false;
 
     ViewBlock* block = lam::view_require_block(view);
-    if (!transform_has_functions(block->transform)) return false;
+    if (!transform_has_functions(block->transform_prop())) return false;
 
     float abs_x = 0.0f, abs_y = 0.0f;
     view_get_layout_position(view, nullptr, &abs_x, &abs_y, boundary);
@@ -1598,10 +1630,12 @@ static bool transform_function_is_3d(TransformFunctionType type) {
 
 static bool view_has_3d_transform(View* view) {
     if (!view || !view->is_block()) return false;
-    const TransformProp* transform = lam::view_require_block(view)->transform;
+    const TransformProp* transform = lam::view_require_block(view)->transform_prop();
     if (!transform_has_functions(transform)) return false;
-    for (const TransformFunction& function : transform->individual) {
-        if (transform_function_is_3d(function.type)) return true;
+    if (transform->individual) {
+        for (const TransformFunction& function : transform->individual->values) {
+            if (transform_function_is_3d(function.type)) return true;
+        }
     }
     for (TransformFunction* function = transform->functions; function; function = function->next) {
         if (transform_function_is_3d(function->type)) return true;
@@ -1623,7 +1657,7 @@ RdtMatrix4 view_accumulated_transform_3d(View* view, bool context_only) {
          current = layout_render_parent(current), depth++) {
         if (!current->is_block()) continue;
         ViewBlock* block = lam::view_require_block(current);
-        const TransformProp* transform = block->transform;
+        const TransformProp* transform = block->transform_prop();
 
         if (depth > 0) {
             float parent_x = 0.0f;
@@ -1707,7 +1741,7 @@ bool view_backface_is_hidden(View* view, BackfaceCheck check) {
     bool independent_plane = false;
     for (View* current = view; current; current = layout_render_parent(current)) {
         if (!current->is_block()) continue;
-        const TransformProp* transform = lam::view_require_block(current)->transform;
+        const TransformProp* transform = lam::view_require_block(current)->transform_prop();
         if (transform && transform->backface_visibility == CSS_VALUE_HIDDEN) {
             RdtMatrix4 accumulated = view_accumulated_transform_3d(current, true);
             if (rdt_matrix4_backface_visible(&accumulated)) {

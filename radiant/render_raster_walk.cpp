@@ -118,7 +118,7 @@ static void render_raster_dispatch_block(RasterRenderContext* rdcon, ViewBlock* 
     else if (block->embed && block->embedp()->doc) {
         render_embed_doc(rdcon, block);
     }
-    else if (block->blk && block->block_mut()->list_style_type) {
+    else if (block->blk && block->block()->extras().list_style_type) {
         render_list_view(rdcon, block);
     }
     else {

@@ -826,6 +826,7 @@ bool layout_can_retain_geometry(LayoutContext* lycon, bool scalar_query = false)
 bool layout_boundary_consumed_by_flow(DomElement* element);
 void dom_node_resolve_style(DomNode* node, LayoutContext* context);
 ViewType layout_view_type_for_display(DisplayValue display, bool blockified = false);
+void release_block_prop_groups(BlockProp* block, Pool* pool);
 void layout_reset_boundary_flow_state(BoundaryProp* boundary);
 void layout_reset_position_style(LayoutContext* context, ViewSpan* view);
 
@@ -1126,7 +1127,7 @@ inline BoxEdges layout_boundary_border_edges(const BoundaryProp* bound) {
 // when the block does not clip its content.
 inline bool layout_block_clips_overflow_axis(const ViewBlock* block, bool horizontal) {
     if (!block) return false;
-    if (block->blk && block->block()->contain_paint) return true;
+    if (block->blk && block->block()->containment().contain_paint) return true;
     if (view_body_overflow_is_propagated(block)) return false;
     if (!block->scroller || !block->scroll()->has_clip) return false;
     return (horizontal ? block->scroll()->overflow_x : block->scroll()->overflow_y)
@@ -1135,7 +1136,7 @@ inline bool layout_block_clips_overflow_axis(const ViewBlock* block, bool horizo
 
 inline bool layout_block_overflow_clip(const ViewBlock* block, Bound* out) {
     if (!block) return false;
-    bool paint_containment = block->blk && block->block()->contain_paint;
+    bool paint_containment = block->blk && block->block()->containment().contain_paint;
     if (!paint_containment && view_body_overflow_is_propagated(block)) return false;
     if (!paint_containment && (!block->scroller || !block->scroll()->has_clip)) return false;
     BoxEdges border = layout_boundary_border_edges(
@@ -1815,10 +1816,10 @@ bool layout_inline_context_has_explicit_baseline_source(
 // Select their baseline set directly so explicit baseline-source does not fall
 // back to the generic replaced-element border-edge baseline.
 inline float layout_form_control_baseline_for_source(const ViewBlock* block) {
-    if (!block || !block->form) return 0.0f;
+    if (!block || !block->form_storage()) return 0.0f;
     return layout_select_cached_baseline(
-        block, block->form->first_text_baseline,
-        block->form->last_text_baseline, true, 0.0f);
+        block, block->form_storage()->first_text_baseline,
+        block->form_storage()->last_text_baseline, true, 0.0f);
 }
 
 float compute_font_baseline_ascender(
@@ -3255,14 +3256,14 @@ typedef struct LayoutAxisRefs {
         else item->fi->has_explicit_height = value;
     }
     float form_size() const {
-        return item && item->form
-            ? (horizontal() ? item->form->intrinsic_width : item->form->intrinsic_height)
+        return item && item->form_storage()
+            ? (horizontal() ? item->form_storage()->intrinsic_width : item->form_storage()->intrinsic_height)
             : 0.0f;
     }
     void set_form_size(float value) const {
-        if (!item || !item->form) return;
-        if (horizontal()) item->form->intrinsic_width = value;
-        else item->form->intrinsic_height = value;
+        if (!item || !item->form_storage()) return;
+        if (horizontal()) item->form_storage()->intrinsic_width = value;
+        else item->form_storage()->intrinsic_height = value;
     }
     bool has_start() const { return insets.start.has && *insets.start.has; }
     bool has_end() const { return insets.end.has && *insets.end.has; }
@@ -4773,7 +4774,7 @@ void layout_set_parent_item_kind(LayoutContext* lycon, DomElement* elem,
                                   DomElement::ParentItemKind kind);
 void alloc_grid_prop(LayoutContext* lycon, ViewBlock* block);
 GridItemProp* alloc_grid_item_prop(LayoutContext* lycon, ViewSpan* span);
-PseudoContentProp* alloc_pseudo_content_prop(LayoutContext* lycon, ViewBlock* block);
+void layout_materialize_before_after(LayoutContext* lycon, ViewBlock* block);
 // Shared computed-property allocation keeps CSS and HTML hint resolution on
 // one boundary ownership path; divergent lazy allocation leaves partially
 // initialized styles that later layout passes interpret differently.

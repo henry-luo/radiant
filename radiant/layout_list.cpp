@@ -259,8 +259,8 @@ void setup_list_container_counters(LayoutContext* lycon, ViewBlock* block, DomEl
     // enabling counters(list-item, ".") to show nested numbering (e.g., "1.2.3").
     // Only skip if explicit counter-reset already includes "list-item".
     bool explicit_has_list_item = false;
-    if (block->blk && block->block_mut()->counter_reset) {
-        explicit_has_list_item = strstr(block->block()->counter_reset, "list-item") != nullptr;
+    if (block->blk && block->block()->extras().counter_reset) {
+        explicit_has_list_item = strstr(block->block()->extras().counter_reset, "list-item") != nullptr;
     }
     if (explicit_has_list_item) return;
     // Check <ol start="N"> attribute: resets to N-1 so first li increments to N
@@ -608,8 +608,8 @@ void layout_apply_list_item_counter(LayoutContext* lycon, ViewBlock* block,
         }
     }
     // CSS Lists 3 §4.5: implicit increments precede counter-set and the HTML value hint.
-    bool explicit_list_item_inc = (block->blk && block->block_mut()->counter_increment &&
-                                   strstr(block->block()->counter_increment, "list-item") != nullptr);
+    bool explicit_list_item_inc = (block->blk && block->block()->extras().counter_increment &&
+                                   strstr(block->block()->extras().counter_increment, "list-item") != nullptr);
     if (!explicit_list_item_inc) {
         counter_increment(lycon->counter_context, parent_reversed ? "list-item -1" : "list-item 1");
     }
@@ -635,11 +635,11 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
     // CSS 2.1 Section 12.5.1: Initial value is 'outside'
     bool is_outside_position = !is_inline_list_item;  // Default is outside, but inside for inline
     CssEnum list_style_position = block->blk
-        ? block->block()->list_style_position : (CssEnum)0;
+        ? block->block()->extras().list_style_position : (CssEnum)0;
     for (DomElement* ancestor = dom_elem ? dom_elem->parent_element() : nullptr;
          list_style_position == 0 && ancestor;
          ancestor = ancestor->parent_element()) {
-        if (ancestor->blk) list_style_position = ancestor->block()->list_style_position;
+        if (ancestor->blk) list_style_position = ancestor->block()->extras().list_style_position;
     }
     if (list_style_position != 0) {
         if (list_style_position == 1) {
@@ -650,14 +650,14 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
     }
     // Generate list marker if list-style-type is not 'none'
     // CSS 2.1 §12.5: list-style-type is inherited. Check element first, then parent.
-    CssEnum effective_list_style = block->blk ? block->block()->list_style_type : (CssEnum)0;
+    CssEnum effective_list_style = block->blk ? block->block()->extras().list_style_type : (CssEnum)0;
     if (effective_list_style == 0) {
         // CSS Lists 3 §4.1: list-style-type inherits through every inline
         // ancestor, so an intervening span must not hide its ordered-list value.
         for (DomElement* ancestor = dom_elem->parent_element(); ancestor;
              ancestor = ancestor->parent_element()) {
-            if (ancestor->blk && ancestor->block()->list_style_type != 0) {
-                effective_list_style = ancestor->block()->list_style_type;
+            if (ancestor->blk && ancestor->block()->extras().list_style_type != 0) {
+                effective_list_style = ancestor->block()->extras().list_style_type;
                 break;
             }
         }
@@ -666,13 +666,13 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
         }
     }
     // CSS Lists 3 §4.1: check for string marker value
-    const char* string_marker = (block->blk) ? block->block()->list_style_type_string : nullptr;
-    const ListStyleImage* image = block->blk ? &block->block()->list_style_image : nullptr;
+    const char* string_marker = (block->blk) ? block->block()->extras().list_style_type_string : nullptr;
+    const ListStyleImage* image = block->blk ? &block->block()->extras().list_style_image : nullptr;
     // unset values inherit through ancestors; an explicit none terminates the search.
     for (DomElement* ancestor = dom_elem->parent_element();
          (!image || (!image->url && image->gradient_type == GRADIENT_NONE)) && ancestor;
          ancestor = ancestor->parent_element()) {
-        if (ancestor->blk) image = &ancestor->block()->list_style_image;
+        if (ancestor->blk) image = &ancestor->block()->extras().list_style_image;
     }
     bool has_image = !list_style_image_is_none(image) &&
         (image->gradient_type != GRADIENT_NONE ||
@@ -702,8 +702,8 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
     }
 
     if (!has_marker) {
-        if (block->pseudo && block->pseudo->marker && block->pseudo->marker->marker_prop())
-            block->pseudo->marker->marker_prop()->suppressed = true;
+        if (block->pseudo_prop() && block->pseudo_prop()->marker && block->pseudo_prop()->marker->marker_prop())
+            block->pseudo_prop()->marker->marker_prop()->suppressed = true;
         return;
     }
 
@@ -717,10 +717,7 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
                             marker_style == CSS_VALUE_DISCLOSURE_CLOSED ||
                             marker_style == CSS_VALUE_DISCLOSURE_OPEN);
 
-    if (!block->pseudo) {
-        block->pseudo = lam::view_prop((PseudoContentProp*)alloc_prop(lycon, sizeof(PseudoContentProp)));
-        memset(block->pseudo, 0, sizeof(PseudoContentProp));
-    }
+    if (!block->ensure_pseudo(lycon)) return;
 
     float marker_font_size = 16.0f;
     if (block->font && block->fontp()->font_size > 0.0f) {
@@ -729,8 +726,8 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
     float effective_zoom = layout_effective_zoom((View*)block);
     if (block->font) block->font->used_zoom = effective_zoom;
     DomElement* parent_elem = lam::dom_require<DOM_NODE_ELEMENT>(elmt);
-    DomElement* current_marker = block->pseudo->marker_generated
-        ? block->pseudo->marker : nullptr;
+    DomElement* current_marker = block->pseudo_prop()->marker_generated
+        ? block->pseudo_prop()->marker : nullptr;
     // retained markers already own their font, so the transient owner must start empty.
     lam::Own<FontProp> fresh_font = nullptr;
     if (!current_marker || !current_marker->font) {
@@ -752,11 +749,11 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
         image_gap = effective_zoom > 0.0f
             ? space.width / effective_zoom : space.width;
     }
-    if (block->pseudo->marker_generated && block->pseudo->marker &&
-        block->pseudo->marker->marker_prop()) {
+    if (block->pseudo_prop()->marker_generated && block->pseudo_prop()->marker &&
+        block->pseudo_prop()->marker->marker_prop()) {
         // Retained marker boxes outlive style-only reflows, so refresh inherited
         // placement instead of leaving the marker in its pre-mutation mode.
-        MarkerProp* marker_prop = block->pseudo->marker->marker_prop();
+        MarkerProp* marker_prop = block->pseudo_prop()->marker->marker_prop();
         marker_prop->suppressed = false;
         marker_prop->marker_type = marker_style;
         marker_prop->has_explicit_content = marker_css_content != nullptr;
@@ -768,7 +765,7 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
             is_string_marker, string_marker, marker_css_content, marker_font_handle);
     }
 
-    if (!block->pseudo->marker_generated) {
+    if (!block->pseudo_prop()->marker_generated) {
         DomElement* marker_elem = create_marker_element(
             lycon, parent_elem, marker_style, marker_font_size,
             image_default_size, image_gap, effective_zoom,
@@ -779,8 +776,8 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
         if (marker_elem) {
             marker_elem->font = lam::view_prop(marker_font_prop);
             fresh_font = nullptr;
-            block->pseudo->marker = lam::up(marker_elem);
-            block->pseudo->marker_generated = true;
+            block->pseudo_prop()->marker = lam::up(marker_elem);
+            block->pseudo_prop()->marker_generated = true;
             MarkerProp* marker_prop = marker_elem->marker_prop();
             if (marker_prop && !is_outside_position &&
                 marker_prop->trailing_space_width > 0.0f &&
@@ -795,15 +792,15 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
     if (current_marker && !current_marker->font) {
         current_marker->font = lam::view_prop(marker_font_prop);
         fresh_font = nullptr;
-    } else if (!block->pseudo->marker && fresh_font) {
+    } else if (!block->pseudo_prop()->marker && fresh_font) {
         // A failed generated-node allocation must release its transient font.
         font_prop_release_handle(fresh_font);
         lam::free_owned(lycon->doc->view_tree->prop_pool, fresh_font);
         marker_font_prop = nullptr;
     }
     // the marker's MarkerProp lives in its own field, not in blk
-    MarkerProp* marker_prop = block->pseudo->marker
-        ? block->pseudo->marker->marker_prop() : nullptr;
+    MarkerProp* marker_prop = block->pseudo_prop()->marker
+        ? block->pseudo_prop()->marker->marker_prop() : nullptr;
     if (marker_prop) {
         sync_marker_line_height(lycon, block, marker_prop, marker_font_size, marker_font_handle);
         marker_prop->has_color = resolve_pseudo_color(lycon,
@@ -830,15 +827,15 @@ bool LayoutCounterScope::enter(LayoutContext* lycon, ViewSpan* span,
     } else {
         setup_list_container_counters(lycon, block, element);
         if (span->blk) {
-            if (span->block()->counter_reset) {
-                counter_reset(context, span->block()->counter_reset);
+            if (span->block()->extras().counter_reset) {
+                counter_reset(context, span->block()->extras().counter_reset);
                 compute_reversed_counter_initial(lycon, element);
             }
-            if (span->block()->counter_increment) counter_increment(context, span->block()->counter_increment);
+            if (span->block()->extras().counter_increment) counter_increment(context, span->block()->extras().counter_increment);
         }
         if (list_item) layout_apply_list_item_counter(lycon, block, element);
         // author counter-set overrides the HTML value presentational hint.
-        if (span->blk && span->block()->counter_set) counter_set(context, span->block()->counter_set);
+        if (span->blk && span->block()->extras().counter_set) counter_set(context, span->block()->extras().counter_set);
         // named strings and target counters take the element's own operations
         if (lycon->paged && element) paged_element_enter(lycon, element);
     }

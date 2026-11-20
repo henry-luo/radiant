@@ -1308,8 +1308,8 @@ TEST_F(DomNodeBaseTest, ResolvedMarkNamespacesRetainDomQualifiedAttributeAccess)
     doc->xml_document = true;
     test_input->ui_mode = true;  // view copies isolate DOM mutations under D5.5.3.
     MarkBuilder builder(test_input);
-    Target* svg = namespace_target(pool, "http://www.w3.org/2000/svg", "s", ':');
-    Target* link = namespace_target(pool, "http://www.w3.org/1999/xlink", "xlink", ':');
+    Target* svg = namespace_target(pool, test_input->name_pool, "http://www.w3.org/2000/svg", "s", ':');
+    Target* link = namespace_target(pool, test_input->name_pool, "http://www.w3.org/1999/xlink", "xlink", ':');
     ASSERT_NE(svg, nullptr); ASSERT_NE(link, nullptr);
     Item value = builder.element("use").namespace_tag(svg)
         .attr(link, "href", builder.createStringItem("#target"))

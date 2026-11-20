@@ -4,6 +4,31 @@
 #include <math.h>
 #include <string.h>
 
+static BlockContainmentProp make_block_containment_default() {
+    BlockContainmentProp value = {};
+    value.contain_intrinsic_width = value.contain_intrinsic_height = -1.0f;
+    value.contain_intrinsic_width_auto = value.contain_intrinsic_height_auto = false;
+    value.content_visibility = CSS_VALUE_VISIBLE;
+    value.contain_size = value.contain_inline_size = value.contain_positioning = value.contain_paint =
+        value.content_visibility_skipped = false;
+    return value;
+}
+
+extern const BlockContainmentProp BLOCK_CONTAINMENT_DEFAULT = make_block_containment_default();
+
+static BlockPropExt make_block_extras_default() {
+    BlockPropExt value = {};
+    value.break_before = CSS_VALUE_AUTO;
+    value.break_after = CSS_VALUE_AUTO;
+    value.break_inside = CSS_VALUE_AUTO;
+    value.orphans = 2;
+    value.widows = 2;
+    value.box_decoration_break = CSS_VALUE_SLICE;
+    return value;
+}
+
+extern const BlockPropExt BLOCK_EXTRAS_DEFAULT = make_block_extras_default();
+
 static BlockProp make_block_prop_default() {
     BlockProp value = {};
     value.text_align = CSS_VALUE_START;
@@ -20,11 +45,6 @@ static BlockProp make_block_prop_default() {
     value.text_spacing_trim = CSS_VALUE_NORMAL;
     value.text_autospace = TEXT_AUTOSPACE_NORMAL;
     value.text_autospace_is_set = false;
-    value.break_before = CSS_VALUE_AUTO;
-    value.break_after = CSS_VALUE_AUTO;
-    value.break_inside = CSS_VALUE_AUTO;
-    value.orphans = 2;
-    value.widows = 2;
     value.tab_size = 8;
     value.tab_size_length = -1.0f;
     value.given_min_width = value.given_max_width = -1.0f;
@@ -32,7 +52,6 @@ static BlockProp make_block_prop_default() {
     value.given_min_width_type = value.given_min_height_type = CSS_VALUE_AUTO;
     value.given_max_width_type = value.given_max_height_type = CSS_VALUE_NONE;
     value.box_sizing = CSS_VALUE_CONTENT_BOX;
-    value.box_decoration_break = CSS_VALUE_SLICE;
     value.baseline_source = CSS_VALUE_AUTO;
     value.dominant_baseline = CSS_VALUE_AUTO;
     value.given_width = value.given_height = -1.0f;
@@ -41,11 +60,6 @@ static BlockProp make_block_prop_default() {
     value.given_width_fit_content_limit = value.given_height_fit_content_limit = -1.0f;
     value.given_width_fit_content_percent = value.given_height_fit_content_percent = NAN;
     value.given_width_percent = value.given_height_percent = NAN;
-    value.contain_intrinsic_width = value.contain_intrinsic_height = -1.0f;
-    value.contain_intrinsic_width_auto = value.contain_intrinsic_height_auto = false;
-    value.content_visibility = CSS_VALUE_VISIBLE;
-    value.contain_size = value.contain_inline_size = value.contain_positioning = value.contain_paint =
-        value.content_visibility_skipped = false;
     value.given_min_width_percent = value.given_max_width_percent = NAN;
     value.given_min_height_percent = value.given_max_height_percent = NAN;
     value.text_indent_percent = NAN;
@@ -93,7 +107,6 @@ static ScrollProp make_scroll_prop_default() {
     value.overscroll_x = value.overscroll_y = CSS_VALUE_AUTO;
     value.scroll_behavior = CSS_VALUE_AUTO;
     value.overflow_clip_box = CSS_VALUE_PADDING_BOX;
-    value.snap_align_block = value.snap_align_inline = CSS_VALUE_NONE;
     return value;
 }
 
@@ -161,6 +174,9 @@ extern const BoundaryProp BOUNDARY_PROP_DEFAULT = {};
 extern const FontProp FONT_PROP_DEFAULT = make_font_prop_default();
 extern const InlineProp INLINE_PROP_DEFAULT = make_inline_prop_default();
 extern const ScrollProp SCROLL_PROP_DEFAULT = make_scroll_prop_default();
+extern const ScrollSnapProp SCROLL_SNAP_DEFAULT = {
+    {}, {}, SCROLL_SNAP_AXIS_NONE, CSS_VALUE_NONE, CSS_VALUE_NONE, false, false
+};
 extern const PositionProp POSITION_PROP_DEFAULT = make_position_prop_default();
 extern const EmbedProp EMBED_PROP_DEFAULT = make_embed_prop_default();
 extern const TransformProp TRANSFORM_PROP_DEFAULT = make_transform_prop_default();
@@ -171,6 +187,9 @@ extern const GridItemProp GRID_ITEM_PROP_DEFAULT = make_grid_item_prop_default()
 extern const TableProp TABLE_PROP_DEFAULT = {};
 extern const TableCellProp TABLE_CELL_PROP_DEFAULT = {};
 extern const FormControlProp FORM_CONTROL_PROP_DEFAULT = {};
+extern const FormFileButtonProp FORM_FILE_BUTTON_DEFAULT = {
+    nullptr, {}, {}, Color{0xFF767676}, 1.0f, 6.0f, 6.0f, false, false, true
+};
 
 const BlockProp* DomElement::block() const { return blk ? blk : &BLOCK_PROP_DEFAULT; }
 const BoundaryProp* DomElement::boundary() const { return bound ? bound : &BOUNDARY_PROP_DEFAULT; }
@@ -179,7 +198,10 @@ const InlineProp* DomElement::inl() const { return in_line ? in_line : &INLINE_P
 const ScrollProp* DomElement::scroll() const { return scroller ? scroller : &SCROLL_PROP_DEFAULT; }
 const PositionProp* DomElement::positionp() const { return position ? position : &POSITION_PROP_DEFAULT; }
 const EmbedProp* DomElement::embedp() const { return embed ? embed : &EMBED_PROP_DEFAULT; }
-const TransformProp* DomElement::transformp() const { return transform ? transform : &TRANSFORM_PROP_DEFAULT; }
+const TransformProp* DomElement::transformp() const {
+    const TransformProp* value = transform_prop();
+    return value ? value : &TRANSFORM_PROP_DEFAULT;
+}
 const FilterProp* DomElement::filterp() const { return filter_prop() ? filter_prop() : &FILTER_PROP_DEFAULT; }
 BlockProp* DomElement::block_mut() { return blk; }
 BoundaryProp* DomElement::boundary_mut() { return bound; }
@@ -193,5 +215,5 @@ InlineProp* DomElement::inline_mut() {
 ScrollProp* DomElement::scroll_mut() { return scroller; }
 PositionProp* DomElement::position_mut() { return position; }
 EmbedProp* DomElement::embed_mut() { return embed; }
-TransformProp* DomElement::transform_mut() { return transform; }
+TransformProp* DomElement::transform_mut() { return transform_prop(); }
 FilterProp* DomElement::filter_mut() { return filter_prop(); }

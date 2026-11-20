@@ -104,7 +104,7 @@ Rect editing_geometry_text_control_content_box(ViewBlock* block) {
     // painting, hit testing and caret projection must use each side's resolved padding/border.
     BoxMetrics box = layout_box_metrics(block);
     if (!block->bound) {
-        float padding = form_control_is_textarea(block->form)
+        float padding = form_control_is_textarea(block->form_storage())
             ? FormDefaults::TEXTAREA_PADDING : FormDefaults::TEXT_PADDING_H;
         float inset = 1.0f + padding;
         return {inset, inset, max(0.0f, block->width - 2.0f * inset),
@@ -120,7 +120,7 @@ static EditingTextControlMetrics editing_geometry_text_control_metrics(
     metrics.content = editing_geometry_text_control_content_box(block);
     metrics.content_width = metrics.content.width;
     metrics.font_size = block->font ? block->fontp()->font_size
-        : (form_control_is_textarea(elem->form) ? 13.333f : 16.0f);
+        : (form_control_is_textarea(elem->form_storage()) ? 13.333f : 16.0f);
     return metrics;
 }
 
@@ -269,13 +269,13 @@ bool editing_geometry_surface_contains_target_range(
 
     if (editing_surface_is_text_control(surface)) {
         DomElement* elem = surface->owner;
-        if (!elem || !tc_is_text_control(elem) || !elem->form) return false;
+        if (!elem || !tc_is_text_control(elem) || !elem->form_storage()) return false;
         if (range->start.node != static_cast<DomNode*>(elem) ||
             range->end.node != static_cast<DomNode*>(elem)) {
             return false;
         }
         tc_ensure_init(elem);
-        uint32_t limit = elem->form->current_value_u16_len;
+        uint32_t limit = elem->form_storage()->current_value_u16_len;
         return range->start.offset <= limit && range->end.offset <= limit;
     }
 
@@ -306,14 +306,14 @@ bool editing_geometry_text_control_offset_for_point(UiContext* uicon,
                                                     uint32_t* out_offset) {
     if (!elem || !tc_is_text_control(elem) || !out_offset) return false;
     tc_ensure_init(elem);
-    if (!elem->form) return false;
+    if (!elem->form_storage()) return false;
 
     ViewBlock* block = lam::view_require_block(elem);
-    const char* value = elem->form->current_value
-        ? elem->form->current_value
-        : elem->form->value;
+    const char* value = elem->form_storage()->current_value
+        ? elem->form_storage()->current_value
+        : elem->form_storage()->value;
     uint32_t value_len = value
-        ? (elem->form->current_value ? elem->form->current_value_len
+        ? (elem->form_storage()->current_value ? elem->form_storage()->current_value_len
             : (uint32_t)strlen(value))
         : 0;
 
@@ -327,13 +327,13 @@ bool editing_geometry_text_control_offset_for_point(UiContext* uicon,
 
     EditingTextControlMetrics metrics = editing_geometry_text_control_metrics(elem, block);
     float content_w = metrics.content_width;
-    float rel_x = local_x - metrics.content.x + elem->form->scroll_x;
+    float rel_x = local_x - metrics.content.x + elem->form_storage()->scroll_x;
     if (rel_x < 0.0f) rel_x = 0.0f;
 
-    if (form_control_is_textarea(elem->form)) {
+    if (form_control_is_textarea(elem->form_storage())) {
         float font_size = block->font ? block->fontp()->font_size : 13.333f;
         float line_height = font_size * 1.4f;
-        float rel_y = local_y - metrics.content.y + elem->form->scroll_y;
+        float rel_y = local_y - metrics.content.y + elem->form_storage()->scroll_y;
         if (rel_y < 0.0f) rel_y = 0.0f;
         uint32_t line_start = 0, line_len = 0;
         editing_geometry_textarea_line_for_y(value, value_len, rel_y, line_height,
@@ -567,12 +567,12 @@ bool editing_geometry_text_control_caret_rect(UiContext* uicon,
                                               EditingCaretRect* out) {
     if (!out) return false;
     editing_caret_rect_clear(out);
-    if (!uicon || !elem || !tc_is_text_control(elem) || !elem->form) return false;
+    if (!uicon || !elem || !tc_is_text_control(elem) || !elem->form_storage()) return false;
 
     ViewBlock* block = lam::view_require_block(elem);
     tc_ensure_init(elem);
-    const char* value = elem->form->current_value ? elem->form->current_value : elem->form->value;
-    uint32_t value_len = elem->form->current_value_len;
+    const char* value = elem->form_storage()->current_value ? elem->form_storage()->current_value : elem->form_storage()->value;
+    uint32_t value_len = elem->form_storage()->current_value_len;
     if (offset > value_len) offset = value_len;
 
     EditingTextControlMetrics metrics = editing_geometry_text_control_metrics(elem, block);
@@ -582,7 +582,7 @@ bool editing_geometry_text_control_caret_rect(UiContext* uicon,
     float text_width = 0.0f;
     uint32_t line_start = 0;
     uint32_t line_len = value_len;
-    if (form_control_is_textarea(elem->form) && value) {
+    if (form_control_is_textarea(elem->form_storage()) && value) {
         uint32_t scan = 0;
         while (scan < offset) {
             if (value[scan] == '\n') line_start = scan + 1;
@@ -598,10 +598,10 @@ bool editing_geometry_text_control_caret_rect(UiContext* uicon,
     }
 
     float font_size = metrics.font_size;
-    float line_height = form_control_is_textarea(elem->form)
+    float line_height = form_control_is_textarea(elem->form_storage())
         ? font_size * 1.4f : font_size;
     float line_y = 0.0f;
-    if (form_control_is_textarea(elem->form) && value) {
+    if (form_control_is_textarea(elem->form_storage()) && value) {
         for (uint32_t i = 0; i < offset && i < value_len; i++) {
             if (value[i] == '\n') line_y += line_height;
         }
@@ -612,7 +612,7 @@ bool editing_geometry_text_control_caret_rect(UiContext* uicon,
     out->x = rtl_line ? content_x + content_w - text_width
                       : content_x + text_width;
     out->y = block->y + metrics.content.y + line_y;
-    if (elem->form->control_type == FORM_CONTROL_TEXT) {
+    if (elem->form_storage()->control_type == FORM_CONTROL_TEXT) {
         out->y = block->y + metrics.content.y + (metrics.content.height - font_size) / 2.0f;
     }
     out->width = 1.0f;
@@ -627,14 +627,14 @@ bool editing_geometry_text_control_for_each_selection_rect(UiContext* uicon,
                                                            uint32_t end_offset,
                                                            EditingGeometryRectCb cb,
                                                            void* userdata) {
-    if (!uicon || !elem || !tc_is_text_control(elem) || !elem->form || !cb) return false;
+    if (!uicon || !elem || !tc_is_text_control(elem) || !elem->form_storage() || !cb) return false;
     if (start_offset == end_offset) return true;
 
     ViewBlock* block = lam::view_require_block(elem);
     if (!block) return false;
     tc_ensure_init(elem);
-    const char* value = elem->form->current_value ? elem->form->current_value : elem->form->value;
-    uint32_t value_len = elem->form->current_value_len;
+    const char* value = elem->form_storage()->current_value ? elem->form_storage()->current_value : elem->form_storage()->value;
+    uint32_t value_len = elem->form_storage()->current_value_len;
     if (!value) value = "";
     if (start_offset > value_len) start_offset = value_len;
     if (end_offset > value_len) end_offset = value_len;
@@ -651,7 +651,7 @@ bool editing_geometry_text_control_for_each_selection_rect(UiContext* uicon,
     float content_w = metrics.content_width;
     float font_size = metrics.font_size;
 
-    if (elem->form->control_type != FORM_CONTROL_TEXTAREA) {
+    if (elem->form_storage()->control_type != FORM_CONTROL_TEXTAREA) {
         float start_w = 0.0f;
         float end_w = 0.0f;
         editing_geometry_text_metrics(uicon, block, value, start_offset, &start_w);
