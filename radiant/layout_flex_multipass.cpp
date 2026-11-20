@@ -52,6 +52,18 @@ static void flex_apply_auto_container_cross_extent(LayoutContext* lycon,
     container->height = total;
 }
 
+static void flex_prepare_auto_container_height(LayoutContext* lycon, ViewBlock* container,
+                                              int item_count) {
+    FlexContainerLayout* flex = lycon->flex_container;
+    if (!flex) return;
+    bool column_main_axis = !is_main_axis_horizontal(flex);
+    flex_apply_auto_container_cross_extent(lycon, container, flex, item_count, column_main_axis);
+    if (column_main_axis && item_count > 0 && flex->main_axis_size <= 0.0f &&
+        flex->wrap != WRAP_NOWRAP && layout_positive_max_axis_or(container, false, 0.0f) <= 0.0f) {
+        flex->main_axis_size = 1e9f;
+    }
+}
+
 static bool flex_container_has_only_direct_text_and_br(ViewBlock* flex_container) {
     if (!flex_container) return false;
 
@@ -867,16 +879,8 @@ void layout_flex_container_with_nested_content(LayoutContext* lycon, ViewBlock* 
         has_explicit_height = true;
     }
 
-    bool horizontal_flex = flex_layout && is_main_axis_horizontal(flex_layout);
-    if (flex_layout && !has_explicit_height) {
-        flex_apply_auto_container_cross_extent(
-            lycon, flex_container, flex_layout, item_count, !horizontal_flex);
-        if (!horizontal_flex && item_count > 0 &&
-            flex_layout->main_axis_size <= 0.0f &&
-            flex_layout->wrap != WRAP_NOWRAP &&
-            layout_positive_max_axis_or(flex_container, false, 0.0f) <= 0.0f) {
-            flex_layout->main_axis_size = 1e9f;
-        }
+    if (!has_explicit_height) {
+        flex_prepare_auto_container_height(lycon, flex_container, item_count);
     }
 
     bool has_explicit_width = layout_axis_has_given_size(flex_container, true);
@@ -2228,7 +2232,9 @@ float measure_flex_height_at_width(LayoutContext* lycon, ViewBlock* container, f
     alloc_flex_prop(lycon, container);
     {
         FlexLayoutScope flex_scope(lycon, container);
-        collect_and_prepare_flex_items(lycon, lycon->flex_container, container);
+        int item_count = collect_and_prepare_flex_items(lycon, lycon->flex_container, container);
+        // an auto column needs its natural main-axis budget before distributing free space.
+        flex_prepare_auto_container_height(lycon, container, item_count);
         // the sizing stages solve widths and cross sizes; final descendant
         // flow would repeat speculative layout and consume the traversal budget.
         layout_flex_container(lycon, container);

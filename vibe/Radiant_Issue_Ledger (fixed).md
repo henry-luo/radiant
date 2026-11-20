@@ -14,6 +14,32 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-164"></a>
+### RI-164 — Intrinsic measurement and inline flow regressions in the Radiant baseline
+
+**Fixed for the reported cases, 2026-11-20.** Native layout ownership follows
+**D9.1.1v4 / D9.1.3v2** and measurement storage follows **D5.5.1**.
+
+- Content-only width measurement now retains the box's min/max limits while
+  treating its preferred width as auto. The existing document test covers
+  horizontal and vertical writing modes, both box-sizing modes, and recascade.
+- Default baseline properties allocated during color inheritance had reset the
+  enclosing inline subtree's alignment. Inline collection and placement now
+  retain that context. The vertical forced-break test passes, and WPT
+  `boundary-shaping-006` recovers from 66.7% to 100% text match.
+- A nowrap span's max-content width can include text after a nested soft break.
+  The inline wrap check now reuses the text lookahead before moving that span.
+  The existing nowrap separator test passes on initial and retained layout.
+- The intrinsic flex probe now prepares an auto column's main-axis budget using
+  the same path as final layout. Direct forced-line metrics respect the clamp
+  count for block sizing. `css_text_clamp_intrinsic` passes all ten assertions,
+  including clamp mutation, removal and restoration.
+
+The configured Radiant baseline passes with 8,172 passed, 298 partial, 20
+skipped and zero failures. CSS Text accounts for 896 passes and 84 partial
+matches. Layout cast lint passes. Evidence is in Lambda
+`temp/radiant-test-regressions/baseline-desktop.log`.
+
 <a id="ri-161"></a>
 ### RI-161 — Text-clipped inline backgrounds paint at the block origin
 
@@ -396,6 +422,15 @@ request. Mean error falls10.73% to8.79%, changed area23.88% to19.56%. The page
 remains high for portrait/overlay placement and clipped navigation (RI-148).
 Automatic UA dark palettes/form themes are not implemented (RI-147); this
 qualification covers authored contextual colors. Evidence: Lambda round91.
+
+The computed inheritance pass also overwrote HTML colors already set for
+links, legacy `font` elements and open dialogs. Initial style resolution and
+recascade now share the local HTML color rule. Explicit CSS declarations can
+still override it. The SVG control verifies default link blue, an authored
+override, explicit inheritance, the legacy font hint and the dialog default.
+`PdfFileOutput.LambdaPdfOffsetsAndImageStreamsAreValidInBothTiers` matches the
+existing PDF references in the interpreter and JIT. Evidence is in Lambda's
+`temp/pdf-dom-regressions/`.
 
 <a id="ri-145"></a>
 ### RI-145 — Detached text replacement loses its allocation document

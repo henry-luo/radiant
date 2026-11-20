@@ -5534,7 +5534,8 @@ static void resolve_css_inherited_properties(DomElement* dom_elem,
                 continue;
             }
             if (prop_id == CSS_PROPERTY_COLOR) {
-                // descendants inherit the computed color, not the parent's contextual expression.
+                // a local HTML color takes precedence over implicit inheritance.
+                if (!existing && layout_apply_html_text_color(lycon, inheritance_span)) continue;
                 resolve_inline_color_property(lycon, inheritance_span, prop_id, nullptr);
                 continue;
             }

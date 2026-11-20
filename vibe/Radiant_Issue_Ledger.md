@@ -20,6 +20,18 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-165"></a>
+### RI-165 — Scalar flex-control measurement crashes while restoring counters
+
+**Open, 2026-11-20.** `RadiantDocumentTest.ScalarControlSizingPreservesContainingFlexContent`
+reproduces in isolation. An inline height probe in the nested flex control
+reaches `CounterCheckpoint::close()` and faults while restoring its state.
+The lifetime cause is unconfirmed. The same test exits with SIGSEGV before and
+after RI-164 using matching test objects. This case is outside the configured
+Radiant baseline and does not block the reported baseline repairs.
+Native ownership follows **D9.1.1v4 / D9.1.3v2** and scratch lifetime follows
+**D5.5.1**. Evidence is in Lambda `temp/radiant-test-regressions/`.
+
 <a id="ri-163"></a>
 ### RI-163 — Background image clocks begin after a snapshot's selected interval
 
@@ -666,11 +678,17 @@ See the [basis-contribution repair](<Radiant_Issue_Ledger (fixed).md#ri-092>).
 
 <a id="ri-091"></a>
 
-### RI-091 — FIXED
+### RI-091 — Reopened for the owner custom-layout test link
 
-The isolated custom-layout and retained display-list test hosts now resolve
-their service boundaries without importing conflicting production providers.
-See the [link trace and aggregate qualification](<Radiant_Issue_Ledger (fixed).md#ri-091>).
+`make -C radiant test-native LAMBDA_ROOT=..` fails to link
+`test_layout_custom_gtest` on macOS with 11 duplicate symbols from the
+isolated stubs and the production archive. Replacing the two changed style
+resolver objects with their `ef6cfe8` versions in a scratch archive produces
+the same 11 duplicates. The current archive-load chain remains unconfirmed.
+This blocks the owner native gate. The PDF link-color repair is independently
+qualified through the Lambda PDF tests. Native ownership follows D9.1.1v4
+and D9.1.3v2. Evidence is in Lambda's `temp/pdf-dom-regressions/radiant-native*.log`.
+[Earlier link trace and qualification](<Radiant_Issue_Ledger (fixed).md#ri-091>)
 
 <a id="ri-090"></a>
 

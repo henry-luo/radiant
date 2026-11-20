@@ -2167,6 +2167,9 @@ IntrinsicSizes layout_measure_text_intrinsic_lines(LayoutContext* lycon,
     }
     bool preserve_spaces = white_space_preserves_space_advance(options.white_space);
     bool preserve_newlines = preserve_spaces || options.white_space == CSS_VALUE_PRE_LINE;
+    int line_limit = metrics && options.line_box &&
+            !layout_block_inline_axis_is_vertical(options.line_box)
+        ? layout_line_clamp_count(options.line_box) : 0;
     const char* line_start = text;
     const char* text_end = text + length;
     bool first_line = true;
@@ -2215,7 +2218,9 @@ IntrinsicSizes layout_measure_text_intrinsic_lines(LayoutContext* lycon,
         if (vertical_text_extent && (line_length > 0 || newline)) {
             constrained_block_extent += (float)packing.line_count * options.vertical_line_advance;
         }
-        if (metrics && (line_length > 0 || newline)) {
+        // clamp the measured block extent while retaining every line's inline contribution.
+        if (metrics && (line_limit <= 0 || metrics->line_count < line_limit) &&
+                (line_length > 0 || newline)) {
             // an empty terminal segment has no line box; leading/intermediate forced lines do.
             if (options.line_box) {
                 LayoutTextLineMetrics line = layout_measure_text_line_metrics(lycon,
@@ -3751,7 +3756,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     if (!element) return sizes;
     uint32_t measurement_generation = lycon && lycon->doc && lycon->doc->view_tree
         ? lycon->doc->view_tree->measurement_cache_generation : 0;
-    // Content-only queries omit the element's own sizing constraints, so they
+    // content-only queries treat the element's preferred width as auto, so they
     // cannot reuse the normal intrinsic contribution for the same percentage basis.
     int intrinsic_basis = (content_only ? 2 : 0) +
         (intrinsic_percentage_width_is_indefinite(lycon, element) ? 1 : 0);
@@ -6597,7 +6602,8 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     } else if (width_is_inline_axis && min_width_keyword == CSS_VALUE_MAX_CONTENT) {
         min_border_box = max(min_border_box, intrinsic_max_width);
     }
-    if (!content_only && min_border_box >= 0.0f) {
+    // content-only makes the preferred width automatic while retaining the box's limits.
+    if (min_border_box >= 0.0f) {
         min_border_box = layout_floor_border_box_axis(view_for_minmax, min_border_box, true);
         sizes.min_content = max(sizes.min_content, min_border_box);
         sizes.max_content = max(sizes.max_content, min_border_box);
@@ -6622,7 +6628,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     } else if (width_is_inline_axis && max_width_keyword == CSS_VALUE_MAX_CONTENT) {
         max_border_box = intrinsic_max_width;
     }
-    if (!content_only && max_border_box >= 0.0f &&
+    if (max_border_box >= 0.0f &&
         (!view_for_minmax->blk || view_for_minmax->block()->given_max_width_type != CSS_VALUE_STRETCH) &&
         max_width_keyword != CSS_VALUE_FIT_CONTENT &&
         !(max_width_is_percentage && percentage_size_is_intrinsic_auto)) {
@@ -6649,7 +6655,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     sizes.max_content = max(sizes.max_content, sizes.min_content);
     CssEnum preferred_width_keyword = layout_intrinsic_preferred_size_keyword(
         view_for_minmax, true);
-    // content-only queries measure text and descendants, not this box's constraints.
+    // content-only queries ignore the box's preferred sizing keyword.
     if (!content_only && width_is_inline_axis && preferred_width_keyword == CSS_VALUE_MAX_CONTENT) {
         // A max-content preferred size raises the min-content contribution;
         // otherwise an auto-width parent can shrink below the specified size.

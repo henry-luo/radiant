@@ -2216,6 +2216,13 @@ LineFillStatus span_has_line_filled(LayoutContext* lycon, DomNode* span,
     return RDT_NOT_SURE;
 }
 
+bool layout_inline_span_has_break_before_overflow(LayoutContext* context, ViewSpan* span) {
+    // a descendant can resume wrapping, so max-content can overstate the first unbroken run.
+    LineFillProbe probe = {context->line.has_space};
+    float measured_width = 0.0f;
+    return span_has_line_filled(context, span, &probe, &measured_width) == RDT_LINE_NOT_FILLED;
+}
+
 void adjust_text_bounds(ViewText* text);
 
 extern void compute_span_bounding_box(ViewSpan* span, bool is_multi_line, struct FontHandle* fallback_fh);
