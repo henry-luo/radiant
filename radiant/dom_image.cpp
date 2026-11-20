@@ -2,6 +2,7 @@
 #include "layout.hpp"
 #include "radiant.hpp"
 #include "resource_observer.hpp"
+#include "network_integration.h"
 #include "lib/dom_image.h"
 #include "lambda/input/css/dom_element.hpp"
 #include "lambda/input/css/dom_lifecycle.hpp"
@@ -80,6 +81,8 @@ static bool image_source_pending(DomDocumentResourceData* data) {
 extern "C" bool dom_engine_set_image_source(DomElement* element,const char* name, bool* pending) {
     if (pending) *pending = false;
     if(!element||!element->doc||element->tag()!=MARKUP_NAME_IMG||!name) return false;
+    // image completion and explicit source writes share discovery's template boundary.
+    if (!radiant_document_resource_is_active(element)) return false;
     DomImageSource* source=image_source_for(element,true);if(!source) return false;
     source->pending = nullptr; mem_free(source->pending_url); source->pending_url = nullptr;
     mem_free(source->url); source->url = nullptr; source->generation++;
@@ -117,7 +120,8 @@ extern "C" bool dom_engine_set_image_source(DomElement* element,const char* name
     return image_source_complete(element, false);
 }
 extern "C" DomImageRequestInfo dom_engine_image_request_info(DomElement* element) {
-    if (!element || !element->doc || element->tag() != MARKUP_NAME_IMG) return {};
+    if (!element || !element->doc || element->tag() != MARKUP_NAME_IMG ||
+        !radiant_document_resource_is_active(element)) return {};
     DomImageSource* source = image_source_for(element, false);
     lam::Temp<char> selected(layout_resolve_replaced_image_source(element,
         (CssEngine*)element->doc->services.cached_css_engine));

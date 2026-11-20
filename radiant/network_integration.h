@@ -29,6 +29,9 @@ int radiant_init_network_support(DomDocument* doc,
                                   struct NetworkThreadPool* thread_pool,
                                   struct EnhancedFileCache* file_cache);
 
+// parser-backed HTML template descendants cannot start document resources.
+bool radiant_document_resource_is_active(DomNode* node);
+
 // Live top-level documents queue image bytes without blocking layout or paint.
 void radiant_request_live_image(DomDocument* doc, struct UiContext* ui, const char* source);
 void radiant_network_wake_platform(void* user_data);

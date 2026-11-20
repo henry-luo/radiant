@@ -114,8 +114,11 @@ bool radiant_stack_is_context(View* view) {
     if (radiant::transform_establishes_containing_block(element) ||
         (element->in_line && (element->inl()->isolation == CSS_VALUE_ISOLATE || element->inl()->opacity < 0.9995f ||
             (element->inl()->mix_blend_mode && element->inl()->mix_blend_mode != CSS_VALUE_NORMAL))) ||
-        element->filter_prop() || element->backdrop_filter_prop() ||
-        (element->bound && element->boundary()->mask)) return true;
+        render_filter_effective(element->filter_prop()) ||
+        render_filter_effective(element->backdrop_filter_prop()) ||
+        // retained effect storage alone is not a stacking context after a CSS-wide reset.
+        (element->bound && element->boundary()->mask &&
+            element->boundary()->mask->radial_gradient)) return true;
     ViewBlock* block = lam::view_as_block(view);
     return block && ((block->blk && block->block()->contain_positioning) || block->custom_layout_paint_prop());
 }

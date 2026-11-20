@@ -204,6 +204,9 @@ static CssDisplayKeywordResult css_display_keyword_result(CssEnum keyword,
                                                            bool is_replaced,
                                                            bool is_mathml) {
     static const CssDisplayKeywordSpec specs[] = {
+        // display is non-inherited: CSS-wide resets use inline, not the tag's UA default.
+        {CSS_VALUE_INITIAL, CSS_VALUE_INLINE, CSS_VALUE_FLOW, true, true, false},
+        {CSS_VALUE_UNSET, CSS_VALUE_INLINE, CSS_VALUE_FLOW, true, true, false},
         {CSS_VALUE_FLEX, CSS_VALUE_BLOCK, CSS_VALUE_FLEX, false, false, false},
         {CSS_VALUE_INLINE_FLEX, CSS_VALUE_INLINE_BLOCK, CSS_VALUE_FLEX, false, false, false},
         {CSS_VALUE_GRID, CSS_VALUE_BLOCK, CSS_VALUE_GRID, false, false, false},

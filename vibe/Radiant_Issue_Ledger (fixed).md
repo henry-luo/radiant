@@ -14,6 +14,118 @@ are unchanged. Full evidence is under `../../lambda/temp/kianhup-style/`.
 
 ## Fixed issues
 
+<a id="ri-168"></a>
+### RI-168 — CSS-wide clip-path values become empty clipping shapes
+
+**Fixed 2026-11-20.** Native ownership follows **D9.1.1v4 / D9.1.3v2**;
+borrowed declaration lifetime follows **D5.5.1**.
+
+The shared raster/vector clip query returned literal `initial`, `unset` and
+`inherit` text to the shape parser. Its unknown-shape fallback clipped the
+zero-sized inline ancestor, hiding otherwise visible fixed descendants. The
+remaining all:unset failure reduces to clip-path:unset in 15 checks over the
+property catalog. The query now treats typed none/initial/unset as no clip and
+follows the parent declaration for inherit. Existing shape parsing is unchanged.
+Three new CSS-wide clipping controls fail before repair. Inherited none is
+qualified; broader inherited relative-unit shapes and full clip conformance
+are not claimed. See RI-166/RI-167 for related reset/effect failures.
+
+All **81 focused PNG checks and 21 Chromium groups pass** for the three repairs,
+including 18 existing clip cases and related backdrop, opacity and stacking
+controls. Integer-cast lint passes. SVG/PDF consumers share the corrected query
+but were not separately re-rendered this round. No full baseline repeat.
+Evidence: parent Lambda `temp/online-visual-round116/`.
+
+<a id="ri-167"></a>
+### RI-167 — Empty effect records create phantom stacking contexts
+
+**Fixed 2026-11-20.** Native ownership follows **D9.1.1v4 / D9.1.3v2**;
+retained effect storage follows **D5.5.1**. The
+[mask rendering model](https://drafts.csswg.org/css-masking-1/#the-mask-image)
+distinguishes none from an applied mask.
+
+Stacking classification counted allocated MaskProp and FilterProp records,
+even when their gradient/function payload was empty. A mask-image:none reset
+therefore hid Getsafe's fixed cookie panel beneath its empty inline root.
+Thirteen reductions narrow the actual site's 253-property reset to that one
+property. CSS-wide filter resets expose the same storage-versus-effect error.
+
+Stacking now requires a radial-gradient payload or effective filter functions.
+The existing render_walk filter predicate is promoted through render.hpp and
+reused in stacking and effect setup. No duplicate predicate, page condition or
+new mask implementation is introduced. Four controls fail before repair:
+mask none, clearing a radial mask, filter unset and backdrop-filter unset.
+The final frozen source restores the actual cookie panel and backdrop; hero
+media remains absent. The current live page is blank with the same currency
+formatter exception on the prior renderer and the intermediate candidate, so
+no page clearance or live improvement is claimed. Full URL, linear and multi-
+layer masks remain unsupported. Verification/evidence: RI-168.
+
+<a id="ri-166"></a>
+### RI-166 — Display resets fall back to the tag's UA role
+
+**Fixed 2026-11-20.** Native ownership follows **D9.1.1v4 / D9.1.3v2**.
+
+The shared display keyword table omitted initial and unset. A closed dialog
+with either authored value fell back to its UA display:none instead of the
+non-inherited CSS initial inline role. Both controls fail before repair. The
+existing table now maps those CSS-wide keywords to the initial role, including
+its existing replaced-element policy. The UA hidden default and ordinary
+block/inline/flex overrides remain intact. All:unset additionally required
+RI-167/RI-168; this repair alone did not resolve its paint failure.
+
+The 21 fixture groups cover hidden/open dialogs, late changes/close, offscreen
+inline/block ancestors, fixed descendants, masks, filters and clipping resets.
+Verification/evidence: RI-168. No admission or selected-frame policy changes
+(**D10.1.7**).
+
+
+<a id="ri-163"></a>
+### RI-163 — Background image clocks begin after the selected capture interval
+
+**Fixed for committed background-image layout, 2026-11-20.** Native ownership
+**D9.1.1v4 / D9.1.3v2**, resource lifetime **D5.5.1**, frame selection **D10.1.7**.
+
+Background images were loaded on first paint. One-shot rendering advances its
+selected interval before that paint, so an animated SVG background acquired a
+clock at time zero after the interval had elapsed. Committed style resolution
+now prepares selected background image layers through the existing document
+loader. Measurement and CSS query probes remain excluded. The new background
+control fails with the prior renderer and passes after; live SVG/SMIL image
+clocks retain independent time, pause and seek behavior. No clock offset,
+endpoint seek, script budget or site condition changes.
+
+<a id="ri-162"></a>
+### RI-162 — Isolated SVG images omit CSS effects from their image clock
+
+**Fixed for the covered existing CSS effects, 2026-11-20.** Native ownership
+**D9.1.1v4 / D9.1.3v2**, owned presentation lifetime **D5.5.1**, frame selection
+**D10.1.7**. No new animation interpolator or vendor code.
+
+Highnote's hero SVG declares zero-opacity rings revealed by CSS keyframes.
+Isolated images had an independent image clock and CSS presentation consumers,
+but detected and prepared only SMIL. The image path now applies its isolated
+cascade, reconciles the existing CSS effects at zero, and samples the selected
+image time for painting and frozen SVG export. The temporary document's UI,
+view shell and fonts remain owned through animation teardown. Current-element
+context supplies keyframe custom properties. External-use contexts are excluded.
+
+The pre-repair renderer fails five of ten image-motion PNG controls; the final
+release passes all ten. Explicit/implicit opacity, variable percentage endpoints,
+midpoints, pixel transforms, delay, pause, static CSS and SMIL are covered.
+The resumed current release passes **39 focused image/resource tests**, **27 UI
+clock assertions in two replays**, **six SVG exports**, and layout integer lint.
+Earlier source105 also passes the foreignObject controls (47 assertions across
+four replays). Broad baselines are not repeated for these focused changes.
+
+A fresh Highnote before pair uses the same 1000ms post-load origin as the repaired
+pair: error falls **25.47% to 2.56%**, changed area **90.25% to 3.53%**. The full
+orb, main navigation, heading, copy and primary actions agree. Two header buttons
+remain absent; no major whole-page omission remains. General font-relative
+animation, arbitrary CSS properties, use-instance CSS effects and PDF export
+are not independently qualified. Evidence: Lambda `../../temp/online-visual-round105/`
+and `../../temp/online-visual-round106/`; report `test/online/comparison/repairs.html#round-103`.
+
 <a id="ri-164"></a>
 ### RI-164 — Intrinsic measurement and inline flow regressions in the Radiant baseline
 
@@ -228,6 +340,16 @@ failure, reproduced with the prior renderer. An unchanged Gatsby reveal-script
 reduction agrees with Chromium; the actual Mode capture remains byte-identical
 and high severity. No live page clearance is attributed. See Lambda
 ../../temp/online-visual-round99/ and JS13-L16 in its LambdaJS issue ledger.
+
+**Follow-up, 2026-11-20:** The initial completion bridge had bypassed RI-110's
+HTML-template resource boundary, starting an image request while scanning load
+blockers. Discovery's existing ancestor predicate is now shared by image source
+writes and request-info initialization. The persistent inert-template HTTP
+regression fails with the prior renderer and passes after; it also reports
+actual request paths on failure. All 21 resource-discovery and eight image-decode
+controls pass with the final release. Detached active images remain supported;
+this does not qualify a separate inert owner document for detached template
+fragments. Evidence: Lambda `../../temp/online-visual-round106/`.
 
 <a id="ri-154"></a>
 ### RI-154 — Intrinsic sizing drops spaces around comment-separated text

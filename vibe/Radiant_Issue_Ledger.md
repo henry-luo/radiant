@@ -20,6 +20,32 @@ observations still require re-verification. Add new Radiant issues here.
 
 ## Open issues
 
+<a id="ri-169"></a>
+### RI-169 — Cross-origin iframe exports have no deferred network navigation
+
+**Feature gap, 2026-11-20.** Native ownership follows **D9.1.1v4 /
+D9.1.3v2**; evaluator transfer must preserve **D6.4.1**. This blocks clearing
+Limitless (`saas_landing_290`), not independent native rendering repairs.
+
+Its frozen document embeds the large YouTube player in an iframe. The retained
+Chromium reference contains the player; native export leaves that region blank.
+`layout_ensure_iframe_document` returns before scheduling whenever
+`iframe_navigation_must_not_run_in_layout` detects a different origin. The
+host's `navigation_schedule_async_document` currently accepts local files only.
+Thus the cross-origin network frame has no navigation path from layout.
+This establishes a missing load path, not eventual YouTube player compatibility.
+
+Do not remove the layout guard or synchronously fetch the player there: remote
+frames must not block the parent's first render, as the existing
+`DefersCrossOriginIframeNavigationOutsideLayout` control requires. Completion
+needs a deferred network-navigation path with dependency admission, document
+ownership, cancellation and evaluator transfer at the host checkpoint. That
+integration is deferred; media/script compatibility after navigation is still
+unqualified. The local frozen recheck also lacks network resources and is not
+imported as a current online comparison. Evidence: Lambda
+`temp/online-visual-round117/limitless-static/` and retained round64 batch2
+source/reference. No canonical pair or high-severity annotation changes.
+
 <a id="ri-165"></a>
 ### RI-165 — Scalar flex-control measurement crashes while restoring counters
 
@@ -33,33 +59,16 @@ Native ownership follows **D9.1.1v4 / D9.1.3v2** and scratch lifetime follows
 **D5.5.1**. Evidence is in Lambda `temp/radiant-test-regressions/`.
 
 <a id="ri-163"></a>
-### RI-163 — Background image clocks begin after a snapshot's selected interval
+### RI-163 — FIXED for background image clocks
 
-**Root cause confirmed; repair qualification pending.** The first committed
-layout establishes CSS animation timelines, but background images were loaded
-only when painted. A data-URI SVG background therefore acquired its image clock
-after the host had already advanced its selected interval. The same file-backed
-background advances correctly when an interactive first paint precedes clock
-advancement. Committed style resolution now prepares selected background images,
-excluding measurement and CSS query passes. The new image-motion PNG control
-and existing SVG/SMIL UI replays retain the failure visibly until qualified.
-Native ownership **D9.1.1v4 / D9.1.3v2**, resource ownership **D5.5.1**, frame
-selection **D10.1.7**. Evidence: Lambda `../../temp/online-visual-round105/`.
+Committed layout prepares selected background images before the host advances
+its frame interval. See the [image clock repair](<Radiant_Issue_Ledger (fixed).md#ri-163>).
 
 <a id="ri-162"></a>
-### RI-162 — Isolated SVG images do not connect CSS effects to their image clock
+### RI-162 — FIXED for isolated SVG CSS animations
 
-**Root cause confirmed; repair qualification pending.** Highnote's large orb
-image has zero-opacity rings revealed through CSS keyframes. Isolated images
-already retain an image clock and share CSS presentation consumers, but only
-SMIL participates in image animation detection/preparation. A small bridge now
-applies the image's own cascade, reconciles existing CSS effects at zero and
-samples their actual image time for paint and frozen source export. The isolated
-UI, view shell and font resources outlive their animation state. No new
-interpolator, script execution, endpoint seek or image-specific override is
-added. CSS-image opacity/midpoint/transform controls reproduce the failure.
-Native ownership **D9.1.1v4 / D9.1.3v2**, lifetime **D5.5.1**, frame selection
-**D10.1.7**. Evidence: Lambda `../../temp/online-visual-round105/`.
+SVG image documents apply their own cascade and sample existing CSS effects
+at their image time. See the [animation bridge](<Radiant_Issue_Ledger (fixed).md#ri-162>).
 
 <a id="ri-161"></a>
 ### RI-161 — FIXED for inline text background coordinates

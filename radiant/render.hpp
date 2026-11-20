@@ -4334,6 +4334,7 @@ struct CssSvgFilter {
 RdtSvgFilterProgram* render_css_svg_filter_compile(DomDocument* document, const char* url,
     ScratchArena* scratch);
 void render_filter_prepare_urls(RasterRenderContext* context, FilterProp* filter);
+bool render_filter_effective(const FilterProp* filter);
 bool render_filter_is_color_only(const FilterFunction* functions);
 float render_filter_reference_box(FilterProp* filter, Rect border, const RdtMatrix* transform = nullptr);
 bool render_css_svg_filter_apply(ScratchArena* scratch, ImageSurface* surface,

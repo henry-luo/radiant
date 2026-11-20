@@ -141,7 +141,7 @@ static Rect render_effect_project_rect(RasterRenderContext* context, Rect rect) 
 bool render_effect_has_visible_backdrop(View* view, const FilterProp* filter) {
     // backdrop sampling belongs to the visible box; visible descendants of
     // a hidden parent still retain their own filters and opacity groups.
-    return view && filter && filter->functions &&
+    return view && render_filter_effective(filter) &&
         !view_visibility_is_hidden(view) && !view_backface_is_hidden(view);
 }
 
@@ -167,7 +167,7 @@ RenderEffectGroup render_effect_group_begin(RasterRenderContext* rdcon,
         group.mask.gradient = lam::up(block->boundary()->mask->radial_gradient.get());
         group.has_opacity_group = true;
     }
-    group.has_filter = block->filter_prop() && block->filterp()->functions;
+    group.has_filter = render_filter_effective(block->filter_prop());
     group.has_backdrop_filter = render_effect_has_visible_backdrop(block, block->backdrop_filter_prop());
 
     group.recording_start = rdcon->dl ? rdcon->dl->item_count() : 0;
