@@ -115,7 +115,7 @@ bool radiant_stack_is_context(View* view) {
         element->filter_prop() || element->backdrop_filter_prop() ||
         (element->bound && element->boundary()->mask)) return true;
     ViewBlock* block = lam::view_as_block(view);
-    return block && ((block->blk && block->block()->contain_positioning) || block->custom_layout_paint_prop());
+    return block && ((block->blk && block->block()->containment().contain_positioning) || block->custom_layout_paint_prop());
 }
 
 
@@ -268,7 +268,7 @@ bool radiant_stack_is_in_flow_positioned_step8(View* view) {
     if (!element) return false;
     ViewBlock* block = lam::view_as_block(view);
     // layout/paint containment creates a stacking context even for static boxes.
-    if (block && block->blk && block->block()->contain_positioning &&
+    if (block && block->blk && block->block()->containment().contain_positioning &&
         (!element->position || element->positionp()->position == CSS_VALUE_STATIC ||
          element->positionp()->z_index == 0)) return true;
     if (!element->position) return false;

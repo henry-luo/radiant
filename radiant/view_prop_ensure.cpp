@@ -26,6 +26,34 @@ static Prop* ensure_view_prop(const DomElement* owner, Pool* pool, Field& storag
 
 static Pool* prop_pool(ViewTree* tree) { return tree ? tree->prop_pool : nullptr; }
 
+template <typename Prop, DomViewSlot Slot>
+static Prop* ensure_directory_prop(DomElement* elem, Pool* pool,
+        lam::ViewProp<Prop, Slot> DomPropExt::*member, const Prop& defaults) {
+    DomPropExt* slots = elem->prop_ext;
+    if (!slots && pool) {
+        assert_pool_owner(elem);
+        slots = elem->ensure_prop_ext();
+    }
+    return slots ? ensure_view_prop(elem, pool, slots->*member, defaults) : nullptr;
+}
+
+ScrollSnapProp* ensure_scroll_snap(DomElement* owner, ScrollProp* scroll, Pool* pool) {
+    return ensure_view_prop(owner, pool, scroll->snap, SCROLL_SNAP_DEFAULT);
+}
+
+IndividualTransformProp* ensure_individual_transform(DomElement* owner, TransformProp* transform, Pool* pool) {
+    return ensure_view_prop(owner, pool, transform->individual, IndividualTransformProp{});
+}
+
+FormPlaceholderProp* ensure_form_placeholder(DomElement* owner, FormControlProp* form, Pool* pool) {
+    const FormPlaceholderProp defaults = {nullptr, {}, 1.0f, false, false};
+    return ensure_view_prop(owner, pool, form->placeholder_paint, defaults);
+}
+
+FormFileButtonProp* ensure_form_file_button(DomElement* owner, FormControlProp* form, Pool* pool) {
+    return ensure_view_prop(owner, pool, form->file_button_paint, FORM_FILE_BUTTON_DEFAULT);
+}
+
 BorderProp* radiant_ensure_border_prop(BoundaryProp* boundary, Pool* pool) {
     if (!boundary) return nullptr;
     if (!boundary->border && pool) {
@@ -115,7 +143,9 @@ ScrollProp* DomElement::ensure_scroll(ViewTree* tree) { return ensure_scroll_pro
 
 PositionProp* DomElement::ensure_position(ViewTree* tree) { return ensure_view_prop(this, prop_pool(tree), position, POSITION_PROP_DEFAULT); }
 EmbedProp* DomElement::ensure_embed(ViewTree* tree) { return ensure_view_prop(this, prop_pool(tree), embed, EMBED_PROP_DEFAULT); }
-TransformProp* DomElement::ensure_transform(ViewTree* tree) { return ensure_view_prop(this, prop_pool(tree), transform, TRANSFORM_PROP_DEFAULT); }
+TransformProp* DomElement::ensure_transform(ViewTree* tree) {
+    return ensure_directory_prop(this, prop_pool(tree), &DomPropExt::transform, TRANSFORM_PROP_DEFAULT);
+}
 static FilterProp* ensure_filter_prop(DomElement* element, Pool* pool) {
     FilterProp* value = element->filter_prop();
     if (!value && pool) {
@@ -165,8 +195,11 @@ GridItemProp* DomElement::ensure_grid_item(ViewTree* tree) {
 TableProp* DomElement::ensure_table(ViewTree* tree) {
     if (role_kind() != ROLE_NONE && role_kind() != ROLE_TABLE &&
         role_kind() != ROLE_FORM) return nullptr;
-    if (role_kind() != ROLE_TABLE) { tb = nullptr; set_role_kind(ROLE_TABLE); }
-    return ensure_view_prop(this, prop_pool(tree), tb, TABLE_PROP_DEFAULT);
+    if (role_kind() != ROLE_TABLE) {
+        if (prop_ext) prop_ext->tb = nullptr;
+        set_role_kind(ROLE_TABLE);
+    }
+    return ensure_directory_prop(this, prop_pool(tree), &DomPropExt::tb, TABLE_PROP_DEFAULT);
 }
 
 TableCellProp* DomElement::ensure_cell(ViewTree* tree) {
@@ -180,7 +213,7 @@ FormControlProp* DomElement::ensure_form(ViewTree* tree) {
     if (role_kind() != ROLE_NONE && role_kind() != ROLE_FORM &&
         role_kind() != ROLE_TABLE && role_kind() != ROLE_CELL) return nullptr;
     if (role_kind() == ROLE_NONE) set_role_kind(ROLE_FORM);
-    return ensure_view_prop(this, prop_pool(tree), form, FORM_CONTROL_PROP_DEFAULT);
+    return ensure_directory_prop(this, prop_pool(tree), &DomPropExt::form, FORM_CONTROL_PROP_DEFAULT);
 }
 
 BoundaryProp* DomElement::ensure_boundary(LayoutContext* lycon) { return ensure_view_prop(this, prop_pool(lycon), bound, BOUNDARY_PROP_DEFAULT); }
@@ -189,7 +222,12 @@ InlineProp* DomElement::ensure_inline(LayoutContext* lycon) {
 }
 PositionProp* DomElement::ensure_position(LayoutContext* lycon) { return ensure_view_prop(this, prop_pool(lycon), position, POSITION_PROP_DEFAULT); }
 EmbedProp* DomElement::ensure_embed(LayoutContext* lycon) { return ensure_view_prop(this, prop_pool(lycon), embed, EMBED_PROP_DEFAULT); }
-TransformProp* DomElement::ensure_transform(LayoutContext* lycon) { return ensure_view_prop(this, prop_pool(lycon), transform, TRANSFORM_PROP_DEFAULT); }
+TransformProp* DomElement::ensure_transform(LayoutContext* lycon) {
+    return ensure_directory_prop(this, prop_pool(lycon), &DomPropExt::transform, TRANSFORM_PROP_DEFAULT);
+}
+PseudoContentProp* DomElement::ensure_pseudo(LayoutContext* lycon) {
+    return ensure_directory_prop(this, prop_pool(lycon), &DomPropExt::pseudo, PseudoContentProp{});
+}
 FilterProp* DomElement::ensure_filter(LayoutContext* lycon) {
     return ensure_filter_prop(this, prop_pool(lycon));
 }
@@ -207,6 +245,17 @@ BlockProp* DomElement::ensure_block(LayoutContext* lycon) {
         value->direction = lycon->block.direction;
     }
     return value;
+}
+
+BlockPropExt* DomElement::ensure_block_extras(LayoutContext* lycon) {
+    BlockProp* block = ensure_block(lycon);
+    return block ? ensure_view_prop(this, prop_pool(lycon), block->ext, BLOCK_EXTRAS_DEFAULT) : nullptr;
+}
+
+BlockContainmentProp* DomElement::ensure_block_containment(LayoutContext* lycon) {
+    BlockProp* block = ensure_block(lycon);
+    return block ? ensure_view_prop(this, prop_pool(lycon), block->containment_props,
+                                    BLOCK_CONTAINMENT_DEFAULT) : nullptr;
 }
 
 FontProp* DomElement::ensure_font(LayoutContext* lycon) {

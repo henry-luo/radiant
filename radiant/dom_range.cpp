@@ -137,7 +137,7 @@ uint32_t dom_node_boundary_length(const DomNode* node) {
         DomElement* elem = lam::dom_require_element(const_cast<DomNode*>(node));
         if (tc_is_text_control(elem)) {
             tc_ensure_init(elem);
-            return elem->form ? elem->form->current_value_len : 0;
+            return elem->form_storage() ? elem->form_storage()->current_value_len : 0;
         }
         uint32_t n = 0;
         for (DomNode* c = elem->first_child; c; c = c->next_sibling) n++;

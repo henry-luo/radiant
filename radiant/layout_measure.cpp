@@ -66,7 +66,7 @@ IntrinsicSize layout_measure_replaced(LayoutContext* lycon, ViewBlock* block, Av
 
 IntrinsicSize layout_measure_form_control(LayoutContext* lycon, ViewBlock* block, AvailableSpace space) {
     IntrinsicSize result = {};
-    if (!block || !block->form) return result;
+    if (!block || !block->form_storage()) return result;
 
     radiant::LayoutRunModeScope run_mode(lycon, radiant::RunMode::ComputeSize);
     if (layout_measure_cache_get(lycon, block, space, &result, "FORM_MEASURE")) {
@@ -77,8 +77,8 @@ IntrinsicSize layout_measure_form_control(LayoutContext* lycon, ViewBlock* block
     radiant::LayoutMeasureScope measure_scope(lycon, block, true);
     if (lycon) lycon->available_space = space;
 
-    float width = block->form->intrinsic_width > 0.0f ? block->form->intrinsic_width : block->width;
-    float height = block->form->intrinsic_height > 0.0f ? block->form->intrinsic_height : block->height;
+    float width = block->form_storage()->intrinsic_width > 0.0f ? block->form_storage()->intrinsic_width : block->width;
+    float height = block->form_storage()->intrinsic_height > 0.0f ? block->form_storage()->intrinsic_height : block->height;
 
     if (lycon && lycon->ui_context) {
         // measurement shares flow's percentage definiteness before reading current used content sizes.

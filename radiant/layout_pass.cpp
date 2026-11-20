@@ -69,11 +69,11 @@ static void layout_view_snapshot_capture(DomNode* node, LayoutViewSnapshot* snap
         }
         snapshot->has_form = element->form_control();
         if (snapshot->has_form) {
-            snapshot->form_intrinsic_width = element->form->intrinsic_width;
-            snapshot->form_intrinsic_height = element->form->intrinsic_height;
-            snapshot->form_first_baseline = element->form->first_text_baseline;
-            snapshot->form_last_baseline = element->form->last_text_baseline;
-            snapshot->form_baseline_overflow = element->form->last_text_baseline_overflow;
+            snapshot->form_intrinsic_width = element->form_storage()->intrinsic_width;
+            snapshot->form_intrinsic_height = element->form_storage()->intrinsic_height;
+            snapshot->form_first_baseline = element->form_storage()->first_text_baseline;
+            snapshot->form_last_baseline = element->form_storage()->last_text_baseline;
+            snapshot->form_baseline_overflow = element->form_storage()->last_text_baseline_overflow;
         }
         snapshot->has_block_prop = element->blk != nullptr;
         if (snapshot->has_block_prop) {
@@ -124,11 +124,11 @@ static void layout_view_snapshot_restore(const LayoutViewSnapshot* snapshot) {
         }
         if (snapshot->has_form &&
             element->form_control()) {
-            element->form->intrinsic_width = snapshot->form_intrinsic_width;
-            element->form->intrinsic_height = snapshot->form_intrinsic_height;
-            element->form->first_text_baseline = snapshot->form_first_baseline;
-            element->form->last_text_baseline = snapshot->form_last_baseline;
-            element->form->last_text_baseline_overflow = snapshot->form_baseline_overflow;
+            element->form_storage()->intrinsic_width = snapshot->form_intrinsic_width;
+            element->form_storage()->intrinsic_height = snapshot->form_intrinsic_height;
+            element->form_storage()->first_text_baseline = snapshot->form_first_baseline;
+            element->form_storage()->last_text_baseline = snapshot->form_last_baseline;
+            element->form_storage()->last_text_baseline_overflow = snapshot->form_baseline_overflow;
         }
         if (snapshot->has_block_prop && element->blk) {
             element->blk->given_width = snapshot->block_given_width;
@@ -382,15 +382,15 @@ static bool layout_flow_capture_nodes(LayoutContext* context, DomNode* node,
                 }
             }
         }
-        if (element->ext) {
-            memcpy(output->fragments, element->ext->frags, sizeof(output->fragments));
-            output->fragment_presence_mask = element->ext->fragment_presence_mask;
-            output->ruby_start_offset = element->ext->ruby_column_start_offset;
-            output->ruby_end_offset = element->ext->ruby_column_end_offset;
-            output->ruby_empty_block_size = element->ext->ruby_empty_base_block_size;
-            output->ruby_geometry = element->ext->has_ruby_column_geometry;
-            output->ruby_empty = element->ext->has_empty_ruby_base;
-            output->ruby_fragments = element->ext->has_ruby_parallel_fragments;
+        if (DomFragmentGeometry* geometry = element->fragment_geometry()) {
+            memcpy(output->fragments, geometry->frags, sizeof(output->fragments));
+            output->fragment_presence_mask = geometry->fragment_presence_mask;
+            output->ruby_start_offset = geometry->ruby_column_start_offset;
+            output->ruby_end_offset = geometry->ruby_column_end_offset;
+            output->ruby_empty_block_size = geometry->ruby_empty_base_block_size;
+            output->ruby_geometry = geometry->has_ruby_column_geometry;
+            output->ruby_empty = geometry->has_empty_ruby_base;
+            output->ruby_fragments = geometry->has_ruby_parallel_fragments;
         }
         for (DomNode* child = element->first_child; child; child = child->next_sibling) {
             if (!layout_flow_capture_nodes(context, child, tail, depth + 1, remaining)) return false;
@@ -491,7 +491,7 @@ bool layout_flow_result_apply(LayoutContext* context, const LayoutFlowResult* re
                 *element->fi = *output->flex_item;
             }
             if (output->position && element->position) *element->position = *output->position;
-            if (output->table && element->table_prop()) *element->tb = *output->table;
+            if (output->table && element->table_prop()) *element->table_storage() = *output->table;
             if (output->cell && element->cell_prop()) {
                 TableCellProp* cell = element->td;
                 *cell = *output->cell;
@@ -526,15 +526,15 @@ bool layout_flow_result_apply(LayoutContext* context, const LayoutFlowResult* re
             }
             if (output->has_grid) payload = payload->next;
 
-            if (element->ext) {
-                memcpy(element->ext->frags, output->fragments, sizeof(output->fragments));
-                element->ext->fragment_presence_mask = output->fragment_presence_mask;
-                element->ext->ruby_column_start_offset = output->ruby_start_offset;
-                element->ext->ruby_column_end_offset = output->ruby_end_offset;
-                element->ext->ruby_empty_base_block_size = output->ruby_empty_block_size;
-                element->ext->has_ruby_column_geometry = output->ruby_geometry;
-                element->ext->has_empty_ruby_base = output->ruby_empty;
-                element->ext->has_ruby_parallel_fragments = output->ruby_fragments;
+            if (DomFragmentGeometry* geometry = element->fragment_geometry()) {
+                memcpy(geometry->frags, output->fragments, sizeof(output->fragments));
+                geometry->fragment_presence_mask = output->fragment_presence_mask;
+                geometry->ruby_column_start_offset = output->ruby_start_offset;
+                geometry->ruby_column_end_offset = output->ruby_end_offset;
+                geometry->ruby_empty_base_block_size = output->ruby_empty_block_size;
+                geometry->has_ruby_column_geometry = output->ruby_geometry;
+                geometry->has_empty_ruby_base = output->ruby_empty;
+                geometry->has_ruby_parallel_fragments = output->ruby_fragments;
             }
         } else if (node->is_text()) {
             DomText* text = node->as_text();

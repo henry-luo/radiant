@@ -286,7 +286,7 @@ static void apply_rule_to_element(DomElement* element, CssRule* rule,
             if (result.pseudo_element != PSEUDO_ELEMENT_NONE) {
                 if (rule->data.style_rule.declaration_count > 0) {
                     dom_element_apply_pseudo_element_rule(element, rule,
-                        result.specificity, (int)result.pseudo_element, scope_proximity);
+                        result.specificity, (int)result.pseudo_element, scope_proximity, candidate);
                 }
             } else if (!matched_selector ||
                        css_specificity_compare(result.specificity, best_specificity) > 0) {
@@ -314,7 +314,7 @@ static void apply_rule_to_element(DomElement* element, CssRule* rule,
     if (result.pseudo_element != PSEUDO_ELEMENT_NONE) {
         dom_element_apply_pseudo_element_rule(element, rule,
                                               result.specificity,
-                                              (int)result.pseudo_element, scope_proximity);
+                                              (int)result.pseudo_element, scope_proximity, selector);
     } else {
         dom_element_apply_rule(element, rule, result.specificity, scope_proximity);
     }

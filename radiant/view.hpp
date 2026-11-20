@@ -1820,11 +1820,18 @@ typedef enum TransformFunctionOwner {
  * Contains transform origin and list of transform functions
  */
 // tier-2: view-pool, rebuilt each relayout
+struct IndividualTransformProp {
+    // inline values survive transform-list replacement without borrowing another view's pool nodes.
+    TransformFunction values[3]; // translate, rotate, scale, or TRANSFORM_NONE
+    const TransformFunction* samples[3]; // animation-pool borrow, cleared by authored resolution
+
+    void replace(Pool* pool, int index, const TransformFunction& value,
+                 const TransformFunction* sample = nullptr);
+};
+
 typedef struct TransformProp {
     lam::Shared<TransformFunction> functions;    // Linked list of transform functions (applied in order)
-    // inline values survive transform-list replacement without borrowing another view's pool nodes.
-    TransformFunction individual[3];           // translate, rotate, scale; TRANSFORM_NONE means none
-    const TransformFunction* individual_sample[3]; // animation-pool borrow, cleared by authored resolution
+    lam::Own<IndividualTransformProp> individual;
     // Keyframe samples borrow their immutable list from the document pool;
     // resolved CSS functions are owned by the mutable view-property pool.
     TransformFunctionOwner functions_owner;
@@ -1845,11 +1852,16 @@ typedef struct TransformProp {
 static inline bool transform_has_functions(const TransformProp* transform) {
     if (!transform) return false;
     if (transform->functions) return true;
-    for (const TransformFunction& function : transform->individual) {
+    if (!transform->individual) return false;
+    for (const TransformFunction& function : transform->individual->values) {
         if (function.type != TRANSFORM_NONE) return true;
     }
     return false;
 }
+
+IndividualTransformProp* ensure_individual_transform(DomElement* owner, TransformProp* transform, Pool* pool);
+void release_individual_transform(TransformProp* transform, Pool* pool);
+TransformFunction copy_individual_transform(Pool* pool, const TransformFunction* source);
 
 /**
  * FilterFunction - Individual CSS filter function
@@ -2385,7 +2397,45 @@ static inline bool css_parse_place_content_alignment(const CssValue* value,
 }
 
 // tier-2: view-pool, rebuilt each relayout
+struct BlockPropExt {
+    CssEnum list_style_type;
+    CssEnum list_style_position;  // inside, outside
+    ListStyleImage list_style_image;
+    lam::Own<char> list_style_type_string;   // custom string marker (CSS Lists 3 §4.1)
+    char* counter_reset;            // counter names and values
+    char* counter_increment;        // counter names and values
+    char* counter_set;              // counter names and values (CSS Lists 3)
+    CssEnum box_decoration_break;  // CSS_VALUE_SLICE (default) | CSS_VALUE_CLONE
+    CssEnum break_before;  // CSS Fragmentation: auto, column, page, always
+    CssEnum break_after;   // CSS Fragmentation: auto, column, page, always
+    CssEnum break_inside;  // css fragmentation: auto, avoid
+    int orphans;           // CSS Fragmentation: minimum lines before a break
+    int widows;            // CSS Fragmentation: minimum lines after a break
+};
+extern const BlockPropExt BLOCK_EXTRAS_DEFAULT;
+
+struct BlockContainmentProp {
+    float contain_intrinsic_width;
+    float contain_intrinsic_height;
+    bool contain_intrinsic_width_auto;
+    bool contain_intrinsic_height_auto;
+    bool contain_size;
+    bool contain_inline_size;
+    bool contain_positioning;
+    bool contain_paint;
+    uint8_t computed_containment; // inherited CSS value excludes containment implied by container-type
+    uint8_t container_axes; // logical size-query eligibility, independent of authored contain
+    lam::Own<CssValue> container_names;
+    CssEnum content_visibility; // computed visible/hidden/auto remains distinct from used relevance
+    bool content_visibility_skipped;
+};
+extern const BlockContainmentProp BLOCK_CONTAINMENT_DEFAULT;
+
 typedef struct BlockProp {
+    lam::Own<BlockContainmentProp> containment_props;
+    const BlockContainmentProp& containment() const { return containment_props ? *containment_props.get() : BLOCK_CONTAINMENT_DEFAULT; }
+    lam::Own<BlockPropExt> ext;
+    const BlockPropExt& extras() const { return ext ? *ext.get() : BLOCK_EXTRAS_DEFAULT; }
     CssEnum text_align;
     CssEnum text_align_last;  // CSS text-align-last (auto, start, end, left, right, center, justify)
     CssEnum text_justify;     // zero inherits the nearest computed text-justify
@@ -2411,15 +2461,7 @@ typedef struct BlockProp {
     float given_min_height, given_max_height;  // non-negative
     CssEnum given_min_width_type, given_max_width_type;
     CssEnum given_min_height_type, given_max_height_type;
-    CssEnum list_style_type;
-    CssEnum list_style_position;  // inside, outside
-    ListStyleImage list_style_image;
-    lam::Own<char> list_style_type_string;   // custom string marker (CSS Lists 3 §4.1)
-    char* counter_reset;            // counter names and values
-    char* counter_increment;        // counter names and values
-    char* counter_set;              // counter names and values (CSS Lists 3)
     CssEnum box_sizing;  // CSS_VALUE_CONTENT_BOX or CSS_VALUE_BORDER_BOX
-    CssEnum box_decoration_break;  // CSS_VALUE_SLICE (default) | CSS_VALUE_CLONE
     CssEnum white_space;  // CSS_VALUE_NORMAL, CSS_VALUE_NOWRAP, CSS_VALUE_PRE, etc.
     CssEnum text_wrap_mode;  // CSS Text 4 text-wrap-mode; zero derives from white-space
     CssEnum text_wrap_style;  // CSS Text 4 text-wrap-style
@@ -2433,11 +2475,6 @@ typedef struct BlockProp {
     CssEnum text_spacing_trim;  // CSS Text 4 text-spacing-trim
     uint8_t text_autospace;  // CSS Text 4 text-autospace feature flags
     bool text_autospace_is_set;
-    CssEnum break_before;  // CSS Fragmentation: auto, column, page, always
-    CssEnum break_after;   // CSS Fragmentation: auto, column, page, always
-    CssEnum break_inside;  // css fragmentation: auto, avoid
-    int orphans;           // CSS Fragmentation: minimum lines before a break
-    int widows;            // CSS Fragmentation: minimum lines after a break
     float tab_size;         // CSS tab-size number of spaces, default 8
     float tab_size_length;  // absolute length in px; negative means number mode
     uint8_t margin_trim;     // bitmask: MARGIN_TRIM_BLOCK_START|END|INLINE_START|END
@@ -2467,19 +2504,6 @@ typedef struct BlockProp {
     bool percentage_height_resolved_late;
     float given_width_percent;  // Raw percentage if width: X% (NaN if not percentage)
     float given_height_percent; // Raw percentage if height: X% (NaN if not percentage)
-    float contain_intrinsic_width;
-    float contain_intrinsic_height;
-    bool contain_intrinsic_width_auto;
-    bool contain_intrinsic_height_auto;
-    bool contain_size;
-    bool contain_inline_size;
-    bool contain_positioning;
-    bool contain_paint;
-    uint8_t computed_containment; // inherited CSS value excludes containment implied by container-type
-    uint8_t container_axes; // logical size-query eligibility, independent of authored contain
-    lam::Own<CssValue> container_names;
-    CssEnum content_visibility; // computed visible/hidden/auto remains distinct from used relevance
-    bool content_visibility_skipped;
     float given_min_width_percent;   // Raw percentage if min-width: X% (NaN if not percentage)
     float given_max_width_percent;   // Raw percentage if max-width: X% (NaN if not percentage)
     float given_min_height_percent;  // Raw percentage if min-height: X% (NaN if not percentage)
@@ -2666,6 +2690,16 @@ typedef enum ScrollSnapAxis {
     SCROLL_SNAP_AXIS_PAIR
 } ScrollSnapAxis;
 
+struct ScrollSnapProp {
+    ScrollSpacingValue scroll_margin[4], scroll_padding[4];
+    ScrollSnapAxis snap_axis;
+    CssEnum snap_align_block, snap_align_inline;
+    bool snap_mandatory;
+    bool snap_strictness_explicit;
+};
+
+extern const ScrollSnapProp SCROLL_SNAP_DEFAULT;
+
 // tier-2: view-pool, rebuilt each relayout
 typedef struct ScrollProp {
     CssEnum overflow_x, overflow_y;
@@ -2675,11 +2709,7 @@ typedef struct ScrollProp {
     CssEnum resize;
     CssEnum overflow_clip_box;
     float overflow_clip_margin;
-    ScrollSpacingValue scroll_margin[4], scroll_padding[4];
-    ScrollSnapAxis snap_axis;
-    CssEnum snap_align_block, snap_align_inline;
-    bool snap_mandatory;
-    bool snap_strictness_explicit;
+    lam::Own<ScrollSnapProp> snap;
     lam::Own<ScrollPane> pane;
     bool has_hz_overflow, has_vt_overflow;
     bool has_hz_scroll, has_vt_scroll;
@@ -2688,7 +2718,12 @@ typedef struct ScrollProp {
 
     Bound clip; // clipping rect, relative to the block border box
     bool has_clip;
+
+    const ScrollSnapProp& snap_style() const { return snap ? *snap : SCROLL_SNAP_DEFAULT; }
 } ScrollProp;
+
+ScrollSnapProp* ensure_scroll_snap(DomElement* owner, ScrollProp* scroll, Pool* pool);
+void release_scroll_snap(ScrollProp* scroll, Pool* pool);
 
 // tier-2: view-pool, rebuilt each relayout
 typedef struct FlexProp {
@@ -2958,7 +2993,7 @@ struct ViewTableRowGroup;
 
 // tier-2: view-pool, rebuilt each relayout
 typedef struct ViewTable : ViewBlock {
-    TableProp* table() const { return role_kind() == ROLE_TABLE ? tb : nullptr; }
+    TableProp* table() const { return table_prop(); }
     // Navigation helpers that respect anonymous box flags (CSS 2.1 Section 17.2.1)
 
     // Get first logical row (may be in a row group or directly under table if is_annoy_tbody)
@@ -2989,10 +3024,16 @@ typedef struct ViewTable : ViewBlock {
     ViewTableCell* next_direct_cell(ViewTableCell* current);
 
     // Check if table acts as its own tbody
-    inline bool acts_as_tbody() { return tb && tb->is_annoy_tbody; }
+    inline bool acts_as_tbody() {
+        const TableProp* prop = table_storage();
+        return prop && prop->is_annoy_tbody;
+    }
 
     // Check if table acts as its own row (cells are direct children)
-    inline bool acts_as_row() { return tb && tb->is_annoy_tr; }
+    inline bool acts_as_row() {
+        const TableProp* prop = table_storage();
+        return prop && prop->is_annoy_tr;
+    }
 } ViewTable;
 
 // CSS 2.1 Section 17.2: Row group types for visual ordering
@@ -3211,7 +3252,7 @@ static_assert(sizeof(ViewTableRow) == sizeof(DomElement), "ViewTableRow must not
 static_assert(sizeof(ViewTableCell) == sizeof(DomElement), "ViewTableCell must not add fields");
 // List now carries Lambda's array representation certificate after its stable
 // content offsets; DOM overlays inherit that one-word tail (D4.3.3).
-static_assert(sizeof(DomElement) <= 376, "DomElement size ratchet regressed");
+static_assert(sizeof(DomElement) <= 352, "DomElement size ratchet regressed");
 static_assert(sizeof(DomText) <= 120, "DomText size ratchet regressed");
 static_assert(sizeof(DomNode) <= 80, "DomNode size ratchet regressed");
 
@@ -3784,6 +3825,28 @@ namespace FormDefaults {
 /**
  * FormControlProp - Properties for form control elements
  */
+struct FormPlaceholderProp {
+    FontProp* font;
+    Color color;
+    float opacity;
+    bool has_color;
+    bool has_opacity;
+};
+
+struct FormFileButtonProp {
+    FontProp* font;
+    Color color;
+    Color background_color;
+    Color border_color;
+    float border_width;
+    float padding_left, padding_right;
+    bool has_color;
+    bool has_background_color;
+    bool draw_border;
+};
+
+extern const FormFileButtonProp FORM_FILE_BUTTON_DEFAULT;
+
 // tier-2: view-pool, rebuilt each relayout
 struct FormControlProp {
     // Fast-read pointer to centralized state owner. Writers must use state_store APIs.
@@ -3819,6 +3882,7 @@ struct FormControlProp {
     uint8_t dropdown_open : 1;  // For select: dropdown is currently open
     uint8_t appearance_none : 1; // CSS appearance: none — suppress UA-rendered chrome (arrow, etc.)
     uint8_t appearance_base_select : 1; // CSS UI 4 base appearance for customizable select
+    uint8_t heap_allocated : 1;
 
     // Select dropdown properties
     int selected_index;         // Index of currently selected option (0-based, -1 if none)
@@ -3839,29 +3903,9 @@ struct FormControlProp {
     // scroll-container last baseline is clamped at its border edge.
     float last_text_baseline_overflow;
 
-    // Computed ::placeholder pseudo-element rendering style.
-    FontProp* placeholder_font;
-    uint8_t placeholder_color_r;
-    uint8_t placeholder_color_g;
-    uint8_t placeholder_color_b;
-    uint8_t placeholder_color_a;
-    float placeholder_opacity;
-    uint8_t placeholder_has_color : 1;
-    uint8_t placeholder_has_opacity : 1;
-    uint8_t heap_allocated : 1;
-
-    // The file button is a separate pseudo paint target; host declarations
-    // remain on the input view and these values are rebuilt on relayout.
-    FontProp* file_button_font;
-    Color file_button_color;
-    Color file_button_background_color;
-    Color file_button_border_color;
-    float file_button_border_width;
-    float file_button_padding_left;
-    float file_button_padding_right;
-    uint8_t file_button_has_color : 1;
-    uint8_t file_button_has_background_color : 1;
-    uint8_t file_button_draw_border : 1;
+    // pseudo styles belong to the layout's view pool even for a script-created core.
+    lam::Own<FormPlaceholderProp> placeholder_paint;
+    lam::Own<FormFileButtonProp> file_button_paint;
 
     // ------------------------------------------------------------------
     // Text-control selection state (input text-types and textarea only)
@@ -3916,6 +3960,11 @@ struct FormControlProp {
     // FormControlProp is a POD (no C++ ctor/dtor) per the C+ convention; use
     // form_control_prop_init / form_control_prop_release for lifecycle.
 };
+
+FormPlaceholderProp* ensure_form_placeholder(DomElement* owner, FormControlProp* form, Pool* pool);
+FormFileButtonProp* ensure_form_file_button(DomElement* owner, FormControlProp* form, Pool* pool);
+void release_form_placeholder(FormControlProp* form, Pool* pool);
+void release_form_file_button(FormControlProp* form, Pool* pool);
 
 // Native select popups keep their option-row metric even when author CSS makes
 // the closed control taller. Keeping this in the shared view header prevents

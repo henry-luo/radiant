@@ -408,7 +408,7 @@ static uint32_t projection_view_offset_limit(View* view) {
         DomElement* elem = lam::dom_require_element(node);
         if (tc_is_text_control(elem)) {
             tc_ensure_init(elem);
-            if (elem->form) return elem->form->current_value_len;
+            if (elem->form_storage()) return elem->form_storage()->current_value_len;
         }
     }
     return dom_node_boundary_length(node);
@@ -418,7 +418,7 @@ static void validate_text_control_form_state(DocState* state, DomElement* elem,
                                              StateValidationReport* report) {
     if (!elem || !tc_is_text_control(elem)) return;
     tc_ensure_init(elem);
-    FormControlProp* form = elem->form;
+    FormControlProp* form = elem->form_storage();
     if (!form) {
         report_fail(report, "text control has no form state");
         return;
@@ -754,7 +754,7 @@ static void validate_selection_invariants(DocState* state,
             return;
         }
         tc_ensure_init(control);
-        FormControlProp* form = control->form;
+        FormControlProp* form = control->form_storage();
         if (!form) {
             report_fail(report, "text control selection has no form state");
             return;
@@ -895,9 +895,9 @@ static void validate_view_state_registry(DocState* state,
                 }
                 if (live_view && live_view->is_element()) {
                     DomElement* live_element = lam::dom_require_element(live_view);
-                    if (live_element && live_element->form &&
-                        live_element->form->scroll_state_ref &&
-                        live_element->form->scroll_state_ref != view_state) {
+                    if (live_element && live_element->form_storage() &&
+                        live_element->form_storage()->scroll_state_ref &&
+                        live_element->form_storage()->scroll_state_ref != view_state) {
                         report_fail(report, "form control cached scroll ViewState ref is stale");
                     }
                 }
@@ -909,10 +909,10 @@ static void validate_view_state_registry(DocState* state,
                 if (live_view) {
                     DomElement* live_element = live_view->is_element() ? lam::dom_require_element(live_view) : NULL;
                     // D5.5.1: a registered control owns its value while detached layout props are absent.
-                    if (!live_element || (!live_element->form && !is_form_control(live_element))) {
+                    if (!live_element || (!live_element->form_storage() && !is_form_control(live_element))) {
                         report_fail(report, "view form state is not owned by a form control");
-                    } else if (live_element->form) {
-                        FormControlProp* form = live_element->form;
+                    } else if (live_element->form_storage()) {
+                        FormControlProp* form = live_element->form_storage();
                         if (form->form_state_ref && form->form_state_ref != view_state) {
                             report_fail(report, "form control cached ViewState ref is stale");
                         }
@@ -1064,9 +1064,9 @@ static void validate_dropdown_overlay_state(DocState* state,
         report_fail(report, "open dropdown target is not an element");
     } else {
         DomElement* elem = lam::dom_require_element(state->open_dropdown);
-        if (!elem->form || !form_control_is_dropdown_open(state, state->open_dropdown)) {
+        if (!elem->form_storage() || !form_control_is_dropdown_open(state, state->open_dropdown)) {
             report_fail(report, "open dropdown state disagrees with form control");
-        } else if (select_dropdown_geometry(state, elem->form).scroll_y != state->dropdown_scroll_y) {
+        } else if (select_dropdown_geometry(state, elem->form_storage()).scroll_y != state->dropdown_scroll_y) {
             report_fail(report, "dropdown scroll offset exceeds option extent");
         }
     }

@@ -314,8 +314,8 @@ void layout_grid_container(LayoutContext* lycon, ViewBlock* container, bool intr
     // post-layout used width as definite incorrectly lets auto tracks consume free space.
     bool contain_size_has_inline_fallback =
         layout_block_has_size_containment_in_axis(container, inline_horizontal) &&
-        (inline_horizontal ? container->block()->contain_intrinsic_width
-                           : container->block()->contain_intrinsic_height) >= 0.0f;
+        (inline_horizontal ? container->block()->containment().contain_intrinsic_width
+                           : container->block()->containment().contain_intrinsic_height) >= 0.0f;
     // Size containment resolves an intrinsic width keyword to its intrinsic-size
     // fallback before grid sizing; tracks then use that definite available width.
     grid_layout->is_min_content_width = !contain_size_has_inline_fallback &&

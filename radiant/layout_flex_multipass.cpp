@@ -1094,14 +1094,14 @@ static bool flex_flow_subtree_is_independent(LayoutContext* context, DomNode* no
                : layout_flow_is_context_independent(element, true, contract)) ||
         (element->display.list_item && !context->generated_effects_prepared) ||
         element->form_control() || (element->embed && !flex && !grid && !replaced) ||
-        element->transform || element->shadow_root_element() ||
+        element->transform_prop() || element->shadow_root_element() ||
         layout_is_mathml_root(element) ||
         (!context->generated_effects_prepared && (layout_generated_pseudo(element, nullptr, nullptr) ||
          layout_is_html_list_container_tag(element->tag()))) ||
         (block->blk && (block->block()->line_clamp || block->block()->line_clamp_inherited ||
-            (!context->generated_effects_prepared && (block->block()->counter_reset ||
-             block->block()->counter_increment || block->block()->counter_set)) ||
-            block->block()->content_visibility_skipped))) return false;
+            (!context->generated_effects_prepared && (block->block()->extras().counter_reset ||
+             block->block()->extras().counter_increment || block->block()->extras().counter_set)) ||
+            block->block()->containment().content_visibility_skipped))) return false;
     // percentage gaps and dependent bases distinguish intrinsic and final definite sizing
     // even when both passes happen to produce the same numeric block size.
     const FlexProp* style = flex && element->embed ? element->embedp()->flex.get() : nullptr;

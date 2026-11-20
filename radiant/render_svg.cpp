@@ -793,7 +793,7 @@ static void svg_cb_begin_transform(RenderContext* vctx, ViewBlock* block, float 
 
     RdtMatrix transform = {};
     bool has = render_geometry_transform_matrix(
-        block->transform,
+        block->transform_prop(),
         abs_x, abs_y,
         block->width, block->height,
         &transform);
@@ -1003,7 +1003,7 @@ static void calculate_visible_content_bounds(View* view, Bound clip,
     view_get_layout_position(view, nullptr, &origin.x, &origin.y);
     ViewBlock* block = lam::view_as_block(view);
     RdtMatrix local;
-    if (block && render_geometry_transform_matrix(block->transform,
+    if (block && render_geometry_transform_matrix(block->transform_prop(),
             origin.x, origin.y, view->width, view->height, &local)) {
         transform = rdt_matrix_multiply(&transform, &local);
     }

@@ -60,7 +60,7 @@ static FormControlProp* ensure_form_control_prop(LayoutContext* lycon, ViewBlock
     if (out_created) *out_created = false;
     if (!lycon || !block) return nullptr;
     if (block->form_control()) {
-        return block->form;
+        return block->form_storage();
     }
 
     FormControlProp* form = block->ensure_form(lycon->doc->view_tree);
@@ -76,7 +76,7 @@ static FormControlProp* ensure_form_control_prop(LayoutContext* lycon, ViewBlock
 
 static void apply_html_form_state_attributes(LayoutContext* lycon, ViewBlock* block,
                                              bool read_only, bool checked, bool required) {
-    if (!lycon || !block || !block->form || !lycon->doc) return;
+    if (!lycon || !block || !block->form_storage() || !lycon->doc) return;
     DocState* state = (DocState*)lycon->doc->state;
     if (block->has_attribute("disabled")) form_control_set_disabled(state, block, true);
     if (read_only && block->has_attribute("readonly")) form_control_set_readonly(state, block, true);
@@ -1493,13 +1493,13 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         }
         CssEnum marker = layout_html_ua_list_marker(
             elmt_name, html_ua_list_ancestors(elmt->as_element()).unordered);
-        block->blk->list_style_type = layout_specified_keyword(
+        block->ensure_block_extras(lycon)->list_style_type = layout_specified_keyword(
             elmt->as_element(), CSS_PROPERTY_LIST_STYLE_TYPE, marker);
         break;
     }
     case MARKUP_NAME_LI: {
         CssEnum marker = layout_specified_keyword(elmt->as_element(), CSS_PROPERTY_LIST_STYLE_TYPE);
-        if (marker != CSS_VALUE__UNDEF) block->ensure_block(lycon)->list_style_type = marker;
+        if (marker != CSS_VALUE__UNDEF) block->ensure_block_extras(lycon)->list_style_type = marker;
         break;
     }
     case MARKUP_NAME_CENTER:
@@ -1697,7 +1697,7 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         // UA default: list-style: inside disclosure-closed/-open.
         // summary elements use inside marker position (disclosure triangle before text)
         block->ensure_block(lycon);
-        block->blk->list_style_position = (CssEnum)1;  // 1 = inside
+        block->ensure_block_extras(lycon)->list_style_position = (CssEnum)1;  // 1 = inside
         // The marker direction is the parent details' `open` attribute, which
         // is the entire open/close state (HTML 4.11.1 defines no separate
         // internal openness). Pinning it to `closed` left the triangle facing
@@ -1709,7 +1709,7 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         bool details_open = summary_details &&
             summary_details->tag() == MARKUP_NAME_DETAILS &&
             summary_details->has_attribute(MARKUP_NAME_OPEN);
-        block->blk->list_style_type = details_open
+        block->ensure_block_extras(lycon)->list_style_type = details_open
             ? CSS_VALUE_DISCLOSURE_OPEN : CSS_VALUE_DISCLOSURE_CLOSED;
         break;
     }
@@ -1880,7 +1880,7 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         if (form_created) {
             // Parse state attributes and seed canonical StateStore state.
             DocState* state = (DocState*)lycon->doc->state;
-            block->form->state_ref = state;
+            block->form_storage()->state_ref = state;
             apply_html_form_state_attributes(lycon, block, true, true, true);
         }
 
@@ -1888,17 +1888,17 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         // runs. Refresh attribute-backed metadata every pass so the form control
         // type and default value reflect the current DOM attributes.
         const char* type = block->get_attribute("type");
-        block->form->input_type = type;
-        block->form->control_type = get_input_control_type(type);
-        block->form->value = block->get_attribute("value");
-        block->form->placeholder = block->get_attribute("placeholder");
-        block->form->name = block->get_attribute("name");
+        block->form_storage()->input_type = type;
+        block->form_storage()->control_type = get_input_control_type(type);
+        block->form_storage()->value = block->get_attribute("value");
+        block->form_storage()->placeholder = block->get_attribute("placeholder");
+        block->form_storage()->name = block->get_attribute("name");
 
         const char* size_attr = block->get_attribute("size");
-        block->form->size = FormDefaults::TEXT_SIZE_CHARS;
+        block->form_storage()->size = FormDefaults::TEXT_SIZE_CHARS;
         if (size_attr) {
-            block->form->size = (int)str_to_int64_default(size_attr, strlen(size_attr), 0); // INT_CAST_OK: HTML size attribute is a character count
-            if (block->form->size <= 0) block->form->size = FormDefaults::TEXT_SIZE_CHARS;
+            block->form_storage()->size = (int)str_to_int64_default(size_attr, strlen(size_attr), 0); // INT_CAST_OK: HTML size attribute is a character count
+            if (block->form_storage()->size <= 0) block->form_storage()->size = FormDefaults::TEXT_SIZE_CHARS;
         }
 
         block->ensure_block(lycon);
@@ -1906,7 +1906,7 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         // Chrome UA: font-size 13.3333px, font-family Arial for all form controls
         apply_html_form_control_font(lycon, block);
 
-        switch (block->form->control_type) {
+        switch (block->form_storage()->control_type) {
         case FORM_CONTROL_HIDDEN:
             block->display.outer = CSS_VALUE_NONE;
             break;
@@ -1914,18 +1914,18 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         case FORM_CONTROL_RADIO:
             block->display.outer = CSS_VALUE_INLINE_BLOCK;
             block->blk->box_sizing = CSS_VALUE_BORDER_BOX;
-            block->form->intrinsic_width = FormDefaults::CHECK_SIZE;
-            block->form->intrinsic_height = FormDefaults::CHECK_SIZE;
-            lycon->block.given_width = block->form->intrinsic_width;
-            lycon->block.given_height = block->form->intrinsic_height;
+            block->form_storage()->intrinsic_width = FormDefaults::CHECK_SIZE;
+            block->form_storage()->intrinsic_height = FormDefaults::CHECK_SIZE;
+            lycon->block.given_width = block->form_storage()->intrinsic_width;
+            lycon->block.given_height = block->form_storage()->intrinsic_height;
         block->ensure_boundary(lycon);
             radiant_spacing_set_specificity_all(&block->boundary_mut()->margin);
             *radiant_spacing_value(&block->boundary_mut()->margin, CSS_BOX_SIDE_TOP) = 3;
             *radiant_spacing_value(&block->boundary_mut()->margin, CSS_BOX_SIDE_RIGHT) = FormDefaults::CHECK_MARGIN;
             *radiant_spacing_value(&block->boundary_mut()->margin, CSS_BOX_SIDE_BOTTOM) =
-                (block->form->control_type == FORM_CONTROL_RADIO) ? 0 : FormDefaults::CHECK_MARGIN;
+                (block->form_storage()->control_type == FORM_CONTROL_RADIO) ? 0 : FormDefaults::CHECK_MARGIN;
             *radiant_spacing_value(&block->boundary_mut()->margin, CSS_BOX_SIDE_LEFT) =
-                (block->form->control_type == FORM_CONTROL_RADIO) ? FormDefaults::RADIO_MARGIN_LEFT : FormDefaults::CHECKBOX_MARGIN_LEFT;
+                (block->form_storage()->control_type == FORM_CONTROL_RADIO) ? FormDefaults::RADIO_MARGIN_LEFT : FormDefaults::CHECKBOX_MARGIN_LEFT;
             break;
         case FORM_CONTROL_BUTTON:
             block->display.outer = CSS_VALUE_INLINE_BLOCK;
@@ -1967,36 +1967,36 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
                     // a square fallback glyph plus 1px control reserve.
                     image_height = image_width + 1.0f;
                 }
-                block->form->intrinsic_width = image_width;
-                block->form->intrinsic_height = image_height;
+                block->form_storage()->intrinsic_width = image_width;
+                block->form_storage()->intrinsic_height = image_height;
             }
-            lycon->block.given_width = block->form->intrinsic_width;
-            lycon->block.given_height = block->form->intrinsic_height;
+            lycon->block.given_width = block->form_storage()->intrinsic_width;
+            lycon->block.given_height = block->form_storage()->intrinsic_height;
             break;
         case FORM_CONTROL_RANGE: {
             block->display.outer = CSS_VALUE_INLINE_BLOCK;
             block->blk->box_sizing = CSS_VALUE_BORDER_BOX;
             const char* list_attr = block->get_attribute("list");
-            form_input_intrinsic_size(block->form->input_type, &block->form->intrinsic_width,
-                &block->form->intrinsic_height, list_attr != nullptr);
-            lycon->block.given_width = block->form->intrinsic_width;
-            lycon->block.given_height = block->form->intrinsic_height;
+            form_input_intrinsic_size(block->form_storage()->input_type, &block->form_storage()->intrinsic_width,
+                &block->form_storage()->intrinsic_height, list_attr != nullptr);
+            lycon->block.given_width = block->form_storage()->intrinsic_width;
+            lycon->block.given_height = block->form_storage()->intrinsic_height;
         block->ensure_boundary(lycon);
             radiant_spacing_set_all(&block->boundary_mut()->margin, 2);
             const char* min_attr = block->get_attribute("min");
             const char* max_attr = block->get_attribute("max");
             const char* step_attr = block->get_attribute("step");
-            if (min_attr) block->form->range_min = str_to_double_default(min_attr, strlen(min_attr), 0.0);
-            if (max_attr) block->form->range_max = str_to_double_default(max_attr, strlen(max_attr), 0.0);
-            if (step_attr) block->form->range_step = str_to_double_default(step_attr, strlen(step_attr), 0.0);
+            if (min_attr) block->form_storage()->range_min = str_to_double_default(min_attr, strlen(min_attr), 0.0);
+            if (max_attr) block->form_storage()->range_max = str_to_double_default(max_attr, strlen(max_attr), 0.0);
+            if (step_attr) block->form_storage()->range_step = str_to_double_default(step_attr, strlen(step_attr), 0.0);
             // reflow must retain the user's live thumb position, not restore the value attribute.
             if (const char* live_value = radiant_input_peek_live_value(block)) {
-                block->form->value = live_value;
+                block->form_storage()->value = live_value;
             }
-            if (block->form->value) {
-                float val = (float)str_to_double_default(block->form->value, strlen(block->form->value), 0.0);
-                float normalized = (val - block->form->range_min) /
-                    (block->form->range_max - block->form->range_min);
+            if (block->form_storage()->value) {
+                float val = (float)str_to_double_default(block->form_storage()->value, strlen(block->form_storage()->value), 0.0);
+                float normalized = (val - block->form_storage()->range_min) /
+                    (block->form_storage()->range_max - block->form_storage()->range_min);
                 DocState* state = lycon && lycon->doc ? (DocState*)lycon->doc->state : nullptr;
                 form_control_set_range_value(state, (View*)block, normalized);
             }
@@ -2006,10 +2006,10 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
             block->display.outer = CSS_VALUE_INLINE_BLOCK;
             // File inputs: Chrome renders as 253×21 border-box with no external border/padding
             // (the internal "Choose File" button + label text are shadow DOM)
-            if (form_input_kind_is(block->form->input_type,
+            if (form_input_kind_is(block->form_storage()->input_type,
                     FORM_INPUT_KIND_FILE)) {
-                block->form->intrinsic_width = 253.0f;
-                block->form->intrinsic_height = FormDefaults::TEXT_HEIGHT;
+                block->form_storage()->intrinsic_width = 253.0f;
+                block->form_storage()->intrinsic_height = FormDefaults::TEXT_HEIGHT;
                 block->ensure_block(lycon);
                 block->blk->given_width = 253.0f;
                 block->blk->given_height = FormDefaults::TEXT_HEIGHT;
@@ -2018,16 +2018,16 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
             }
             // Flex can measure the control before form layout; seed it from the
             // selected face so both passes use the same platform width.
-            block->form->intrinsic_width = layout_text_input_content_width(
-                lycon, block, block->form,
+            block->form_storage()->intrinsic_width = layout_text_input_content_width(
+                lycon, block, block->form_storage(),
                 block->font ? block->font : lycon->font.style);
             // Content-area height: TEXT_HEIGHT (21 border-box) minus default border+padding.
             // Chrome uses fixed 21px border-box for all text inputs regardless of font-size.
-            block->form->intrinsic_height = FormDefaults::TEXT_HEIGHT
+            block->form_storage()->intrinsic_height = FormDefaults::TEXT_HEIGHT
                 - 2 * (FormDefaults::TEXT_BORDER + FormDefaults::TEXT_PADDING_V);
         block->ensure_boundary(lycon);
             Color text_border_color = (Color){ .r=118, .g=118, .b=118, .a=255 };
-            float border_width = form_input_kind_is(block->form->input_type,
+            float border_width = form_input_kind_is(block->form_storage()->input_type,
                     FORM_INPUT_KIND_COLOR)
                 ? FormDefaults::COLOR_BORDER : FormDefaults::TEXT_BORDER;
             apply_html_uniform_border(lycon, block, border_width, CSS_VALUE_SOLID,
@@ -2035,7 +2035,7 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
             // Chrome UA: date/time inputs have padding=0; text-like inputs have padding=1
             {
                 FormInputKind input_kind =
-                    form_input_kind(block->form->input_type);
+                    form_input_kind(block->form_storage()->input_type);
                 bool is_date_time = input_kind == FORM_INPUT_KIND_DATE ||
                     input_kind == FORM_INPUT_KIND_TIME ||
                     input_kind == FORM_INPUT_KIND_DATETIME_LOCAL ||
@@ -2056,7 +2056,7 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         bool form_created = false;
         ensure_form_control_prop(lycon, block, FORM_CONTROL_SELECT, &form_created);
         if (form_created) {
-            block->form->name = block->get_attribute("name");
+            block->form_storage()->name = block->get_attribute("name");
             apply_html_form_state_attributes(lycon, block, false, false, false);
             // count options before normalizing the retained selection.
             int option_count = 0;
@@ -2064,7 +2064,7 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
                  option = dom_select_next_option(block, option)) {
                 option_count++;
             }
-            block->form->option_count = option_count;
+            block->form_storage()->option_count = option_count;
             DocState* state = lycon && lycon->doc ? (DocState*)lycon->doc->state : nullptr;
             // rebuilding layout must preserve user selection; the getter reads DOM defaults only for a new owner.
             int init_index = form_control_get_selected_index(state, (View*)block);
@@ -2072,13 +2072,13 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         }
         // Intrinsic measurement can allocate FormControlProp before HTML defaults
         // resolve, so derive listbox mode from the current markup on every pass.
-        block->form->multiple = block->has_attribute("multiple");
-        block->form->select_size = 0;
+        block->form_storage()->multiple = block->has_attribute("multiple");
+        block->form_storage()->select_size = 0;
         // HTML §4.10.7: size attr specifies visible rows in listbox mode.
         const char* size_attr = block->get_attribute("size");
         if (size_attr) {
             int size_val = (int)str_to_int64_default(size_attr, strlen(size_attr), 0);
-            if (size_val > 0) block->form->select_size = size_val;
+            if (size_val > 0) block->form_storage()->select_size = size_val;
         }
         // Read CSS `appearance` property — affects intrinsic width and UA-rendered chrome.
         {
@@ -2086,19 +2086,19 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
             CssEnum appearance = ap_decl && ap_decl->value &&
                 ap_decl->value->type == CSS_VALUE_TYPE_KEYWORD
                 ? ap_decl->value->data.keyword : CSS_VALUE_AUTO;
-            block->form->appearance_none = appearance == CSS_VALUE_NONE;
-            block->form->appearance_base_select = appearance == CSS_VALUE_BASE_SELECT;
+            block->form_storage()->appearance_none = appearance == CSS_VALUE_NONE;
+            block->form_storage()->appearance_base_select = appearance == CSS_VALUE_BASE_SELECT;
         }
         block->display.outer = CSS_VALUE_INLINE_BLOCK;
         block->display.inner = RDT_DISPLAY_REPLACED;
-        if (block->form->multiple || block->form->select_size > 1) {
+        if (block->form_storage()->multiple || block->form_storage()->select_size > 1) {
             block->ensure_inline(lycon);
             // HTML rendering gives native listboxes the text-bottom inline alignment.
             block->in_line->vertical_align = CSS_VALUE_TEXT_BOTTOM;
         }
         block->ensure_block(lycon);
         block->blk->box_sizing = CSS_VALUE_BORDER_BOX;
-        if (block->form->appearance_base_select) {
+        if (block->form_storage()->appearance_base_select) {
             // Base appearance is CSS-rendered and inherits author font metrics.
             apply_html_form_logical_padding(lycon, block,
                 FormDefaults::BASE_SELECT_PADDING_H, FormDefaults::BASE_SELECT_PADDING_V);
@@ -2111,14 +2111,14 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         // Set intrinsic_width to UA default only on first resolve. Later passes
         // (e.g. intrinsic sizing in flex/grid) measure option text and write a
         // larger value here; we must not clobber it.
-        if (block->form->intrinsic_width <= 0) {
-            block->form->intrinsic_width = FormDefaults::SELECT_WIDTH;
+        if (block->form_storage()->intrinsic_width <= 0) {
+            block->form_storage()->intrinsic_width = FormDefaults::SELECT_WIDTH;
         }
         // Content-area height (border-box minus default border). User CSS
         // padding/border get added by calc_select_size to produce the final
         // border-box height. Don't set given_height here — let
         // layout_form_control compute it after CSS cascade applies padding/border.
-        block->form->intrinsic_height = FormDefaults::SELECT_HEIGHT - 2.0f;
+        block->form_storage()->intrinsic_height = FormDefaults::SELECT_HEIGHT - 2.0f;
         // Default border (UA): 1px solid #767676, 2px border-radius (Chrome-like)
         block->ensure_boundary(lycon);
         Color select_border_color = (Color){ .r=118, .g=118, .b=118, .a=255 };
@@ -2141,14 +2141,14 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         bool form_created = false;
         ensure_form_control_prop(lycon, block, FORM_CONTROL_TEXTAREA, &form_created);
         if (form_created) {
-            block->form->name = block->get_attribute("name");
-            block->form->placeholder = block->get_attribute("placeholder");
+            block->form_storage()->name = block->get_attribute("name");
+            block->form_storage()->placeholder = block->get_attribute("placeholder");
             apply_html_form_state_attributes(lycon, block, true, false, false);
             // Parse cols/rows
             const char* cols_attr = block->get_attribute("cols");
             const char* rows_attr = block->get_attribute("rows");
-            if (cols_attr) block->form->cols = (int)str_to_int64_default(cols_attr, strlen(cols_attr), 0);
-            if (rows_attr) block->form->rows = (int)str_to_int64_default(rows_attr, strlen(rows_attr), 0);
+            if (cols_attr) block->form_storage()->cols = (int)str_to_int64_default(cols_attr, strlen(cols_attr), 0);
+            if (rows_attr) block->form_storage()->rows = (int)str_to_int64_default(rows_attr, strlen(rows_attr), 0);
         }
         block->display.outer = CSS_VALUE_INLINE_BLOCK;
         block->ensure_block(lycon);
@@ -2160,8 +2160,8 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         apply_html_overflow(lycon, block, CSS_VALUE_AUTO);
         // Note: textarea uses content-box (CSS default), same as Chrome UA
         // Intrinsic size: Chrome default 182x36 border-box (20 cols, 2 rows)
-        block->form->intrinsic_width = 182.0f;
-        block->form->intrinsic_height = 36.0f;
+        block->form_storage()->intrinsic_width = 182.0f;
+        block->form_storage()->intrinsic_height = 36.0f;
         // Don't set given_width/given_height — layout_form_control computes
         // intrinsic size dynamically from cols/rows and font metrics
         // Default border and padding

@@ -699,7 +699,7 @@ SmViewClass sm_classify_view(View* view) {
     if (view->is_element()) {
         DomElement* elem = lam::dom_require_element(view);
         if (elem && tc_is_text_control(elem)) return SM_VC_TEXT_CONTROL;
-        FormControlProp* form = elem ? elem->form : NULL;
+        FormControlProp* form = elem ? elem->form_storage() : NULL;
         if (form) {
             switch (form->control_type) {
                 case FORM_CONTROL_CHECKBOX: return SM_VC_CHECKBOX;

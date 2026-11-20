@@ -109,7 +109,7 @@ bool view_size_containment_applies(DisplayValue display) {
 
 bool view_contents_are_skipped(const View* view) {
     const DomElement* element = view && view->is_element() ? view->as_element() : nullptr;
-    return element && element->blk && element->block()->content_visibility_skipped &&
+    return element && element->blk && element->block()->containment().content_visibility_skipped &&
         view_size_containment_applies(element->display);
 }
 
@@ -119,8 +119,8 @@ bool view_content_visibility_hides(DomElement* element, ContentVisibilityCheck c
     for (DomElement* parent = include_self ? element : element ? dom_flat_tree_parent(element) : nullptr;
          parent; parent = dom_flat_tree_parent(parent)) {
         bool hidden = parent->blk && (check == CONTENT_VISIBILITY_USER_AGENT
-            ? parent->block()->content_visibility == CSS_VALUE_HIDDEN
-            : parent->block()->content_visibility_skipped);
+            ? parent->block()->containment().content_visibility == CSS_VALUE_HIDDEN
+            : parent->block()->containment().content_visibility_skipped);
         if (hidden && view_size_containment_applies(parent->display)) return true;
     }
     return false;

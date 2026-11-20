@@ -4406,7 +4406,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
                 break;
             }
             ViewBlock* select = lam::view_require_block(select_view);
-            if (!select->form) {
+            if (!select->form_storage()) {
                 log_error("event_sim: select_option - select has no form control prop");
                 break;
             }
@@ -4680,8 +4680,8 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             uint32_t len = 0;
             if (editing_surface_is_text_control(&surface)) {
                 tc_ensure_init(surface.owner);
-                len = surface.owner && surface.owner->form
-                    ? surface.owner->form->current_value_len
+                len = surface.owner && surface.owner->form_storage()
+                    ? surface.owner->form_storage()->current_value_len
                     : 0;
             } else if (range_view->view_type == RDT_VIEW_TEXT) {
                 DomText* text = range_view->as_text();
@@ -4732,8 +4732,8 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             }
             DomElement* owner = surface.owner;
             tc_ensure_init(owner);
-            uint32_t old_len = owner && owner->form
-                ? owner->form->current_value_len
+            uint32_t old_len = owner && owner->form_storage()
+                ? owner->form_storage()->current_value_len
                 : 0;
             const char* text = ev->input_text ? ev->input_text : "";
             uint32_t text_len = (uint32_t)strlen(text);
@@ -4890,7 +4890,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             View* elem = resolve_assert_element(ctx, uicon, ev, "assert_password_reveal");
             if (!elem) break;
             DomElement* dom_elem = lam::dom_require_element(elem);
-            if (!tc_is_text_control(dom_elem) || !dom_elem->form) {
+            if (!tc_is_text_control(dom_elem) || !dom_elem->form_storage()) {
                 log_error("event_sim: assert_password_reveal - target is not a text control");
                 ctx->fail_count++;
                 break;
@@ -5011,8 +5011,8 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
                     break;
                 }
                 if (!actual) actual = "";
-            } else if (dom_elem->form_control() && dom_elem->form->current_value) {
-                actual = dom_elem->form->current_value;
+            } else if (dom_elem->form_control() && dom_elem->form_storage()->current_value) {
+                actual = dom_elem->form_storage()->current_value;
             } else if (dom_elem->tag() == MARKUP_NAME_INPUT) {
                 // A non-text input (range, color, the date family) has no edit
                 // buffer; its live value lives in the input value store, which
@@ -5044,9 +5044,9 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             if (editing_surface_from_target(elem, &surface) &&
                 editing_surface_is_text_control(&surface)) {
                 tc_ensure_init(surface.owner);
-                actual = surface.owner && surface.owner->form &&
-                    surface.owner->form->current_value
-                    ? surface.owner->form->current_value
+                actual = surface.owner && surface.owner->form_storage() &&
+                    surface.owner->form_storage()->current_value
+                    ? surface.owner->form_storage()->current_value
                     : "";
             } else {
                 rich_text = strbuf_new_cap(256);

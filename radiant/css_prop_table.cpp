@@ -1767,7 +1767,7 @@ String* css_prop_serialize_transform_functions(Pool* pool, TransformFunction* fu
 static bool serialize_transform(const CssPropAccessor* accessor, DomElement* element,
     int pseudo_type, StringBuf* out) {
     if (!accessor || !element || pseudo_type != 0) return false;
-    return format_transform_functions(element->transform ? element->transform->functions.get() : nullptr,
+    return format_transform_functions(element->transform_prop() ? element->transform_prop()->functions.get() : nullptr,
         element->width, element->height, out);
 }
 
@@ -2026,8 +2026,8 @@ static const char* scroll_snap_axis_name(ScrollSnapAxis axis) {
 static bool serialize_individual_transform(const CssPropAccessor* accessor,
     DomElement* element, int, StringBuf* out) {
     int index = css_individual_transform_index(accessor->id);
-    const TransformFunction* function = element && element->transform
-        ? &element->transformp()->individual[index] : nullptr;
+    const TransformFunction* function = element && element->transformp()->individual
+        ? &element->transformp()->individual->values[index] : nullptr;
     if (!function || function->type == TRANSFORM_NONE) return copy_text(out, "none");
     if (accessor->id == CSS_PROPERTY_TRANSLATE) {
         bool three_d = function->type == TRANSFORM_TRANSLATE3D;
@@ -2078,7 +2078,7 @@ static bool serialize_scroll_snap(const CssPropAccessor* accessor,
                                   DomElement* element, int pseudo_type,
                                   StringBuf* out) {
     if (!accessor || !element || pseudo_type != 0) return false;
-    const ScrollProp* scroll = element->scroll();
+    const ScrollSnapProp* scroll = &element->scroll()->snap_style();
     if (accessor->id == CSS_PROPERTY_SCROLL_SNAP_TYPE) {
         const char* axis = scroll_snap_axis_name(scroll->snap_axis);
         if (scroll->snap_axis == SCROLL_SNAP_AXIS_NONE ||

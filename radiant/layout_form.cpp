@@ -641,7 +641,7 @@ bool layout_measure_select_intrinsic(LayoutContext* lycon, ViewBlock* block,
     DomElement* select = block->as_element();
     if (select->tag() != MARKUP_NAME_SELECT) return false;
 
-    FormControlProp* form = block->form;
+    FormControlProp* form = block->form_storage();
     bool is_listbox = form && (form->multiple || form->select_size > 1);
     bool appearance_none = form && form->appearance_none;
     if (!form) {
@@ -775,9 +775,9 @@ static void calc_select_size(LayoutContext* lycon, ViewBlock* block, FormControl
             float content_width = max_text_width + 2.0f * FormDefaults::OPTION_PADDING_H +
                 2.0f * FormDefaults::SELECT_BORDER;
             for (DomNode* child = block->first_child; child; child = child->next_sibling) {
-                bool is_generated = block->pseudo &&
-                    (child == static_cast<DomNode*>(block->pseudo->before) ||
-                     child == static_cast<DomNode*>(block->pseudo->after));
+                bool is_generated = block->pseudo_prop() &&
+                    (child == static_cast<DomNode*>(block->pseudo_prop()->before) ||
+                     child == static_cast<DomNode*>(block->pseudo_prop()->after));
                 if (!is_generated || !child->is_element()) {
                     continue;
                 }
@@ -844,7 +844,7 @@ static void calc_select_size(LayoutContext* lycon, ViewBlock* block, FormControl
 
 static void form_control_update_intrinsic_size(LayoutContext* lycon, ViewBlock* block,
                                                 LayoutTextIntrinsicLineMetrics* label_metrics) {
-    FormControlProp* form = block->form;
+    FormControlProp* form = block->form_storage();
     FontProp* font = block->font ? block->font : lycon->font.style;
     // Calculate intrinsic size based on control type
     switch (form->control_type) {
@@ -908,9 +908,9 @@ IntrinsicSize layout_measure_native_control_intrinsics(LayoutContext* lycon, Vie
     LayoutFontScope font_scope(lycon, block->font ? block->font : lycon->font.style);
     // natural metrics precede authored dimensions and baseline publication; the trial owns only role metrics.
     form_control_update_intrinsic_size(lycon, block, nullptr);
-    float width = block->form->intrinsic_width;
-    float height = block->form->intrinsic_height;
-    if (block->form->control_type == FORM_CONTROL_SELECT) {
+    float width = block->form_storage()->intrinsic_width;
+    float height = block->form_storage()->intrinsic_height;
+    if (block->form_storage()->control_type == FORM_CONTROL_SELECT) {
         width = layout_content_size_from_border_box(block, width, true);
         height = layout_content_size_from_border_box(block, height, false);
     }
@@ -928,7 +928,7 @@ void layout_form_control(LayoutContext* lycon, ViewBlock* block) {
         return;
     }
 
-    FormControlProp* form = block->form;
+    FormControlProp* form = block->form_storage();
     FontProp* font = block->font ? block->font : lycon->font.style;
     LayoutTextIntrinsicLineMetrics label_metrics;
     bool textarea_needs_baseline_set =

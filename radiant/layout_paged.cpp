@@ -1313,7 +1313,7 @@ static RadiantKeepSpec paged_keep_spec(PagedFlowState* state, const ViewBlock* b
     if (!box) return result;
     const BlockProp* blk = box->blk ? box->block() : nullptr;
     ViewBreak css = relation == PAGED_KEEP_TOGETHER
-        ? paged_flow_break_keyword(blk ? blk->break_inside : CSS_VALUE_AUTO)
+        ? paged_flow_break_keyword(blk ? blk->extras().break_inside : CSS_VALUE_AUTO)
         : paged_flow_box_break(state, const_cast<ViewBlock*>(box), relation == PAGED_KEEP_NEXT);
     if (css == VIEW_BREAK_AVOID || (columns && css == VIEW_BREAK_AVOID_COLUMN)) result.scope[1].kind = RADIANT_KEEP_ALWAYS;
     if (css == VIEW_BREAK_AVOID || css == VIEW_BREAK_AVOID_PAGE) result.scope[2].kind = RADIANT_KEEP_ALWAYS;
@@ -1489,7 +1489,7 @@ static int paged_flow_line_limit(PagedFlowState* state, const ViewBlock* block, 
         ? paged_source_style(state, const_cast<ViewBlock*>(block)) : nullptr;
     // selected computed limits include inheritance that table workspace props omit.
     int value = style ? (widows ? style->widows : style->orphans)
-        : blk ? (widows ? blk->widows : blk->orphans) : 0;
+        : blk ? (widows ? blk->extras().widows : blk->extras().orphans) : 0;
     return value > 0 ? value : 2; // CSS Fragmentation 3 §4.4 initial value
 }
 
@@ -3280,7 +3280,7 @@ static TypesetStatus paged_fit_finished(PagedFlowState* state, LayoutContext* ly
 
 static ViewBreak paged_box_break(const ViewBlock* box, bool after) {
     const BlockProp* blk = box && box->blk ? box->block() : nullptr;
-    return paged_flow_break_keyword(blk ? (after ? blk->break_after : blk->break_before) : CSS_VALUE_AUTO);
+    return paged_flow_break_keyword(blk ? (after ? blk->extras().break_after : blk->extras().break_before) : CSS_VALUE_AUTO);
 }
 
 static ViewBreak paged_source_break(PagedFlowState* state, DomElement* element, bool after) {
@@ -4901,7 +4901,7 @@ float paged_label_body_columns(LayoutContext* lycon, ViewTable* table, TableMeta
     if (!style) { paged_flow_fail(state, TYPESET_OUT_OF_MEMORY, table, nullptr); return 0.0f; }
     if (!style->label_body || !style->label_body->grid) return 0.0f;
     bool valid = metadata->column_count == 2 && metadata->row_count == 1 &&
-        !table->tb->border_spacing_h && !table->tb->border_spacing_v;
+        !table->table_storage()->border_spacing_h && !table->table_storage()->border_spacing_v;
     size_t cells = 0;
     table->each_cell([&](ViewTableRow*, ViewTableCell* cell) {
         cells++;
@@ -5919,7 +5919,7 @@ static TypesetStatus paged_publish_boundary(PagedFlowState* state, LayoutViewNod
     if (!storage) return TYPESET_OUT_OF_MEMORY;
     *storage = {};
     bool table_layer = paged_table_layer(block);
-    bool collapsed_table = block->view_type == RDT_VIEW_TABLE && block->tb && block->tb->border_collapse;
+    bool collapsed_table = block->view_type == RDT_VIEW_TABLE && block->table_storage() && block->table_storage()->border_collapse;
     // the collapsed grid's cells own resolved edge paint; its authored border is only a solver input.
     const BorderProp* source_border = table_layer || collapsed_table ? nullptr : source->border.get();
     if (!table_layer && !collapsed_table) storage->boundary.padding = source->padding;
@@ -5951,7 +5951,7 @@ static TypesetStatus paged_publish_boundary(PagedFlowState* state, LayoutViewNod
         storage->boundary.border = lam::own(&storage->border);
     }
     if (collapsed_table) storage->boundary.border = lam::own(&storage->border);
-    bool clone = block->blk && block->block()->box_decoration_break == CSS_VALUE_CLONE;
+    bool clone = block->blk && block->block()->extras().box_decoration_break == CSS_VALUE_CLONE;
     bool has_border = source_border || collapsed || collapsed_table;
     for (size_t side = 0; side < 2; side++) if (!(side ? last : first)) {
         size_t edge = paged_flow_edge(state, side != 0);
@@ -6277,7 +6277,7 @@ static bool paged_publish_inline_fragment(void* context, RdtLogicalRect rect, bo
     if (!input->paint) return true;
     BoundaryProp boundary = *input->span->boundary();
     BorderProp border = boundary.border ? *boundary.border : BorderProp{};
-    bool clone = input->span->blk && input->span->block()->box_decoration_break == CSS_VALUE_CLONE;
+    bool clone = input->span->blk && input->span->block()->extras().box_decoration_break == CSS_VALUE_CLONE;
     if (!first && !clone) { boundary.padding.left = 0.0f; border.width.left = 0.0f; }
     if (!last && !clone) { boundary.padding.right = 0.0f; border.width.right = 0.0f; }
     if (boundary.border) boundary.border = lam::own(&border);
@@ -7815,7 +7815,7 @@ static TypesetStatus paged_target_areas_capture(ViewTree* tree) {
 
 // the text a pseudo-element of the page flow generated in its layout
 static const char* paged_flow_pseudo_text(Pool* pool, DomElement* element, bool before) {
-    PseudoContentProp* pseudo = element ? element->pseudo.get() : nullptr;
+    PseudoContentProp* pseudo = element ? element->pseudo_prop() : nullptr;
     DomElement* generated = pseudo ? (before ? pseudo->before.get() : pseudo->after.get()) : nullptr;
     DomNode* child = generated ? generated->first_child.get() : nullptr;
     DomText* text = child && child->is_text() ? child->as_text() : nullptr;

@@ -1417,11 +1417,11 @@ static float intrinsic_table_structure_height(LayoutContext* lycon, DomElement* 
 
     if (intrinsic_is_table_box(elem) && elem->tag() == MARKUP_NAME_TABLE) {
         ViewTable* table = lam::unsafe_view_table_storage(elem);
-        if (table && table->tb && !table->tb->border_collapse) {
+        if (table && table->table_storage() && !table->table_storage()->border_collapse) {
             // Intrinsic table height must include the outer border-spacing gaps;
             // otherwise a flex/grid query sees a shorter table than table layout.
             int row_count = intrinsic_table_row_count(elem);
-            total_height += table->tb->border_spacing_v * (row_count + 1);
+            total_height += table->table_storage()->border_spacing_v * (row_count + 1);
         }
     }
     return total_height;
@@ -2935,9 +2935,9 @@ float layout_intrinsic_collapsed_space_width(LayoutContext* lycon, DomNode* sour
 }
 
 static bool intrinsic_pseudo_child_is_materialized(DomElement* element, bool is_before) {
-    if (!element || !element->pseudo) return false;
+    if (!element || !element->pseudo_prop()) return false;
 
-    DomElement* pseudo = is_before ? element->pseudo->before : element->pseudo->after;
+    DomElement* pseudo = is_before ? element->pseudo_prop()->before : element->pseudo_prop()->after;
     if (!pseudo) return false;
 
     for (DomNode* child = element->first_child; child; child = child->next_sibling) {
@@ -2982,9 +2982,9 @@ static bool intrinsic_list_item_has_table_ancestor(DomElement* element) {
 
 static float intrinsic_list_item_marker_width(LayoutContext* lycon,
                                               ViewBlock* view_block) {
-    if (view_block && view_block->pseudo && view_block->pseudo->marker &&
-        view_block->pseudo->marker->marker_prop()) {
-        MarkerProp* marker = view_block->pseudo->marker->marker_prop();
+    if (view_block && view_block->pseudo_prop() && view_block->pseudo_prop()->marker &&
+        view_block->pseudo_prop()->marker->marker_prop()) {
+        MarkerProp* marker = view_block->pseudo_prop()->marker->marker_prop();
         if (marker->width > 0.0f) {
             float width = marker->width;
             DomElement* element = lam::dom_as<DOM_NODE_ELEMENT>(view_block);
@@ -3041,10 +3041,10 @@ static bool intrinsic_list_item_marker_is_inside(DomElement* element,
             ? view_block
             : lam::unsafe_view_block_element_storage(node_element);
         if (node_view && node_view->blk &&
-            node_view->block()->list_style_position != 0) {
+            node_view->block()->extras().list_style_position != 0) {
             // CSS Lists 3 §3.5: inside markers are inline content and therefore
             // belong to the list item's intrinsic inline-size contribution.
-            return node_view->block()->list_style_position == 1;
+            return node_view->block()->extras().list_style_position == 1;
         }
         // Intrinsic measurement can run before the cascade populates BlockProp;
         // read the inherited declaration directly instead of treating inside as outside.
@@ -3071,7 +3071,7 @@ static void intrinsic_materialize_pseudo_content(LayoutContext* lycon, DomElemen
     NameId tag = element->tag();
     ViewBlock* element_view = lam::unsafe_view_block_element_storage(element);
     bool select_listbox = tag == MARKUP_NAME_SELECT &&
-        ((element_view && element_view->form && element_view->form->multiple) ||
+        ((element_view && element_view->form_storage() && element_view->form_storage()->multiple) ||
          element->has_attribute("multiple"));
     if (tag == MARKUP_NAME_IMG || layout_is_svg_viewport(tag) ||
         tag == MARKUP_NAME_CANVAS || tag == MARKUP_NAME_IFRAME ||
@@ -3592,7 +3592,7 @@ bool layout_box_is_context_independent(DomElement* element, bool include_height,
     // independent box lengths can share constraints; each formatting algorithm
     // still owns any additional inputs it reads, including flex block size.
     if (!(contract & LAYOUT_QUERY_ORDERED_EFFECTS) &&
-        (element->display.outer == CSS_VALUE_LIST_ITEM || element->pseudo)) return false;
+        (element->display.outer == CSS_VALUE_LIST_ITEM || element->pseudo_prop())) return false;
     if (layout_block_inline_axis_is_vertical(view) || is_multicol_container(view) ||
         (!(contract & LAYOUT_QUERY_ASSIGNED_INLINE_SIZE) &&
          layout_used_preferred_aspect_ratio(view) > 0.0f)) return false;
@@ -3708,11 +3708,11 @@ struct IntrinsicWidthCacheScope {
         // resource sizes, native values and ordered effects can change outside this subtree's DOM versions.
         ViewBlock* block = lam::unsafe_view_block_element_storage(element);
         entry.retain_across_passes = cacheable && children_retained && !lycon->paged &&
-            !element->shadow_root_element() && !element->pseudo && !element->display.list_item &&
+            !element->shadow_root_element() && !element->pseudo_prop() && !element->display.list_item &&
             !layout_form_control_has_native_intrinsic_size(element) &&
             (!layout_element_is_replaced(element) || layout_is_svg_viewport(element->tag())) &&
-            !(block->blk && (block->block()->counter_reset || block->block()->counter_increment ||
-                            block->block()->counter_set)) &&
+            !(block->blk && (block->block()->extras().counter_reset || block->block()->extras().counter_increment ||
+                            block->block()->extras().counter_set)) &&
             !custom_layout_name_for_element(element);
         active = parent;
         // a dependent descendant makes its ancestors dependent too, including on hits.
@@ -4274,18 +4274,18 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     layout_resolve_contain_intrinsic_size(lycon, element, &contain_intrinsic_width,
                                           &contain_intrinsic_height);
     bool contain_intrinsic_width_auto = resolved_width_view->blk &&
-        resolved_width_view->block()->contain_intrinsic_width_auto;
+        resolved_width_view->block()->containment().contain_intrinsic_width_auto;
     bool has_empty_size_containment =
         layout_block_has_size_containment_in_axis(resolved_width_view, true) &&
         contain_intrinsic_width < 0.0f && !has_definite_width &&
         (resolved_width_view->display.inner != CSS_VALUE_GRID ||
-         resolved_width_view->block()->content_visibility_skipped) &&
-        (!resolved_width_view->form ||
-         resolved_width_view->block()->content_visibility_skipped);
+         resolved_width_view->block()->containment().content_visibility_skipped) &&
+        (!resolved_width_view->form_storage() ||
+         resolved_width_view->block()->containment().content_visibility_skipped);
     float contained_content_width = -1.0f;
     float remembered_width = 0.0f;
     if (resolved_width_view->blk &&
-        resolved_width_view->block()->content_visibility_skipped &&
+        resolved_width_view->block()->containment().content_visibility_skipped &&
         contain_intrinsic_width_auto &&
         layout_get_last_remembered_size(lycon, element, true, &remembered_width) &&
         !has_definite_width) {
@@ -4420,8 +4420,8 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
             height = -1.0f;
         }
         if (element->tag() == MARKUP_NAME_CANVAS && view_block_for_aspect->blk &&
-            view_block_for_aspect->block()->content_visibility_skipped &&
-            view_block_for_aspect->block()->contain_intrinsic_height_auto) {
+            view_block_for_aspect->block()->containment().content_visibility_skipped &&
+            view_block_for_aspect->block()->containment().contain_intrinsic_height_auto) {
             // Last-remembered canvas height must not reuse the provisional max-content
             // height produced by the hidden pass; the bitmap's natural ratio is the memory source.
             height = -1.0f;
@@ -4688,17 +4688,17 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         // the bottom of this function adds horizontal padding+border again — for
         // form controls sourced from form->intrinsic_width we therefore mark the
         // value as "already includes pad+border" and skip the bottom addition.
-        bool input_button_has_native_label = view_block_replaced->form &&
-            view_block_replaced->form->control_type == FORM_CONTROL_BUTTON &&
+        bool input_button_has_native_label = view_block_replaced->form_storage() &&
+            view_block_replaced->form_storage()->control_type == FORM_CONTROL_BUTTON &&
             replaced_tag == MARKUP_NAME_INPUT &&
             form_button_label_text(view_block_replaced,
-                                   view_block_replaced->form);
+                                   view_block_replaced->form_storage());
         // A <button>'s form width is only a label width stashed by flex sizing (and
         // retained by a reflow); native measurement omits its flow children, so a
         // <button> always takes the content path below, as on a first layout.
         bool has_measurable_form_control =
             layout_form_control_has_native_intrinsic_size(view_block_replaced) &&
-            (view_block_replaced->form->intrinsic_width > 0 ||
+            (view_block_replaced->form_storage()->intrinsic_width > 0 ||
              input_button_has_native_label);
         // Input buttons have no DOM text child, so their native label must be measured centrally.
         if (replaced_width < 0 && view_block_replaced->form_control() &&
@@ -4721,7 +4721,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
                     // content box and let the common box addition below apply
                     // the author box. Otherwise keep the UA border-box value.
                     bool has_author_box = css_has_horizontal_box_decl(element->specified_style);
-                    FormControlProp* form = view_block_replaced->form;
+                    FormControlProp* form = view_block_replaced->form_storage();
                     FontProp* font = view_block_replaced->font
                         ? view_block_replaced->font : lycon->font.style;
                     // Early flex measurements can precede form layout; use
@@ -4748,11 +4748,11 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
 
         if (replaced_width >= 0) {
             float intrinsic_replaced_width = replaced_width;
-            if (percentage_size_is_intrinsic_auto && view_block_replaced->form &&
-                view_block_replaced->form->intrinsic_width > 0.0f) {
+            if (percentage_size_is_intrinsic_auto && view_block_replaced->form_storage() &&
+                view_block_replaced->form_storage()->intrinsic_width > 0.0f) {
                 // A provisional percentage used for the measurement pass must not
                 // replace the form control's natural max-content contribution.
-                intrinsic_replaced_width = view_block_replaced->form->intrinsic_width;
+                intrinsic_replaced_width = view_block_replaced->form_storage()->intrinsic_width;
             }
             // CSS Sizing §5.2: a percentage in an indefinite containing block
             // contributes zero to min-content, while the replaced object's
@@ -5483,17 +5483,17 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         // scope before measuring its marker and generated list-item children.
         counter_push_scope(lycon->counter_context);
         intrinsic_list_item_scope = true;
-        if (view_block->blk && view_block->block_mut()->counter_reset) {
+        if (view_block->blk && view_block->block()->extras().counter_reset) {
             counter_reset(lycon->counter_context,
-                          view_block->block()->counter_reset);
+                          view_block->block()->extras().counter_reset);
             compute_reversed_counter_initial(lycon, element);
         }
-        if (view_block->blk && view_block->block_mut()->counter_increment) {
+        if (view_block->blk && view_block->block()->extras().counter_increment) {
             counter_increment(lycon->counter_context,
-                              view_block->block()->counter_increment);
+                              view_block->block()->extras().counter_increment);
         }
-        if (view_block->blk && view_block->block_mut()->counter_set) {
-            counter_set(lycon->counter_context, view_block->block()->counter_set);
+        if (view_block->blk && view_block->block()->extras().counter_set) {
+            counter_set(lycon->counter_context, view_block->block()->extras().counter_set);
         }
         layout_apply_list_item_counter(lycon, view_block, element);
         process_list_item(lycon, view_block, element, element,
@@ -5599,8 +5599,8 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     // grid items, including intrinsic aspect-ratio transfer.
     float element_definite_height = -1.0f;
     bool hidden_auto_height = view_block->blk &&
-        view_block->block()->content_visibility_skipped &&
-        view_block->block()->contain_intrinsic_height_auto;
+        view_block->block()->containment().content_visibility_skipped &&
+        view_block->block()->containment().contain_intrinsic_height_auto;
     if (!hidden_auto_height && view_block->blk && view_block->block_mut()->given_height > 0) {
         element_definite_height = view_block->block()->given_height;
         if (layout_uses_border_box(view_block)) {
@@ -6281,18 +6281,18 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         bool has_marker = true;  // default list-style-type is 'disc'
 
         // Check list-style-type (if 'none', no marker) — also inherited
-        if (view_block->blk && view_block->block_mut()->list_style_type == CSS_VALUE_NONE) {
+        if (view_block->blk && view_block->block()->extras().list_style_type == CSS_VALUE_NONE) {
             has_marker = false;
         } else {
             for (DomNode* anc = static_cast<DomNode*>(element); anc; anc = anc->parent) {
                 if (!anc->is_element()) continue;
                 DomElement* anc_elem = anc->as_element();
                 ViewBlock* anc_view = lam::unsafe_view_block_element_storage(anc_elem);
-                if (anc_view->blk && anc_view->block_mut()->list_style_type == CSS_VALUE_NONE) {
+                if (anc_view->blk && anc_view->block()->extras().list_style_type == CSS_VALUE_NONE) {
                     has_marker = false;
                     break;
                 }
-                if (anc_view->blk && anc_view->block_mut()->list_style_type != 0) {
+                if (anc_view->blk && anc_view->block()->extras().list_style_type != 0) {
                     break;  // has a non-none type, stop
                 }
                 if (anc_elem->specified_style) {
@@ -7502,7 +7502,7 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
 
     float explicit_height = -1.0f;
     bool contain_intrinsic_height_auto = view->blk &&
-        view->block()->contain_intrinsic_height_auto;
+        view->block()->containment().contain_intrinsic_height_auto;
     radiant::CssResolvedSize resolved = {};
     if (radiant::intrinsic_height_cacheable(lycon, element) &&
         radiant::css_resolved_style_size(lycon, element, LAYOUT_AXIS_Y, &resolved)) {
@@ -7615,7 +7615,7 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
     bool has_contain_intrinsic_height = contain_intrinsic_height >= 0.0f &&
         !intrinsic_has_definite_css_height(lycon, element, view);
     float remembered_height = 0.0f;
-    if (view->blk && view->block()->content_visibility_skipped &&
+    if (view->blk && view->block()->containment().content_visibility_skipped &&
         contain_intrinsic_height_auto &&
         layout_get_last_remembered_size(lycon, element, false, &remembered_height) &&
         !intrinsic_has_definite_css_height(lycon, element, view)) {
@@ -7627,9 +7627,9 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
     bool has_empty_size_containment =
         layout_block_has_size_containment_in_axis(view, false) &&
         contain_intrinsic_height < 0.0f &&
-        (!view->form || view->block()->content_visibility_skipped) &&
+        (!view->form_storage() || view->block()->containment().content_visibility_skipped) &&
         (view->display.inner != CSS_VALUE_GRID ||
-         view->block()->content_visibility_skipped);
+         view->block()->containment().content_visibility_skipped);
 
     // CSS 2.1 §10.6.2: Replaced element intrinsic height
     // Size containment substitutes the fallback before a natural image ratio can
@@ -7703,7 +7703,7 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
 
             if (etag == MARKUP_NAME_TEXTAREA) {
                 // use native row/line-height metrics so a nested flex auto minimum matches final layout.
-                if (view->form) {
+                if (view->form_storage()) {
                     IntrinsicSize measured = layout_measure_form_control(
                         lycon, view, AvailableSpace::make_indefinite());
                     height = measured.max_height;
@@ -7721,7 +7721,7 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
                      input_kind == FORM_INPUT_KIND_RADIO)) {
                     return native_height;  // fixed size, no CSS padding/border
                 }
-                if (view->form) {
+                if (view->form_storage()) {
                     // HTML form controls use their resolved normal line height
                     // when author CSS scales the control's font; reuse the
                     // layout path so intrinsic grid tracks see the same content
@@ -7738,11 +7738,11 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
                 }
             } else {
                 // select
-                bool is_listbox = view->form &&
-                    (view->form->multiple || view->form->select_size > 1);
+                bool is_listbox = view->form_storage() &&
+                    (view->form_storage()->multiple || view->form_storage()->select_size > 1);
                 if (is_listbox) {
-                    int visible_rows = view->form->select_size > 0
-                        ? view->form->select_size : 4;
+                    int visible_rows = view->form_storage()->select_size > 0
+                        ? view->form_storage()->select_size : 4;
                     height = visible_rows * FormDefaults::SELECT_OPTION_ROW_HEIGHT;
                 } else {
                     height = font_size + 2 * FormDefaults::TEXT_PADDING_V;
@@ -8415,7 +8415,7 @@ static bool intrinsic_height_cacheable(LayoutContext* context, DomElement* eleme
     // table/grid/resource/fragmentation consumers also lack complete retained queries.
     return (element->display.inner == CSS_VALUE_FLOW ||
             element->display.inner == CSS_VALUE_FLOW_ROOT) &&
-        !element->pseudo && !layout_is_mathml_root(element) &&
+        !element->pseudo_prop() && !layout_is_mathml_root(element) &&
         !layout_block_inline_axis_is_vertical(view) && !is_multicol_container(view) &&
         !layout_block_has_size_containment_in_axis(view, false);
 }

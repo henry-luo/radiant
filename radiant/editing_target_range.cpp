@@ -22,7 +22,7 @@ static uint32_t compute_text_control_target_ranges(DocState* state,
     DomElement* elem = surface->owner;
     if (!tc_is_text_control(elem)) return 0;
     tc_ensure_init(elem);
-    FormControlProp* form = elem->form;
+    FormControlProp* form = elem->form_storage();
     if (!form) return 0;
 
     switch (intent->type) {

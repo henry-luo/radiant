@@ -986,8 +986,8 @@ TEST_P(PagedRowTest, TrackGeometryReplayRetainsSourceOrderedGeneratedCounters) {
     const char* ids[] = {"a", "b", "c", "d", "e", "f"};
     for (size_t i = 0; i < 6; i++) {
         DomElement* element = dom_find_element_by_id(session.document->root, ids[i]);
-        ASSERT_TRUE(element && element->pseudo && element->pseudo->before);
-        DomNode* text = element->pseudo->before->first_child;
+        ASSERT_TRUE(element && element->pseudo_prop() && element->pseudo_prop()->before);
+        DomNode* text = element->pseudo_prop()->before->first_child;
         ASSERT_TRUE(text && text->is_text());
         char expected[2] = {(char)('1' + i), 0};
         EXPECT_STREQ(text->as_text()->text, expected);

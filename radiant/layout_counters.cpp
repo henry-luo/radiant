@@ -140,9 +140,9 @@ void CounterStyleScope::close() {
 }
 
 bool layout_has_style_containment(const ViewSpan* span) {
-    const BlockProp* block = span && span->blk ? span->block() : nullptr;
-    return block && ((block->computed_containment & CSS_CONTAIN_STYLE) ||
-        block->container_axes || (block->content_visibility != CSS_VALUE_VISIBLE &&
+    const BlockContainmentProp* containment = span && span->blk ? span->blk->containment_props.get() : nullptr;
+    return containment && ((containment->computed_containment & CSS_CONTAIN_STYLE) ||
+        containment->container_axes || (containment->content_visibility != CSS_VALUE_VISIBLE &&
             view_size_containment_applies(span->display)));
 }
 

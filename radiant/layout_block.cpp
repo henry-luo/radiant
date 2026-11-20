@@ -265,8 +265,8 @@ static ContainIntrinsicUsedAxes apply_contain_intrinsic_used_size(LayoutContext*
                                                                    ViewBlock* block) {
     ContainIntrinsicUsedAxes used_axes = {false, false};
     if (!lycon || !block || !block->blk ||
-        (!block->block()->contain_size && !block->block()->contain_inline_size &&
-         !block->block()->content_visibility_skipped)) {
+        (!block->block()->containment().contain_size && !block->block()->containment().contain_inline_size &&
+         !block->block()->containment().content_visibility_skipped)) {
         return used_axes;
     }
     bool width_is_auto = layout_block_has_automatic_size(block, true);
@@ -281,12 +281,12 @@ static ContainIntrinsicUsedAxes apply_contain_intrinsic_used_size(LayoutContext*
     bool physical_width_is_normal_flow_inline_axis = is_normal_flow_block &&
         !layout_block_inline_axis_is_vertical(block);
     LayoutAxisPair<bool> has_intrinsic = {
-        block->block()->contain_intrinsic_width >= 0.0f,
-        block->block()->contain_intrinsic_height >= 0.0f
+        block->block()->containment().contain_intrinsic_width >= 0.0f,
+        block->block()->containment().contain_intrinsic_height >= 0.0f
     };
-    bool has_native_select_intrinsic_size = block->form &&
-        block->form->control_type == FORM_CONTROL_SELECT &&
-        !block->block()->content_visibility_skipped;
+    bool has_native_select_intrinsic_size = block->form_storage() &&
+        block->form_storage()->control_type == FORM_CONTROL_SELECT &&
+        !block->block()->containment().content_visibility_skipped;
     LayoutAxisPair<float> empty_size = layout_axis_pair(
         layout_block_empty_content_size_in_axis(block, true),
         layout_block_empty_content_size_in_axis(block, false)
@@ -308,15 +308,15 @@ static ContainIntrinsicUsedAxes apply_contain_intrinsic_used_size(LayoutContext*
         physical_width_is_normal_flow_inline_axis, false
     };
     LayoutAxisPair<float> intrinsic_size = {
-        has_intrinsic.x ? block->block()->contain_intrinsic_width : empty_size.x,
-        has_intrinsic.y ? block->block()->contain_intrinsic_height : empty_size.y
+        has_intrinsic.x ? block->block()->containment().contain_intrinsic_width : empty_size.x,
+        has_intrinsic.y ? block->block()->containment().contain_intrinsic_height : empty_size.y
     };
     DomElement* element = block->is_element() ? block->as_element() : nullptr;
     LayoutAxisPair<float> remembered_size = {};
     LayoutAxisPair<bool> uses_remembered_size = {
-        block->block()->content_visibility_skipped && block->block()->contain_intrinsic_width_auto &&
+        block->block()->containment().content_visibility_skipped && block->block()->containment().contain_intrinsic_width_auto &&
             layout_get_last_remembered_size(lycon, element, true, &remembered_size.x),
-        block->block()->content_visibility_skipped && block->block()->contain_intrinsic_height_auto &&
+        block->block()->containment().content_visibility_skipped && block->block()->containment().contain_intrinsic_height_auto &&
             layout_get_last_remembered_size(lycon, element, false, &remembered_size.y)
     };
     for (LayoutAxis axis : layout_axes()) {
@@ -344,12 +344,12 @@ static ContainIntrinsicUsedAxes apply_contain_intrinsic_used_size(LayoutContext*
 
 static void apply_canvas_last_remembered_size(LayoutContext* lycon, ViewBlock* block) {
     if (!lycon || !block || block->tag() != MARKUP_NAME_CANVAS || !block->blk ||
-        !block->block()->content_visibility_skipped) {
+        !block->block()->containment().content_visibility_skipped) {
         return;
     }
     LayoutAxisPair<bool> use = {
-        block->block()->contain_intrinsic_width_auto,
-        block->block()->contain_intrinsic_height_auto
+        block->block()->containment().contain_intrinsic_width_auto,
+        block->block()->containment().contain_intrinsic_height_auto
     };
     if (!use.x && !use.y) return;
     float natural_width = 0.0f;
@@ -614,17 +614,17 @@ static void layout_block_prepare_canvas_auto_size(
     if (has_intrinsic_height_constraint &&
         (intrinsic_width != CSS_VALUE__UNDEF ||
          (block->tag() == MARKUP_NAME_CANVAS && width_is_automatic &&
-          !block->block()->content_visibility_skipped))) {
+          !block->block()->containment().content_visibility_skipped))) {
         width_is_automatic = true;
         height_is_automatic = true;
     }
     if (intrinsic_width != CSS_VALUE__UNDEF &&
-        !block->block()->content_visibility_skipped &&
+        !block->block()->containment().content_visibility_skipped &&
         !contain_intrinsic_used_axes.width) {
         width_is_automatic = true;
     }
     if (intrinsic_height != CSS_VALUE__UNDEF &&
-        !block->block()->content_visibility_skipped &&
+        !block->block()->containment().content_visibility_skipped &&
         !contain_intrinsic_used_axes.height) {
         height_is_automatic = true;
     }
@@ -647,7 +647,7 @@ static void layout_block_prepare_canvas_auto_size(
     float css_preferred_aspect_ratio = layout_preferred_aspect_ratio(block);
     bool canvas_has_css_preferred_ratio = css_preferred_aspect_ratio > 0.0f;
     if (block->tag() == MARKUP_NAME_CANVAS &&
-        !block->block()->content_visibility_skipped &&
+        !block->block()->containment().content_visibility_skipped &&
         !canvas_has_css_preferred_ratio) {
         if (block->block()->given_min_height_type == CSS_VALUE_MIN_CONTENT ||
             block->block()->given_min_height_type == CSS_VALUE_MAX_CONTENT ||
@@ -1039,7 +1039,7 @@ static void pseudo_update_text(DomDocument* doc, DomText* text_node, const char*
 static void pseudo_set_text(DomElement* pseudo_element, const char* content) {
     DomNode* first = pseudo_element->first_child;
     // a retained list-item marker precedes its content; update that content instead of duplicating it.
-    if (first && pseudo_element->pseudo && first == pseudo_element->pseudo->marker)
+    if (first && pseudo_element->pseudo_prop() && first == pseudo_element->pseudo_prop()->marker)
         first = first->next_sibling;
     if (first && first->is_text()) {
         pseudo_update_text(pseudo_element->doc, lam::dom_as<DOM_NODE_TEXT>(first), content);
@@ -1611,20 +1611,17 @@ DomElement* layout_generated_text(DomElement* owner, const char* text) {
     return box;
 }
 
-PseudoContentProp* alloc_pseudo_content_prop(LayoutContext* lycon, ViewBlock* block) {
-    if (!block || !block->is_element()) return nullptr;
+void layout_materialize_before_after(LayoutContext* lycon, ViewBlock* block) {
+    if (!block || !block->is_element()) return;
     DomElement* elem = lam::dom_require<DOM_NODE_ELEMENT>(block);
-    if (block->pseudo && block->pseudo->before_generated && block->pseudo->after_generated) {
-        return block->pseudo;
-    }
+    PseudoContentProp* pseudo = block->pseudo_prop();
+    if (pseudo && pseudo->before_generated && pseudo->after_generated) return;
     bool has_before = dom_element_has_before_content(elem);
     bool has_after = dom_element_has_after_content(elem);
-    if (!has_before && !has_after) return block->pseudo;  // Return existing (may have marker) or nullptr
-    PseudoContentProp* pseudo = block->pseudo;
+    if (!has_before && !has_after) return;
     if (!pseudo) {
-        pseudo = (PseudoContentProp*)alloc_prop(lycon, sizeof(PseudoContentProp));
-        if (!pseudo) return nullptr;
-        memset(pseudo, 0, sizeof(PseudoContentProp));
+        pseudo = block->ensure_pseudo(lycon);
+        if (!pseudo) return;
     }
     if (has_before && !pseudo->before_generated) {
         log_info("%s [PSEUDO] Getting before content for <%s>", block->source_loc(), elem->tag_name ? elem->tag_name : "?");
@@ -1637,7 +1634,6 @@ PseudoContentProp* alloc_pseudo_content_prop(LayoutContext* lycon, ViewBlock* bl
         pseudo->after = lam::up(create_pseudo_element(lycon, elem, after_content ? after_content : "", false, block->font));
         pseudo->after_generated = true;
     }
-    return pseudo;
 }
 
 static bool is_first_letter_punctuation(utf8proc_int32_t codepoint) {
@@ -4101,9 +4097,9 @@ static bool layout_list_item_has_visible_marker(ViewBlock* block) {
     // A generated marker is the used box-tree state after counter/style
     // resolution; retain it even when the HTML table UA pass left the inherited
     // list-style field at its default sentinel.
-    if (block->pseudo && block->pseudo->marker && block->pseudo->marker->marker_prop() &&
-            !block->pseudo->marker->marker_prop()->suppressed) return true;
-    if (block->blk && block->block_mut()->list_style_type == CSS_VALUE_NONE) {
+    if (block->pseudo_prop() && block->pseudo_prop()->marker && block->pseudo_prop()->marker->marker_prop() &&
+            !block->pseudo_prop()->marker->marker_prop()->suppressed) return true;
+    if (block->blk && block->block()->extras().list_style_type == CSS_VALUE_NONE) {
         return false;
     }
     return true;
@@ -4136,8 +4132,8 @@ void layout_store_last_remembered_size(LayoutContext* lycon, ViewBlock* block, b
 
     DomElement* element = block->as_element();
     if (view_content_visibility_hides(element, CONTENT_VISIBILITY_PAINT, false)) return;
-    LayoutAxisPair<bool> remember = {block->block()->contain_intrinsic_width_auto,
-        block->block()->contain_intrinsic_height_auto};
+    LayoutAxisPair<bool> remember = {block->block()->containment().contain_intrinsic_width_auto,
+        block->block()->containment().contain_intrinsic_height_auto};
     for (LayoutAxis axis : layout_axes()) {
         if (!remember[axis] && !layout_set_last_remembered_size(
                 lycon, element, axis == LAYOUT_AXIS_X, 0.0f, false)) {
@@ -4146,7 +4142,7 @@ void layout_store_last_remembered_size(LayoutContext* lycon, ViewBlock* block, b
     }
     // skipped descendants retain their prior geometry and cannot refresh sizing memory.
     if ((!remember[LAYOUT_AXIS_X] && !remember[LAYOUT_AXIS_Y]) ||
-        block->block()->contain_size || block->block()->content_visibility_skipped) return;
+        block->block()->containment().contain_size || block->block()->containment().content_visibility_skipped) return;
     float remembered_width = block->width;
     float remembered_height = block->height;
     LayoutFragmentBox* fragment = element->layout_fragment_list();
@@ -5445,7 +5441,7 @@ void layout_detach_first_letter_pseudo_content_for_layout_reset(DomElement* root
 
 void layout_detach_materialized_pseudo_content_for_layout_reset(DomElement* root) {
     if (!root) return;
-    PseudoContentProp* pseudo = root->pseudo;
+    PseudoContentProp* pseudo = root->pseudo_prop();
     if (pseudo) {
         // Generated boxes belong to the discarded view-pool epoch, never to the DOM.
         DomElement* rendered_parent = root->shadow_root_element()
@@ -5505,30 +5501,30 @@ void layout_materialize_pseudo_content(LayoutContext* lycon, ViewBlock* block,
             create_first_letter_pseudo(lycon, block);
         return;
     }
-    block->pseudo = lam::view_prop(alloc_pseudo_content_prop(lycon, block));
+    layout_materialize_before_after(lycon, block);
     DomElement* element = lam::dom_require<DOM_NODE_ELEMENT>(block);
-    if (block->pseudo) {
-        if (block->pseudo->before) {
-            refresh_pseudo_element_style(lycon, element, block->pseudo->before,
+    if (block->pseudo_prop()) {
+        if (block->pseudo_prop()->before) {
+            refresh_pseudo_element_style(lycon, element, block->pseudo_prop()->before,
                 PSEUDO_STYLE_BEFORE, element->font);
-            insert_pseudo_into_rendered_tree(element, block->pseudo->before, true);
+            insert_pseudo_into_rendered_tree(element, block->pseudo_prop()->before, true);
         }
-        if (block->pseudo->after) {
-            refresh_pseudo_element_style(lycon, element, block->pseudo->after,
+        if (block->pseudo_prop()->after) {
+            refresh_pseudo_element_style(lycon, element, block->pseudo_prop()->after,
                 PSEUDO_STYLE_AFTER, element->font);
-            insert_pseudo_into_rendered_tree(element, block->pseudo->after, false);
+            insert_pseudo_into_rendered_tree(element, block->pseudo_prop()->after, false);
         }
         bool marker_allowed = include_marker &&
             (block->display.list_item || block->display.outer == CSS_VALUE_LIST_ITEM) &&
-            (!block->pseudo->marker || !block->pseudo->marker->marker_prop() ||
-             !block->pseudo->marker->marker_prop()->suppressed);
-        if (block->pseudo->marker) {
+            (!block->pseudo_prop()->marker || !block->pseudo_prop()->marker->marker_prop() ||
+             !block->pseudo_prop()->marker->marker_prop()->suppressed);
+        if (block->pseudo_prop()->marker) {
             if (marker_allowed) {
-                insert_pseudo_into_dom(element, block->pseudo->marker, true);
+                insert_pseudo_into_dom(element, block->pseudo_prop()->marker, true);
             } else {
                 // css display 3: changing away from list-item removes the
                 // generated marker box from the principal box's child flow.
-                remove_pseudo_from_dom(element, block->pseudo->marker);
+                remove_pseudo_from_dom(element, block->pseudo_prop()->marker);
             }
         }
     }
@@ -5935,12 +5931,12 @@ static bool layout_retained_subtree_walk(DomNode* node, int depth,
             (position->clear != CSS_VALUE_NONE && position->clear != CSS_VALUE__UNDEF)) return false;
     }
     if (element->display.list_item ||
-        (element->blk && (element->block()->counter_reset ||
-                          element->block()->counter_increment ||
-                          element->block()->counter_set ||
+        (element->blk && (element->block()->extras().counter_reset ||
+                          element->block()->extras().counter_increment ||
+                          element->block()->extras().counter_set ||
                           element->block()->line_clamp_inherited)) ||
-        (element->pseudo && (element->pseudo->before || element->pseudo->after ||
-                             element->pseudo->marker))) return false;
+        (element->pseudo_prop() && (element->pseudo_prop()->before || element->pseudo_prop()->after ||
+                             element->pseudo_prop()->marker))) return false;
     // A positioned or floated descendant can depend on the old Y even when
     // the direct child is clean, so inspect the retained subtree before reuse.
     for (DomNode* child = element->first_child; child; child = child->next_sibling) {
@@ -6072,8 +6068,8 @@ void layout_block_inner_content(LayoutContext* lycon, ViewBlock* block,
     }
     // auto descendants remain available to geometry queries, selection and focus;
     // size containment and the paint/hit owners suppress their external effects.
-    if (block->blk && block->block()->content_visibility_skipped &&
-        block->block()->content_visibility == CSS_VALUE_HIDDEN) {
+    if (block->blk && block->block()->containment().content_visibility_skipped &&
+        block->block()->containment().content_visibility == CSS_VALUE_HIDDEN) {
         return;
     }
     if (block->is_element()) {
@@ -6702,10 +6698,10 @@ void layout_setup_inline_direction(LayoutContext* lycon, ViewBlock* block) {
     // CSS 2.1 §9.2.1: Propagate direction to block context
     if (block->blk) {
         lycon->block.direction = layout_block_used_css_direction(block);
-        bool has_outside_marker = block->display.list_item && block->pseudo &&
-            block->pseudo->marker_generated && block->pseudo->marker &&
-            block->pseudo->marker->marker_prop() &&
-            block->pseudo->marker->marker_prop()->is_outside;
+        bool has_outside_marker = block->display.list_item && block->pseudo_prop() &&
+            block->pseudo_prop()->marker_generated && block->pseudo_prop()->marker &&
+            block->pseudo_prop()->marker->marker_prop() &&
+            block->pseudo_prop()->marker->marker_prop()->is_outside;
         if (block->block()->unicode_bidi == CSS_VALUE_PLAINTEXT &&
             !has_outside_marker) {
             // CSS Writing Modes §2.2: plaintext derives the paragraph base
@@ -6780,7 +6776,7 @@ static float block_start_annotation_space(LayoutContext* context, ViewBlock* blo
     // independent contexts keep their external margins outside the internal annotation space.
     if (block_context_establishes_bfc(block) || box.border.top > 0.0f ||
             (block->scroller && block->scroll()->overflow_y != CSS_VALUE_VISIBLE) ||
-            (block->blk && block->block()->contain_paint)) return space;
+            (block->blk && block->block()->containment().contain_paint)) return space;
     float margin = box.margin.top;
     View* previous = previous_collapsible_sibling(block);
     if (previous && previous->is_block()) {
@@ -7986,7 +7982,7 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
         }
     }
     if (layout_is_svg_viewport(elmt_name) &&
-        !(block->blk && block->block()->content_visibility_skipped)) {
+        !(block->blk && block->block()->containment().content_visibility_skipped)) {
         SvgAnimationSourceScope animation_sources(block->as_element()->doc);
         layout_apply_svg_animated_dimensions(lycon, block);
         ReplacedIntrinsicFacts svg_facts =
@@ -10029,11 +10025,11 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
         // CSS 2.1 §10.8.1: Replaced elements (img, iframe, video, embed, object)
         // Textarea is a multi-line scrollable control; per CSS 2.1 §10.8.1,
         bool is_select_listbox = block->tag() == MARKUP_NAME_SELECT &&
-            (!block->form || block->form->multiple || block->form->select_size > 1);
+            (!block->form_storage() || block->form_storage()->multiple || block->form_storage()->select_size > 1);
         bool is_replaced = layout_block_is_replaced_baseline(block, true);
         bool form_control_margin_baseline = block->tag() == MARKUP_NAME_BUTTON ||
-            (block->tag() == MARKUP_NAME_INPUT && block->form &&
-             block->form->control_type == FORM_CONTROL_TEXT);
+            (block->tag() == MARKUP_NAME_INPUT && block->form_storage() &&
+             block->form_storage()->control_type == FORM_CONTROL_TEXT);
         bool textarea_uses_explicit_baseline_source =
             block->tag() == MARKUP_NAME_TEXTAREA &&
             radiant::layout_uses_explicit_baseline_source(block) &&

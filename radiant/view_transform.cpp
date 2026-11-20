@@ -4,6 +4,32 @@
 
 #include <math.h>
 
+void IndividualTransformProp::replace(Pool* pool, int index, const TransformFunction& value,
+                                      const TransformFunction* sample) {
+    if (pool && !samples[index]) radiant::destroy_transform_function_payload(pool, &values[index]);
+    values[index] = value;
+    samples[index] = sample;
+}
+
+void release_individual_transform(TransformProp* transform, Pool* pool) {
+    if (!pool || !transform->individual) return;
+    for (int index = 0; index < 3; index++) transform->individual->replace(pool, index, {});
+    lam::free_owned(pool, transform->individual);
+}
+
+TransformFunction copy_individual_transform(Pool* pool, const TransformFunction* source) {
+    if (!source) return {};
+    if (!source->translate_math[0] && !source->translate_math[1] && !source->matrix_interpolation) {
+        return *source;
+    }
+    // an inherited or restored value must outlive the originating animation sample.
+    TransformFunction* copy = pool ? radiant::clone_transform_function(pool, source) : nullptr;
+    if (!copy) return {};
+    TransformFunction value = *copy;
+    pool_free(pool, copy);
+    return value;
+}
+
 static double matrix4_cofactor(const RdtMatrix4* matrix, int row, int column) {
     double minor[9];
     unsigned count = 0;
@@ -580,7 +606,8 @@ RdtMatrix4 compute_transform_matrix_3d(const TransformProp* transform,
                                        float origin_x, float origin_y,
                                        float origin_z) {
     return compose_transform_matrix_3d(transform ? transform->functions.get() : nullptr,
-        transform ? transform->individual : nullptr, width, height, origin_x, origin_y, origin_z);
+        transform && transform->individual ? transform->individual->values : nullptr,
+        width, height, origin_x, origin_y, origin_z);
 }
 
 RdtMatrix matrix4_project_to_2d(const RdtMatrix4* matrix) {
@@ -663,7 +690,7 @@ RdtMatrix compute_transform_matrix(const TransformProp* transform,
 }
 
 bool has_transform(DomElement* elem) {
-    return elem && transform_has_functions(elem->transform);
+    return elem && transform_has_functions(elem->transform_prop());
 }
 
 bool transform_preserves_3d(DomElement* elem) {
@@ -677,7 +704,7 @@ bool transform_preserves_3d(DomElement* elem) {
         (!inline_prop->mix_blend_mode || inline_prop->mix_blend_mode == CSS_VALUE_NORMAL) &&
         !elem->filterp()->functions &&
         !(elem->boundary()->mask && elem->boundary()->mask->radial_gradient) &&
-        !elem->block()->contain_paint && !elem->block()->content_visibility_skipped;
+        !elem->block()->containment().contain_paint && !elem->block()->containment().content_visibility_skipped;
 }
 
 bool transform_establishes_containing_block(DomElement* elem) {

@@ -358,9 +358,10 @@ static bool scroll_snap_position_for_axis(ScrollSnapSearch* search,
                                            float* out_position,
                                            bool* out_oversized_cover = nullptr) {
     bool inline_vertical = layout_element_inline_axis_is_vertical(search->container);
+    const ScrollSnapProp& snap = target->scroll()->snap_style();
     CssEnum align = horizontal == inline_vertical
-        ? target->scroll()->snap_align_block
-        : target->scroll()->snap_align_inline;
+        ? snap.snap_align_block
+        : snap.snap_align_inline;
     if (align == CSS_VALUE_NONE) return false;
     LayoutLogicalSides logical = layout_logical_sides(inline_vertical,
         layout_element_writing_mode(search->container) == WM_VERTICAL_RL,
@@ -375,9 +376,9 @@ static bool scroll_snap_position_for_axis(ScrollSnapSearch* search,
     float local = layout_scroll_document_coord(target, horizontal) -
         layout_scrollport_start(search->container, horizontal);
     float target_size = horizontal ? target->width : target->height;
-    float area_start = local - target->scroll()->scroll_margin[min_side].pixels;
+    float area_start = local - snap.scroll_margin[min_side].pixels;
     float area_end = local + target_size +
-        target->scroll()->scroll_margin[max_side].pixels;
+        snap.scroll_margin[max_side].pixels;
     float pad_start = search->padding_used[min_side];
     float pad_end = search->padding_used[max_side];
     if (out_oversized_cover) {
@@ -451,13 +452,14 @@ void scroll_snap_adjust_position(ViewBlock* block, float* x, float* y,
                                  bool explicit_target, bool preserve_target) {
     if (!block || !block->scroller || !block->scroll()->pane || !x || !y) return;
     bool inline_vertical = layout_element_inline_axis_is_vertical(block);
-    ScrollSnapAxis axis = block->scroll()->snap_axis;
+    const ScrollSnapProp& snap = block->scroll()->snap_style();
+    ScrollSnapAxis axis = snap.snap_axis;
     ScrollSnapSearch search = {};
     search.container = block;
     search.use_x = scroll_snap_axis_enabled(axis, true, inline_vertical);
     search.use_y = scroll_snap_axis_enabled(axis, false, inline_vertical);
     DocState* state = block->doc ? block->doc->state : nullptr;
-    bool retain_one_axis = !inline_vertical && block->scroll()->snap_mandatory &&
+    bool retain_one_axis = !inline_vertical && snap.snap_mandatory &&
         search.use_x != search.use_y;
     if (!retain_one_axis) {
         scroll_state_set_snap_target_for_view(state, block, block->scroll()->pane, {});
@@ -493,7 +495,7 @@ void scroll_snap_adjust_position(ViewBlock* block, float* x, float* y,
         float base = side == CSS_BOX_SIDE_LEFT || side == CSS_BOX_SIDE_RIGHT
             ? search.port_width : search.port_height;
         search.padding_used[side] = layout_scroll_spacing_used(
-            &length_context, block, block->scroll()->scroll_padding[side], base);
+            &length_context, block, snap.scroll_padding[side], base);
     }
     scroll_state_get_range_for_view(state, static_cast<View*>(block),
         block->scroll()->pane, &search.min_x, &search.max_x,
@@ -509,9 +511,10 @@ void scroll_snap_adjust_position(ViewBlock* block, float* x, float* y,
         DomNode* next = node->next_sibling;
         if (node->is_element()) {
             DomElement* target = node->as_element();
+            const ScrollSnapProp& target_snap = target->scroll()->snap_style();
             if (target->width > 0.0f && target->height > 0.0f &&
-                (target->scroll()->snap_align_block != CSS_VALUE_NONE ||
-                 target->scroll()->snap_align_inline != CSS_VALUE_NONE)) {
+                (target_snap.snap_align_block != CSS_VALUE_NONE ||
+                 target_snap.snap_align_inline != CSS_VALUE_NONE)) {
                 if (axis == SCROLL_SNAP_AXIS_PAIR)
                     scroll_snap_consider_pair(&search, target);
                 else {
@@ -537,7 +540,7 @@ void scroll_snap_adjust_position(ViewBlock* block, float* x, float* y,
     float proximity_x = search.port_width * 0.25f;
     float proximity_y = search.port_height * 0.25f;
     if (axis == SCROLL_SNAP_AXIS_PAIR) {
-        if (search.found_x && (block->scroll()->snap_mandatory ||
+        if (search.found_x && (snap.snap_mandatory ||
             search.distance_pair <= 0.25f * 0.25f)) {
             *x = search.best_x;
             *y = search.best_y;
@@ -558,9 +561,9 @@ void scroll_snap_adjust_position(ViewBlock* block, float* x, float* y,
     if (!explicit_target && !search.retained_found && search.oversized_y &&
         search.following_y - search.previous_y > snapport_height)
         search.found_y = false;
-    if (search.found_x && (block->scroll()->snap_mandatory ||
+    if (search.found_x && (snap.snap_mandatory ||
         search.distance_x <= proximity_x)) *x = search.best_x;
-    if (search.found_y && (block->scroll()->snap_mandatory ||
+    if (search.found_y && (snap.snap_mandatory ||
         search.distance_y <= proximity_y)) *y = search.best_y;
     if (retain_one_axis) {
         DomElement* selected = search.use_x

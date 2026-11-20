@@ -2368,12 +2368,14 @@ RdtMatrix svg_resolve_local_transform(const char* value, bool from_css,
         }
     }
     if (individual) {
+        IndividualTransformProp individual_props = {};
+        transform.individual = lam::own(&individual_props);
         const CssPropertyCode properties[] = {CSS_PROPERTY_TRANSLATE, CSS_PROPERTY_ROTATE, CSS_PROPERTY_SCALE};
         for (unsigned index = 0; index < 3; index++) {
             if (!individual[index] || !strcmp(individual[index], "none")) continue;
             resolve_individual_transform_function_value(properties[index],
                 svg_parse_css_value(pool, individual[index], properties[index]),
-                &transform.individual[index], svg_transform_length, (void*)lengths);
+                &individual_props.values[index], svg_transform_length, (void*)lengths);
         }
         RdtMatrix prefix = radiant::compute_transform_matrix(&transform,
             reference_box->right - reference_box->left, reference_box->bottom - reference_box->top,
@@ -8975,7 +8977,7 @@ void render_inline_svg(RasterRenderContext* rdcon, ViewBlock* view) {
     bool viewport_clip = !overflow || strcmp(overflow, "visible") != 0;
     // visible SVG ink may extend beyond a viewport that lies outside the paint clip.
     if (viewport_clip && !rdcon->has_transform &&
-        !transform_has_functions(view->transform) &&
+        !transform_has_functions(view->transform_prop()) &&
         !view_geometry_bounds_intersect(view_geometry_rect_to_bound(content_rect), rdcon->block.clip)) return;
 
     Element* svg_elem = dom_element_to_element(dom_elem);

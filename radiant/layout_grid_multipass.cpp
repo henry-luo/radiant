@@ -135,7 +135,7 @@ static void grid_store_inline_baseline(LayoutContext* lycon,
             item_baseline = prefer_last ? item->block()->last_line_baseline
                                         : item->block()->first_line_baseline;
         }
-        float form_baseline = item->form
+        float form_baseline = item->form_storage()
             ? radiant::layout_form_control_baseline_for_source(item) : 0.0f;
         if (form_baseline > 0.0f) {
             // CSS Grid: the item baseline is measured from the grid area's

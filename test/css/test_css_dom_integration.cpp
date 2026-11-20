@@ -21,6 +21,7 @@ extern "C" const char* __lsan_default_options() { return "exitcode=0"; }
 #include "lambda/io/mark_builder.hpp"
 #include "lambda/core/well_known_markup_names.h"
 #include "lambda/input/input.hpp"
+#include "lambda/input/input-parsers.h"
 #include "helpers/css_test_helpers.hpp"
 
 extern "C" {
@@ -1039,10 +1040,10 @@ TEST_F(DomIntegrationTest, QualifiedTypeSelectorsMatchElementNamespaces) {
     ASSERT_TRUE(svg_rect->set_attribute("__lambda_ns_uri", "http://www.w3.org/1999/xhtml"));
     EXPECT_TRUE(matches(0, svg_rect));
     EXPECT_STREQ(dom_element_namespace_uri(svg_rect), "http://www.w3.org/1999/xhtml");
-    ASSERT_TRUE(dom_element_set_namespace_identity(null_div, "urn:probe", "renamed"));
-    EXPECT_STREQ(null_div->local_name(), "renamed");
-    ASSERT_TRUE(dom_element_set_namespace_identity(null_div, "urn:probe", "updated"));
-    EXPECT_STREQ(null_div->local_name(), "updated");
+    ASSERT_TRUE(dom_element_set_namespace_identity(null_div, "urn:probe", "div"));
+    EXPECT_STREQ(dom_element_namespace_uri(null_div), "urn:probe");
+    ASSERT_TRUE(dom_element_set_namespace_identity(null_div, "urn:updated", "div"));
+    EXPECT_STREQ(dom_element_namespace_uri(null_div), "urn:updated");
     css_engine_destroy(engine);
 }
 
@@ -1390,7 +1391,7 @@ TEST_F(DomIntegrationTest, ExpandedAttributesKeepNativeNullsOrderingAndIndepende
         builder.element("span").attr("lang", "ja").attr("null-value", ItemNull).final().element);
     ASSERT_NE(element, nullptr);
     ASSERT_TRUE(dom_element_set_attribute_ns(element, "urn:test", "lang", "de"));
-    ASSERT_TRUE(element->ext->attributes_are_recorded);
+    ASSERT_TRUE(element->has_recorded_attributes());
     EXPECT_TRUE(element->has_attribute("null-value"));
     EXPECT_EQ(element->get_attribute("null-value"), nullptr);
     EXPECT_EQ(dom_element_attribute_value_ns(element, "", "null-value"), nullptr);
@@ -1416,6 +1417,41 @@ TEST_F(DomIntegrationTest, ExpandedAttributesKeepNativeNullsOrderingAndIndepende
     EXPECT_STREQ(dom_element_language(element), "fr");
 }
 
+TEST_F(DomIntegrationTest, NamespaceUrisShareInputNamePool) {
+    const char* uri = "urn:test:shared";
+    String* canonical = namespace_uri_intern(input->name_pool, uri);
+    ASSERT_NE(canonical, nullptr);
+    DomElement* first = create_element_with_backing("p:one");
+    DomElement* second = create_element_with_backing("q:two");
+    ASSERT_TRUE(dom_element_set_namespace_identity(first, uri, "one"));
+    ASSERT_TRUE(dom_element_set_namespace_identity(second, uri, "two"));
+    ASSERT_TRUE(dom_element_set_attribute_ns(first, uri, "p:title", "text"));
+    ASSERT_TRUE(dom_element_set_attribute_ns(second, uri, "q:title", "text"));
+    DomAttr* attr = dom_element_attribute_node_ns(first, uri, "title");
+    ASSERT_NE(attr, nullptr);
+    const char* local = nullptr;
+    EXPECT_EQ(dom_element_namespace_uri(first), canonical->chars);
+    EXPECT_EQ(dom_element_namespace_uri(second), canonical->chars);
+    EXPECT_EQ(dom_element_attribute_namespace_uri(second, "q:title", &local), canonical->chars);
+    EXPECT_EQ(attr->namespace_uri.get(), canonical->chars);
+    EXPECT_STREQ(local, "title");
+    ASSERT_TRUE(first->set_attribute("__lambda_ns_uri", uri));
+    EXPECT_EQ(first->get_attribute("__lambda_ns_uri"), canonical->chars);
+    EXPECT_FALSE(first->prop_ext);
+    EXPECT_EQ(dom_element_namespace_uri(second), canonical->chars);
+
+    DomElement* synthetic = dom_element_create(doc, "span", nullptr);
+    ASSERT_NE(synthetic, nullptr);
+    ASSERT_TRUE(synthetic->set_attribute("__lambda_ns_uri", uri));
+    EXPECT_EQ(dom_element_namespace_uri(synthetic), canonical->chars);
+    EXPECT_FALSE(synthetic->ext);
+    ASSERT_TRUE(synthetic->remove_attribute("__lambda_ns_uri"));
+    EXPECT_FALSE(synthetic->prop_ext);
+    String* html_uri = namespace_uri_intern(input->name_pool, "http://www.w3.org/1999/xhtml");
+    ASSERT_NE(html_uri, nullptr);
+    EXPECT_EQ(dom_element_namespace_uri(synthetic), html_uri->chars);
+}
+
 TEST_F(DomIntegrationTest, AdoptedNodesKeepOneBackingIdentityAcrossUiRelinking) {
     Input* foreign_input = Input::create(pool, nullptr, input);
     ASSERT_NE(foreign_input, nullptr);
@@ -1425,6 +1461,28 @@ TEST_F(DomIntegrationTest, AdoptedNodesKeepOneBackingIdentityAcrossUiRelinking) 
     DomElement* child = dom_element_create(foreign, "span", foreign_builder.element("span").final().element);
     DomElement* parent = create_element_with_backing("div");
     ASSERT_NE(child, nullptr); ASSERT_NE(parent, nullptr);
+    ASSERT_TRUE(dom_element_set_namespace_identity(child, "urn:adopt-test", "span"));
+    const char* source_uri = dom_element_namespace_uri(child);
+    CssEngine* engine = css_engine_create(pool);
+    ASSERT_NE(engine, nullptr);
+    CssStylesheet* sheet = css_parse_stylesheet(engine,
+        "::before{box-sizing:border-box}::before{box-sizing:content-box}", nullptr);
+    ASSERT_NE(sheet, nullptr);
+    ASSERT_EQ(sheet->rule_count, 2u);
+    DomElement* origins[] = {child, parent};
+    for (size_t index = 0; index < 2; index++) {
+        CssRule* rule = sheet->rules[index];
+        CssSelector* selector = rule->data.style_rule.selector_group->selectors[0];
+        MatchResult match = {};
+        ASSERT_TRUE(selector_matcher_matches(matcher, selector, origins[index], &match));
+        ASSERT_EQ(dom_element_apply_pseudo_element_rule(origins[index], rule,
+            match.specificity, match.pseudo_element, 0, selector), 1);
+        EXPECT_FALSE(origins[index]->pseudo_style_group());
+    }
+    StyleTree* source_reset = child->pseudo_style(PSEUDO_STYLE_BEFORE);
+    ASSERT_NE(source_reset, nullptr);
+    EXPECT_NE(parent->pseudo_style(PSEUDO_STYLE_BEFORE), source_reset);
+    css_engine_destroy(engine);
     uint32_t destination_id = dom_document_alloc_node_id(doc);
     ASSERT_TRUE(dom_node_registry_transfer(foreign, doc, child, &destination_id));
     static_cast<DomNode*>(child)->id = destination_id; child->doc = lam::up(doc);
@@ -1437,6 +1495,12 @@ TEST_F(DomIntegrationTest, AdoptedNodesKeepOneBackingIdentityAcrossUiRelinking) 
     ASSERT_TRUE(appended);
     EXPECT_EQ(parent->first_child.get(), child); EXPECT_EQ(parent->last_child.get(), child);
     EXPECT_EQ(child->next_sibling, nullptr); EXPECT_EQ(child->parent.get(), parent);
+    EXPECT_EQ(dom_element_namespace_uri(child), source_uri);
+    EXPECT_STREQ(source_uri, "urn:adopt-test");
+    EXPECT_EQ(child->pseudo_style(PSEUDO_STYLE_BEFORE), source_reset);
+    ASSERT_TRUE(dom_element_clear_pseudo_styles(child));
+    EXPECT_EQ(child->pseudo_style(PSEUDO_STYLE_BEFORE), nullptr);
+    EXPECT_STREQ(child->local_name(), "span");
     Element* backing = dom_element_to_element(parent);
     ASSERT_EQ(backing->length, 1); EXPECT_EQ(backing->items[0].element, dom_element_to_element(child));
 
@@ -1454,7 +1518,7 @@ TEST_F(DomIntegrationTest, AttributeIterationKeepsExpandedValuesWithoutRecording
     ASSERT_TRUE(dom_element_next_attribute(&iterator, &attribute)); EXPECT_STREQ(attribute.value, "");
     ASSERT_TRUE(dom_element_next_attribute(&iterator, &attribute)); EXPECT_EQ(attribute.value, nullptr);
     EXPECT_FALSE(dom_element_next_attribute(&iterator, &attribute));
-    EXPECT_FALSE(element->ext->attributes_are_recorded);
+    EXPECT_FALSE(element->has_recorded_attributes());
     ASSERT_TRUE(dom_element_set_attribute_ns(element, "urn:test", "lang", "de"));
     iterator = dom_element_attribute_iterator(element);
     int count = 0;
@@ -1472,13 +1536,70 @@ TEST_F(DomIntegrationTest, ExplicitElementIdentitySeparatesLiteralAndQualifiedNa
     ASSERT_TRUE(dom_element_set_namespace_identity(qualified, "http://www.w3.org/1999/xhtml", "span"));
     EXPECT_STREQ(qualified->get_attribute("__lambda_ns_local_name"), "span");
     EXPECT_STREQ(qualified->local_name(), "span");
+    EXPECT_FALSE(qualified->ext);
+    EXPECT_FALSE(qualified->prop_ext);
     DomElement* literal = create_element_with_backing("h:span");
     ASSERT_TRUE(dom_element_set_namespace_identity(literal, "http://www.w3.org/1999/xhtml", "h:span"));
     EXPECT_STREQ(literal->local_name(), "h:span");
+    EXPECT_FALSE(literal->prop_ext);
     DomElement* plain = create_element_with_backing("svg");
     ASSERT_TRUE(dom_element_set_namespace_identity(plain, "", "svg"));
     ASSERT_TRUE(qualified->append_child(plain));
     EXPECT_STREQ(dom_element_namespace_uri(plain), ""); EXPECT_STREQ(plain->local_name(), "svg");
+    ASSERT_TRUE(plain->prop_ext);
+    EXPECT_FALSE(plain->ext);
+    EXPECT_FALSE(dom_element_set_namespace_identity(plain, "urn:test", "alias"));
+    EXPECT_STREQ(dom_element_namespace_uri(plain), "");
+    EXPECT_STREQ(plain->local_name(), "svg");
+    ASSERT_TRUE(dom_element_set_namespace_identity(plain, "http://www.w3.org/1999/xhtml", "svg"));
+    EXPECT_FALSE(plain->prop_ext);
+}
+
+TEST_F(DomIntegrationTest, PrivateLocalNameAttributeCannotOverrideTag) {
+    doc->page_kind = DOM_PAGE_KIND_HTML;
+    MarkBuilder builder(input);
+    Item source = builder.element("div").attr("__lambda_ns_local_name", "alias").final();
+    DomElement* element = build_dom_tree_from_element(source.element, doc, nullptr);
+    ASSERT_NE(element, nullptr);
+    EXPECT_STREQ(element->local_name(), "div");
+    EXPECT_STREQ(element->get_attribute("__lambda_ns_local_name"), "div");
+    EXPECT_FALSE(element->prop_ext);
+}
+
+TEST_F(DomIntegrationTest, XhtmlUsesTypedTagNamesWithExplicitNamespaces) {
+    const char source[] =
+        "<h:html id='html-root' xmlns:h='http://www.w3.org/1999/xhtml' xmlns:q='http://www.w3.org/1999/xhtml'"
+        " xmlns:s='http://www.w3.org/2000/svg'>"
+        "<h:body><h:Div id='html'/><s:svg id='svg'><q:span id='nested'/>"
+        "<div xmlns='' id='empty'/></s:svg></h:body></h:html>";
+    doc->page_kind = DOM_PAGE_KIND_HTML;
+    doc->xml_document = true;
+    Element* parsed = parse_xhtml_document(input, source, sizeof(source) - 1, false);
+    ASSERT_NE(parsed, nullptr);
+    DomElement* root = build_dom_tree_from_element(parsed, doc, nullptr);
+    ASSERT_NE(root, nullptr);
+
+    DomElement* html_root = dom_find_element_by_id(root, "html-root");
+    DomElement* html = dom_find_element_by_id(root, "html");
+    DomElement* svg = dom_find_element_by_id(root, "svg");
+    DomElement* nested = dom_find_element_by_id(root, "nested");
+    DomElement* empty = dom_find_element_by_id(root, "empty");
+    ASSERT_TRUE(html_root && html && svg && nested && empty);
+    EXPECT_STREQ(html->tag_name, "Div");
+    EXPECT_STREQ(html->local_name(), "Div");
+    EXPECT_STREQ(dom_element_namespace_uri(html), "http://www.w3.org/1999/xhtml");
+    EXPECT_STREQ(svg->tag_name, "svg");
+    EXPECT_STREQ(dom_element_namespace_uri(svg), "http://www.w3.org/2000/svg");
+    EXPECT_STREQ(nested->local_name(), "span");
+    EXPECT_STREQ(dom_element_namespace_uri(nested), "http://www.w3.org/1999/xhtml");
+    EXPECT_EQ(dom_element_namespace_uri(html), dom_element_namespace_uri(nested));
+    EXPECT_EQ(html_root->get_attribute("xmlns:h"), dom_element_namespace_uri(nested));
+    EXPECT_EQ(html_root->get_attribute("xmlns:q"), dom_element_namespace_uri(nested));
+    EXPECT_EQ(nested->get_attribute("__lambda_ns_uri"), dom_element_namespace_uri(nested));
+    EXPECT_EQ(dom_element_lookup_namespace_uri(nested, "h"), dom_element_namespace_uri(nested));
+    EXPECT_STREQ(empty->local_name(), "div");
+    EXPECT_STREQ(dom_element_namespace_uri(empty), "");
+    EXPECT_FALSE(dom_element_to_element(html)->has_attr("__lambda_ns_local_name"));
 }
 
 TEST_F(DomIntegrationTest, ParsedXmlExpandedNamesSurviveDeclarationMutation) {
@@ -1644,7 +1765,7 @@ TEST_F(DomIntegrationTest, DirUsesShadowHostAndNamedSlotAssignments) {
     DomElement* child = create_element_with_backing("span");
     ASSERT_NE(child->append_text("\xD7\x90"), nullptr);
     ASSERT_TRUE(host->append_child(child));
-    EXPECT_EQ(dom_slot_assignment_host(slot), host);
+    EXPECT_EQ(dom_slot_assignment(slot).host, host);
     EXPECT_EQ(dom_element_directionality(slot), 1);
     ASSERT_TRUE(child->set_attribute("dir", "ltr"));
     EXPECT_EQ(dom_element_directionality(slot), -1);
@@ -1655,7 +1776,7 @@ TEST_F(DomIntegrationTest, DirUsesShadowHostAndNamedSlotAssignments) {
     ASSERT_TRUE(duplicate->set_attribute("dir", "auto"));
     ASSERT_NE(duplicate->append_text("abc"), nullptr);
     ASSERT_TRUE(root->insert_before(duplicate, slot));
-    EXPECT_EQ(dom_slot_assignment_host(slot), nullptr);
+    EXPECT_EQ(dom_slot_assignment(slot).host, nullptr);
     EXPECT_EQ(dom_element_directionality(slot), -1);
     EXPECT_EQ(dom_element_directionality(duplicate), 1);
     ASSERT_TRUE(root->remove_child(duplicate));
@@ -1700,7 +1821,7 @@ TEST_F(DomIntegrationTest, DirQualifiesExcludedDescendantsAndSlotBarriers) {
     ASSERT_TRUE(slot->remove_attribute("dir"));
     ASSERT_TRUE(slot->set_attribute("__lambda_ns_uri", "urn:test"));
     EXPECT_EQ(dom_shadow_first_matching_slot(root, ""), nullptr);
-    EXPECT_EQ(dom_slot_assignment_host(slot), nullptr);
+    EXPECT_EQ(dom_slot_assignment(slot).host, nullptr);
 }
 
 TEST_F(DomIntegrationTest, SlotSearchAndDirectionWalkDeepSourceTrees) {

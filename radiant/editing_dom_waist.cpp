@@ -936,10 +936,10 @@ bool dom_edit_snapshot_native_select(DomDocument* document, DomElement* select) 
         return false;
     }
     snapshot->ref = ref;
-    snapshot->had_form_index = select->form || view_state_get(state, static_cast<View*>(select));
+    snapshot->had_form_index = select->form_storage() || view_state_get(state, static_cast<View*>(select));
     if (snapshot->had_form_index) {
         snapshot->form_index = form_control_get_selected_index(state, static_cast<View*>(select));
-        snapshot->option_count = select->form_control() ? select->form->option_count : 0;
+        snapshot->option_count = select->form_control() ? select->form_storage()->option_count : 0;
     }
     radiant_select_walk_options(select, editing_dom_snapshot_option, snapshot);
     if (snapshot->failed || !arraylist_append(transaction->select_snapshots, snapshot)) {

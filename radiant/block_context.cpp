@@ -232,7 +232,7 @@ bool block_context_establishes_bfc(ViewBlock* block) {
 
     if (!block) return false;
     // layout/paint containment and size-query containers isolate floats and margin collapse.
-    if (block->blk && (block->block()->container_axes || block->block()->contain_positioning)) return true;
+    if (block->blk && (block->block()->containment().container_axes || block->block()->containment().contain_positioning)) return true;
 
     // 1. Root element (html) - no parent
     if (!block->parent) return true;
