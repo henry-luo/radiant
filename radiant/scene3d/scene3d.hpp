@@ -111,6 +111,7 @@ ImageSurface* scene3d_snapshot(DomElement* root, UiContext* ui, float width, flo
 ImageSurface* scene3d_frame(DomElement* root, UiContext* ui, float width, float height, float raster_scale,
                             bool materialize);
 bool scene3d_materialize(DomElement* root);
+bool scene3d_is_inner_paint_attribute(DomElement* element, const char* name);
 struct NativeGlContext;
 struct NativeGlResource;
 // the target the last frame published; `opaque` when every pixel of it is opaque, `upsampled` when it is
