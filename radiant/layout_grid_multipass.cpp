@@ -74,30 +74,6 @@ static float grid_item_percentage_base_from_parent(LayoutContext* lycon, ViewBlo
     return grid_item->width;
 }
 
-static float grid_flex_container_auto_border_height(LayoutContext* lycon,
-                                                    ViewBlock* flex_container,
-                                                    float fallback_content_height) {
-    if (!flex_container) return 0.0f;
-
-    bool has_explicit_height = layout_axis_has_given_size(flex_container, false);
-    if (has_explicit_height) {
-        return flex_container->height;
-    }
-
-    BoxMetrics box = layout_box_metrics(flex_container);
-    float content_width = layout_content_size_from_border_box(
-        flex_container, flex_container->width, true);
-    if (lycon && content_width > 0.0f) {
-        // The old path guessed flex orientation from already-laid-out children,
-        // which double-counted margins and drifted from flex intrinsic sizing.
-        float measured_height = calculate_max_content_height(
-            lycon, static_cast<DomNode*>(flex_container), content_width);
-        if (measured_height > 0.0f) return measured_height;
-    }
-
-    return fallback_content_height + box.pad_border_v;
-}
-
 static int grid_inline_baseline_track(GridContainerLayout* grid_layout,
                                       bool prefer_last) {
     int baseline_track = 0;
@@ -780,8 +756,8 @@ static void layout_grid_item_final_content_multipass(LayoutContext* lycon, ViewB
             LayoutContainingBlockScope item_parent_scope(
                 lycon, LAYOUT_AXIS_X, grid_item_percentage_base);
             layout_flex_container_with_nested_content(lycon, grid_item);
-            grid_item->content_height = grid_flex_container_auto_border_height(
-                lycon, grid_item, lycon->block.advance_y);
+            // alignment consumes the completed formatter size, not a new intrinsic estimate.
+            grid_item->content_height = grid_item->height;
         }
 
     } else if (grid_item->display.inner == CSS_VALUE_TABLE) {

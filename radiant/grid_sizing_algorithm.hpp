@@ -373,14 +373,16 @@ inline void increase_sizes_for_spanning_item(
 inline bool item_crosses_flexible_track(
     const TrackArray& tracks,
     size_t start_index,
-    size_t span
+    size_t span,
+    bool include_zero = false
 ) {
     size_t end = grid_min_value(start_index + span, tracks.size());
     for (size_t i = start_index; i < end; ++i) {
         // Only consider tracks with non-zero fr as truly flexible.
         // Tracks with 0fr should be sized by intrinsic contributions since
         // they don't flex at all.
-        if (tracks[i].is_flexible() && tracks[i].max_track_sizing_function.flex_factor() > 0) {
+        if (tracks[i].is_flexible() && (include_zero ||
+                tracks[i].max_track_sizing_function.flex_factor() > 0)) {
             return true;
         }
     }

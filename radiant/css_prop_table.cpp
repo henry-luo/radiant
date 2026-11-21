@@ -272,10 +272,17 @@ static CssDeclaration* computed_decl(DomElement* element, CssPropertyCode id, in
         }
         return layout_cascaded_physical_declaration(element, id);
     }
-    if (pseudo_type != 0) {
-        return dom_element_get_pseudo_element_value(element, id, pseudo_type);
+    CssDeclaration* declaration = pseudo_type != 0
+        ? dom_element_get_pseudo_element_value(element, id, pseudo_type)
+        : dom_element_get_specified_value(element, id);
+    if (css_property_shorthand_contains(CSS_PROPERTY_FONT, id)) {
+        CssDeclaration* font = pseudo_type != 0
+            ? dom_element_get_pseudo_element_value(element, CSS_PROPERTY_FONT, pseudo_type)
+            : dom_element_get_specified_value(element, CSS_PROPERTY_FONT);
+        if (font && (!declaration || css_declaration_cascade_compare(font, declaration) > 0))
+            declaration = font;
     }
-    CssDeclaration* declaration = dom_element_get_specified_value(element, id);
+    if (pseudo_type != 0) return declaration;
     if (!declaration && (id == CSS_PROPERTY_OVERFLOW_X || id == CSS_PROPERTY_OVERFLOW_Y)) {
         declaration = dom_element_get_specified_value(element, CSS_PROPERTY_OVERFLOW);
     }
@@ -605,7 +612,7 @@ static bool consume_inherited_decl(DomElement* element, CssPropertyCode id,
         if (shorthand_value) value = shorthand_value;
         bool component_shorthand = grid_shorthand || (declaration && declaration->property_code != id &&
             (declaration->property_code == CSS_PROPERTY_CONTAINER || declaration->property_code == CSS_PROPERTY_FLEX ||
-             declaration->property_code == CSS_PROPERTY_GAP));
+             declaration->property_code == CSS_PROPERTY_GAP || declaration->property_code == CSS_PROPERTY_FONT));
         bool background_shorthand = false;
         if (id == CSS_PROPERTY_BACKGROUND_COLOR) {
             CssDeclaration* background = computed_decl(element, CSS_PROPERTY_BACKGROUND, pseudo_type);
@@ -838,11 +845,13 @@ static const CssValue* cssom_declared_font_value(Pool* scratch, DomElement* elem
     CssDeclaration* shorthand = computed_decl(element, CSS_PROPERTY_FONT, pseudo_type);
     const CssProperty* property = css_property_get_by_code(id);
     bool use_shorthand = property && css_font_shorthand_contains_property(property->name) &&
-        shorthand && shorthand->value && (!longhand || css_declaration_cascade_compare(shorthand, longhand) > 0);
+        shorthand && shorthand->value && (!longhand || shorthand == longhand ||
+            css_declaration_cascade_compare(shorthand, longhand) > 0);
     const CssValue* value = use_shorthand ? shorthand->value : longhand ? longhand->value : nullptr;
     if (!value) return nullptr;
-    const CssValue* resolved = css_resolve_element_var_value(scratch, element, value, id);
+    // a virtual component can select the font declaration itself; substitute before projecting it.
     CssPropertyCode source = use_shorthand ? CSS_PROPERTY_FONT : id;
+    const CssValue* resolved = css_resolve_element_var_value(scratch, element, value, source);
     if (!resolved || !css_property_validate_value(source, resolved)) return nullptr;
     // font's omitted line-height resets to normal; its components share validation and projection.
     return use_shorthand && property

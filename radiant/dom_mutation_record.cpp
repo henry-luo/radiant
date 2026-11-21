@@ -99,6 +99,11 @@ void radiant_dom_record_mutation_detail(DomDocument* doc, DomJsMutationKind kind
                 ? dom_mutation_child_list_affects_direction(parent)
                 : kind == DOM_JS_MUTATION_TEXT || kind == DOM_JS_MUTATION_CONTROL_VALUE;
         record->presentation_property = presentation_property;
+        // preserve paint-property identity without narrowing the attribute's observer/epoch effects.
+        if (kind == DOM_JS_MUTATION_ATTRIBUTE && attribute_name &&
+            !strcmp(attribute_name, "stroke-dashoffset") && target &&
+            target->is_element() && dom_element_is_svg(target->as_element()))
+            record->presentation_property = CSS_PROPERTY_STROKE_DASHOFFSET;
         record->was_connected =
             dom_shadow_including_contains(doc->root, target) ||
             dom_shadow_including_contains(doc->root, parent);

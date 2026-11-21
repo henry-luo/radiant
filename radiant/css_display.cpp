@@ -66,6 +66,11 @@ DisplayValue css_inherit_display_value(DomElement* element, DisplayValue parent)
 
 const char* css_display_special_name(DisplayValue display) {
     if (display.legacy_box) return display.legacy_box == 2 ? "-webkit-inline-box" : "-webkit-box";
+    // internal table roles use the inner keyword rather than their block outer display.
+    if (is_table_internal_display(display.inner)) {
+        const CssEnumInfo* info = css_enum_info(display.inner);
+        return info ? info->name : nullptr;
+    }
     // atomic inline layout normalizes inline flow-root to the inline-block role.
     bool inline_outer = display.outer == CSS_VALUE_INLINE || display.outer == CSS_VALUE_INLINE_BLOCK;
     if (display.list_item && inline_outer &&

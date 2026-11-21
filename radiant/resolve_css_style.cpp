@@ -3238,13 +3238,7 @@ static DisplayValue resolve_display_value_raw(void* child,
             display = css_default_display_for_element(dom_elem, node);
             return needs_blockify ? blockify_display(display) : display;
         }
-        if (has_css_all_reset && !has_specified_display) {
-            // CSS Cascade: all:initial/unset removes the HTML default display;
-            // the CSS initial value of display is inline.
-            display = {CSS_VALUE_INLINE,
-                is_replaced ? RDT_DISPLAY_REPLACED : CSS_VALUE_FLOW};
-            return needs_blockify ? blockify_display(display) : display;
-        }
+        // a rolled-back display also removes all for this property, leaving its UA default.
         display = css_default_display_for_element(dom_elem, node);
         // CSS 2.1 §9.7: Apply blockification to tag-based defaults too.
         if (is_replaced && display.outer != CSS_VALUE_NONE && display.inner == CSS_VALUE_FLOW) {
@@ -5516,9 +5510,41 @@ static void inherit_computed_text_shadow(ViewSpan* span, LayoutContext* lycon) {
     font->text_shadow = lam::own(shadows);
 }
 
+static bool inherit_computed_font_scalar(LayoutContext* context, ViewSpan* span,
+                                          const FontProp* parent, CssPropertyCode property) {
+    if (!parent) return false;
+    CssEnum all_reset = layout_element_css_all_reset_keyword(span);
+    HtmlUaElementDefault ua;
+    if (all_reset != CSS_VALUE_INHERIT && all_reset != CSS_VALUE_UNSET &&
+        layout_html_ua_element_default(span->tag(), &ua)) {
+        // the native UA font declaration is local and therefore wins over implicit inheritance.
+        CssEnum local = property == CSS_PROPERTY_FONT_WEIGHT ? ua.font_weight
+            : property == CSS_PROPERTY_FONT_STYLE ? ua.font_style : CSS_VALUE__UNDEF;
+        if (local != CSS_VALUE__UNDEF) return true;
+    }
+    struct Scalar { CssPropertyCode property; size_t offset; size_t size; };
+    static const Scalar scalars[] = {
+        {CSS_PROPERTY_FONT_WEIGHT, offsetof(FontProp, font_weight), sizeof(FontProp::font_weight)},
+        {CSS_PROPERTY_FONT_WEIGHT, offsetof(FontProp, font_weight_numeric), sizeof(FontProp::font_weight_numeric)},
+        {CSS_PROPERTY_FONT_STYLE, offsetof(FontProp, font_style), sizeof(FontProp::font_style)},
+        {CSS_PROPERTY_FONT_VARIANT, offsetof(FontProp, font_variant), sizeof(FontProp::font_variant)}
+    };
+    FontProp* target = nullptr;
+    for (const Scalar& scalar : scalars) {
+        if (scalar.property != property) continue;
+        if (!target) target = span->ensure_font(context);
+        if (!target) return false;
+        // inheritance copies the computed parent value, without recascading an ancestor declaration.
+        memcpy((char*)target + scalar.offset, (const char*)parent + scalar.offset, scalar.size);
+    }
+    return target != nullptr;
+}
+
 static void resolve_css_inherited_properties(DomElement* dom_elem,
     LayoutContext* lycon, bool font_phase) {
     StyleTree* style_tree = dom_elem->specified_style;
+    bool has_font_shorthand = font_phase && style_tree && style_tree->tree &&
+        avl_tree_search(style_tree->tree, CSS_PROPERTY_FONT);
     bool all_initial = layout_element_css_all_reset_keyword(dom_elem) == CSS_VALUE_INITIAL;
     DomElement* parent = dom_parent_element(dom_elem);
     StyleTree* parent_tree = (parent && parent->specified_style)
@@ -5535,13 +5561,18 @@ static void resolve_css_inherited_properties(DomElement* dom_elem,
         for (size_t property_index = 0; property_index < inherited_count; property_index++) {
             CssPropertyCode prop_id = inherited_properties[property_index];
             if (css_property_is_font(prop_id) != font_phase) continue;
-            CssDeclaration* existing = style_tree_get_declaration(style_tree, prop_id);
+            CssDeclaration* existing = has_font_shorthand &&
+                    css_property_shorthand_contains(CSS_PROPERTY_FONT, prop_id)
+                ? style_tree_get_property_declaration(style_tree, prop_id)
+                : style_tree_get_declaration(style_tree, prop_id);
             if (existing && existing->property_code != CSS_PROPERTY_ALL) {
                 continue;
             }
             if (all_initial && prop_id != CSS_PROPERTY_DIRECTION) {
                 continue;
             }
+            if (font_phase && parent && inherit_computed_font_scalar(lycon, inheritance_span,
+                    parent->font.get(), prop_id)) continue;
             if (prop_id == CSS_PROPERTY_COLOR) {
                 // a local HTML color takes precedence over implicit inheritance.
                 if (!existing && layout_apply_html_text_color(lycon, inheritance_span)) continue;
