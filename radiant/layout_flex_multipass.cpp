@@ -1312,8 +1312,12 @@ bool flex_measure_completed_flow(LayoutContext* context, ViewElement* element,
 static void flex_update_item_scroller(ViewBlock* item) {
     if (!item->scroller) return;
     // content_height excludes the content origin; scrollers compare against the border box.
+    float scroll_width = item->content_width;
     float scroll_height = layout_border_size_from_content_box(item, item->content_height, false);
-    update_scroller(item, item->content_width, scroll_height);
+    // keep the descendant bounds block flow measured: a grid item's content_height is 0, and
+    // refreshing from it alone left an overflow:auto grid item with nothing to scroll.
+    layout_scroll_container_extent(item, false, &scroll_width, &scroll_height, nullptr, nullptr);
+    update_scroller(item, scroll_width, scroll_height);
 }
 
 static bool flex_content_reads_block_constraint(DomNode* node, unsigned depth) {

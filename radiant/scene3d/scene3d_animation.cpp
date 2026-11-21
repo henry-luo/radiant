@@ -890,6 +890,7 @@ static bool scene3d_motion_start(Scene3dAnimationState* state) {
     }
     return true;
 }
+static bool scene3d_animation_schedule(Scene3dAnimationState* state);
 // a changed (state, cue) request from the template always wins over the playing state
 static bool scene3d_motion_reconcile(Scene3dAnimationState* state) {
     bool changed = false;
@@ -910,7 +911,7 @@ static bool scene3d_motion_reconcile(Scene3dAnimationState* state) {
         if (!scene3d_motion_enter(state, c, requested, true, true))
             return false;
     }
-    return !changed || scene3d_animation_automatic(state, state->automatic);
+    return !changed || scene3d_animation_schedule(state);
 }
 
 static Scene3dTickResult scene3d_animation_tick(void* owner, double timestep) {
@@ -935,17 +936,22 @@ static bool scene3d_animation_clock_allowed(Scene3dAnimationState* state) {
 static bool scene3d_animation_active(Scene3dAnimationState* state, AnimationMixerState* mixer) {
     return scene3d_animation_clock_allowed(state) && animation_mixer_active(mixer);
 }
+static bool scene3d_animation_schedule(Scene3dAnimationState* state) {
+    return scene3d_runtime_command_wake(state->runtime, SCENE3D_TICK_ANIMATION, state,
+                                        state->automatic && !state->quiet && scene3d_animation_clock_allowed(state)) &&
+           scene3d_runtime_enable(state->runtime, SCENE3D_TICK_ANIMATION, state,
+                                  state->automatic && scene3d_animation_active(state, state->mixer));
+}
+// an explicit host choice; unlike rescheduling, it also decides whether later template clips may claim the clock
 bool scene3d_animation_automatic(Scene3dAnimationState* state, bool automatic) {
     if (!state)
         return false;
     state->automatic = automatic;
-    return scene3d_runtime_command_wake(state->runtime, SCENE3D_TICK_ANIMATION, state,
-                                        automatic && !state->quiet && scene3d_animation_clock_allowed(state)) &&
-           scene3d_runtime_enable(state->runtime, SCENE3D_TICK_ANIMATION, state,
-                                  automatic && scene3d_animation_active(state, state->mixer));
+    state->manual = !automatic;
+    return scene3d_animation_schedule(state);
 }
 bool scene3d_animation_sync_schedule(Scene3dAnimationState* state) {
-    return !state || scene3d_animation_automatic(state, state->automatic);
+    return !state || scene3d_animation_schedule(state);
 }
 Scene3dAnimationState* scene3d_animation_create(DomElement* root, char* diagnostic, size_t capacity,
                                                 Scene3dRuntime* runtime, bool replay, Scene3dPhysics* physics) {
@@ -968,9 +974,12 @@ Scene3dAnimationState* scene3d_animation_create(DomElement* root, char* diagnost
     }
     state->source_hash = scene3d_animation_source_hash(root);
     bool parsed = scene3d_animation_parse(state, root, root), controlled = parsed && scene3d_motion_start(state);
+    // a staged replay records what its template asks for; the live owner decides whether the host clock runs it
+    state->playable = state->automatic;
+    state->automatic = state->automatic && !replay;
     if (!controlled || (state->mixer && !animation_mixer_update(state->mixer, 0)) ||
         !scene3d_physics_roots_admit(physics, state, false, diagnostic, capacity) ||
-        !scene3d_animation_automatic(state, replay ? false : state->automatic)) {
+        !scene3d_animation_schedule(state)) {
         const char* error = state->diagnostic       ? state->diagnostic
                             : parsed && !controlled ? "invalid motion controller"
                                                     : "invalid scene animation clip, track or binding";
@@ -991,7 +1000,9 @@ bool scene3d_animation_adopt(Scene3dAnimationState* candidate, Scene3dAnimationS
     scene3d_runtime_unbind(candidate->runtime, SCENE3D_TICK_ANIMATION, candidate);
     candidate->runtime = runtime;
     candidate->quiet = false;
+    // an adopted replay is a seek: the host keeps manual control across later template edits
     candidate->automatic = false;
+    candidate->manual = true;
     scene3d_animation_destroy(previous);
     return true;
 }
@@ -1142,7 +1153,7 @@ bool scene3d_animation_refresh(Scene3dAnimationState* state, DomElement* root, c
             return false;
         }
         // an invalid edit can retire the host driver; repair must reschedule the retained automatic owner.
-        return scene3d_animation_automatic(state, state->automatic);
+        return scene3d_animation_schedule(state);
     }
     if (!state || state->document != root->doc || state->revision == UINT64_MAX ||
         (state->mixer && !animation_mixer_rebind(state->mixer, state))) {
@@ -1213,7 +1224,10 @@ bool scene3d_animation_refresh(Scene3dAnimationState* state, DomElement* root, c
         return false;
     }
     auto* runtime = state->runtime;
-    bool automatic = state->automatic, quiet = state->quiet;
+    // the staged candidate never owns the clock, so keep the live choice; but unless the host took manual control,
+    // clips or controllers this edit adds claim it (a still that starts playing must not wait for a seek).
+    bool automatic = state->automatic || (!state->manual && candidate->playable), quiet = state->quiet,
+         manual = state->manual;
     // reconstruction is quiet, but publication must use the live owner's paused-physics scheduling rule.
     candidate->quiet = quiet;
     if (!scene3d_runtime_enable(runtime, SCENE3D_TICK_ANIMATION, state,
@@ -1233,6 +1247,7 @@ bool scene3d_animation_refresh(Scene3dAnimationState* state, DomElement* root, c
     state->runtime = runtime;
     state->automatic = automatic;
     state->quiet = quiet;
+    state->manual = manual;
     state->generation = retired.generation + 1;
     state->revision = retired.revision + 1;
     state->command_revision = retired.command_revision;

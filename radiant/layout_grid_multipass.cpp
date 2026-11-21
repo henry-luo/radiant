@@ -283,10 +283,12 @@ void layout_grid_content(LayoutContext* lycon, ViewBlock* grid_container) {
         bool definite_rows = gl->has_explicit_height;
         for (int r = 0; r < gl->computed_row_count; r++) {
             const radiant::grid::EnhancedGridTrack& track = (*gl->computed_rows)[r];
-            // CSS Grid §11.7: in a definite container an fr row takes its size
-            // from the free space; content raises it only as an item's automatic
-            // minimum (§6.6), which a fixed track minimum such as minmax(0, 1fr)
-            // never takes and a scroll container or min-height:0 zeroes
+            // CSS Grid §11.5–§11.7: in a definite container content raises a row
+            // only as an item's minimum contribution (§6.6 automatic minimum, which
+            // a scroll container or min-height:0 zeroes); growth toward max-content
+            // just fills free space, which Pass 2 distributed. An fr row with a fixed
+            // minimum such as minmax(0, 1fr) never takes content. Without this an
+            // auto row grew to a scroll container's content and nothing scrolled.
             bool flexed = definite_rows &&
                 track.max_track_sizing_function.type == radiant::grid::SizingFunctionType::Fr;
             radiant::grid::SizingFunctionType min_type = track.min_track_sizing_function.type;
@@ -312,9 +314,9 @@ void layout_grid_content(LayoutContext* lycon, ViewBlock* grid_container) {
                     }
                     if (h > bb_max) h = bb_max;
                 }
-                if (flexed) {
-                    bool scrolls = item->scroller &&
-                        (horizontal_rows ? item->scroll()->overflow_x : item->scroll()->overflow_y) != CSS_VALUE_VISIBLE;
+                if (definite_rows) {
+                    bool scrolls = item->scroller && layout_overflow_establishes_scroll_container(
+                        horizontal_rows ? item->scroll()->overflow_x : item->scroll()->overflow_y);
                     h = radiant::grid_adapter::grid_item_minimum_contribution(item, horizontal_rows, h, h, scrolls);
                 }
                 if (h > max_content_h) max_content_h = h;
