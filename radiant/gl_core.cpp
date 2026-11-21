@@ -1691,10 +1691,17 @@ bool native_gl_snapshot_into(NativeGlContext* context, NativeGlResource target, 
     gl.BindFramebuffer(GL_READ_FRAMEBUFFER, read); gl.BindFramebuffer(GL_DRAW_FRAMEBUFFER, draw);
     if (!success) return false;
     uint8_t* pixels = (uint8_t*)surface->pixels;
-    for (unsigned y = 0; !slot->top_down && y < slot->height / 2; y++) {
-        uint8_t* a = pixels + (size_t)y * surface->pitch;
-        uint8_t* b = pixels + (size_t)(slot->height - 1 - y) * surface->pitch;
-        for (unsigned x = 0; x < slot->width * 4; x++) { uint8_t value = a[x]; a[x] = b[x]; b[x] = value; }
+    if (!slot->top_down) {
+        // ReadPixels stores rows bottom-up. Swap whole rows using bulk copies.
+        uint8_t row[GL_DIMENSION_LIMIT * 4];
+        size_t row_size = (size_t)slot->width * 4;
+        for (unsigned y = 0; y < slot->height / 2; y++) {
+            uint8_t* a = pixels + (size_t)y * surface->pitch;
+            uint8_t* b = pixels + (size_t)(slot->height - 1 - y) * surface->pitch;
+            memcpy(row, a, row_size);
+            memcpy(a, b, row_size);
+            memcpy(b, row, row_size);
+        }
     }
     // resolve contains encoded premultiplied linear light; ImageSurface wants premultiplied sRGB.
     for (unsigned y = 0; !slot->webgl && y < slot->height; y++) {

@@ -106,6 +106,7 @@ struct Scene3dGeometry {
 };
 struct Scene3dMaterial {
     DomNodeRef source;
+    uint64_t pose_version;
     float color[4], emissive[3]; // emissive is linear color times its intensity
     float pbr[2];                // standard materials: metalness, roughness
     // standard materials' maps (metalness in B and roughness in G; occlusion in R) and their strengths
@@ -284,6 +285,7 @@ struct Scene3dFog {
 };
 struct Scene3dProjection {
     Pool* pool;
+    uint64_t pose_version;
     Scene3dMesh** meshes;
     int mesh_count, mesh_capacity;
     Scene3dLod** lods;
@@ -438,6 +440,32 @@ static bool scene3d_fail(Scene3dEntry* entry, const char* message) {
 bool scene3d_tag(DomElement* node, const char* tag) {
     return strcmp(node->local_name(), tag) == 0;
 }
+static bool scene3d_pose_attribute(const char* name) {
+    return !strcmp(name, "position") || !strcmp(name, "rotation") ||
+        !strcmp(name, "quaternion") || !strcmp(name, "scale") || !strcmp(name, "visible");
+}
+
+static bool scene3d_camera_lens_attribute(const char* name) {
+    return !strcmp(name, "target") || !strcmp(name, "up") ||
+        !strcmp(name, "type") || !strcmp(name, "fov") || !strcmp(name, "near") ||
+        !strcmp(name, "far") || !strcmp(name, "aspect") || !strcmp(name, "view_height");
+}
+
+bool scene3d_is_inner_paint_attribute(DomElement* element, const char* name) {
+    // A replaced scene's inner native nodes have no layout boxes. CSS selector
+    // and attr() dependencies still take the ordinary mutation path.
+    bool pose = scene3d_pose_attribute(name);
+    bool camera = pose || scene3d_camera_lens_attribute(name);
+    bool color = !strcmp(name, "color");
+    if (!camera && !color) return false;
+    const char* tag = element->local_name();
+    if (!tag || !((pose && (!strcmp(tag, "group") || !strcmp(tag, "mesh"))) ||
+            (camera && !strcmp(tag, "camera")) || (color && !strcmp(tag, "material")))) return false;
+    for (DomElement* parent = dom_parent_element(element); parent; parent = dom_parent_element(parent)) {
+        if (parent->tag() == MARKUP_NAME_SCENE3D) return true;
+    }
+    return false;
+}
 ItemReader scene3d_value(DomElement* node, const char* key) {
     Element* backing = dom_element_backing(node);
     return backing ? ElementReader(backing).get_attr(key) : ItemReader();
@@ -503,11 +531,7 @@ bool scene3d_source_key(DomNode* node, uint64_t* hash, unsigned* count, unsigned
         for (int i = 0; i < attributes; i++) {
             const char* key = names[i];
             if (projection && !strncmp(key, "audio_", 6)) continue;
-            if (camera && (!strcmp(key, "position") || !strcmp(key, "rotation") || !strcmp(key, "quaternion") ||
-                           !strcmp(key, "scale") || !strcmp(key, "target") || !strcmp(key, "up") ||
-                           !strcmp(key, "type") || !strcmp(key, "fov") || !strcmp(key, "near") || !strcmp(key, "far") ||
-                           !strcmp(key, "aspect") || !strcmp(key, "view_height") || !strcmp(key, "visible")))
-                continue;
+            if (camera && (scene3d_pose_attribute(key) || scene3d_camera_lens_attribute(key))) continue;
             *hash = hash_djb2_add_extend(*hash, key, strlen(key) + 1);
             const char* text = element->get_attribute(key);
             if (text)
@@ -3288,6 +3312,7 @@ static bool scene3d_refresh_uniforms(Scene3dEntry* entry, DomElement* node, Scen
 }
 static bool scene3d_refresh_pose(Scene3dEntry* entry, DomElement* root) {
     Scene3dProjection* p = &entry->projection;
+    uint64_t pose_version = ++p->pose_version;
     for (int i = 0; i < p->lod_count; i++) {
         Scene3dLod* lod = p->lods[i];
         DomNode* node = dom_node_ref_validate(root->doc, lod->source);
@@ -3378,13 +3403,15 @@ static bool scene3d_refresh_pose(Scene3dEntry* entry, DomElement* root) {
             }
         }
         auto* material = mesh->material;
-        DomNode* source = dom_node_ref_validate(root->doc, material->source);
-        if (source && source->is_element() && material->shader &&
-            !scene3d_refresh_uniforms(entry, source->as_element(), material->shader->uniforms,
-                                      material->shader->uniform_count))
-            return false;
-        if (!source || !source->is_element() || !scene3d_material_values(entry, source->as_element(), material))
-            return false;
+        // Draws that share a material see the same authored and animated values this turn.
+        if (material->pose_version != pose_version) {
+            DomNode* source = dom_node_ref_validate(root->doc, material->source);
+            if (!source || !source->is_element()) return false;
+            if (material->shader && !scene3d_refresh_uniforms(entry, source->as_element(),
+                    material->shader->uniforms, material->shader->uniform_count)) return false;
+            if (!scene3d_material_values(entry, source->as_element(), material)) return false;
+            material->pose_version = pose_version;
+        }
         if (material->transmission && scene3d_transparent(mesh))
             return scene3d_fail(entry, "transmission requires opaque or masked coverage");
     }
@@ -5544,6 +5571,24 @@ static bool scene3d_mesh_bounds(const Scene3dMesh* mesh, const Scene3dMatrix& vi
                     *maximum_scale =
                         fmaxf(*maximum_scale, sqrtf(to.v[c * 4] * to.v[c * 4] + to.v[c * 4 + 1] * to.v[c * 4 + 1] +
                                                     to.v[c * 4 + 2] * to.v[c * 4 + 2]));
+            // Each affine axis reaches its extrema at the corners selected
+            // by the signs of its coefficients.
+            float low[3], high[3];
+            bool finite = true;
+            for (unsigned axis = 0; axis < 3; axis++) {
+                const float* row = to.v + axis;
+                bool x = row[0] >= 0, y = row[4] >= 0, z = row[8] >= 0;
+                low[axis] = scene3d_point_component(row, {x ? a.x : b.x, y ? a.y : b.y, z ? a.z : b.z}, 1);
+                high[axis] = scene3d_point_component(row, {x ? b.x : a.x, y ? b.y : a.y, z ? b.z : a.z}, 1);
+                finite &= isfinite(low[axis]) && isfinite(high[axis]);
+            }
+            if (finite) {
+                *lo = {fminf(lo->x, low[0]), fminf(lo->y, low[1]), fminf(lo->z, low[2])};
+                *hi = {fmaxf(hi->x, high[0]), fmaxf(hi->y, high[1]), fmaxf(hi->z, high[2])};
+                continue;
+            }
+            // Preserve the finite components of individual corners if an
+            // extreme overflowed, for light fitting and conservative culling.
             for (unsigned corner = 0; corner < 8; corner++) {
                 Scene3dVec q =
                     scene3d_point(to, {corner & 1 ? b.x : a.x, corner & 2 ? b.y : a.y, corner & 4 ? b.z : a.z});

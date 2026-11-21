@@ -86,10 +86,12 @@ inline bool scene3d_inverse_affine(const Scene3dMatrix& matrix, Scene3dMatrix* i
             return false;
     return true;
 }
+inline float scene3d_point_component(const float* row, Scene3dVec p, float w) {
+    return row[0] * p.x + row[4] * p.y + row[8] * p.z + row[12] * w;
+}
 inline Scene3dVec scene3d_point(const Scene3dMatrix& m, Scene3dVec p, float w = 1) {
-    return {m.v[0] * p.x + m.v[4] * p.y + m.v[8] * p.z + m.v[12] * w,
-            m.v[1] * p.x + m.v[5] * p.y + m.v[9] * p.z + m.v[13] * w,
-            m.v[2] * p.x + m.v[6] * p.y + m.v[10] * p.z + m.v[14] * w};
+    return {scene3d_point_component(m.v, p, w), scene3d_point_component(m.v + 1, p, w),
+            scene3d_point_component(m.v + 2, p, w)};
 }
 inline void scene3d_include(Scene3dVec point, Scene3dVec* lo, Scene3dVec* hi) {
     *lo = {fminf(lo->x, point.x), fminf(lo->y, point.y), fminf(lo->z, point.z)};

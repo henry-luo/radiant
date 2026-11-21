@@ -189,11 +189,15 @@ static bool radiant_service_js_event_loop(UiContext* uicon, RadiantJsLoopAction 
         radiant_event_reconcile_mutations(uicon, doc);
         radiant_layout_post_observers();
     }
-    bool pumped = radiant_script_loop_pump(&turn, action == RADIANT_JS_LOOP_ADVANCE,
-                                           wait_ms, delta_ms, frame_steps);
+    uv_loop_t* loop = lambda_uv_loop();
+    // A virtual clock or a scriptless document cannot wait for native loads
+    // in the script pump. Wait in the same bound host turn in those cases.
+    bool pumped = wait_ms > 0 && (action == RADIANT_JS_LOOP_ADVANCE || !turn.active) &&
+        lambda_uv_wait_for_event(loop, wait_ms);
+    pumped = radiant_script_loop_pump(&turn, action == RADIANT_JS_LOOP_ADVANCE,
+                                     wait_ms, delta_ms, frame_steps) || pumped;
     // Virtual timers may be idle while a native document worker finishes.
     // Poll libuv on every host turn; its completion only publishes a result.
-    uv_loop_t* loop = lambda_uv_loop();
     if (loop) lambda_uv_run_loop(loop, UV_RUN_NOWAIT);
     pumped = radiant_event_reconcile_templates(uicon, doc) || pumped;
     if (turn.active && uicon) radiant_event_reconcile_mutations(uicon, doc);
@@ -535,7 +539,14 @@ DomDocument* show_loaded_html_doc(DomDocument* doc, const char* doc_url) {
 
     // BrowsingSession owns replacement of the previously presented document;
     // this presentation helper only publishes the newly loaded document.
-    if (ui_context.document != doc) {
+    DomDocument* previous = ui_context.document;
+    if (previous != doc) {
+        // The replacement is bound. Stop lowering images for the retired
+        // isolate before laying out and painting the new document (D8.3.4).
+        if (previous && previous->owns_script_runtime &&
+                dom_document_script_runtime(previous) != dom_document_script_runtime(doc)) {
+            radiant_script_window_cancel_document(previous);
+        }
         window_release_relative_mouse(&ui_context);
         // navigation retires the old document's registry-owned edition.
         ui_context.paged_view = nullptr;
@@ -2229,8 +2240,7 @@ static int view_doc_in_window_with_events_internal(const char* doc_file,
                     radiant_event_navigation_pending_loads(&ui_context)) {
                     // A frame switch in a fixture targets a loaded browsing
                     // context; let native document work finish before entering it.
-                    uv_sleep(50);
-                    radiant_advance_js_event_loop(&ui_context, 50.0, 0);
+                    radiant_service_js_event_loop(&ui_context, RADIANT_JS_LOOP_ADVANCE, 50, 50.0, 0);
                     current_time += 0.05;
                     continue;
                 }
@@ -2249,19 +2259,20 @@ static int view_doc_in_window_with_events_internal(const char* doc_file,
                     // native document/media work needs wall time before virtual assertion retries advance;
                     // so do Lambda tasks whose IO, child processes or thread-pool jobs keep the loop alive.
                     uv_loop_t* task_loop = lambda_uv_loop();
-                    if (radiant_event_navigation_pending_loads(&ui_context) ||
+                    bool native_event = radiant_event_navigation_pending_loads(&ui_context) ||
+                        (task_loop && uv_loop_alive(task_loop));
+                    if (native_event ||
                         (ui_context.document && ui_context.document->resource_manager &&
                          !resource_manager_is_fully_loaded(ui_context.document->resource_manager)) ||
                         dom_document_has_pending_work(ui_context.document) ||
                         radiant_speech_wall_clock_pending(ui_context.document) ||
-                        radiant_video_events_pending(ui_context.document ? ui_context.document->state : nullptr) ||
-                        (task_loop && uv_loop_alive(task_loop))) {
+                        radiant_video_events_pending(ui_context.document ? ui_context.document->state : nullptr)) {
                         if (retry_wait_ms > 50) retry_wait_ms = 50;
-                        uv_sleep((unsigned int)retry_wait_ms);
+                        if (!native_event) uv_sleep((unsigned int)retry_wait_ms);
                     }
                     if (radiant_document_virtual_clock(&ui_context, nullptr)) {
-                        radiant_advance_js_event_loop(&ui_context,
-                                                      (double)retry_wait_ms, 0);
+                        radiant_service_js_event_loop(&ui_context, RADIANT_JS_LOOP_ADVANCE,
+                            native_event ? retry_wait_ms : -1, (double)retry_wait_ms, 0);
                     } else {
                         radiant_pump_js_event_loop(&ui_context, retry_wait_ms);
                     }

@@ -6477,7 +6477,7 @@ static bool layout_document_environment_equal(const DocumentLayoutPublication& a
         css_input_capabilities_equal(&a.input_capabilities, &b.input_capabilities);
 }
 
-void layout_publish_document_geometry(UiContext* ui, DomDocument* doc) {
+void layout_publish_document_geometry(UiContext* ui, DomDocument* doc, bool clear_layout_flags) {
     if (!ui || !doc || !doc->view_tree || !doc->view_tree->root ||
         !doc->view_tree->document_layout || !doc->view_tree->document_layout->valid) return;
     DocumentLayoutPublication inputs = layout_document_inputs(ui, doc);
@@ -6485,7 +6485,7 @@ void layout_publish_document_geometry(UiContext* ui, DomDocument* doc) {
     // cannot also satisfy an unrelated resize or newly registered font.
     if (layout_document_environment_equal(*doc->view_tree->document_layout, inputs)) {
         // the admitted batch consumed its invalidation too; retaining it forces another full flow.
-        view_geometry_walk_dom_tree(doc->root, layout_clear_dirty_visitor, nullptr);
+        if (clear_layout_flags) view_geometry_walk_dom_tree(doc->root, layout_clear_dirty_visitor, nullptr);
         *doc->view_tree->document_layout = inputs;
     }
 }
