@@ -7,6 +7,7 @@
 #include "lib/log.h"
 #include "lib/mem.h"
 #include "lib/mem_factory.h"
+#include "lib/mem_grow.hpp"
 #include "lib/scene3d_animation.h"
 #include "lib/scene3d_drawable.h"
 #include "lib/scene3d_material.h"
@@ -68,10 +69,17 @@ static bool scene3d_animation_connected(Scene3dAnimationState* state, DomNodeRef
     return false;
 }
 static Scene3dAnimationBinding* scene3d_animation_binding(Scene3dAnimationState* state, uint64_t identity) {
-    for (auto* binding = state->bindings; binding; binding = binding->next)
-        if (binding->identity == identity)
-            return binding;
-    return nullptr;
+    return identity && identity <= state->binding_count ? state->bindings_by_identity[identity - 1] : nullptr;
+}
+
+static unsigned scene3d_animation_bucket(DomNodeRef node) {
+    return node.expected_id % SCENE_ANIMATION_TARGET_BUCKETS;
+}
+
+static void scene3d_animation_index_target(Scene3dAnimationState* state, Scene3dAnimationBinding* binding) {
+    unsigned& head = state->target_bindings[scene3d_animation_bucket(binding->node)];
+    binding->next_target = head;
+    head = (unsigned)binding->identity;
 }
 static bool scene3d_animation_initial(DomElement* node, const char* property, AnimationValue* value, Pool* pool);
 static bool scene3d_animation_read(void* owner, uint64_t identity, AnimationValue* value) {
@@ -93,21 +101,31 @@ static bool scene3d_animation_write(void* owner, uint64_t identity, const Animat
         doc_state_request_repaint(state->document->state);
     return true;
 }
-static Scene3dAnimationBinding* scene3d_animation_property(Scene3dAnimationState* state, DomElement* node,
+static Scene3dAnimationBinding* scene3d_animation_property(Scene3dAnimationState* state, DomNodeRef node,
                                                            const char* property) {
-    if (state && node)
-        for (auto* binding = state->bindings; binding; binding = binding->next)
-            if (binding->node.address == node && binding->node.expected_id == node->DomNode::id &&
-                !strcmp(binding->property, property))
-                return binding;
+    if (!state || !node.address)
+        return nullptr;
+    // pose sampling often queries static nodes. An empty target bucket needs
+    // no binding walk, and a collision still checks the complete node identity.
+    unsigned identity = state->target_bindings[scene3d_animation_bucket(node)];
+    while (identity) {
+        auto* binding = scene3d_animation_binding(state, identity);
+        if (binding->node.address == node.address && binding->node.expected_id == node.expected_id &&
+            (!property || !strcmp(binding->property, property)))
+            return binding;
+        identity = binding->next_target;
+    }
     return nullptr;
 }
+bool scene3d_animation_targets(Scene3dAnimationState* state, DomNodeRef node) {
+    return scene3d_animation_property(state, node, nullptr) != nullptr;
+}
 bool scene3d_animation_bound(Scene3dAnimationState* state, DomElement* node, const char* property) {
-    return scene3d_animation_property(state, node, property) != nullptr;
+    return scene3d_animation_property(state, dom_node_ref(node), property) != nullptr;
 }
 bool scene3d_animation_value(Scene3dAnimationState* state, DomElement* node, const char* property,
                              AnimationValue* value) {
-    auto* binding = scene3d_animation_property(state, node, property);
+    auto* binding = scene3d_animation_property(state, dom_node_ref(node), property);
     if (!binding || !value || !animation_mixer_property_active(state->mixer, binding->identity))
         return false;
     *value = binding->value;
@@ -350,21 +368,26 @@ static Scene3dAnimationBinding* scene3d_animation_resolve(Scene3dAnimationState*
     }
     if (!node || strlen(property) >= 32)
         return nullptr;
-    for (auto* binding = state->bindings; binding; binding = binding->next)
-        if (binding->node.address == node && !strcmp(binding->property, property))
-            return binding;
+    DomNodeRef target = dom_node_ref(node);
+    if (auto* binding = scene3d_animation_property(state, target, property))
+        return binding;
     if (state->binding_count >= SCENE_ANIMATION_BINDING_LIMIT)
+        return nullptr;
+    if (!lam::pool_grow_array(state->pool, &state->bindings_by_identity, &state->binding_capacity,
+                              (size_t)state->binding_count + 1, (size_t)8))
         return nullptr;
     auto* binding = (Scene3dAnimationBinding*)pool_calloc(state->pool, sizeof(Scene3dAnimationBinding));
     if (!binding)
         return nullptr;
     if (!scene3d_animation_initial(node, property, &binding->value, state->pool))
         return nullptr;
-    binding->node = dom_node_ref(node);
-    binding->identity = ++state->binding_count;
+    binding->node = target;
+    binding->identity = state->binding_count + 1;
     str_copy(binding->property, sizeof(binding->property), property, strlen(property));
     binding->next = state->bindings;
     state->bindings = binding;
+    state->bindings_by_identity[state->binding_count++] = binding;
+    scene3d_animation_index_target(state, binding);
     return binding;
 }
 static bool scene3d_animation_numbers(Scene3dAnimationState* state, DomElement* node, const char* name,
@@ -1063,13 +1086,8 @@ static bool scene3d_animation_matches_build(Scene3dAnimationState* current, Scen
                                             unsigned* count) {
     unsigned bindings[SCENE_ANIMATION_BINDING_LIMIT + 1] = {};
     for (auto* target = current->bindings; target; target = target->next) {
-        for (auto* source = previous->bindings; source; source = source->next) {
-            if (target->node.address == source->node.address && target->node.expected_id == source->node.expected_id &&
-                !strcmp(target->property, source->property)) {
-                bindings[target->identity] = (unsigned)source->identity;
-                break;
-            }
-        }
+        auto* source = scene3d_animation_property(previous, target->node, target->property);
+        if (source) bindings[target->identity] = (unsigned)source->identity;
     }
     size_t total = 0;
     for (auto* clip = current->clips; clip; clip = clip->next) {
@@ -1303,14 +1321,18 @@ void scene3d_animation_follow_rebuild(Scene3dAnimationState* state, DomNode* old
     // a rebuild leaves the document's mutation epoch alone; force the next match to re-hash and reconcile
     state->epoch = DOM_MUTATION_EPOCH_UNSTAMPED;
     view_state_ref_follow_rebuild(state->document, &state->root, old_root, new_root);
-    for (auto* binding = state->bindings; binding; binding = binding->next)
+    memset(state->target_bindings, 0, sizeof(state->target_bindings));
+    for (unsigned i = 0; i < state->binding_count; i++) {
+        auto* binding = state->bindings_by_identity[i];
         view_state_ref_follow_rebuild(state->document, &binding->node, old_root, new_root);
+        scene3d_animation_index_target(state, binding);
+    }
     for (auto* c = state->controllers; c; c = c->next)
         view_state_ref_follow_rebuild(state->document, &c->node, old_root, new_root);
 }
 static bool scene3d_animation_root_property(Scene3dAnimationState* state, DomElement* node, const char* property,
                                             AnimationRootMotion* motion) {
-    auto* binding = scene3d_animation_property(state, node, property);
+    auto* binding = scene3d_animation_property(state, dom_node_ref(node), property);
     return binding && binding->root_motion && scene3d_animation_connected(state, binding->node) &&
            animation_mixer_root_motion(state->mixer, binding->identity, motion);
 }
@@ -1362,16 +1384,19 @@ static const char* scene3d_animation_commands_apply(void* owner, const void* pay
     if (!bindings.reserve(state->binding_count)) {
         return "animation commands: binding scratch allocation failed";
     }
-    for (auto* binding = state->bindings; binding; binding = binding->next) {
-        if (!bindings.append(*binding)) {
+    for (unsigned i = 0; i < state->binding_count; i++) {
+        if (!bindings.append(*state->bindings_by_identity[i])) {
             return "animation commands: binding scratch allocation failed";
         }
     }
+    Scene3dAnimationBinding* by_identity[SCENE_ANIMATION_BINDING_LIMIT];
     for (size_t i = 0; i < bindings.size(); i++) {
-        bindings[i].next = i + 1 < bindings.size() ? &bindings[i + 1] : nullptr;
+        bindings[i].next = i ? &bindings[i - 1] : nullptr;
+        by_identity[i] = &bindings[i];
     }
     Scene3dAnimationState staged = *state;
-    staged.bindings = bindings.empty() ? nullptr : bindings.data();
+    staged.bindings = bindings.empty() ? nullptr : &bindings[bindings.size() - 1];
+    staged.bindings_by_identity = by_identity;
     staged.quiet = true;
     staged.controllers = nullptr;
     const AnimationBindingOps silent = {scene3d_animation_read, scene3d_animation_write, nullptr,
@@ -1425,10 +1450,8 @@ static const char* scene3d_animation_commands_apply(void* owner, const void* pay
     for (auto* clip = state->clips; clip; clip = clip->next) {
         clip->action = replacements[count++];
     }
-    size_t index = 0;
-    for (auto* binding = state->bindings; binding; binding = binding->next) {
-        binding->value = bindings[index++].value;
-    }
+    for (unsigned i = 0; i < state->binding_count; i++)
+        state->bindings_by_identity[i]->value = bindings[i].value;
     state->command_revision++;
     state->generation++;
     if (!state->quiet && state->document->state) {
