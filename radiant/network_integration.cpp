@@ -22,18 +22,6 @@
 #include "lambda/input/css/css_font_face.hpp"
 #include <time.h>
 
-bool radiant_html_has_token(const char* tokens, const char* token) {
-    if (!tokens || !token || !*token) return false;
-    size_t length = strlen(token);
-    for (const char* p = tokens; *p;) {
-        while (str_is_html_space(*p)) p++;
-        const char* start = p;
-        while (*p && !str_is_html_space(*p)) p++;
-        if (str_ieq(start, (size_t)(p - start), token, length)) return true;
-    }
-    return false;
-}
-
 ResourcePriority radiant_html_fetch_priority(const char* keyword, ResourcePriority fallback) {
     // hints are relative to the destination's existing default; invalid values mean auto.
     if (keyword && str_ieq_cstr(keyword, "high") && fallback > PRIORITY_CRITICAL)

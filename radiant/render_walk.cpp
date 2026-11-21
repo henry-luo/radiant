@@ -54,10 +54,6 @@ static bool render_walk_blend_mode_effective(CssEnum mode) {
     return mode && mode != CSS_VALUE_NORMAL;
 }
 
-bool render_filter_effective(const FilterProp* filter) {
-    return filter && filter->functions;
-}
-
 static bool render_walk_block_effect_group(ViewBlock* block, float abs_x, float abs_y,
                                            PaintEffectGroup* group, float density) {
     if (!block || !group) return false;

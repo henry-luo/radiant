@@ -1519,14 +1519,6 @@ bool layout_generated_pseudo(const DomElement* element, uint8_t* pseudo, PseudoS
     return false;
 }
 
-DomElement* layout_top_layer_backdrop(DomElement* owner) {
-    for (DomNode* node = owner ? owner->last_child.get() : nullptr; node; node = node->prev_sibling) {
-        DomElement* element = node->as_element();
-        if (layout_is_backdrop(element)) return element;
-    }
-    return nullptr;
-}
-
 void layout_top_layer_backdrops(LayoutContext* lycon) {
     DomDocument* document = lycon->doc;
     for (size_t i = 0; i < dom_top_layer_count(document); i++) {

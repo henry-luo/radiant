@@ -15,6 +15,8 @@
 #include "lambda/input/input.hpp"
 #include "test_native_input_document.hpp"
 #include "test_native_provider.hpp"
+#include "radiant_test_fixture.hpp"
+#include <limits.h>
 
 static UiContext* loader_test_host;
 static DomDocument* loader_test_document;
@@ -133,7 +135,8 @@ TEST(RadiantInputValueTest, DownloadedStylesheetsUseOwnerOrderAcrossCompletionOr
     ASSERT_TRUE(radiant_sync_inline_stylesheet(middle));
     NetworkResource resource = {};
     char url[] = "https://example.test/order.css";
-    char path[] = "test/fixtures/stylesheet-order.css";
+    char path[PATH_MAX];
+    ASSERT_TRUE(radiant_test_fixture_path("stylesheet-order.css", path, sizeof(path)));
     resource.url = url;
     resource.local_path = path;
     resource.state = STATE_COMPLETED;
@@ -171,7 +174,8 @@ TEST(RadiantInputValueTest, DownloadedStylesheetsRespectLinkMediaAndDisabledStat
         ASSERT_TRUE(root->append_child(link));
         NetworkResource resource = {};
         char url[] = "https://example.test/theme.css";
-        char local_path[] = "test/fixtures/stylesheet-order.css";
+        char local_path[PATH_MAX];
+        ASSERT_TRUE(radiant_test_fixture_path("stylesheet-order.css", local_path, sizeof(local_path)));
         resource.url = url;
         resource.local_path = local_path;
         resource.state = i % 2 ? STATE_CACHED : STATE_COMPLETED;
