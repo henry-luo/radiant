@@ -149,6 +149,7 @@ static DomRange* selection_paint_range_for_current_tree(RasterRenderContext* rdc
     if (!rebound_any) return range;
 
     *scratch = *range;
+    scratch->allocation_state = nullptr; // paint only borrows the selection endpoints
     scratch->start = rebound_start;
     scratch->end = rebound_end;
     scratch->layout_valid = false;

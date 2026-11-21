@@ -624,13 +624,7 @@ static bool free_document_profiled_impl(DomDocument* doc, DocumentCleanupTiming*
     // Release them while the document arena is still valid: runtime teardown
     // releases the retained JS Input that can own those detached DOM nodes.
     dom_js_mutation_records_reset(doc);
-    if (doc->view_tree) {
-        dom_lifecycle_release_unattached_form_props(doc);
-    } else {
-        // Without a view tree there is no retained-tree teardown to own
-        // attached controls, so release every validated document element.
-        dom_lifecycle_release_all_form_props(doc);
-    }
+    form_control_release_document(doc, !doc->view_tree);
 
     // State teardown releases context-owned maps, so the retained JS runtime
     // can be destroyed only after the document has detached those references.

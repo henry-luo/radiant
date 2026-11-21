@@ -1004,6 +1004,18 @@ typedef struct DomRange {
     uint64_t host_wrapper_root;
 } DomRange;
 
+inline void dom_range_assign_boundaries(DomRange* range, DomBoundary start, DomBoundary end) {
+    if (range->allocation_state) {
+        // acquire both replacements first: a collapsed range owns two holds on one node.
+        if (start.node != range->start.node) dom_node_retain_live(start.node);
+        if (end.node != range->end.node) dom_node_retain_live(end.node);
+        if (start.node != range->start.node) dom_node_release_live(range->start.node);
+        if (end.node != range->end.node) dom_node_release_live(range->end.node);
+    }
+    range->start = start;
+    range->end = end;
+}
+
 // Lifecycle ------------------------------------------------------------------
 // First (or last, when `last`) text descendant of `n` in document order, `n`
 // itself if it is text. Searches the whole subtree: a chain-only walk stops at
@@ -1285,7 +1297,6 @@ void dom_range_link_into_state(DocState* state, DomRange* range);
 void dom_range_unlink_from_state(DocState* state, DomRange* range);
 void dom_range_adopt_subtree(DocState* source, DocState* destination,
                              DomNode* subtree);
-void dom_range_refresh_lifecycle_pins(DomDocument* doc);
 void dom_state_invalidate_all_range_layouts(DocState* state);
 
 // ============================================================================

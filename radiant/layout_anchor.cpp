@@ -184,9 +184,12 @@ static const AnchorGeometry* anchor_lookup(LayoutContext* lycon, DomElement* tar
     const LayoutAnchorSnapshot& snapshot = *lycon->anchor_snapshot;
     if (implicit) {
         const PopoverStyle* state = target->popover_style();
-        DomNode* source = state ? dom_node_ref_validate(target->doc, state->implicit_anchor) : nullptr;
-        const AnchorIndex* index = source ? snapshot.lookup(source->as_element()) : nullptr;
-        return index && anchor_acceptable(snapshot, index->order, target_index)
+        if (!state || !state->implicit_anchor.address) return nullptr;
+        // match the saved address against boxes owned by this layout pass before reading the node.
+        DomNodeRef ref = state->implicit_anchor;
+        const AnchorIndex* index = snapshot.lookup(static_cast<DomElement*>(ref.address));
+        return index && static_cast<DomNode*>(index->element)->id == ref.expected_id &&
+            anchor_acceptable(snapshot, index->order, target_index)
             ? &snapshot.boxes[index->order] : nullptr;
     }
     DomElement* root = dom_shadow_root(target);

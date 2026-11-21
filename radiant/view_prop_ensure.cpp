@@ -215,7 +215,9 @@ FormControlProp* DomElement::ensure_form(ViewTree* tree) {
     if (role_kind() != ROLE_NONE && role_kind() != ROLE_FORM &&
         role_kind() != ROLE_TABLE && role_kind() != ROLE_CELL) return nullptr;
     if (role_kind() == ROLE_NONE) set_role_kind(ROLE_FORM);
-    return ensure_directory_prop(this, prop_pool(tree), &DomStyleExt::form, FORM_CONTROL_PROP_DEFAULT);
+    FormControlProp* form = ensure_directory_prop(this, prop_pool(tree), &DomStyleExt::form, FORM_CONTROL_PROP_DEFAULT);
+    form_control_bind_document(this, form);
+    return form;
 }
 
 BoundaryProp* DomElement::ensure_boundary(LayoutContext* lycon) { return ensure_view_prop(this, prop_pool(lycon), bound, BOUNDARY_PROP_DEFAULT); }
