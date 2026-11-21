@@ -117,8 +117,8 @@ static bool stylesheet_remove_inline(DomDocument* doc,
 }
 
 bool radiant_sync_inline_stylesheet(DomElement* elem) {
-    if (!elem || !elem->doc || !elem->tag_name ||
-        str_icmp_cstr(elem->tag_name, "style") != 0) {
+    if (!elem || !elem->doc || !elem->tag_name() ||
+        str_icmp_cstr(elem->tag_name(), "style") != 0) {
         return false;
     }
 
@@ -127,16 +127,17 @@ bool radiant_sync_inline_stylesheet(DomElement* elem) {
     if (connected && dom_shadow_root(elem)) {
         // A sheet inside a shadow root is associated with its owner, outside
         // the Document's ordered sheet list. Moving the owner changes its scope.
-        auto* state = elem->ensure_ext();
+        ShadowStyle* state = elem->ensure_shadow_style();
         if (!state) return false;
         CssStylesheet* sheet = stylesheet_parse_inline(elem);
         if (!sheet) return false;
         stylesheet_remove_inline(doc, elem);
-        state->shadow_inline_stylesheet = lam::up(sheet);
+        state->inline_stylesheet = lam::up(sheet);
         return true;
     }
-    bool detached_shadow_sheet = elem->ext && elem->ext->shadow_inline_stylesheet;
-    if (detached_shadow_sheet) elem->ext->shadow_inline_stylesheet = nullptr;
+    ShadowStyle* state = elem->shadow_style();
+    bool detached_shadow_sheet = state && state->inline_stylesheet;
+    if (detached_shadow_sheet) state->inline_stylesheet = nullptr;
     if (!connected) return stylesheet_remove_inline(doc, elem) || detached_shadow_sheet;
 
     CssStylesheet* sheet = stylesheet_parse_inline(elem);
@@ -162,7 +163,8 @@ bool radiant_sync_inline_stylesheet(DomElement* elem) {
 }
 
 CssStylesheet* radiant_shadow_inline_stylesheet(DomElement* owner) {
-    CssStylesheet* sheet = owner && owner->ext ? owner->ext->shadow_inline_stylesheet.get() : nullptr;
+    const ShadowStyle* state = owner ? owner->shadow_style() : nullptr;
+    CssStylesheet* sheet = state ? state->inline_stylesheet.get() : nullptr;
     return sheet && sheet->owner_document == owner->doc && dom_element_is_connected(owner) &&
         dom_shadow_root(owner) ? sheet : nullptr;
 }

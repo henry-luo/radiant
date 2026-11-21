@@ -571,8 +571,8 @@ static void svg_style_index_tree(SvgStyleContext* style, DomElement* node) {
     if (!node) return;
     if (strcmp(node->local_name(), "foreignObject") == 0 && dom_element_is_svg(node))
         style->has_foreign_object = true;
-    if (style->isolated_document && node->tag_name) {
-        const char* prefix = strchr(node->tag_name, ':');
+    if (style->isolated_document && node->tag_name()) {
+        const char* prefix = strchr(node->tag_name(), ':');
         const char* uri = prefix ? dom_element_namespace_uri(node) : nullptr;
         // private XML HTML layout uses local tag identity while retaining the authored qualified name.
         if (uri && strcmp(uri, "http://www.w3.org/1999/xhtml") == 0)
@@ -6301,11 +6301,11 @@ RdtPath* svg_text_geometry_path(DomElement* target, const SvgLengthContext* leng
     DomElement* text = target;
     for (DomNode* node = target; node && node->is_element(); node = node->parent) {
         DomElement* element = node->as_element();
-        if (element->tag_name && strcmp(element->tag_name, "text") == 0) { text = element; break; }
+        if (element->tag_name() && strcmp(element->tag_name(), "text") == 0) { text = element; break; }
     }
     DomElement* svg = text;
     for (DomNode* node = text->parent; node && node->is_element(); node = node->parent) {
-        if (node->as_element()->tag_name && strcmp(node->as_element()->tag_name, "svg") == 0) svg = node->as_element();
+        if (node->as_element()->tag_name() && strcmp(node->as_element()->tag_name(), "svg") == 0) svg = node->as_element();
     }
     SvgTextGeometryScope scope = {};
     bool ready = svg_text_geometry_scope_open(&scope, svg, lengths, font_context);
@@ -6333,7 +6333,7 @@ bool svg_text_measure_batch(DomElement* svg, const SvgLengthContext* lengths,
     for (DomNode* node = svg->first_child; ready && node; node = node->next_sibling) {
         if (!node->is_element()) continue;
         DomElement* text = node->as_element();
-        if (!text->tag_name || strcmp(text->tag_name, "text") != 0) continue;
+        if (!text->tag_name() || strcmp(text->tag_name(), "text") != 0) continue;
         if (index >= count) { ready = false; break; }
         RdtPath* path = svg_text_geometry_collect(&scope, text, text, &measurements[index++]);
         ready = path && measurements[index - 1].valid;
@@ -7771,7 +7771,7 @@ bool svg_dom_clip_contains_point(DomElement* target, const SvgLengthContext* len
     if (!target || !target->doc || !lengths || !frame || !contains) return false;
     DomElement* root = target;
     for (DomNode* node = target; node && node->is_element(); node = svg_dom_style_parent(node, instance_scope))
-        if (node->as_element()->tag_name && str_icmp_cstr(node->as_element()->tag_name, "svg") == 0) root = node->as_element();
+        if (node->as_element()->tag_name() && str_icmp_cstr(node->as_element()->tag_name(), "svg") == 0) root = node->as_element();
     SvgStyleContext style = {};
     if (!svg_style_init(&style, dom_element_to_element(root), lengths->viewport_width, lengths->viewport_height, target->doc)) return false;
     Arena* arena = mem_arena_create(nullptr, MEM_ROLE_RENDER, "render.svg.clip_query");

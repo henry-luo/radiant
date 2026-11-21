@@ -3304,7 +3304,7 @@ static float intrinsic_image_height(DomElement* element, ImageSurface* image, fl
 ImageSurface* layout_admit_replaced_image_surface(LayoutContext* lycon, ViewBlock* block,
         const char* source, float density) {
     if (!lycon || !lycon->doc || !lycon->ui_context || !block) return nullptr;
-    if (!block->embed) block->ensure_embed(lycon);
+    if (!block->embed) block->ensure_embed();
     if (!block->embed) return nullptr;
     // revalidate admission before any warm-cache reuse, including a retained embed slot.
     ImageSurface* image = source && isfinite(density) && density > 0.0f
@@ -3700,7 +3700,7 @@ struct IntrinsicWidthCacheScope {
         // resource sizes, native values and ordered effects can change outside this subtree's DOM versions.
         ViewBlock* block = lam::unsafe_view_block_element_storage(element);
         entry.retain_across_passes = cacheable && children_retained && !lycon->paged &&
-            !element->shadow_root_element() && !element->pseudo_prop() && !element->display.list_item &&
+            !element->shadow_root_element() && !element->pseudo_prop() && !element->display_list_item() &&
             !layout_form_control_has_native_intrinsic_size(element) &&
             (!layout_element_is_replaced(element) || layout_is_svg_viewport(element->tag())) &&
             !(block->blk && (block->block()->extras().counter_reset || block->block()->extras().counter_increment ||
@@ -5521,7 +5521,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     bool has_deferred_indent = view_block->blk &&
         (!isnan(view_block->block()->text_indent_percent) || view_block->block()->text_indent_calc);
     if (!replaced_intrinsic_set && element_inline_axis_is_vertical &&
-        !is_inline_non_replaced && !view_block->display.list_item &&
+        !is_inline_non_replaced && !view_block->display_list_item() &&
         text_indent == 0.0f && !has_deferred_indent) {
         IntrinsicSize paragraph = {};
         float inline_constraint = vertical_inline_basis > 0.0f ? vertical_inline_basis : -1.0f;
@@ -7177,7 +7177,7 @@ static bool intrinsic_measure_direct_inline_content(LayoutContext* lycon, ViewBl
                     (const char*)plain->text_data(), plain->as_text()->length, options);
                 composed = true;
             }
-            bool parallel_block = block_sequence && !atom->display.list_item &&
+            bool parallel_block = block_sequence && !atom->display_list_item() &&
                 layout_block_inline_axis_is_vertical(atom) == layout_block_inline_axis_is_vertical(block);
             if (layout_element_is_floated(element) || (!composed && !forced_break && !soft_break && !converted_break &&
                 ((!parallel_block && !layout_intrinsic_element_is_atomic_inline(element)) ||

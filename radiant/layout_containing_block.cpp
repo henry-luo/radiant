@@ -287,8 +287,8 @@ ViewElement* layout_create_anonymous_text_item(LayoutContext* lycon,
     item->node_type = DOM_NODE_ELEMENT;
     item->view_type = RDT_VIEW_BLOCK;
     item->parent = lam::up((DomNode*)container);
-    item->tag_name = lam::up("anonymous-text-item");
-    item->display = {CSS_VALUE_BLOCK, CSS_VALUE_FLOW, false};
+    item->tag_id = MARKUP_NAME_DOM_ANONYMOUS_TEXT_ITEM;
+    item->display = {CSS_VALUE_BLOCK, CSS_VALUE_FLOW};
     // The item's props share its scratch lifetime, so they go when the scratch
     // is restored; the view-tree pool would keep them until the tree dies.
     item->mark_scratch_lived();

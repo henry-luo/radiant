@@ -754,14 +754,14 @@ void extract_body_transform_scale(DomElement* root, DomDocument* doc) {
     DomElement* body_elem = nullptr;
 
     // Traverse to find body - typically root is <html>, body is a child
-    if (root->tag_name && str_ieq_cstr(root->tag_name, "body")) {
+    if (root->tag_name() && str_ieq_cstr(root->tag_name(), "body")) {
         body_elem = root;
     } else {
         // Search in children
         for (DomNode* child = root->first_child; child; child = child->next_sibling) {
             if (child->node_type == DOM_NODE_ELEMENT) {
                 DomElement* child_elem = lam::dom_require_element(child);
-                if (child_elem->tag_name && str_ieq_cstr(child_elem->tag_name, "body")) {
+                if (child_elem->tag_name() && str_ieq_cstr(child_elem->tag_name(), "body")) {
                     body_elem = child_elem;
                     break;
                 }
@@ -769,7 +769,7 @@ void extract_body_transform_scale(DomElement* root, DomDocument* doc) {
                 for (DomNode* grandchild = child_elem->first_child; grandchild; grandchild = grandchild->next_sibling) {
                     if (grandchild->node_type == DOM_NODE_ELEMENT) {
                         DomElement* grandchild_elem = lam::dom_require_element(grandchild);
-                        if (grandchild_elem->tag_name && str_ieq_cstr(grandchild_elem->tag_name, "body")) {
+                        if (grandchild_elem->tag_name() && str_ieq_cstr(grandchild_elem->tag_name(), "body")) {
                             body_elem = grandchild_elem;
                             break;
                         }
@@ -1489,7 +1489,7 @@ static void collect_stylesheets_in_document_order(Element* elem, DomElement* dom
         // the primary sheet owns its imports. Expose that sheet only inside its root.
         CssStylesheet* sheet = (*stylesheets)[first_sheet];
         sheet->owner_document = owner->doc;
-        if (DomElementExt* state = owner->ensure_ext()) state->shadow_inline_stylesheet = lam::up(sheet);
+        if (ShadowStyle* state = owner->ensure_shadow_style()) state->inline_stylesheet = lam::up(sheet);
         *count = first_sheet;
     }
 
@@ -1512,7 +1512,7 @@ void collect_inline_styles_from_dom(DomElement* elem, CssEngine* engine, const c
     if (depth > MAX_RADIANT_CSS_TREE_DEPTH || dom_element_is_html_tag(elem, MARKUP_NAME_TEMPLATE)) return;
 
     // Check if this is a <style> element
-    if (elem->tag_name && str_icmp_cstr(elem->tag_name, "style") == 0) {
+    if (elem->tag_name() && str_icmp_cstr(elem->tag_name(), "style") == 0) {
         size_t text_count = 0;
         DomNode* child = elem->first_child;
         while (child) {
@@ -1603,7 +1603,7 @@ static bool clear_load_stylesheet_cascade_visitor(DomNode* node, void*) {
 static bool sync_rebuilt_stylesheet_visitor(DomNode* node, void* changed) {
     if (node->is_element()) {
         DomElement* element = node->as_element();
-        if (element->tag_name && str_icmp_cstr(element->tag_name, "style") == 0) {
+        if (element->tag_name() && str_icmp_cstr(element->tag_name(), "style") == 0) {
             if (radiant_sync_inline_stylesheet(element)) *(bool*)changed = true;
         }
     }
@@ -1638,7 +1638,7 @@ static bool stylesheet_owner_is_in_head(const CssStylesheet* stylesheet) {
          node; node = node->parent) {
         if (!node->is_element()) continue;
         DomElement* element = node->as_element();
-        if (element->tag_name && str_icmp_cstr(element->tag_name, "head") == 0) return true;
+        if (element->tag_name() && str_icmp_cstr(element->tag_name(), "head") == 0) return true;
     }
     return false;
 }
@@ -4232,12 +4232,12 @@ static View* find_matching_input(View* root, const char* match_tag, const char* 
     if (root->is_element()) {
         DomElement* elem = lam::dom_require_element(root);
         if (elem->form_control() && tc_is_text_control(elem)) {
-            bool tag_ok = (!match_tag || (elem->tag_name && strcmp(elem->tag_name, match_tag) == 0));
+            bool tag_ok = (!match_tag || (elem->tag_name() && strcmp(elem->tag_name(), match_tag) == 0));
             bool class_ok = true;
             if (match_class) {
                 class_ok = false;
-                for (int i = 0; i < elem->class_count; i++) {
-                    if (elem->class_names[i] && strcmp(elem->class_names[i], match_class) == 0) {
+                for (int i = 0; i < elem->class_count(); i++) {
+                    if (elem->class_names()[i] && strcmp(elem->class_names()[i], match_class) == 0) {
                         class_ok = true;
                         break;
                     }
@@ -4359,15 +4359,15 @@ static bool capture_lambda_focus_restore(DocState* state,
     if (!focused || !focused->is_element()) return false;
     DomElement* focused_elem = lam::dom_require_element(focused);
     out->from_keyboard = focus_get_visible(state) == focused;
-    out->focus_tag = focused_elem->tag_name;
+    out->focus_tag = focused_elem->tag_name();
     const char* id = focused_elem->id;
     if (id) snprintf(out->focus_id, sizeof(out->focus_id), "%s", id);
     const char* focus_key = focused_elem->get_attribute("data-focus-key");
     if (focus_key) out->focus_key = strdup(focus_key);
     if (focused_elem->form_control() && tc_is_text_control(focused_elem)) {
-        out->fallback_tag = focused_elem->tag_name;
-        if (focused_elem->class_count > 0 && focused_elem->class_names) {
-            out->fallback_class = focused_elem->class_names[0];
+        out->fallback_tag = focused_elem->tag_name();
+        if (focused_elem->class_count() > 0) {
+            out->fallback_class = focused_elem->class_names()[0];
         }
         form_control_get_selection(state, static_cast<View*>(focused_elem),
                                    &out->selection_start, &out->selection_end,
@@ -4477,7 +4477,7 @@ static bool focus_restore_matches(View* view, const LambdaFocusRestore* restore)
         const char* key = elem->get_attribute("data-focus-key");
         return key && strcmp(key, restore->focus_key) == 0;
     }
-    if (!elem->tag_name || strcmp(elem->tag_name, restore->focus_tag) != 0) return false;
+    if (!elem->tag_name() || strcmp(elem->tag_name(), restore->focus_tag) != 0) return false;
     const char* id = elem->id ? elem->id : "";
     return strcmp(id, restore->focus_id) == 0;
 }
@@ -4499,8 +4499,8 @@ static View* restore_lambda_focus(DomDocument* doc, DocState* state, bool had_fo
         DomElement* elem = focused->is_element()
             ? lam::dom_require_element(focused) : nullptr;
         bool is_matching_text_control = elem && elem->form_control() && elem->form_storage() &&
-            tc_is_text_control(elem) && elem->tag_name &&
-            strcmp(elem->tag_name, restore->fallback_tag) == 0 &&
+            tc_is_text_control(elem) && elem->tag_name() &&
+            strcmp(elem->tag_name(), restore->fallback_tag) == 0 &&
             (!restore->fallback_class || elem->has_class(restore->fallback_class)) &&
             focus_restore_matches(focused, restore);
         // The render-map path can resolve to the template root instead of the
@@ -4864,7 +4864,7 @@ void rebuild_lambda_doc_incremental(UiContext* uicon, RetransformResult* results
                 break;
             }
             DomElement* parent_dom = lam::dom_require_element(old_dom->parent);
-            if (parent_dom->node_type != DOM_NODE_ELEMENT || !parent_dom->tag_name) {
+            if (parent_dom->node_type != DOM_NODE_ELEMENT || !parent_dom->tag_name()) {
                 can_incremental = false;
                 break;
             }

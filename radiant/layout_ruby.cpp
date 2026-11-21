@@ -143,7 +143,7 @@ static int ruby_collect_nodes(RubyBuildContext* context, DomElement* element,
 }
 
 static CssEnum ruby_node_role(DomNode* node) {
-    return node && node->is_element() ? layout_resolved_display(node).inner : CSS_VALUE_FLOW;
+    return node && node->is_element() ? layout_resolved_display(node).inner.mode() : CSS_VALUE_FLOW;
 }
 
 static bool ruby_node_in_flow(DomNode* node) {

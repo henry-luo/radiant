@@ -4,7 +4,7 @@
 #include <string.h>
 
 bool layout_is_mathml_root(DomElement* element) {
-    if (!element || !element->tag_name || strcmp(element->tag_name, "math") != 0) return false;
+    if (!element || !element->tag_name() || strcmp(element->tag_name(), "math") != 0) return false;
     const char* uri = dom_element_namespace_uri(element);
     return uri && strcmp(uri, "http://www.w3.org/1998/Math/MathML") == 0;
 }

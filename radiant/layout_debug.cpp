@@ -269,7 +269,7 @@ void layout_profiler_report(LayoutContext* lycon) {
             i + 1, bucket_name(entry->bucket), entry->elapsed_ms,
             entry->node ? entry->node->source_loc() : "-",
             element && element->id ? element->id : "",
-            element && element->class_count ? element->class_names[0] : "");
+            element && element->class_count() ? element->class_names()[0] : "");
     }
 }
 

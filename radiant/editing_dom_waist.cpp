@@ -2407,7 +2407,7 @@ bool dom_edit_unwrap_range_u16(DomEditInvocation* invocation, uint32_t start_u16
     // right as a fresh sibling. A command-created shell has no author attrs;
     // the tag is the mechanism's only formatting state in this stage.
     if (left && right) {
-        right_fmt = dom_create_backed_element_identity(host->doc, fmt->tag_name, nullptr, false);
+        right_fmt = dom_create_backed_element_identity(host->doc, fmt->tag_name(), nullptr, false);
         if (!right_fmt) return editing_dom_transaction_reject(invocation);
         DomNode* right_fmt_node = static_cast<DomNode*>(right_fmt);
         if (!editing_dom_insert_child(state, parent->as_element(), right_fmt_node,

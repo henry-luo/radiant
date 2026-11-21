@@ -1575,10 +1575,7 @@ static bool apply_animated_value(DomElement* element, CssAnimatedProp* prop) {
             if (resolved) {
                 layout_changed = element->display.outer != display.outer ||
                     element->display.inner != display.inner ||
-                    element->display.list_item != display.list_item ||
-                    element->display.legacy_box != display.legacy_box ||
-                    element->display.legacy_clamp != display.legacy_clamp ||
-                    element->display.legacy_vertical != display.legacy_vertical;
+                    element->display_list_item() != display.inner.list_item();
                 element->display = display;
                 element->set_animated_display(display);
             }
@@ -2245,7 +2242,7 @@ AnimationInstance* css_animation_create(AnimationScheduler* scheduler,
 
 
     log_debug("css-anim: created animation '%s' for <%s> (duration=%.3fs delay=%.3fs iterations=%g)",
-              keyframes->name, element->tag_name ? element->tag_name : "?",
+              keyframes->name, element->tag_name() ? element->tag_name() : "?",
               anim_prop->duration, anim_prop->delay, anim_prop->iteration_count);
 
     return inst;
@@ -2291,7 +2288,7 @@ CssWebAnimationState* css_web_animation_create(DomElement* element,
     element->set_web_animation_state(state);
     css_web_animation_request_sampling(state);
     log_debug("web-anim: created effect for <%s> duration=%.1fms",
-              element->tag_name ? element->tag_name : "?", state->duration_ms);
+              element->tag_name() ? element->tag_name() : "?", state->duration_ms);
     return state;
 }
 
@@ -2342,7 +2339,7 @@ void css_web_animation_resolve(DomElement* element, LayoutContext* lycon) {
             ? (float)(state->current_time_ms / state->duration_ms) : 1.0f;
         float eased = timing_function_eval(&state->timing, progress);
         log_debug("web-anim: sample <%s> current=%.1fms progress=%.3f eased=%.3f underlying=%d",
-                  element->tag_name ? element->tag_name : "?",
+                  element->tag_name() ? element->tag_name() : "?",
                   state->current_time_ms, progress, eased,
                   state->sample.underlying_count);
         AnimationInstance sample = {};
@@ -3187,7 +3184,7 @@ static void css_transition_start(AnimationScheduler* scheduler, DomElement* elem
     animation_scheduler_add(scheduler, inst);
 
     log_debug("css-transition: started prop=%d for <%s> (dur=%.3fs delay=%.3fs)",
-              track->property_code, element->tag_name ? element->tag_name : "?",
+              track->property_code, element->tag_name() ? element->tag_name() : "?",
               tp->duration, tp->delay);
 }
 

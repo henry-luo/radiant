@@ -405,8 +405,6 @@ float layout_resolve_percentage_preferred_size(LayoutContext* context,
     DomElement* element, bool horizontal, float containing_size);
 CssDeclaration* layout_cascaded_physical_declaration(DomElement* element,
                                                      CssPropertyCode property);
-CssDeclaration* layout_cascaded_line_clamp_declaration(DomElement* element,
-    CssPropertyCode* property);
 bool layout_axis_size_is_percentage(ViewBlock* block, bool horizontal);
 bool layout_axis_size_is_percentage(DomElement* element, bool horizontal);
 CssEnum layout_intrinsic_preferred_size_keyword(ViewBlock* block, bool horizontal);
@@ -761,7 +759,7 @@ float layout_orthogonal_inline_basis(LayoutContext* lycon, ViewBlock* block);
 // Normalize every accepted aspect-ratio representation before layout policy consumes it.
 float layout_aspect_ratio_value(const CssValue* value);
 bool layout_aspect_ratio_value_has_auto(const CssValue* value);
-void resolve_object_position_value(LayoutContext* lycon, const CssValue* value, EmbedProp* embed);
+void resolve_object_position_value(LayoutContext* lycon, const CssValue* value, EmbedStyle* embed);
 float layout_aspect_ratio_height(float width, float aspect_ratio);
 float layout_preferred_aspect_ratio(ViewBlock* block);
 float layout_used_preferred_aspect_ratio(ViewBlock* block);
@@ -4954,7 +4952,7 @@ void mark_line_non_space(Linebox* line);
 inline bool layout_text_is_leader(const DomNode* text) {
     DomNode* parent = text ? text->parent.get() : nullptr;
     return parent && parent->is_element() && parent->as_element()->is_synthetic() &&
-        parent->as_element()->tag_name && strcmp(parent->as_element()->tag_name, "::leader") == 0;
+        parent->as_element()->tag_name() && strcmp(parent->as_element()->tag_name(), "::leader") == 0;
 }
 void layout_finalize_static_line_self_alignment(LayoutContext* lycon,
                                                 float used_line_height);
@@ -5678,8 +5676,8 @@ bool layout_image_intrinsic_size(DomElement* element, ImageSurface* image,
 float layout_view_children_bottom(ViewBlock* block, bool block_only);
 
 inline bool layout_is_backdrop(DomElement* element) {
-    return element && element->is_synthetic() && element->tag_name &&
-        strcmp(element->tag_name, "::backdrop") == 0;
+    return element && element->is_synthetic() && element->tag_name() &&
+        strcmp(element->tag_name(), "::backdrop") == 0;
 }
 
 inline bool layout_is_top_layer_box(DomElement* element) {

@@ -200,18 +200,26 @@ DEFINE_VIEW_PROP_ACCESSORS(font)
 DEFINE_VIEW_PROP_ACCESSORS(bound)
 DEFINE_VIEW_PROP_ACCESSORS(blk)
 DEFINE_VIEW_PROP_ACCESSORS(scroller)
-DEFINE_VIEW_PROP_ACCESSORS(embed)
 DEFINE_VIEW_PROP_ACCESSORS(position)
 DEFINE_VIEW_PROP_ACCESSORS(layout_cache)
 
 #undef DEFINE_VIEW_PROP_ACCESSORS
+
+static void* view_prop_get_embed(DomElement* elem) {
+    return elem ? elem->embed.get() : nullptr;
+}
+
+static void view_prop_clear_embed(DomElement* elem, ViewTree*) {
+    // bulk teardown reclaims the view pool separately from this document allocation
+    if (elem->embed) lam::free_owned(elem->storage_pool(), elem->embed);
+}
 
 #define DEFINE_DIRECTORY_PROP_ACCESSORS(field) \
 static void* view_prop_get_##field(DomElement* elem) { \
     return elem ? elem->field##_prop() : nullptr; \
 } \
 static void view_prop_clear_##field(DomElement* elem, ViewTree*) { \
-    if (elem && elem->prop_ext) elem->prop_ext->field = nullptr; \
+    if (elem && elem->style_ext) elem->style_ext->field = nullptr; \
 }
 
 DEFINE_DIRECTORY_PROP_ACCESSORS(transform)
@@ -424,7 +432,7 @@ static void release_detached_embedded_documents(DomNode* node) {
     release_embedded_document(elem);
 }
 
-static void release_media_prop(EmbedProp* embed) {
+static void release_media_prop(EmbedStyle* embed) {
     if (!embed || !embed->video) {
         return;
     }
@@ -490,7 +498,12 @@ static void reset_embed_prop(DomElement* elem, ViewTree* tree) {
     if (!elem || !elem->embed) return;
     DomDocument* embedded_doc = elem->embedp()->doc;
     free_embed_payload(elem, tree);
-    memcpy(elem->embed, &EMBED_PROP_DEFAULT, sizeof(EmbedProp));
+    // generated boxes can disappear after reset while the document pool stays live
+    if (!embedded_doc && (elem->is_synthetic() || elem->is_table_fixup())) {
+        view_prop_clear_embed(elem, tree);
+        return;
+    }
+    memcpy(elem->embed, &EMBED_STYLE_DEFAULT, sizeof(EmbedStyle));
     elem->embed->doc = lam::own(embedded_doc);
 }
 
@@ -521,7 +534,7 @@ static void release_form_prop(DomElement* elem, ViewTree* tree) {
     // not the view tree's pool; the release hands it over here
     if (form->heap_allocated) {
         lam::Temp<FormControlProp> heap_form((FormControlProp*)elem->form_storage());
-        elem->prop_ext->form = nullptr;
+        elem->style_ext->form = nullptr;
     }
 }
 
@@ -530,9 +543,9 @@ static void clear_item_prop(DomElement* elem, ViewTree*) {
     elem->fi = nullptr;
     elem->gi = nullptr;
     elem->td = nullptr;
-    if (elem->prop_ext) {
-        elem->prop_ext->tb = nullptr;
-        elem->prop_ext->form = nullptr;
+    if (elem->style_ext) {
+        elem->style_ext->tb = nullptr;
+        elem->style_ext->form = nullptr;
     }
     elem->set_parent_item_kind(DomElement::PARENT_ITEM_NONE);
     elem->set_role_kind(DomElement::ROLE_NONE);
@@ -570,17 +583,17 @@ void layout_set_parent_item_kind(LayoutContext* lycon, DomElement* elem,
 static void free_item_prop_storage(DomElement* elem, ViewTree* tree, bool preserve_form) {
     if (!elem) return;
     free_parent_item_prop_storage(elem, tree);
-    if (elem->prop_ext) {
-        view_pool_free(tree, elem->prop_ext->tb);
-        elem->prop_ext->tb = nullptr;
+    if (elem->style_ext) {
+        view_pool_free(tree, elem->style_ext->tb);
+        elem->style_ext->tb = nullptr;
     }
     view_pool_free(tree, elem->td);
     // script-created form state survives restyling; full teardown releases
     // its heap storage through release_form_prop before clearing this slot.
     if (!preserve_form) {
         if (elem->form_storage() && !elem->form_storage()->heap_allocated)
-            view_pool_free(tree, elem->prop_ext->form);
-        if (elem->prop_ext) elem->prop_ext->form = nullptr;
+            view_pool_free(tree, elem->style_ext->form);
+        if (elem->style_ext) elem->style_ext->form = nullptr;
     }
     elem->fi = nullptr;
     elem->gi = nullptr;
@@ -672,13 +685,12 @@ static void view_prop_free_##name(DomElement* elem, ViewTree* tree) { \
 }
 #define DEFINE_DIRECTORY_PROP_FREE(field) \
 static void view_prop_free_##field(DomElement* elem, ViewTree* tree) { \
-    if (elem && elem->prop_ext) view_pool_free(tree, elem->prop_ext->field); \
+    if (elem && elem->style_ext) view_pool_free(tree, elem->style_ext->field); \
 }
 DEFINE_VIEW_PROP_FREE(font, font)
 DEFINE_VIEW_PROP_FREE(bound, bound)
 DEFINE_VIEW_PROP_FREE(blk, blk)
 DEFINE_VIEW_PROP_FREE(scroller, scroller)
-DEFINE_VIEW_PROP_FREE(embed, embed)
 DEFINE_VIEW_PROP_FREE(position, position)
 DEFINE_DIRECTORY_PROP_FREE(transform)
 DEFINE_DIRECTORY_PROP_FREE(pseudo)
@@ -699,7 +711,7 @@ static const ViewPropTeardownEntry VIEW_PROP_TEARDOWN[] = {
     { "block", nullptr, free_block_container_payload, view_prop_get_blk, view_prop_clear_blk, view_prop_free_blk, nullptr, nullptr, &BLOCK_PROP_DEFAULT, sizeof(BlockProp), nullptr },
     { "marker", nullptr, nullptr, view_prop_get_marker, view_prop_clear_marker, view_prop_free_marker, nullptr, nullptr, nullptr, sizeof(MarkerProp), reset_marker_prop },
     { "scroll", nullptr, free_scroll_payload, view_prop_get_scroller, view_prop_clear_scroller, view_prop_free_scroller, nullptr, nullptr, &SCROLL_PROP_DEFAULT, sizeof(ScrollProp), nullptr },
-    { "embed", release_embed_prop_entry, free_embed_payload, view_prop_get_embed, view_prop_clear_embed, view_prop_free_embed, nullptr, nullptr, &EMBED_PROP_DEFAULT, sizeof(EmbedProp), reset_embed_prop, release_embed_prop_for_reset },
+    { "embed", release_embed_prop_entry, free_embed_payload, view_prop_get_embed, view_prop_clear_embed, nullptr, nullptr, nullptr, &EMBED_STYLE_DEFAULT, sizeof(EmbedStyle), reset_embed_prop, release_embed_prop_for_reset },
     { "position", nullptr, nullptr, view_prop_get_position, view_prop_clear_position, view_prop_free_position, nullptr, nullptr, &POSITION_PROP_DEFAULT, sizeof(PositionProp), nullptr },
     { "transform", nullptr, free_transform_payload, view_prop_get_transform, view_prop_clear_transform, view_prop_free_transform, nullptr, nullptr, &TRANSFORM_PROP_DEFAULT, sizeof(TransformProp), nullptr },
     { "filter", release_filter_external, free_filter_payload, view_prop_get_filter, view_prop_clear_filter, view_prop_free_filter, nullptr, nullptr, &FILTER_PROP_DEFAULT, sizeof(FilterProp), nullptr },
@@ -714,10 +726,10 @@ static const ViewPropTeardownEntry VIEW_PROP_TEARDOWN[] = {
     { "layout-cache", nullptr, free_layout_cache_payload, view_prop_get_layout_cache, view_prop_clear_layout_cache, view_prop_free_layout_cache, nullptr, nullptr, nullptr, sizeof(radiant::LayoutCache), reset_layout_cache },
 };
 
-// Every element view slot (DOM_ELEMENT_VIEW_SLOTS) has its teardown row. The
-// switch lists every slot (-Werror=switch rejects a missing one) and the
-// static_assert checks each row index; the table keeps the release order the
-// rows depend on (the form row releases a heap form before the item row frees).
+// The switch registers every slot with its teardown owner. The DOM releases
+// document-owned props when the node retires (D5.5.1).
+static constexpr int DOCUMENT_OWNED_VIEW_SLOT = -2;
+
 static constexpr int view_slot_teardown_row(DomViewSlot slot) {
     switch (slot) {
         case DomViewSlot::font:             return 0;
@@ -741,20 +753,22 @@ static constexpr int view_slot_teardown_row(DomViewSlot slot) {
         case DomViewSlot::vpath:            return 15;
         case DomViewSlot::layout_fragments: return 16;
         case DomViewSlot::layout_cache:     return 17;
+        case DomViewSlot::popover:
+        case DomViewSlot::shadow:           return DOCUMENT_OWNED_VIEW_SLOT;
         case DomViewSlot::count:            break;
     }
     return -1;
 }
 
-static constexpr bool view_slots_all_have_rows() {
+static constexpr bool view_slots_have_teardown_owners() {
     constexpr int rows = (int)(sizeof(VIEW_PROP_TEARDOWN) / sizeof(VIEW_PROP_TEARDOWN[0]));
     for (int slot = 0; slot < (int)DomViewSlot::count; slot++) {
         int row = view_slot_teardown_row((DomViewSlot)slot);
-        if (row < 0 || row >= rows) return false;
+        if (row != DOCUMENT_OWNED_VIEW_SLOT && (row < 0 || row >= rows)) return false;
     }
     return true;
 }
-static_assert(view_slots_all_have_rows(), "an element view slot has no teardown row");
+static_assert(view_slots_have_teardown_owners(), "an element view slot has no teardown owner");
 
 #ifndef NDEBUG
 // The value of a view slot, for the debug check that a pointer-clearing
@@ -784,6 +798,8 @@ static const void* view_slot_value(const DomElement* elem, DomViewSlot slot) {
         case DomViewSlot::backdrop_filter:  return ext ? (const void*)ext->backdrop_filter : nullptr;
         case DomViewSlot::marker:           return ext ? (const void*)ext->marker : nullptr;
         case DomViewSlot::layout_fragments: return ext ? (const void*)ext->layout_fragments : nullptr;
+        case DomViewSlot::popover:          return elem->popover_style();
+        case DomViewSlot::shadow:           return elem->shadow_style();
         case DomViewSlot::count:            break;
     }
     return nullptr;
@@ -795,7 +811,7 @@ static_assert(sizeof(INLINE_PROP_DEFAULT) == sizeof(InlineProp), "inline reset m
 static_assert(sizeof(BOUNDARY_PROP_DEFAULT) == sizeof(BoundaryProp), "boundary reset metadata drift");
 static_assert(sizeof(BLOCK_PROP_DEFAULT) == sizeof(BlockProp), "block reset metadata drift");
 static_assert(sizeof(SCROLL_PROP_DEFAULT) == sizeof(ScrollProp), "scroll reset metadata drift");
-static_assert(sizeof(EMBED_PROP_DEFAULT) == sizeof(EmbedProp), "embed reset metadata drift");
+static_assert(sizeof(EMBED_STYLE_DEFAULT) == sizeof(EmbedStyle), "embed reset metadata drift");
 static_assert(sizeof(POSITION_PROP_DEFAULT) == sizeof(PositionProp), "position reset metadata drift");
 static_assert(sizeof(TRANSFORM_PROP_DEFAULT) == sizeof(TransformProp), "transform reset metadata drift");
 static_assert(sizeof(FILTER_PROP_DEFAULT) == sizeof(FilterProp), "filter reset metadata drift");
@@ -888,12 +904,14 @@ static void view_teardown_apply_table(ViewTree* tree,
             }
         }
     }
-    if (elem->prop_ext && elem->prop_ext->empty()) elem->release_prop_ext();
+    if (elem->style_ext && elem->style_ext->empty()) elem->release_style_ext();
 #ifndef NDEBUG
     // a pointer-clearing teardown leaves no element pointer into view-tree storage
     if ((flags & VIEW_TEARDOWN_CLEAR_POINTERS) && !(flags & VIEW_TEARDOWN_RESET_IN_PLACE)) {
         for (int slot = 0; slot < (int)DomViewSlot::count; slot++) {
-            if (view_slot_value(elem, (DomViewSlot)slot)) {
+            DomViewSlot view_slot = (DomViewSlot)slot;
+            if (view_slot_teardown_row(view_slot) == DOCUMENT_OWNED_VIEW_SLOT) continue;
+            if (view_slot_value(elem, view_slot)) {
                 log_error("view_teardown: element view slot %d still set after clearing", slot);
                 assert(!"view slot left set after a clearing teardown");
             }
@@ -1046,10 +1064,8 @@ FontProp* alloc_font_prop(LayoutContext* lycon) {
 
 // alloc flex container blk
 void alloc_flex_prop(LayoutContext* lycon, ViewBlock* block) {
-    if (!block->embed) {
-        block->ensure_embed(lycon);
-    }
-    if (!block->embedp()->flex) {
+    EmbedStyle* embed = block->ensure_embed();
+    if (embed && !embed->flex) {
         FlexProp* prop = (FlexProp*)alloc_prop(lycon, sizeof(FlexProp));
         prop->direction = DIR_ROW;
         prop->wrap = WRAP_NOWRAP;
@@ -1061,7 +1077,7 @@ void alloc_flex_prop(LayoutContext* lycon, ViewBlock* block) {
         // Writing-mode resolves independently of display order; preserve the
         // block axis already resolved before flex properties allocate this prop.
         prop->writing_mode = block->blk ? block->block()->writing_mode : WM_HORIZONTAL_TB;
-        block->embed->flex = lam::own(prop);
+        embed->flex = lam::own(prop);
     }
 }
 
@@ -1101,10 +1117,8 @@ void alloc_flex_item_prop(LayoutContext* lycon, ViewSpan* span) {
 
 // alloc grid container prop
 void alloc_grid_prop(LayoutContext* lycon, ViewBlock* block) {
-    if (!block->embed) {
-        block->ensure_embed(lycon);
-    }
-    if (!block->embedp()->grid) {
+    EmbedStyle* embed = block->ensure_embed();
+    if (embed && !embed->grid) {
         GridProp* grid = (GridProp*)alloc_prop(lycon, sizeof(GridProp));
         // Set default values using enum names that align with Lexbor constants
         grid->justify_content = CSS_VALUE_NORMAL;
@@ -1118,7 +1132,7 @@ void alloc_grid_prop(LayoutContext* lycon, ViewBlock* block) {
         // Initialize gaps
         grid->row_gap = 0;
         grid->column_gap = 0;
-        block->embed->grid = lam::own(grid);
+        embed->grid = lam::own(grid);
     }
 }
 

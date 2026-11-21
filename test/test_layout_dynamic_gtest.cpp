@@ -60,8 +60,8 @@ TEST(NativeEditingWithoutScriptHost, FormDirectoryIsLazyAndReclaimedBeforeLayout
     ASSERT_TRUE(host && control);
     document->root = lam::up(host);
     ASSERT_TRUE(host->DomNode::append_child(control));
-    EXPECT_FALSE(host->prop_ext);
-    EXPECT_FALSE(control->prop_ext);
+    EXPECT_FALSE(host->style_ext);
+    EXPECT_FALSE(control->style_ext);
     EXPECT_FALSE(document->view_tree);
 
     FormControlProp* form = tc_get_or_create_form(control);
@@ -69,13 +69,13 @@ TEST(NativeEditingWithoutScriptHost, FormDirectoryIsLazyAndReclaimedBeforeLayout
     EXPECT_TRUE(form->heap_allocated);
     EXPECT_EQ(control->form_control(), form);
     EXPECT_EQ(tc_get_or_create_form(control), form);
-    ASSERT_TRUE(control->prop_ext);
-    EXPECT_FALSE(control->prop_ext->tb);
-    EXPECT_FALSE(control->prop_ext->transform);
-    EXPECT_FALSE(control->prop_ext->pseudo);
+    ASSERT_TRUE(control->style_ext);
+    EXPECT_FALSE(control->style_ext->tb);
+    EXPECT_FALSE(control->style_ext->transform);
+    EXPECT_FALSE(control->style_ext->pseudo);
 
     form_control_release_prop(control);
-    EXPECT_FALSE(control->prop_ext);
+    EXPECT_FALSE(control->style_ext);
     ASSERT_NE(tc_get_or_create_form(control), nullptr);
     DomNodeRef detached = dom_node_ref(control);
     ASSERT_TRUE(host->remove_child(control));
@@ -1905,7 +1905,7 @@ TEST_F(DynamicLayoutTest, UniversalPseudoResetSharesStylesUntilOverridden) {
     StyleTree* shared = plain->pseudo_style(PSEUDO_STYLE_BEFORE);
     ASSERT_NE(shared, nullptr);
     EXPECT_EQ(other->pseudo_style(PSEUDO_STYLE_BEFORE), shared);
-    EXPECT_FALSE(plain->prop_ext);
+    EXPECT_FALSE(plain->style_ext);
     EXPECT_FALSE(plain->ext);
     EXPECT_FALSE(other->pseudo_prop());
     ASSERT_NE(host->pseudo_prop(), nullptr);
@@ -1935,7 +1935,7 @@ TEST_F(DynamicLayoutTest, UniversalPseudoResetSharesStylesUntilOverridden) {
     radiant_recascade_document(document);
     EXPECT_EQ(plain->pseudo_style(PSEUDO_STYLE_BEFORE), nullptr);
     EXPECT_EQ(plain->pseudo_style(PSEUDO_STYLE_AFTER), nullptr);
-    EXPECT_FALSE(plain->prop_ext);
+    EXPECT_FALSE(plain->style_ext);
     ASSERT_TRUE(css_prop_serialize_computed(plain, CSS_PROPERTY_BOX_SIZING,
         PSEUDO_ELEMENT_BEFORE, value, sizeof(value)));
     EXPECT_STREQ(value, "content-box");

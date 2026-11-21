@@ -531,11 +531,11 @@ void event_state_log_write_node_ref(JsonWriter* w, const char* key,
         const DomElement* el = node->as_element();
         const char* author_id = event_node_author_id(node);
         if (author_id) jw_kv_str(w, "author_id", author_id);
-        if (el && el->class_count > 0) {
+        if (el && el->class_count() > 0) {
             jw_key(w, "classes");
             jw_arr_begin(w);
-            for (int i = 0; i < el->class_count; i++) {
-                jw_str(w, el->class_names[i]);
+            for (int i = 0; i < el->class_count(); i++) {
+                jw_str(w, el->class_names()[i]);
             }
             jw_arr_end(w);
     }

@@ -4652,8 +4652,8 @@ void render_media_selection_overlay(RasterRenderContext* rdcon, ViewBlock* view)
 bool render_media_paint_image_content(PaintList* paint, UiContext* ui, ViewBlock* view,
                                      const Rect* content_rect, const FontBox* font, Color color);
 Rect render_media_image_rect(ViewBlock* view, ImageSurface* image, Rect content_rect, float raster_scale);
-Rect render_media_object_rect(const EmbedProp* embed, ImageSurface* image, Rect content_rect, float raster_scale);
-Rect render_media_positioned_rect(const EmbedProp* embed, Rect viewport, float width, float height, float raster_scale);
+Rect render_media_object_rect(const EmbedStyle* embed, ImageSurface* image, Rect content_rect, float raster_scale);
+Rect render_media_positioned_rect(const EmbedStyle* embed, Rect viewport, float width, float height, float raster_scale);
 bool render_media_paint_svg_image(PaintList* paint, ImageSurface* image, Rect image_rect,
     const Rect* content_rect, float raster_scale, FontContext* fonts, UiContext* ui = nullptr, uint8_t opacity = 255);
 bool render_media_rasterize_svg_picture(ImageSurface* surface, int target_width,
@@ -5217,7 +5217,7 @@ struct ImageSurface;
 struct UiContext;
 
 // caller releases the immutable snapshot after recording its image lease (D5.5.1).
-ImageSurface* render_video_snapshot(const EmbedProp* embed, bool has_poster,
+ImageSurface* render_video_snapshot(const EmbedStyle* embed, bool has_poster,
     float width, float height, float scale, UiContext* ui);
 
 // Frame-local render and paint structs live on the Stack: their fields borrow

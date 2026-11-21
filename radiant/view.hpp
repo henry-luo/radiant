@@ -2535,8 +2535,7 @@ typedef struct BlockProp {
     bool vertical_auto_inline_size_constrained; // transient: auto height resolved from the vertical inline-size CB
     bool auto_inline_fit_content_resolved; // transient: fit-content height keeps authored auto semantics
     CssEnum text_overflow;  // CSS_VALUE_CLIP (default 0) | CSS_VALUE_ELLIPSIS
-    int line_clamp;         // -webkit-line-clamp: max visible lines (0 = no clamp)
-    bool line_clamp_legacy; // legacy counts apply only to a vertical legacy box
+    int line_clamp;         // line-clamp: max visible lines (0 = no clamp)
     bool line_clamp_inherited; // transient: this block is consuming an ancestor clamp
     bool line_clamped;      // transient: layout hit this block's active line clamp
     float line_clamp_advance_y; // transient: content advance at clamp boundary
@@ -2586,7 +2585,7 @@ typedef struct TextRect {
     int line_number;  // block-local line index assigned when this rect enters inline flow
     bool has_trailing_hyphen;  // CSS Text 3 §5.2: a hyphenation break generated a trailing mark
     lam::Up<const char> trailing_hyphenate_character;  // computed CSS Text 4 mark; null uses the UA default
-    bool has_trailing_ellipsis; // -webkit-line-clamp: render '…' after text on this rect
+    bool has_trailing_ellipsis; // line-clamp: render '…' after text on this rect
     bool bidi_reversed; // paint-run graphemes advance from the inline-end edge
     bool inline_is_vertical; // physical text geometry is published on y rather than x
     bool inline_reversed; // line-left maps to the high physical inline edge (sideways-lr)
@@ -2794,8 +2793,8 @@ typedef struct GridProp {
     bool is_dense_packing;       // grid-auto-flow: dense
 } GridProp;
 
-// tier-2: view-pool, rebuilt each relayout
-typedef struct EmbedProp {
+// document pool owns the style; the selected URL and layout props use the view pool
+typedef struct EmbedStyle {
     lam::Up<ImageSurface> img;  // borrowed: the image cache or a network resource owns it (O2)
     float content_image_resolution; // selected srcset/image-set density; 0 means 1x
     float native_image_width, native_image_height; // computed object size, independent of its CSS viewport
@@ -2815,7 +2814,7 @@ typedef struct EmbedProp {
     bool has_controls;       // true if <video controls> attribute present
     bool broken_alt_fallback; // true when an unloaded <img> is rendered as alt text
     bool native_image_sized;
-} EmbedProp;
+} EmbedStyle;
 
 // tier-2: view-pool, rebuilt each relayout
 struct ViewBlock : ViewSpan {
@@ -2823,7 +2822,7 @@ struct ViewBlock : ViewSpan {
     // BlockProp* blk;  // block specific style properties
     // ScrollProp* scroller;  // handles overflow
     // // block content related properties for flexbox, image, iframe
-    // EmbedProp* embed;
+    // EmbedStyle* embed;
     // // positioning properties for CSS positioning
     // PositionProp* position;
     // ViewBlock* last_child;
@@ -3115,11 +3114,6 @@ struct TableCellProp {
     // and has no cell-key lookup, while later border-collapse phases revisit cells.
     int col_index; // Starting column index (computed during layout)
     int row_index; // Starting row index (computed during layout)
-    uint8_t is_annoy_tr:1;       // whether this element is doubled as an anonymous tr
-    uint8_t is_annoy_td:1;       // whether this element is doubled as an anonymous td
-    uint8_t is_annoy_colgroup:1; // whether this element is doubled as an anonymous colgroup
-    uint8_t is_empty:1;          // whether this cell has no content (for empty-cells: hide)
-    uint8_t hide_empty:1;        // combined flag: is_empty && table has empty-cells: hide
 
     // tier-3 scratch, valid within layout pass for the same multiphase table lifetime.
     // Intrinsic width (content + padding) measured during column sizing
@@ -3129,8 +3123,6 @@ struct TableCellProp {
     float first_row_baseline;
     // published physical-y flow origin; glyph alignment does not delimit a vertical line box.
     float content_flow_top;
-    // Computed vertical-align retained for a rowspan's pre-distribution baseline.
-    bool uses_baseline_vertical_align;
 
     // Border-collapse resolved borders (CSS 2.1 §17.6.2)
     // Only populated when table has border-collapse: collapse
@@ -3140,6 +3132,14 @@ struct TableCellProp {
     CollapsedBorder* right_resolved;
     CollapsedBorder* bottom_resolved;
     CollapsedBorder* left_resolved;
+
+    uint8_t is_annoy_tr:1;       // whether this element is doubled as an anonymous tr
+    uint8_t is_annoy_td:1;       // whether this element is doubled as an anonymous td
+    uint8_t is_annoy_colgroup:1; // whether this element is doubled as an anonymous colgroup
+    uint8_t is_empty:1;          // whether this cell has no content (for empty-cells: hide)
+    uint8_t hide_empty:1;        // combined flag: is_empty && table has empty-cells: hide
+    // Computed vertical-align retained for a rowspan's pre-distribution baseline.
+    uint8_t uses_baseline_vertical_align:1;    
 };
 
 // tier-2: view-pool, rebuilt each relayout
@@ -3359,7 +3359,7 @@ LAM_NODE_OF(InlineProp, NodeViewTree);
 LAM_NODE_OF(BoundaryProp, NodeViewTree);
 LAM_NODE_OF(BlockProp, NodeViewTree);
 LAM_NODE_OF(ScrollProp, NodeViewTree);
-LAM_NODE_OF(EmbedProp, NodeViewTree);
+LAM_NODE_OF(EmbedStyle, NodeDocument);
 LAM_NODE_OF(PositionProp, NodeViewTree);
 LAM_NODE_OF(TransformProp, NodeViewTree);
 LAM_NODE_OF(PseudoContentProp, NodeViewTree);
@@ -4462,8 +4462,6 @@ DisplayValue layout_resolved_display(void* child);
 DisplayValue css_default_display_for_element(DomElement* element, DomNode* node);
 bool css_resolve_display_css_value(DomElement* element, const CssValue* value,
                                    DisplayValue* out_display);
-DisplayValue css_legacy_box_display(DomElement* element, uint8_t kind);
-DisplayValue css_inherit_display_value(DomElement* element, DisplayValue parent);
 const char* css_display_special_name(DisplayValue display);
 bool css_display_contents_suppresses_element(DomElement* element);
 bool css_display_element_is_replaced(DomElement* element);

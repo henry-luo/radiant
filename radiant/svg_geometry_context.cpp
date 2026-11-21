@@ -447,7 +447,7 @@ RdtMatrix dom_svg_ctm(DomElement* elem, bool screen_space) {
     bool in_svg = false;
     for (int i = count - 1; i >= 0; i--) {
         DomElement* current = chain[i];
-        if (!current || !current->tag_name) continue;
+        if (!current || !current->tag_name()) continue;
         bool svg = dom_svg_tag_is(current, "svg");
         if (svg) in_svg = true;
         if (in_svg) {
@@ -502,7 +502,7 @@ extern "C" bool dom_svg_foreign_object_local_point(void* element, float x, float
 extern "C" bool dom_svg_element_client_bounds(void* dom_elem, float* x, float* y,
                                               float* width, float* height) {
     DomElement* elem = (DomElement*)dom_elem;
-    if (!elem || !elem->tag_name || !dom_element_is_svg(elem)) return false;
+    if (!elem || !elem->tag_name() || !dom_element_is_svg(elem)) return false;
     // The outer <svg> is a CSS box, and so is HTML inside <foreignObject>
     // (reached before any <svg> on the way up); only SVG content below an
     // <svg> lacks one.
@@ -510,7 +510,7 @@ extern "C" bool dom_svg_element_client_bounds(void* dom_elem, float* x, float* y
     for (DomNode* up = elem->parent; up; up = up->parent) {
         if (!up->is_element()) continue;
         DomElement* ancestor = up->as_element();
-        if (!ancestor || !ancestor->tag_name) continue;
+        if (!ancestor || !ancestor->tag_name()) continue;
         if (dom_svg_tag_is(ancestor, "foreignObject")) return false;
         if (dom_svg_tag_is(ancestor, "svg")) { inside_svg = true; break; }
     }

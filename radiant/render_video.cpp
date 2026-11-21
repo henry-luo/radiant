@@ -342,7 +342,7 @@ static void render_play_button_overlay(ImageSurface* surface,
     rdt_vector_destroy(&vec);
 }
 
-ImageSurface* render_video_snapshot(const EmbedProp* embed, bool has_poster,
+ImageSurface* render_video_snapshot(const EmbedStyle* embed, bool has_poster,
         float width, float height, float scale, UiContext* ui) {
     RdtVideo* video = embed ? embed->video.get() : nullptr;
     if (!video || width <= 0.0f || height <= 0.0f) return nullptr;

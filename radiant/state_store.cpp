@@ -2380,8 +2380,8 @@ bool state_get_pseudo_state(DocState* state, View* view, uint32_t pseudo_state) 
         case PSEUDO_STATE_OPEN:
             if (view->is_element()) {
                 DomElement* elem = lam::dom_require_element(view);
-                if (elem && elem->tag_name &&
-                    str_icmp_cstr(elem->tag_name, "select") == 0) {
+                if (elem && elem->tag_name() &&
+                    str_icmp_cstr(elem->tag_name(), "select") == 0) {
                     return state && state->open_dropdown == view;
                 }
                 return selector_element_is_open_disclosure(elem);
@@ -2439,7 +2439,7 @@ static bool dom_element_default_pseudo_state(DomElement* element, uint32_t pseud
 bool state_resolve_selector_pseudo_state(void* context, DomElement* element, uint32_t pseudo_state) {
     if (!element) return false;
     if ((pseudo_state == PSEUDO_STATE_CHECKED || pseudo_state == PSEUDO_STATE_SELECTED) &&
-            element->tag_name && str_icmp_cstr(element->tag_name, "option") == 0) {
+            element->tag_name() && str_icmp_cstr(element->tag_name(), "option") == 0) {
         // Option selectedness is stored on the element, including before layout.
         return dom_option_is_selected(element);
     }
@@ -2672,8 +2672,8 @@ bool view_state_nodes_correspond(const DomNode* old_node,
     const DomElement* new_elem = new_node->as_element();
     RebuildChildEntry before = rebuild_child_key(old_node), after = rebuild_child_key(new_node);
     if ((before.key || after.key) && (!before.key || !after.key || !RebuildChildKeyOps::equals(before, after))) return false;
-    return old_elem && new_elem && old_elem->tag_name && new_elem->tag_name &&
-        strcmp(old_elem->tag_name, new_elem->tag_name) == 0;
+    return old_elem && new_elem && old_elem->tag_name() && new_elem->tag_name() &&
+        strcmp(old_elem->tag_name(), new_elem->tag_name()) == 0;
 }
 
 DomNode* view_state_corresponding_node(DomNode* owner, DomNode* old_root,
@@ -3699,8 +3699,8 @@ static bool view_element_has_attr(View* view, const char* attr_name) {
 }
 
 static bool form_element_supports_disabled_state(DomElement* element) {
-    if (!element || !element->tag_name) return false;
-    const char* tag = element->tag_name;
+    if (!element || !element->tag_name()) return false;
+    const char* tag = element->tag_name();
     return str_icmp_cstr(tag, "button") == 0 ||
         str_icmp_cstr(tag, "fieldset") == 0 ||
         str_icmp_cstr(tag, "input") == 0 ||
@@ -3716,8 +3716,8 @@ bool form_control_supports_disabled_state(View* view) {
 }
 
 static bool form_control_is_disabled_by_fieldset(DomElement* element) {
-    if (!element || !element->tag_name) return false;
-    const char* tag = element->tag_name;
+    if (!element || !element->tag_name()) return false;
+    const char* tag = element->tag_name();
     if (str_icmp_cstr(tag, "button") != 0 &&
         str_icmp_cstr(tag, "fieldset") != 0 &&
         str_icmp_cstr(tag, "input") != 0 &&
@@ -3731,8 +3731,8 @@ static bool form_control_is_disabled_by_fieldset(DomElement* element) {
          child_on_path = parent, parent = parent->parent) {
         if (!parent->is_element()) continue;
         DomElement* fieldset = parent->as_element();
-        if (!fieldset || !fieldset->tag_name ||
-            str_icmp_cstr(fieldset->tag_name, "fieldset") != 0 ||
+        if (!fieldset || !fieldset->tag_name() ||
+            str_icmp_cstr(fieldset->tag_name(), "fieldset") != 0 ||
             !fieldset->has_attribute("disabled")) {
             continue;
         }
@@ -3743,8 +3743,8 @@ static bool form_control_is_disabled_by_fieldset(DomElement* element) {
         }
         if (first_element && first_element->is_element()) {
             DomElement* first_legend = first_element->as_element();
-            if (first_legend && first_legend->tag_name &&
-                str_icmp_cstr(first_legend->tag_name, "legend") == 0 &&
+            if (first_legend && first_legend->tag_name() &&
+                str_icmp_cstr(first_legend->tag_name(), "legend") == 0 &&
                 child_on_path == first_element) {
                 continue;
             }
@@ -5343,7 +5343,7 @@ void form_control_set_selected_index(DocState* state, View* view, int index) {
 }
 
 void radiant_select_sync_native_index(DomElement* select, int selected_index, int option_count) {
-    if (!select || !select->tag_name || str_icmp_cstr(select->tag_name, "select") != 0) return;
+    if (!select || !select->tag_name() || str_icmp_cstr(select->tag_name(), "select") != 0) return;
     // Option changes can precede a form-control rebuild, so update its bounds first.
     if (select->form_control()) select->form_storage()->option_count = option_count;
     if (select->doc && select->doc->state)
@@ -8689,9 +8689,9 @@ static bool clipboard_inline_tag(const char* tag) {
 }
 
 static void append_open_tag_for_clipboard(StrBuf* sb, DomElement* element) {
-    if (!sb || !element || !element->tag_name) return;
-    strbuf_append_all(sb, 2, "<", element->tag_name);
-    if (strcmp(element->tag_name, "a") == 0) {
+    if (!sb || !element || !element->tag_name()) return;
+    strbuf_append_all(sb, 2, "<", element->tag_name());
+    if (strcmp(element->tag_name(), "a") == 0) {
         const char* href = (static_cast<DomNode*>(element))->get_attribute("href");
         const char* title = (static_cast<DomNode*>(element))->get_attribute("title");
         if (href) {
@@ -8709,8 +8709,8 @@ static void append_open_tag_for_clipboard(StrBuf* sb, DomElement* element) {
 }
 
 static void append_close_tag_for_clipboard(StrBuf* sb, DomElement* element) {
-    if (!sb || !element || !element->tag_name) return;
-    strbuf_append_all(sb, 2, "</", element->tag_name);
+    if (!sb || !element || !element->tag_name()) return;
+    strbuf_append_all(sb, 2, "</", element->tag_name());
     strbuf_append_char(sb, '>');
 }
 
@@ -8750,7 +8750,7 @@ static void append_selected_text_html(StrBuf* sb, DomText* text,
     for (DomNode* n = text->parent; n && wrapper_count < MAX_INLINE_ANCESTORS; n = n->parent) {
         if (n->is_element()) {
             DomElement* element = n->as_element();
-            if (clipboard_inline_tag(element->tag_name)) wrappers[wrapper_count++] = element;
+            if (clipboard_inline_tag(element->tag_name())) wrappers[wrapper_count++] = element;
         }
     }
     for (int i = wrapper_count - 1; i >= 0; i--) append_open_tag_for_clipboard(sb, wrappers[i]);
@@ -8819,7 +8819,7 @@ static bool extract_html_visitor(View* view, bool entering, void* context) {
         ViewElement* element = lam::view_require_element(view);
 
         // Opening tag
-        const char* tag_name = element->tag_name;
+        const char* tag_name = element->tag_name();
         if (tag_name) {
             strbuf_append_all(sb, 2, "<", tag_name);
             // TODO: add attributes if needed
@@ -8828,7 +8828,7 @@ static bool extract_html_visitor(View* view, bool entering, void* context) {
 
     } else if (!entering && view->is_element()) {
         ViewElement* element = lam::view_require_element(view);
-        const char* tag_name = element->tag_name;
+        const char* tag_name = element->tag_name();
         if (tag_name) {
             strbuf_append_all(sb, 2, "</", tag_name);
             strbuf_append_char(sb, '>');

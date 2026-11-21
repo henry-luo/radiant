@@ -362,7 +362,7 @@ bool layout_marker_is_outside(View* view) {
     }
     DomElement* marker = lam::dom_require<DOM_NODE_ELEMENT>(view);
     if (view->view_type != RDT_VIEW_MARKER &&
-        (!marker || !marker->tag_name || strcmp(marker->tag_name, "::marker") != 0)) {
+        (!marker || !marker->tag_name() || strcmp(marker->tag_name(), "::marker") != 0)) {
         return false;
     }
     MarkerProp* marker_prop = marker
@@ -629,7 +629,7 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
     if (!lycon->counter_context) return;
     // CSS Display 3: `inline flow-root list-item` is laid out atomically but
     // retains the outside-marker behavior of its inline-level principal box.
-    bool is_inline_list_item = display.list_item && display.inner != CSS_VALUE_FLOW_ROOT &&
+    bool is_inline_list_item = display.inner.list_item() && display.inner != CSS_VALUE_FLOW_ROOT &&
         (display.outer == CSS_VALUE_INLINE || display.outer == CSS_VALUE_INLINE_BLOCK);
     // Set default list-style-position to outside if not specified
     // CSS 2.1 Section 12.5.1: Initial value is 'outside'
@@ -819,7 +819,7 @@ bool LayoutCounterScope::enter(LayoutContext* lycon, ViewSpan* span,
     if (!counter_push_scope(lycon->counter_context, generated)) return false;
     context = lycon->counter_context;
     ViewBlock* block = lam::unsafe_view_block_api_span(span);
-    bool list_item = display.outer == CSS_VALUE_LIST_ITEM || display.list_item;
+    bool list_item = display.outer == CSS_VALUE_LIST_ITEM || display.inner.list_item();
     if (generated) {
         // generated table-cell pseudos retain their originating counter scope across reflow.
         DomElement* origin = lam::dom_as<DOM_NODE_ELEMENT>(dom_source_parent(element));

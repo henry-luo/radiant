@@ -116,7 +116,7 @@ TEST_F(DomNodeBaseTest, CreateDomElement) {
     // Test element-specific access
     DomElement* elem = root->as_element();
     ASSERT_NE(elem, nullptr);
-    EXPECT_STREQ(elem->tag_name, "div");
+    EXPECT_STREQ(elem->tag_name(), "div");
 }
 
 TEST_F(DomNodeBaseTest, CreateDomText) {
@@ -510,12 +510,12 @@ TEST_F(DomNodeBaseTest, ClassManagement) {
     EXPECT_FALSE(elem->has_class("missing"));
 
     // Class count
-    EXPECT_EQ(elem->class_count, 3);
+    EXPECT_EQ(elem->class_count(), 3);
 
     // Remove class
     EXPECT_TRUE(elem->remove_class("active"));
     EXPECT_FALSE(elem->has_class("active"));
-    EXPECT_EQ(elem->class_count, 2);
+    EXPECT_EQ(elem->class_count(), 2);
 
     // Toggle class
     EXPECT_TRUE(elem->toggle_class("highlight"));  // Add
@@ -1114,7 +1114,7 @@ TEST_F(DomNodeBaseTest, LastChildGetterFunction) {
     // Use getter function
     DomElement* last = root->last_child_element();
     ASSERT_NE(last, nullptr);
-    EXPECT_STREQ(last->tag_name, "li");
+    EXPECT_STREQ(last->tag_name(), "li");
 
     // Verify it's the last child
     EXPECT_EQ(last->next_sibling, nullptr);
@@ -1317,7 +1317,7 @@ TEST_F(DomNodeBaseTest, ResolvedMarkNamespacesRetainDomQualifiedAttributeAccess)
     DomElement* root = build_dom_tree_from_element(value.element, doc, nullptr);
     ASSERT_NE(root, nullptr);
     EXPECT_STREQ(dom_element_namespace_uri(root), "http://www.w3.org/2000/svg");
-    EXPECT_STREQ(root->tag_name, "s:use");
+    EXPECT_STREQ(root->tag_name(), "s:use");
     EXPECT_STREQ(root->local_name(), "use");
     EXPECT_EQ(root->tag(), DomNode::tag_name_to_id("use"));
     EXPECT_STREQ(root->get_attribute("xlink:href"), "#target");

@@ -490,8 +490,8 @@ TEST_F(RdtVideoTest, PosterRemainsUntilPlaybackAndYieldsToDecodedFrame) {
     ViewBlock view = {};
     view.node_type = DOM_NODE_ELEMENT;
     view.tag_id = MARKUP_NAME_VIDEO;
-    EmbedProp embed = {};
-    view.embed = lam::view_prop(&embed);
+    EmbedStyle embed = {};
+    view.embed = lam::own(&embed);
     embed.video = lam::up(video);
     ImageSurface poster = {};
     embed.poster = lam::up(&poster);
@@ -532,7 +532,7 @@ TEST_F(RdtVideoTest, DecodedFramePreservesFollowingForegroundPaint) {
     context.block.clip = {0, 0, 100, 100};
     ViewBlock view = {}; view.node_type = DOM_NODE_ELEMENT; view.tag_id = MARKUP_NAME_VIDEO;
     view.width = view.height = 100.0f;
-    EmbedProp embed = {}; embed.video = lam::up(video); view.embed = lam::view_prop(&embed);
+    EmbedStyle embed = {}; embed.video = lam::up(video); view.embed = lam::own(&embed);
     render_video_content(&context, &view);
     paint_ir_lower_raster(&paint, &list);
     Bound clip = {0, 0, 100, 100};

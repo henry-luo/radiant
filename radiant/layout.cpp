@@ -555,7 +555,7 @@ bool layout_get_text_initial_letter_info(const DomNode* text_node,
     if (out_info) *out_info = {};
     if (!text_node || !text_node->parent || !text_node->parent->is_element()) return false;
     const DomElement* parent = text_node->parent->as_element();
-    if (!parent || !parent->tag_name || strcmp(parent->tag_name, "::first-letter") != 0) {
+    if (!parent || !parent->tag_name() || strcmp(parent->tag_name(), "::first-letter") != 0) {
         return false;
     }
     return layout_get_initial_letter_info(parent, out_info);
@@ -818,7 +818,7 @@ static bool layout_resolve_pending_scroll_into_view(LayoutContext* lycon,
         target_y -= applied_y;
         log_info("layout_scrollIntoView: applied element scroll (%.1f, %.1f) on <%s>",
                  applied_x, applied_y,
-                 scroll_container->tag_name ? scroll_container->tag_name : "?");
+                 scroll_container->tag_name() ? scroll_container->tag_name() : "?");
     }
     bool smooth_viewport = false;
     // fixed viewport descendants can scroll inner panes without moving the document.
@@ -1157,12 +1157,12 @@ static void reset_css_all_visual_style(LayoutContext* lycon, ViewSpan* view) {
         layout_reset_position_style(lycon, view);
     }
     if (view->embed) {
-        view->embed->object_fit = EMBED_PROP_DEFAULT.object_fit;
-        view->embed->object_position_x = EMBED_PROP_DEFAULT.object_position_x;
-        view->embed->object_position_y = EMBED_PROP_DEFAULT.object_position_y;
-        view->embed->object_position_set = EMBED_PROP_DEFAULT.object_position_set;
-        view->embed->object_position_x_is_percent = EMBED_PROP_DEFAULT.object_position_x_is_percent;
-        view->embed->object_position_y_is_percent = EMBED_PROP_DEFAULT.object_position_y_is_percent;
+        view->embed->object_fit = EMBED_STYLE_DEFAULT.object_fit;
+        view->embed->object_position_x = EMBED_STYLE_DEFAULT.object_position_x;
+        view->embed->object_position_y = EMBED_STYLE_DEFAULT.object_position_y;
+        view->embed->object_position_set = EMBED_STYLE_DEFAULT.object_position_set;
+        view->embed->object_position_x_is_percent = EMBED_STYLE_DEFAULT.object_position_x_is_percent;
+        view->embed->object_position_y_is_percent = EMBED_STYLE_DEFAULT.object_position_y_is_percent;
     }
 }
 
@@ -1238,7 +1238,7 @@ static bool layout_marker_has_list_item_trailing_space(LayoutContext* lycon,
     while (node) {
         if (node->is_element()) {
             DisplayValue display = layout_resolved_display(node);
-            if (display.list_item) {
+            if (display.inner.list_item()) {
                 return node != static_cast<DomNode*>(marker_owner);
             }
         }
@@ -2873,7 +2873,7 @@ bool layout_inline_span_has_direct_visible_text_child(ViewSpan* span) {
 }
 
 static bool element_has_anonymous_table_tag(DomElement* elem, const char* tag_name) {
-    return elem && elem->tag_name && strcmp(elem->tag_name, tag_name) == 0;
+    return elem && elem->tag_name() && strcmp(elem->tag_name(), tag_name) == 0;
 }
 
 ViewBlock* layout_inline_span_anonymous_inline_table_child(ViewSpan* span) {
@@ -3595,7 +3595,7 @@ void view_vertical_align(LayoutContext* lycon, View* view) {
         span_vertical_align(lycon, span);
         // CSS 2.1 §10.8.1: After vertical alignment adjusts children's positions,
         struct FontHandle* span_fh = span->font ? span->fontp()->font_handle : font_box_handle(&lycon->font);
-        bool preserve_inline_list_marker_fragment = span->display.list_item &&
+        bool preserve_inline_list_marker_fragment = span->display_list_item() &&
             span->display.outer == CSS_VALUE_INLINE;
         // CSS 2.1 §9.2.1.1 and §17.2.1: table fix-up leaves an inline-table
         // fragment inside an inline list-item; preserve that fragment's box
@@ -4501,7 +4501,7 @@ DomElement* layout_shadow_formatting_parent(DomNode* node) {
     if (!node) return nullptr;
     if (node->parent && node->parent->is_element()) {
         DomElement* parent = node->parent->as_element();
-        if (parent->tag_name && strcmp(parent->tag_name, "#document-fragment") == 0) {
+        if (parent->tag_name() && strcmp(parent->tag_name(), "#document-fragment") == 0) {
             return parent->shadow_host_element();
         }
     }
@@ -4526,7 +4526,7 @@ static DomElement* layout_shadow_tree_host(DomNode* node) {
          ancestor; ancestor = ancestor->parent) {
         if (!ancestor->is_element()) continue;
         DomElement* element = ancestor->as_element();
-        if (element->tag_name && strcmp(element->tag_name, "#document-fragment") == 0) {
+        if (element->tag_name() && strcmp(element->tag_name(), "#document-fragment") == 0) {
             return element->shadow_host_element();
         }
         if (element->shadow_root_element() &&

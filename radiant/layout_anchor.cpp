@@ -183,7 +183,8 @@ static const AnchorGeometry* anchor_lookup(LayoutContext* lycon, DomElement* tar
                                           const char* name, bool implicit) {
     const LayoutAnchorSnapshot& snapshot = *lycon->anchor_snapshot;
     if (implicit) {
-        DomNode* source = target->ext ? dom_node_ref_validate(target->doc, target->ext->implicit_anchor) : nullptr;
+        const PopoverStyle* state = target->popover_style();
+        DomNode* source = state ? dom_node_ref_validate(target->doc, state->implicit_anchor) : nullptr;
         const AnchorIndex* index = source ? snapshot.lookup(source->as_element()) : nullptr;
         return index && anchor_acceptable(snapshot, index->order, target_index)
             ? &snapshot.boxes[index->order] : nullptr;

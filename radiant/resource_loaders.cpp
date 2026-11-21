@@ -162,7 +162,7 @@ void process_css_resource(NetworkResource* res, struct DomDocument* doc) {
     // completion order must not override the link's position in the cascade.
     sheet->owner_element = res->owner_element;
     DomElement* owner = res->owner_element;
-    if (owner && owner->tag_name && str_icmp_cstr(owner->tag_name, "link") == 0) {
+    if (owner && owner->tag_name() && str_icmp_cstr(owner->tag_name(), "link") == 0) {
         // asynchronously inserted theme links keep their activation conditions;
         // a completed download alone does not make its rules applicable.
         const char* media = owner->get_attribute("media");
@@ -295,31 +295,20 @@ void process_image_resource(NetworkResource* res, struct DomElement* img_element
         res->image_surface_borrowed = true;
     }
 
-    // ensure element has embed property allocated
-    if (!img_element->embed) {
-        if (img_element->doc && img_element->doc->view_tree) {
-            img_element->ensure_embed(img_element->doc->view_tree);
-        } else if (img_element->doc && img_element->doc->document_pool) {
-            // An async decode can finish before the first ViewTree exists; use
-            // the document pool only at that lifetime seam and seed CSS initials.
-            img_element->embed = lam::view_prop((EmbedProp*)pool_calloc(img_element->doc->document_pool, sizeof(EmbedProp)));
-            if (img_element->embed) *img_element->embed = EMBED_PROP_DEFAULT;
-        }
-        // with neither a view tree nor a document pool there is no owner for
-        // the prop; a heap copy here was never released (teardown audit F4)
-        if (!img_element->embed) {
-            log_error("network: failed to allocate embed property");
-            // a cached surface stays with the cache
-            if (!res->image_surface_borrowed && img_surface != res->image_surface) image_surface_destroy(img_surface);
-            return;
-        }
+    // an async decode can finish before the first view exists
+    EmbedStyle* embed = img_element->ensure_embed();
+    if (!embed) {
+        log_error("network: failed to allocate embed style");
+        // a cached surface stays with the cache
+        if (!res->image_surface_borrowed && img_surface != res->image_surface) image_surface_destroy(img_surface);
+        return;
     }
 
     if (res->image_surface && res->image_surface != img_surface && !res->image_surface_borrowed) {
         image_surface_destroy(res->image_surface);
     }
     res->image_surface = img_surface;
-    img_element->embed->img = lam::up(img_surface);
+    embed->img = lam::up(img_surface);
 
     // schedule reflow since image has intrinsic dimensions that affect layout
     if (res->manager) {

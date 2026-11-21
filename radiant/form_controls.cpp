@@ -150,21 +150,21 @@ DomElement* radiant_label_form(DomElement* label) {
 }
 
 bool radiant_form_is_submit_button(DomElement* element) {
-    if (!element || !element->tag_name) return false;
-    if (str_icmp_cstr(element->tag_name, "input") == 0) {
+    if (!element || !element->tag_name()) return false;
+    if (str_icmp_cstr(element->tag_name(), "input") == 0) {
         const char* type = radiant_form_control_type(element);
         return strcmp(type, "submit") == 0 || strcmp(type, "image") == 0;
     }
-    if (str_icmp_cstr(element->tag_name, "button") == 0) {
+    if (str_icmp_cstr(element->tag_name(), "button") == 0) {
         return strcmp(radiant_form_button_type(element), "submit") == 0;
     }
     return false;
 }
 
 bool radiant_form_is_reset_button(DomElement* element) {
-    if (!element || !element->tag_name) return false;
-    if (str_icmp_cstr(element->tag_name, "input") != 0 &&
-            str_icmp_cstr(element->tag_name, "button") != 0) return false;
+    if (!element || !element->tag_name()) return false;
+    if (str_icmp_cstr(element->tag_name(), "input") != 0 &&
+            str_icmp_cstr(element->tag_name(), "button") != 0) return false;
     return strcmp(radiant_form_control_type(element), "reset") == 0;
 }
 

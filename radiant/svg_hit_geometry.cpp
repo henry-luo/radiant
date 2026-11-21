@@ -460,7 +460,7 @@ static bool dom_svg_pointer_events_selects_geometry(NativeSvgPointerEventsMode m
 }
 
 static bool dom_svg_element_skips_hit_test(DomElement* elem) {
-    if (!elem || !elem->tag_name || !dom_svg_element_is_eligible(elem)) return true;
+    if (!elem || !elem->tag_name() || !dom_svg_element_is_eligible(elem)) return true;
     const char* tag = elem->local_name();
     if (str_icmp_cstr(tag, "defs") == 0 || str_icmp_cstr(tag, "clipPath") == 0 ||
         str_icmp_cstr(tag, "mask") == 0 || str_icmp_cstr(tag, "marker") == 0 ||

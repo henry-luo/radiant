@@ -22,6 +22,8 @@ extern "C" const char* __lsan_default_options() { return "exitcode=0"; }
 #include "lambda/core/well_known_markup_names.h"
 #include "lambda/input/input.hpp"
 #include "lambda/input/input-parsers.h"
+#include "lambda/input/html5/html5_parser.h"
+#include "radiant/stylesheet_sync.hpp"
 #include "helpers/css_test_helpers.hpp"
 
 extern "C" {
@@ -307,9 +309,9 @@ protected:
 TEST_F(DomIntegrationTest, CreateDomElement) {
     DomElement* element = create_element_with_backing("div");
     ASSERT_NE(element, nullptr);
-    EXPECT_STREQ(element->tag_name, "div");
+    EXPECT_STREQ(element->tag_name(), "div");
     EXPECT_EQ(element->id, nullptr);
-    EXPECT_EQ(element->class_count, 0);
+    EXPECT_EQ(element->class_count(), 0);
     EXPECT_EQ(element->parent, nullptr);
     EXPECT_EQ(element->first_child, nullptr);
 }
@@ -321,7 +323,7 @@ TEST_F(DomIntegrationTest, DomElementClasses) {
     // Add classes
     EXPECT_TRUE(element->add_class("class1"));
     EXPECT_TRUE(element->add_class("class2"));
-    EXPECT_EQ(element->class_count, 2);
+    EXPECT_EQ(element->class_count(), 2);
 
     // Check classes
     EXPECT_TRUE(element->has_class("class1"));
@@ -331,13 +333,31 @@ TEST_F(DomIntegrationTest, DomElementClasses) {
     // Remove class
     EXPECT_TRUE(element->remove_class("class1"));
     EXPECT_FALSE(element->has_class("class1"));
-    EXPECT_EQ(element->class_count, 1);
+    EXPECT_EQ(element->class_count(), 1);
 
     // Toggle class
     EXPECT_TRUE(element->toggle_class("class3"));  // Add
     EXPECT_TRUE(element->has_class("class3"));
     EXPECT_FALSE(element->toggle_class("class3")); // Remove
     EXPECT_FALSE(element->has_class("class3"));
+}
+
+TEST_F(DomIntegrationTest, ClassCacheFromBackingAndAttributeUpdate) {
+    MarkBuilder builder(input);
+    Item item = builder.element("div").attr("class", "first\nsecond\rthird").final();
+    DomElement* element = build_element(item);
+    ASSERT_NE(element, nullptr);
+    ASSERT_EQ(element->class_count(), 3);
+    EXPECT_STREQ(element->class_names()[0], "first");
+    EXPECT_STREQ(element->class_names()[1], "second");
+    EXPECT_STREQ(element->class_names()[2], "third");
+
+    EXPECT_TRUE(element->set_attribute("class", element->class_names()[1]));
+    ASSERT_EQ(element->class_count(), 1);
+    EXPECT_STREQ(element->class_names()[0], "second");
+    EXPECT_TRUE(element->remove_class("second"));
+    EXPECT_EQ(element->class_count(), 0);
+    EXPECT_EQ(element->class_names(), nullptr);
 }
 
 TEST_F(DomIntegrationTest, ApplyDeclaration) {
@@ -1437,7 +1457,7 @@ TEST_F(DomIntegrationTest, NamespaceUrisShareInputNamePool) {
     EXPECT_STREQ(local, "title");
     ASSERT_TRUE(first->set_attribute("__lambda_ns_uri", uri));
     EXPECT_EQ(first->get_attribute("__lambda_ns_uri"), canonical->chars);
-    EXPECT_FALSE(first->prop_ext);
+    EXPECT_FALSE(first->style_ext);
     EXPECT_EQ(dom_element_namespace_uri(second), canonical->chars);
 
     DomElement* synthetic = dom_element_create(doc, "span", nullptr);
@@ -1446,7 +1466,7 @@ TEST_F(DomIntegrationTest, NamespaceUrisShareInputNamePool) {
     EXPECT_EQ(dom_element_namespace_uri(synthetic), canonical->chars);
     EXPECT_FALSE(synthetic->ext);
     ASSERT_TRUE(synthetic->remove_attribute("__lambda_ns_uri"));
-    EXPECT_FALSE(synthetic->prop_ext);
+    EXPECT_FALSE(synthetic->style_ext);
     String* html_uri = namespace_uri_intern(input->name_pool, "http://www.w3.org/1999/xhtml");
     ASSERT_NE(html_uri, nullptr);
     EXPECT_EQ(dom_element_namespace_uri(synthetic), html_uri->chars);
@@ -1534,25 +1554,61 @@ TEST_F(DomIntegrationTest, ExplicitElementIdentitySeparatesLiteralAndQualifiedNa
     doc->page_kind = DOM_PAGE_KIND_HTML;
     DomElement* qualified = create_element_with_backing("h:span");
     ASSERT_TRUE(dom_element_set_namespace_identity(qualified, "http://www.w3.org/1999/xhtml", "span"));
+    EXPECT_STREQ(qualified->tag_name(), "h:span");
     EXPECT_STREQ(qualified->get_attribute("__lambda_ns_local_name"), "span");
     EXPECT_STREQ(qualified->local_name(), "span");
     EXPECT_FALSE(qualified->ext);
-    EXPECT_FALSE(qualified->prop_ext);
+    EXPECT_FALSE(qualified->style_ext);
     DomElement* literal = create_element_with_backing("h:span");
     ASSERT_TRUE(dom_element_set_namespace_identity(literal, "http://www.w3.org/1999/xhtml", "h:span"));
     EXPECT_STREQ(literal->local_name(), "h:span");
-    EXPECT_FALSE(literal->prop_ext);
+    EXPECT_FALSE(literal->style_ext);
     DomElement* plain = create_element_with_backing("svg");
     ASSERT_TRUE(dom_element_set_namespace_identity(plain, "", "svg"));
     ASSERT_TRUE(qualified->append_child(plain));
     EXPECT_STREQ(dom_element_namespace_uri(plain), ""); EXPECT_STREQ(plain->local_name(), "svg");
-    ASSERT_TRUE(plain->prop_ext);
+    ASSERT_TRUE(plain->style_ext);
     EXPECT_FALSE(plain->ext);
     EXPECT_FALSE(dom_element_set_namespace_identity(plain, "urn:test", "alias"));
     EXPECT_STREQ(dom_element_namespace_uri(plain), "");
     EXPECT_STREQ(plain->local_name(), "svg");
     ASSERT_TRUE(dom_element_set_namespace_identity(plain, "http://www.w3.org/1999/xhtml", "svg"));
-    EXPECT_FALSE(plain->prop_ext);
+    EXPECT_FALSE(plain->style_ext);
+}
+
+TEST_F(DomIntegrationTest, CustomTagNameBorrowsBackingSpelling) {
+    DomElement* element = create_element_with_backing("my-card");
+    ASSERT_NE(element, nullptr);
+    const char* backing_name = static_cast<const TypeElmt*>(element->elmt.type)->name.str;
+    EXPECT_EQ(element->tag_name(), backing_name);
+    EXPECT_EQ(element->tag_id, NAME_ID_NONE);
+    EXPECT_FALSE(element->style_ext);
+    EXPECT_FALSE(doc->services.tag_name_overrides);
+    ASSERT_TRUE(element->set_attribute("data-state", "open"));
+    EXPECT_STREQ(element->tag_name(), "my-card");
+}
+
+TEST_F(DomIntegrationTest, SplitXmlTagNamePreservesQualifiedSpelling) {
+    doc->xml_document = true;
+    XmlParseOptions options = {};
+    options.require_namespaces = true;
+    parse_xml_with_options(input, "<p:MyCard xmlns:p='urn:card'/>", &options);
+    ASSERT_EQ(input->root.type_id(), LMD_TYPE_ELEMENT);
+    DomElement* root = build_dom_tree_from_element(input->root.element, doc, nullptr);
+    ASSERT_TRUE(root && root->first_child && root->first_child->is_element());
+    DomElement* element = root->first_child->as_element();
+    const char* spelling = element->tag_name();
+    EXPECT_STREQ(static_cast<const TypeElmt*>(element->elmt.type)->name.str, "MyCard");
+    EXPECT_STREQ(spelling, "p:MyCard");
+    EXPECT_STREQ(element->local_name(), "MyCard");
+    EXPECT_STREQ(dom_element_namespace_uri(element), "urn:card");
+
+    ASSERT_TRUE(element->set_attribute("state", "open"));
+    EXPECT_EQ(element->tag_name(), spelling);
+    MarkBuilder builder(input);
+    Element* replacement = builder.element("my-card").final().element;
+    ASSERT_EQ(DomElement::create_in(element, doc, "my-card", replacement), element);
+    EXPECT_STREQ(element->tag_name(), "my-card");
 }
 
 TEST_F(DomIntegrationTest, PrivateLocalNameAttributeCannotOverrideTag) {
@@ -1563,7 +1619,7 @@ TEST_F(DomIntegrationTest, PrivateLocalNameAttributeCannotOverrideTag) {
     ASSERT_NE(element, nullptr);
     EXPECT_STREQ(element->local_name(), "div");
     EXPECT_STREQ(element->get_attribute("__lambda_ns_local_name"), "div");
-    EXPECT_FALSE(element->prop_ext);
+    EXPECT_FALSE(element->style_ext);
 }
 
 TEST_F(DomIntegrationTest, XhtmlUsesTypedTagNamesWithExplicitNamespaces) {
@@ -1585,10 +1641,10 @@ TEST_F(DomIntegrationTest, XhtmlUsesTypedTagNamesWithExplicitNamespaces) {
     DomElement* nested = dom_find_element_by_id(root, "nested");
     DomElement* empty = dom_find_element_by_id(root, "empty");
     ASSERT_TRUE(html_root && html && svg && nested && empty);
-    EXPECT_STREQ(html->tag_name, "Div");
+    EXPECT_STREQ(html->tag_name(), "Div");
     EXPECT_STREQ(html->local_name(), "Div");
     EXPECT_STREQ(dom_element_namespace_uri(html), "http://www.w3.org/1999/xhtml");
-    EXPECT_STREQ(svg->tag_name, "svg");
+    EXPECT_STREQ(svg->tag_name(), "svg");
     EXPECT_STREQ(dom_element_namespace_uri(svg), "http://www.w3.org/2000/svg");
     EXPECT_STREQ(nested->local_name(), "span");
     EXPECT_STREQ(dom_element_namespace_uri(nested), "http://www.w3.org/1999/xhtml");
@@ -1792,6 +1848,72 @@ TEST_F(DomIntegrationTest, DirUsesShadowHostAndNamedSlotAssignments) {
     EXPECT_EQ(dom_element_directionality(slot), 1);
 }
 
+TEST_F(DomIntegrationTest, ShadowPropsPreserveDeclarativeRootAndRetireWithNode) {
+    const char html[] = "<div id='host'><i id='before'></i>"
+        "<template shadowrootmode='closed' shadowrootdelegatesfocus shadowrootclonable "
+        "shadowrootserializable shadowrootslotassignment='manual'><style>i{color:red}</style></template>"
+        "<b id='after'></b></div>";
+    Html5ParseOptions options = {};
+    options.allow_declarative_shadow_roots = true;
+    input->ui_mode = true;
+    doc->page_kind = DOM_PAGE_KIND_HTML;
+    Element* parsed = html5_parse_n(input, html, sizeof(html) - 1, &options);
+    ASSERT_NE(parsed, nullptr);
+    DomElement* document_root = build_dom_tree_from_element(parsed, doc, nullptr);
+    ASSERT_NE(document_root, nullptr);
+    doc->root = lam::up(document_root);
+    DomElement* host = dom_find_element_by_id(document_root, "host");
+    DomElement* before = dom_find_element_by_id(document_root, "before");
+    DomElement* after = dom_find_element_by_id(document_root, "after");
+    ASSERT_TRUE(host && before && after);
+    EXPECT_EQ(before->shadow_style(), nullptr);
+
+    DomElement* root = host->shadow_root_element();
+    ASSERT_NE(root, nullptr);
+    const ShadowStyle* state = root->shadow_style();
+    ASSERT_NE(state, nullptr);
+    EXPECT_EQ(root->shadow_host_element(), host);
+    EXPECT_TRUE(root->is_closed_shadow_root());
+    EXPECT_TRUE(state->delegates_focus);
+    EXPECT_TRUE(state->manual_slot_assignment);
+    EXPECT_TRUE(state->clonable);
+    EXPECT_TRUE(state->serializable);
+    EXPECT_TRUE(state->declarative);
+
+    host->reset_view_ext();
+    root->reset_view_ext();
+    EXPECT_EQ(root->shadow_style(), state);
+    EXPECT_EQ(host->shadow_root_element(), root);
+    DomParsedChildren children = dom_parsed_children(doc, dom_element_backing(host));
+    ASSERT_EQ(children.length(), 3);
+    EXPECT_EQ(children.at(0).element, dom_element_backing(before));
+    EXPECT_EQ(children.at(1).element, dom_element_backing(root));
+    EXPECT_EQ(children.at(2).element, dom_element_backing(after));
+
+    ASSERT_TRUE(root->first_child && root->first_child->is_element());
+    DomElement* style = root->first_child->as_element();
+    ASSERT_STREQ(style->tag_name(), "style");
+    EXPECT_EQ(style->shadow_style(), nullptr);
+    ASSERT_TRUE(radiant_sync_inline_stylesheet(style));
+    const ShadowStyle* style_state = style->shadow_style();
+    ASSERT_NE(style_state, nullptr);
+    const CssStylesheet* sheet = radiant_shadow_inline_stylesheet(style);
+    ASSERT_NE(sheet, nullptr);
+    EXPECT_EQ(sheet->rule_count, 1u);
+    EXPECT_EQ(doc->stylesheet_count, 0);
+    style->reset_view_ext();
+    EXPECT_EQ(radiant_shadow_inline_stylesheet(style), sheet);
+    Pool* storage = style->storage_pool();
+    EXPECT_TRUE(pool_owns(storage, style_state));
+    DomNodeRef style_ref = dom_node_ref(style);
+    ASSERT_TRUE(root->remove_child(style));
+    EXPECT_TRUE(radiant_sync_inline_stylesheet(style));
+    EXPECT_EQ(style_state->inline_stylesheet.get(), nullptr);
+    EXPECT_GT(dom_retire_sweep(doc), 0u);
+    EXPECT_EQ(dom_node_ref_validate(doc, style_ref), nullptr);
+    EXPECT_FALSE(pool_owns(storage, style_state));
+}
+
 TEST_F(DomIntegrationTest, DirQualifiesExcludedDescendantsAndSlotBarriers) {
     DomElement* scan = create_element_with_backing("div");
     ASSERT_TRUE(scan->set_attribute("dir", "auto"));
@@ -1877,6 +1999,43 @@ TEST_F(DomIntegrationTest, ModalAndPopoverSelectorsUseElementState) {
     popover->set_popover_open(false);
     EXPECT_FALSE(selector_matcher_matches(matcher, modal->selectors[0], dialog, nullptr));
     EXPECT_FALSE(selector_matcher_matches(matcher, open->selectors[0], popover, nullptr));
+}
+
+TEST_F(DomIntegrationTest, PopoverPropsSurviveViewResetAndRetireWithNode) {
+    DomElement* element = create_element_with_backing("div");
+    DomElement* invoker = create_element_with_backing("button");
+    DomElement* replacement = create_element_with_backing("div");
+    ASSERT_TRUE(element && invoker && replacement);
+    element->set_popover_open(false);
+    EXPECT_EQ(element->popover_style(), nullptr);
+
+    element->set_popover_open(true);
+    PopoverStyle* state = element->popover_style();
+    ASSERT_NE(state, nullptr);
+    state->order = 1;
+    state->opened_mode = DOM_POPOVER_AUTO;
+    state->toggle.pending = true;
+    ASSERT_TRUE(dom_top_layer_add(element, invoker));
+    element->reset_view_ext();
+    EXPECT_EQ(element->popover_style(), state);
+    EXPECT_TRUE(element->is_popover_open());
+    EXPECT_EQ(state->order, 1u);
+    EXPECT_EQ(state->opened_mode, DOM_POPOVER_AUTO);
+    EXPECT_TRUE(state->toggle.pending);
+
+    dom_top_layer_rebind(element, replacement);
+    EXPECT_FALSE(element->is_in_top_layer());
+    EXPECT_TRUE(replacement->is_in_top_layer());
+    ASSERT_NE(replacement->popover_style(), nullptr);
+    EXPECT_EQ(dom_node_ref_validate(doc, replacement->popover_style()->implicit_anchor), invoker);
+    dom_element_release_retired_storage(replacement);
+    EXPECT_EQ(dom_top_layer_count(doc), 0u);
+
+    Pool* storage = element->storage_pool();
+    EXPECT_TRUE(pool_owns(storage, state));
+    dom_element_release_retired_storage(element);
+    EXPECT_EQ(element->popover_style(), nullptr);
+    EXPECT_FALSE(pool_owns(storage, state));
 }
 
 TEST_F(DomIntegrationTest, DirUsesInheritedAttributeAndFirstStrongText) {
@@ -2225,7 +2384,7 @@ TEST_F(DomIntegrationTest, EdgeCase_NullParameters) {
 
 TEST_F(DomIntegrationTest, EdgeCase_EmptyStrings) {
     DomElement* element = DomElement::create(doc, "", nullptr);
-    EXPECT_STREQ(element->tag_name, "");
+    EXPECT_STREQ(element->tag_name(), "");
 
     // Empty class name
     EXPECT_TRUE(element->add_class(""));
@@ -2611,7 +2770,7 @@ TEST_F(DomIntegrationTest, AdvancedSelector_SiblingChain) {
     DomElement* sibling = (DomElement*)p1->next_sibling;
     bool found_div = false;
     while (sibling) {
-        if (strcmp(sibling->tag_name, "div") == 0) {
+        if (strcmp(sibling->tag_name(), "div") == 0) {
             found_div = true;
             break;
         }

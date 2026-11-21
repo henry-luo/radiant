@@ -120,8 +120,8 @@ static PositionProp make_position_prop_default() {
     return value;
 }
 
-static EmbedProp make_embed_prop_default() {
-    EmbedProp value = {};
+static EmbedStyle make_embed_style_default() {
+    EmbedStyle value = {};
     value.object_fit = CSS_VALUE_FILL;
     value.object_position_x = value.object_position_y = 50.0f;
     value.object_position_x_is_percent = true;
@@ -178,7 +178,7 @@ extern const ScrollSnapProp SCROLL_SNAP_DEFAULT = {
     {}, {}, SCROLL_SNAP_AXIS_NONE, CSS_VALUE_NONE, CSS_VALUE_NONE, false, false
 };
 extern const PositionProp POSITION_PROP_DEFAULT = make_position_prop_default();
-extern const EmbedProp EMBED_PROP_DEFAULT = make_embed_prop_default();
+extern const EmbedStyle EMBED_STYLE_DEFAULT = make_embed_style_default();
 extern const TransformProp TRANSFORM_PROP_DEFAULT = make_transform_prop_default();
 extern const FilterProp FILTER_PROP_DEFAULT = {};
 extern const MultiColumnProp MULTICOL_PROP_DEFAULT = make_multicol_prop_default();
@@ -197,7 +197,7 @@ const FontProp* DomElement::fontp() const { return font ? font : &FONT_PROP_DEFA
 const InlineProp* DomElement::inl() const { return in_line ? in_line : &INLINE_PROP_DEFAULT; }
 const ScrollProp* DomElement::scroll() const { return scroller ? scroller : &SCROLL_PROP_DEFAULT; }
 const PositionProp* DomElement::positionp() const { return position ? position : &POSITION_PROP_DEFAULT; }
-const EmbedProp* DomElement::embedp() const { return embed ? embed : &EMBED_PROP_DEFAULT; }
+const EmbedStyle* DomElement::embedp() const { return embed ? embed : &EMBED_STYLE_DEFAULT; }
 const TransformProp* DomElement::transformp() const {
     const TransformProp* value = transform_prop();
     return value ? value : &TRANSFORM_PROP_DEFAULT;
@@ -214,6 +214,6 @@ InlineProp* DomElement::inline_mut() {
 }
 ScrollProp* DomElement::scroll_mut() { return scroller; }
 PositionProp* DomElement::position_mut() { return position; }
-EmbedProp* DomElement::embed_mut() { return embed; }
+EmbedStyle* DomElement::embed_mut() { return embed; }
 TransformProp* DomElement::transform_mut() { return transform_prop(); }
 FilterProp* DomElement::filter_mut() { return filter_prop(); }

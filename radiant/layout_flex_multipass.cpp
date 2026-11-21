@@ -1100,7 +1100,7 @@ static bool flex_flow_subtree_is_independent(LayoutContext* context, DomNode* no
     if (!css_resolved_style_input_revision(context, element) ||
         !((flex || grid || table || replaced) ? layout_box_is_context_independent(element, true, contract)
                : layout_flow_is_context_independent(element, true, contract)) ||
-        (element->display.list_item && !context->generated_effects_prepared) ||
+        (element->display_list_item() && !context->generated_effects_prepared) ||
         element->form_control() || (element->embed && !flex && !grid && !replaced) ||
         element->transform_prop() || element->shadow_root_element() ||
         layout_is_mathml_root(element) ||
@@ -1517,7 +1517,7 @@ static void layout_flex_item_content_pass(LayoutContext* lycon, ViewBlock* flex_
             do {
                 if (rst->is_element()) {
                     DomElement* re = rst->as_element();
-                    if (!(re->tag_name && re->tag_name[0] == ':' && re->tag_name[1] == ':')) {
+                    if (!(re->tag_name() && re->tag_name()[0] == ':' && re->tag_name()[1] == ':')) {
                         re->set_styles_resolved(false);
                     }
                 }

@@ -135,7 +135,7 @@ static void view_memory_element_census(JsonWriter* writer, DomElement* root) {
         if (elem) {
             if (elem->is_synthetic()) synthetic++;
             else authored++;
-            prop_extensions += elem->prop_ext != nullptr;
+            prop_extensions += elem->style_ext != nullptr;
             bool slots[] = {elem->ext != nullptr, elem->blk != nullptr,
                 elem->parent_item_kind() == DomElement::PARENT_ITEM_FLEX && elem->fi,
                 elem->parent_item_kind() == DomElement::PARENT_ITEM_GRID && elem->gi,
@@ -191,7 +191,7 @@ static void view_memory_element_census(JsonWriter* writer, DomElement* root) {
         jw_kv_uint(writer, "synthetic", synthetic);
         jw_kv_uint(writer, "element_size", sizeof(DomElement));
         jw_kv_uint(writer, "ext_size", sizeof(DomElementExt));
-        jw_kv_uint(writer, "prop_ext_size", sizeof(DomPropExt));
+        jw_kv_uint(writer, "prop_ext_size", sizeof(DomStyleExt));
         jw_kv_uint(writer, "prop_extensions", prop_extensions);
         jw_kv_uint(writer, "block_size", sizeof(BlockProp));
         jw_kv_uint(writer, "move_union", move_union);

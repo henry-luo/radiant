@@ -53,7 +53,7 @@ static float render_media_object_position_offset(float box_size, float rendered_
     return position * scale;
 }
 
-Rect render_media_positioned_rect(const EmbedProp* embed, Rect viewport, float width, float height, float scale) {
+Rect render_media_positioned_rect(const EmbedStyle* embed, Rect viewport, float width, float height, float scale) {
     bool set = embed && embed->object_position_set;
     float x = set ? embed->object_position_x : 50.0f;
     float y = set ? embed->object_position_y : 50.0f;
@@ -105,7 +105,7 @@ bool render_media_rasterize_svg_picture(ImageSurface* surface, int target_width,
     return true;
 }
 
-Rect render_media_object_rect(const EmbedProp* embed, ImageSurface* img, Rect rect, float s) {
+Rect render_media_object_rect(const EmbedStyle* embed, ImageSurface* img, Rect rect, float s) {
     // native content sizing keeps its own object dimensions inside the CSS viewport.
     if (embed && embed->native_image_sized)
         return render_media_positioned_rect(embed, rect, embed->native_image_width * s,

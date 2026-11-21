@@ -175,7 +175,7 @@ DomElement* find_element_by_class(DomElement* root, const char* class_name) {
 DomElement* find_element_by_tag(DomElement* root, const char* tag_name) {
     if (!root || !tag_name) return nullptr;
 
-    if (strcmp(root->tag_name, tag_name) == 0) {
+    if (strcmp(root->tag_name(), tag_name) == 0) {
         return root;
     }
 
@@ -401,7 +401,7 @@ TEST_F(HtmlCssIntegrationTest, ParseSimpleHTML) {
     ASSERT_NE(dom_root, nullptr) << "Failed to convert to DomElement";
 
     // Verify structure
-    EXPECT_STREQ(dom_root->tag_name, "div");
+    EXPECT_STREQ(dom_root->tag_name(), "div");
 
     // Check attributes
     const char* id_attr = dom_root->get_attribute("id");
@@ -651,7 +651,7 @@ TEST_F(HtmlCssIntegrationTest, CompleteHtmlCssPipeline_SimpleDiv) {
     DomElement* dom_root = lambda_element_to_dom_element(root_elem, (doc = dom_document_create(input)));
     ASSERT_NE(dom_root, nullptr) << "DOM conversion failed";
 
-    printf("DOM element created: tag=%s\n", dom_root->tag_name.get());
+    log_info("dom fixture: DOM element created: tag=%s", dom_root->tag_name());
 
     // Step 3: Apply CSS rule manually
     // Create a simple rule: .box { color: blue; }
@@ -729,15 +729,15 @@ TEST_F(HtmlCssIntegrationTest, CompleteHtmlCssPipeline_NestedElements) {
     DomElement* dom_root = lambda_element_to_dom_element(root_elem, (doc = dom_document_create(input)));
     ASSERT_NE(dom_root, nullptr) << "DOM conversion failed";
 
-    printf("Parent element: tag=%s\n", dom_root->tag_name.get());
+    log_info("dom fixture: Parent element: tag=%s", dom_root->tag_name());
 
     // Step 3: Check parent-child relationship
     EXPECT_NE(dom_root->first_child, nullptr) << "Should have child element";
 
     if (dom_root->first_child) {
         DomElement* child = (DomElement*)dom_root->first_child;
-        printf("Child element: tag=%s\n", child->tag_name.get());
-        EXPECT_STREQ(child->tag_name, "p") << "Child should be <p> element";
+        log_info("dom fixture: Child element: tag=%s", child->tag_name());
+        EXPECT_STREQ(child->tag_name(), "p") << "Child should be <p> element";
         EXPECT_EQ(child->parent, dom_root) << "Child should have parent pointer";
     }
 
@@ -784,7 +784,7 @@ TEST_F(HtmlCssIntegrationTest, LoadSimpleBoxTestHTML) {
     EXPECT_NE(dom_root, nullptr) << "Failed to convert to DomElement";
 
     if (dom_root) {
-        printf("Successfully parsed and converted: tag=%s\n", dom_root->tag_name.get());
+        log_info("dom fixture: Successfully parsed and converted: tag=%s", dom_root->tag_name());
     }
 }
 
@@ -804,7 +804,7 @@ TEST_F(HtmlCssIntegrationTest, LoadAndParseSampleHTML) {
     DomElement* dom_root = lambda_element_to_dom_element(root_elem, (doc = dom_document_create(input)));
     ASSERT_NE(dom_root, nullptr) << "Failed to convert to DomElement";
 
-    printf("Successfully parsed sample1.html: tag=%s\n", dom_root->tag_name.get());
+    log_info("dom fixture: Successfully parsed sample1.html: tag=%s", dom_root->tag_name());
 
     // Try to extract CSS (will be empty if no <style> tags found)
     std::string css = extract_css_from_html(root_elem);
@@ -871,7 +871,7 @@ TEST_F(HtmlCssIntegrationTest, ProcessMultipleHTMLFiles) {
         DomElement* dom_root = lambda_element_to_dom_element(root_elem, (doc = dom_document_create(input)));
 
         if (dom_root) {
-            printf("  ✓ Converted to DomElement: tag=%s\n", dom_root->tag_name.get());
+            log_info("dom fixture:   ✓ Converted to DomElement: tag=%s", dom_root->tag_name());
             converted++;
 
             // Count children
@@ -911,7 +911,7 @@ TEST_F(HtmlCssIntegrationTest, ProcessMultipleHTMLFiles) {
         DomElement* dom_root = lambda_element_to_dom_element(root_elem, (doc = dom_document_create(input)));
 
         if (dom_root) {
-            printf("  ✓ Converted to DomElement: tag=%s\n", dom_root->tag_name.get());
+            log_info("dom fixture:   ✓ Converted to DomElement: tag=%s", dom_root->tag_name());
             converted++;
         } else {
             printf("  ✗ Failed to convert to DomElement\n");
@@ -1168,7 +1168,7 @@ TEST_F(HtmlCssIntegrationTest, LayoutData_Table_BasicTable) {
     // Find table element
     DomElement* table = find_element_by_tag(dom_root, "table");
     if (table) {
-        EXPECT_STREQ(table->tag_name, "table");
+        EXPECT_STREQ(table->tag_name(), "table");
     }
 }
 

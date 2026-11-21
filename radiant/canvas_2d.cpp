@@ -1213,7 +1213,7 @@ void render_surface_content(RasterRenderContext* rdcon, ViewBlock* view, ImageSu
 bool render_compositor_reject(ViewBlock* view, const char* why) {
     DomElement* element = view->as_element();
     const char* id = element->get_attribute("id");
-    log_debug("[COMPOSITOR] <%s> %s stays on the CPU: %s", element->tag_name ? element->tag_name.get() : "?",
+    log_debug("[COMPOSITOR] <%s> %s stays on the CPU: %s", element->tag_name() ? element->tag_name() : "?",
               id ? id : "(no id)", why);
     return false;
 }
