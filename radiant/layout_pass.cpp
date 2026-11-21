@@ -199,7 +199,7 @@ struct LayoutFlowNode {
     LayoutOutputTail<BlockProp, offsetof(BlockProp, first_line_max_ascender)> block_output;
     float collapsed_through_mb, margin_chain_positive, margin_chain_negative;
     bool has_clearance, clearance_in_margin_chain;
-    Margin flow_margin;
+    FlowMargin flow_margin;
     bool has_flow_margin;
     FragmentUnion fragments[FRAGMENT_UNION_COUNT];
     uint8_t fragment_presence_mask;
@@ -654,8 +654,7 @@ bool layout_pass_cache_get_for_space(::LayoutContext* lycon, ::DomElement* eleme
     // the prop pool survives document updates; unkeyed scalar entries do not.
     layout_pass_ensure_cache(lycon, element);
 
-    if (layout_cache_get(element->layout_cache, known_dimensions, available_space,
-                         lycon->run_mode, out_size)) {
+    if (layout_cache_get(element->layout_cache, known_dimensions, available_space, out_size)) {
         g_layout_cache_hits++;
         layout_profiler_note_cache_hit(&lycon->profiler);
         log_info("%s %s CACHE HIT: element=%s, size=(%.1f x %.1f), mode=%d",
@@ -707,7 +706,7 @@ void layout_pass_cache_store_for_space(::LayoutContext* lycon, ::DomElement* ele
     LayoutCache* cache = layout_pass_ensure_cache(lycon, element);
     if (!cache) return;
 
-    layout_cache_store(cache, known_dimensions, available_space, lycon->run_mode, result);
+    layout_cache_store(cache, known_dimensions, available_space, result);
     g_layout_cache_stores++;
     log_debug("%s %s CACHE STORE: element=%s, size=(%.1f x %.1f), mode=%d",
               element->source_loc(), label ? label : "LAYOUT",

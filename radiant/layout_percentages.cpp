@@ -105,12 +105,12 @@ static void layout_apply_percentage_spacing_candidate(ViewBlock* block, int side
     Margin* used_margin = margin ? &boundary->margin : nullptr;
     Spacing* spacing = used_margin ? static_cast<Spacing*>(used_margin) : &boundary->padding;
     CssBoxSide physical_side = static_cast<CssBoxSide>(side);
-    layout_set_spacing_side(spacing, used_margin, physical_side,
+    bool applied = layout_set_spacing_side(spacing, used_margin, physical_side,
         resolved, CSS_VALUE__PERCENTAGE, priority);
-    if (margin && boundary->has_flow_margin) {
-        // normal-flow extents consume the saved pre-collapse margin at the final basis too.
-        layout_set_spacing_side(&boundary->flow_margin, &boundary->flow_margin,
-            physical_side, resolved, CSS_VALUE__PERCENTAGE, priority);
+    if (applied && margin && boundary->has_flow_margin) {
+        // the winning declaration supplies both the used and pre-collapse values.
+        boundary->flow_margin.values[side] = resolved;
+        boundary->flow_margin.types[side] = CSS_VALUE__PERCENTAGE;
     }
 }
 

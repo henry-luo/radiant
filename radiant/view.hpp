@@ -1965,12 +1965,20 @@ typedef struct MultiColumnProp {
     float computed_block_axis_extent; // Used block-axis span in vertical layout
 } MultiColumnProp;
 
+struct FlowMargin {
+    union {
+        struct { float top, right, bottom, left; };
+        float values[4];
+    };
+    CssEnum types[4];
+};
+
 // tier-2: view-pool, rebuilt each relayout
 typedef struct BoundaryProp {
     Margin margin;
     // CSS fragmentation uses the resolved margin box, not the value left after
     // normal-flow margin collapsing mutates the layout boundary.
-    Margin flow_margin;
+    FlowMargin flow_margin;
     bool has_flow_margin;
     Spacing padding;
     lam::Own<BorderProp> border;
@@ -1998,9 +2006,24 @@ typedef struct BoundaryProp {
     float margin_chain_negative;  // most negative margin in the pending collapse chain
 } BoundaryProp;
 
-inline const Margin* view_boundary_flow_margin(const BoundaryProp* boundary) {
-    if (!boundary) return nullptr;
-    return boundary->has_flow_margin ? &boundary->flow_margin : &boundary->margin;
+inline void capture_flow_margin(BoundaryProp* boundary) {
+    if (!boundary || boundary->has_flow_margin) return;
+    for (unsigned side = 0; side < 4; side++) {
+        boundary->flow_margin.values[side] = boundary->margin.values[side];
+        boundary->flow_margin.types[side] = boundary->margin.types[side];
+    }
+    boundary->has_flow_margin = true;
+}
+
+struct ResolvedMarginSide {
+    float value;
+    CssEnum type;
+};
+
+inline ResolvedMarginSide view_boundary_flow_margin(const BoundaryProp* boundary, CssBoxSide side) {
+    if (!boundary) return {0.0f, CSS_VALUE__UNDEF};
+    if (boundary->has_flow_margin) return {boundary->flow_margin.values[side], boundary->flow_margin.types[side]};
+    return {boundary->margin.values[side], boundary->margin.types[side]};
 }
 
 // shared lazy border allocation for style resolution and animation sampling.

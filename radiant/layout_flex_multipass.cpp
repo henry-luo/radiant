@@ -1194,10 +1194,10 @@ static bool flex_flow_key(LayoutContext* context, ViewBlock* item,
 }
 
 static bool flex_flow_keys_equal(DomElement* item, const FlexMeasuredFlowKey& a, const FlexMeasuredFlowKey& b) {
-    CacheEntry constraints = {};
+    LayoutCacheKey constraints = {};
     constraints.available_space = a.available_space;
     // atomic inline shrink-to-fit can distinguish intrinsic and definite available space.
-    return layout_cache_constraints_match(&constraints, known_dimensions_none(), b.available_space, 0.0f) &&
+    return layout_cache_constraints_match(constraints, known_dimensions_none(), b.available_space, 0.0f) &&
         css_font_keys_equal(a.font, b.font) && a.text == b.text && a.length == b.length &&
         a.style_epoch == b.style_epoch && a.mutation_epoch == b.mutation_epoch &&
         a.font_generation == b.font_generation && a.generation == b.generation &&

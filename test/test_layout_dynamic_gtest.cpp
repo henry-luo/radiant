@@ -39,16 +39,16 @@ TEST(LayoutCacheTest, ZeroDimensionsRemainDistinctFromAutoCacheKeys) {
         EXPECT_EQ(isnan(zero.height), horizontal);
         EXPECT_FLOAT_EQ(horizontal ? zero.width : zero.height, 0.0f);
         radiant::layout_cache_store(&cache, zero, space,
-            radiant::RunMode::ComputeSize, radiant::size_f(0.0f, 0.0f));
+            radiant::size_f(0.0f, 0.0f));
         parent_blk.given_width = parent_blk.given_height = -1.0f;
         radiant::KnownDimensions automatic = radiant::layout_known_dimensions_from_block(&block);
         EXPECT_TRUE(isnan(automatic.width));
         EXPECT_TRUE(isnan(automatic.height));
         radiant::SizeF result = {};
         EXPECT_FALSE(radiant::layout_cache_get(&cache, automatic, space,
-            radiant::RunMode::ComputeSize, &result));
+            &result));
         EXPECT_TRUE(radiant::layout_cache_get(&cache, zero, space,
-            radiant::RunMode::ComputeSize, &result));
+            &result));
         radiant::layout_cache_init(&cache);
     }
 }
@@ -58,42 +58,40 @@ TEST(LayoutCacheTest, EmptyEntryIsDistinctFromAnUnconstrainedMeasurement) {
     radiant::layout_cache_init(&cache);
     const auto known = radiant::known_dimensions_none();
     const auto space = AvailableSpace::make_min_content();
-    const auto mode = radiant::RunMode::ComputeSize;
     radiant::SizeF result = {};
-    EXPECT_FALSE(radiant::CacheEntry{}.is_valid());
+    EXPECT_FALSE(radiant::CacheEntry{}.key.is_valid());
 
-    radiant::layout_cache_store(&cache, known, space, mode, {20.0f, 10.0f});
-    ASSERT_TRUE(radiant::layout_cache_get(&cache, known, space, mode, &result));
+    radiant::layout_cache_store(&cache, known, space, {20.0f, 10.0f});
+    ASSERT_TRUE(radiant::layout_cache_get(&cache, known, space, &result));
     EXPECT_FLOAT_EQ(result.width, 20.0f);
     EXPECT_FLOAT_EQ(result.height, 10.0f);
 
     radiant::CacheEntry* entry = radiant::layout_cache_find_measurement(&cache, known, space);
     ASSERT_NE(entry, nullptr);
-    entry->invalidate();
-    EXPECT_FALSE(radiant::layout_cache_get(&cache, known, space, mode, &result));
+    entry->key.invalidate();
+    EXPECT_FALSE(radiant::layout_cache_get(&cache, known, space, &result));
 }
 
 TEST(LayoutCacheTest, RetainsFourConstraintKeysAndEvictsOldestInsertion) {
     radiant::LayoutCache cache = {};
     radiant::layout_cache_init(&cache);
     const AvailableSpace space = AvailableSpace::make_indefinite();
-    const auto mode = radiant::RunMode::ComputeSize;
     const float widths[] = {20.0f, 40.0f, 60.0f, 80.0f};
     for (float width : widths) {
-        radiant::layout_cache_store(&cache, {width, NAN}, space, mode, {width, 10.0f});
+        radiant::layout_cache_store(&cache, {width, NAN}, space, {width, 10.0f});
     }
-    radiant::layout_cache_store(&cache, {40.0f, NAN}, space, mode, {40.0f, 15.0f});
+    radiant::layout_cache_store(&cache, {40.0f, NAN}, space, {40.0f, 15.0f});
     radiant::SizeF result = {};
     for (float width : widths) {
-        ASSERT_TRUE(radiant::layout_cache_get(&cache, {width, NAN}, space, mode, &result));
+        ASSERT_TRUE(radiant::layout_cache_get(&cache, {width, NAN}, space, &result));
         EXPECT_FLOAT_EQ(result.width, width);
         EXPECT_FLOAT_EQ(result.height, width == 40.0f ? 15.0f : 10.0f);
     }
 
-    radiant::layout_cache_store(&cache, {100.0f, NAN}, space, mode, {100.0f, 10.0f});
-    EXPECT_FALSE(radiant::layout_cache_get(&cache, {20.0f, NAN}, space, mode, &result));
+    radiant::layout_cache_store(&cache, {100.0f, NAN}, space, {100.0f, 10.0f});
+    EXPECT_FALSE(radiant::layout_cache_get(&cache, {20.0f, NAN}, space, &result));
     for (float width : {40.0f, 60.0f, 80.0f, 100.0f}) {
-        EXPECT_TRUE(radiant::layout_cache_get(&cache, {width, NAN}, space, mode, &result));
+        EXPECT_TRUE(radiant::layout_cache_get(&cache, {width, NAN}, space, &result));
     }
 }
 
@@ -1819,6 +1817,22 @@ TEST_F(DynamicLayoutTest, BalancedColumnsIncludeAdjoiningParagraphMargins) {
          "<p>Ut enim ad minim veniam, quis nostrud exercitation.</p></div>");
     ASSERT_NE(document, nullptr);
     EXPECT_NEAR(element("columns")->height, 72.53f, 1.0f);
+}
+
+TEST_F(DynamicLayoutTest, DeferredPercentagesUpdateOnlyWinningFlowMargins) {
+    load("<!doctype html><style>"
+         "#frame{display:flow-root;width:100px;padding:1px}"
+         ".card{margin-block-end:25%}#card{margin-top:10%;margin-bottom:7px;height:10px}"
+         "</style><div id='frame'><div id='card' class='card'></div></div>");
+    ViewBlock* card = lam::view_as_block(element("card"));
+    ASSERT_NE(card, nullptr);
+    ASSERT_TRUE(card->boundary()->has_flow_margin);
+
+    layout_reresolve_percentage_margins(card, 200.0f, nullptr);
+    ResolvedMarginSide top = view_boundary_flow_margin(card->boundary(), CSS_BOX_SIDE_TOP);
+    EXPECT_FLOAT_EQ(top.value, 20.0f);
+    EXPECT_EQ(top.type, CSS_VALUE__PERCENTAGE);
+    EXPECT_FLOAT_EQ(view_boundary_flow_margin(card->boundary(), CSS_BOX_SIDE_BOTTOM).value, 7.0f);
 }
 
 TEST_F(DynamicLayoutTest, ReversedCounterIncludesOwnIncrement) {
