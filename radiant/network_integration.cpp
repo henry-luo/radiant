@@ -529,13 +529,17 @@ static bool prefetch_selected_css_resources(DomNode* node, void* context) {
     return true;
 }
 
-void radiant_prefetch_document_stylesheet_resources(DomDocument* doc) {
-    if (!doc || !doc->root) return;
+void radiant_prefetch_stylesheet_resources(DomDocument* doc, DomNode* root) {
+    if (!doc || !doc->root || !root) return;
     // unmatched and inactive rules do not consume a page's finite resource identities.
     CssResourcePrefetchContext context = {doc};
-    view_geometry_walk_dom_tree(doc->root, prefetch_selected_css_resources, &context);
+    view_geometry_walk_dom_tree(root, prefetch_selected_css_resources, &context);
     if (context.queued > 0)
         log_info("[PREFETCH] queued %d selected CSS declaration resources", context.queued);
+}
+
+void radiant_prefetch_document_stylesheet_resources(DomDocument* doc) {
+    if (doc) radiant_prefetch_stylesheet_resources(doc, doc->root);
 }
 
 static bool prefetch_inline_style_resource_urls(DomNode* node, void* context) {

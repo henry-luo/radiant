@@ -68,8 +68,9 @@ void radiant_discover_document_font_resources(DomDocument* doc);
 // remains deferred until the UiContext is available on the page thread.
 void radiant_prefetch_document_font_resources(DomDocument* doc);
 
-// Queue remote URL bytes from the selected element/pseudo cascades. Run after
-// cascade publication so unmatched and inactive rules do not acquire resources.
+// Queue remote URL bytes from the selected element/pseudo cascades. A local
+// cascade publishes new declarations only inside its subtree.
+void radiant_prefetch_stylesheet_resources(DomDocument* doc, DomNode* root);
 void radiant_prefetch_document_stylesheet_resources(DomDocument* doc);
 
 /**

@@ -49,10 +49,10 @@ static bool finish_transition(DocState* state,
     if (sync_selection) state_machine_sync_selection_projection(state);
     if (sync_editing) editing_interaction_sync_projection(state);
     sm_guard->commit();
-    // the reportless validation always returned true. Refresh its projection
-    // explicitly and keep the invariant check at the transition boundary.
+    // keep the projection current for callers. An enclosing batch validates
+    // the whole graph at commit, including when unload is still detaching it.
     state_machine_sync_selection_projection(state);
-    radiant_state_assert_valid(state, context);
+    if (state->state_batch_depth == 0) radiant_state_assert_valid(state, context);
     return true;
 }
 
@@ -1169,6 +1169,7 @@ static bool radiant_state_validate_interaction_schema(DocState* state,
                                                       StateValidationReport* report) {
     report_init(report);
     if (!state) return true;
+    DomNodeValidationScope owners(state->owner_store ? state->owner_store->document : nullptr);
     selection_refresh_presentation(state);
     uint8_t graphs = 0;
     for (uint32_t i = 0; i < RADIANT_INVARIANT_COUNT; ++i) {
@@ -1197,6 +1198,7 @@ bool radiant_state_validate_interaction(DocState* state,
 
 void radiant_state_assert_valid(DocState* state, const char* context) {
 #ifndef NDEBUG
+    DomNodeValidationScope owners(state && state->owner_store ? state->owner_store->document : nullptr);
     view_state_prune_orphans(state);
     StateValidationReport report;
     bool ok = radiant_state_validate_interaction(state, &report);
@@ -1469,6 +1471,7 @@ void state_end_event_cascade(DocState* state,
     }
 #ifndef NDEBUG
     // retain orphan pruning and the debug assertion without validating twice.
+    DomNodeValidationScope owners(state && state->owner_store ? state->owner_store->document : nullptr);
     if (state && state->state_batch_depth == 0) view_state_prune_orphans(state);
 #endif
     if (!radiant_state_settle(state, log, cascade_id)) {

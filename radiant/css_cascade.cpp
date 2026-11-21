@@ -826,8 +826,8 @@ void radiant_apply_css_stylesheets_to_tree(DomDocument* doc, DomElement* root,
             if (shadow) radiant_recascade_document_styles(doc, shadow, matcher);
         }
     }
-    // resource discovery consumes the completed cascade, including new CSSOM and selector matches.
-    radiant_prefetch_document_stylesheet_resources(doc);
+    // consume the completed cascade without rediscovering unaffected subtrees.
+    radiant_prefetch_stylesheet_resources(doc, root);
 }
 
 bool radiant_clear_cascaded_styles_visitor(DomNode* node, void*) {
