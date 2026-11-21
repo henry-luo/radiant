@@ -1606,7 +1606,8 @@ static bool resolve_linear_gradient_value(LayoutContext* lycon, const CssValue* 
     lg->angle = angle;
     int color_count = func->arg_count - arg_idx;
     int capacity = color_count * 2;
-    if (color_count >= 2) lg->stops = lam::own_arr((GradientStop*)alloc_prop(lycon, sizeof(GradientStop) * capacity));
+    // one comma group can already contain two positions for the same color.
+    if (color_count >= 1) lg->stops = lam::own_arr((GradientStop*)alloc_prop(lycon, sizeof(GradientStop) * capacity));
     bool stops_in_px = false;
     if (!lg->stops || !resolve_gradient_stops(lycon, func, arg_idx, lg->stops, capacity,
             false, &lg->stop_count, &stops_in_px)) {

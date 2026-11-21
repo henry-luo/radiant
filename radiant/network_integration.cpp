@@ -4,6 +4,7 @@
 #include "view.hpp"
 #include "layout.hpp"
 #include "event.hpp"
+#include "script_loop_host.hpp"
 #include "platform.hpp"
 #include "lambda/network/network_resource_manager.h"
 #include "lambda/network/network_downloader.h"
@@ -31,6 +32,15 @@ bool radiant_html_has_token(const char* tokens, const char* token) {
         if (str_ieq(start, (size_t)(p - start), token, length)) return true;
     }
     return false;
+}
+
+ResourcePriority radiant_html_fetch_priority(const char* keyword, ResourcePriority fallback) {
+    // hints are relative to the destination's existing default; invalid values mean auto.
+    if (keyword && str_ieq_cstr(keyword, "high") && fallback > PRIORITY_CRITICAL)
+        return (ResourcePriority)(fallback - 1);
+    if (keyword && str_ieq_cstr(keyword, "low") && fallback < PRIORITY_LOW)
+        return (ResourcePriority)(fallback + 1);
+    return fallback;
 }
 
 static void process_registered_font_resource(const CssFontFaceDescriptor* descriptor,
@@ -93,11 +103,17 @@ static char* resolve_font_resource_url(const char* href, const char* stylesheet_
 static bool queue_resolved_http_resource(DomDocument* doc, const char* href,
                                          ResourceType type, ResourcePriority priority,
                                          DomElement* owner) {
-    if (!doc || !doc->resource_manager || !href) return false;
+    if (!doc || !href || !document_dependency_admits(doc, href)) return false;
     char* abs_url = resolve_url(href, doc);
     bool queued = radiant_url_is_http(abs_url);
     if (queued) {
-        resource_manager_load(doc->resource_manager, abs_url, type, priority, owner);
+        // local documents can discover their first remote dependency after initial parsing.
+        if (!doc->resource_manager) {
+            network_downloader_init_shared();
+            queued = radiant_init_network_support(doc, nullptr, nullptr) == 0;
+        }
+        if (queued) queued = resource_manager_load(
+            doc->resource_manager, abs_url, type, priority, owner) != nullptr;
     }
     mem_free(abs_url);
     return queued;
@@ -165,7 +181,8 @@ static void live_image_complete(NetworkResource* resource, void* user_data) {
     if (doc && doc->root) resource_manager_schedule_reflow(resource->manager, doc->root);
 }
 
-void radiant_request_live_image(DomDocument* doc, UiContext* ui, const char* source) {
+void radiant_request_live_image(DomDocument* doc, UiContext* ui, const char* source,
+                                DomElement* owner) {
     if (!doc || !ui || !ui->async_script_navigation || ui->document != doc ||
         !radiant_url_is_http(source) || !document_dependency_admits(doc, source)) return;
     if (!doc->resource_manager) {
@@ -176,8 +193,11 @@ void radiant_request_live_image(DomDocument* doc, UiContext* ui, const char* sou
     if (!ui->headless) {
         resource_manager_set_wake_callback(doc->resource_manager, radiant_network_wake_platform, nullptr);
     }
-    NetworkResource* resource = resource_manager_load(doc->resource_manager,
-        source, RESOURCE_IMAGE, PRIORITY_NORMAL, nullptr);
+    // decoding an existing request must not undo its owner's low-priority hint.
+    NetworkResource* resource = owner ? nullptr : resource_manager_find(doc->resource_manager, source);
+    if (!resource) resource = resource_manager_load(doc->resource_manager,
+        source, RESOURCE_IMAGE, radiant_html_fetch_priority(
+            owner ? owner->get_attribute("fetchpriority") : nullptr, PRIORITY_NORMAL), nullptr);
     // Existing element/font callbacks already arrange their own layout updates.
     if (resource && !resource->owner_element && !resource->on_complete && !resource->processed) {
         resource->on_complete = live_image_complete;
@@ -234,7 +254,8 @@ static void discover_link_callback(DomElement* link, void* user_data) {
 
         // Resolve relative URL against document base
         // Local stylesheets are already loaded synchronously by the document parser.
-        queue_resolved_http_resource(doc, href, RESOURCE_CSS, PRIORITY_HIGH, link);
+        queue_resolved_http_resource(doc, href, RESOURCE_CSS,
+            radiant_html_fetch_priority(link->get_attribute("fetchpriority"), PRIORITY_HIGH), link);
     }
     else if (radiant_html_has_token(rel, "preload")) {
         // <link rel="preload" href="..." as="...">
@@ -262,7 +283,8 @@ static void discover_link_callback(DomElement* link, void* user_data) {
         } else return;
 
         log_debug("network: discovered preload: %s (as=%s)", href, as_type);
-        queue_resolved_http_resource(doc, href, rtype, prio,
+        queue_resolved_http_resource(doc, href, rtype,
+            radiant_html_fetch_priority(link->get_attribute("fetchpriority"), prio),
             rtype == RESOURCE_PREFETCH ? nullptr : link);
     }
 }
@@ -289,7 +311,8 @@ static void discover_img_callback(DomElement* img, void* user_data) {
     log_debug("network: discovered image: %s", src);
 
     // Resolve relative URL against document base
-    queue_resolved_http_resource(doc, src, RESOURCE_IMAGE, PRIORITY_NORMAL, img);
+    queue_resolved_http_resource(doc, src, RESOURCE_IMAGE,
+        radiant_html_fetch_priority(img->get_attribute("fetchpriority"), PRIORITY_NORMAL), img);
 }
 
 // Callback for <svg><use> discovery
@@ -322,6 +345,8 @@ static void discover_use_callback(DomElement* use, void* user_data) {
 // Callback for <script src="..."> discovery
 static void discover_script_callback(DomElement* script, void* user_data) {
     DomDocument* doc = (DomDocument*)user_data;
+    // an attached script host owns preparation and fetching, including inert scripts.
+    if (doc->js.prepare_inline_script || (script->ext && script->ext->script_already_started)) return;
 
     const char* src = script->get_attribute("src");
     if (!src) return;  // inline script, no download needed
@@ -329,7 +354,10 @@ static void discover_script_callback(DomElement* script, void* user_data) {
     // Determine priority: defer/async scripts are lower priority
     const char* defer_attr = script->get_attribute("defer");
     const char* async_attr = script->get_attribute("async");
-    ResourcePriority priority = (defer_attr || async_attr) ? PRIORITY_NORMAL : PRIORITY_HIGH;
+    const char* type = script->get_attribute("type");
+    ResourcePriority priority = (defer_attr || async_attr ||
+        (type && str_ieq_cstr(type, "module"))) ? PRIORITY_NORMAL : PRIORITY_HIGH;
+    priority = radiant_html_fetch_priority(script->get_attribute("fetchpriority"), priority);
 
     char* abs_url = resolve_url(src, doc);
     log_debug("network: discovered <script src>: %s (priority=%d)", abs_url, priority);
@@ -431,14 +459,15 @@ typedef struct CssResourcePrefetchContext {
 
 static void prefetch_css_resource_url(const CssValue* value, void* context) {
     CssResourcePrefetchContext* prefetch = (CssResourcePrefetchContext*)context;
-    if (!prefetch || !prefetch->doc || !prefetch->doc->resource_manager ||
+    if (!prefetch || !prefetch->doc ||
         !value || !value->data.url || !*value->data.url || *value->data.url == '#') {
         return;
     }
     // resolve the request without rewriting custom tokens, whose base belongs to their consumer.
     Url* url = url_parse_with_base(value->data.url, prefetch->base_url);
-    if (radiant_url_is_http(url) && resource_manager_prefetch(
-            prefetch->doc->resource_manager, url_get_href(url), PRIORITY_LOW)) {
+    // selected CSS URLs can initialize the document before any element resource exists.
+    if (radiant_url_is_http(url) && queue_resolved_http_resource(
+            prefetch->doc, url_get_href(url), RESOURCE_PREFETCH, PRIORITY_LOW, nullptr)) {
         prefetch->queued++;
     }
     if (url) url_destroy(url);
@@ -481,7 +510,7 @@ static bool prefetch_selected_css_resources(DomNode* node, void* context) {
 }
 
 void radiant_prefetch_document_stylesheet_resources(DomDocument* doc) {
-    if (!doc || !doc->resource_manager || !doc->root) return;
+    if (!doc || !doc->root) return;
     // unmatched and inactive rules do not consume a page's finite resource identities.
     CssResourcePrefetchContext context = {doc, nullptr, 0};
     view_geometry_walk_dom_tree(doc->root, prefetch_selected_css_resources, &context);
@@ -558,8 +587,8 @@ static int snapshot_resource_wait_timeout_ms() {
 
 void radiant_prepare_snapshot_resources(UiContext* ui, DomDocument* doc) {
     if (!ui || !doc) return;
-    // local HTML can acquire its first network manager from an eligible media source.
-    if (!doc->resource_manager) discover_document_media_resources(doc);
+    // ordinary images and posters also bootstrap a local document's network manager.
+    if (!doc->resource_manager) discover_document_image_resources(doc);
     if (!doc->resource_manager) return;
     resource_manager_set_ui_context(doc->resource_manager, ui);
     radiant_discover_document_font_resources(doc);
@@ -568,12 +597,23 @@ void radiant_prepare_snapshot_resources(UiContext* ui, DomDocument* doc) {
     discover_document_image_resources(doc);
     uint64_t start_ms = time_now_ms();
     uint64_t timeout_ms = (uint64_t)snapshot_resource_wait_timeout_ms();
-    while (time_elapsed_ms_since(start_ms) < timeout_ms &&
-           !resource_manager_is_fully_loaded(doc->resource_manager)) {
+    auto settle_completions = [&]() -> bool {
+        RadiantScriptLoopTurn turn = {};
+        if (!radiant_script_loop_begin(ui, doc, &turn)) return true;
         resource_manager_flush_layout_updates(doc->resource_manager);
+        // completed bytes must reach the retained image state and its callbacks before export (D10.1.7).
+        bool pending = dom_document_has_pending_work(doc);
+        if (turn.active) radiant_script_loop_pump(&turn, false, -1, 0.0, 0);
+        radiant_script_loop_end(&turn);
+        return pending;
+    };
+    bool pending = settle_completions();
+    while (time_elapsed_ms_since(start_ms) < timeout_ms &&
+           (!resource_manager_is_fully_loaded(doc->resource_manager) || pending)) {
         uv_sleep(10);
+        pending = settle_completions();
     }
-    resource_manager_flush_layout_updates(doc->resource_manager);
+    settle_completions();
     int total = 0, completed = 0, failed = 0;
     resource_manager_get_stats(doc->resource_manager, &total, &completed, &failed);
     log_info("snapshot-resources: total=%d completed=%d failed=%d waited=%llums",
@@ -582,20 +622,12 @@ void radiant_prepare_snapshot_resources(UiContext* ui, DomDocument* doc) {
 
 // Discover and queue all network resources in a document
 void radiant_discover_document_resources(DomDocument* doc) {
-    if (!doc || !doc->resource_manager) {
-        log_debug("network: discover called on document without network support");
-        return;
-    }
-
-    if (!doc->root) {
-        log_debug("network: document has no root element");
-        return;
-    }
+    if (!doc || !doc->root) return;
+    // a newly connected stylesheet can establish a local document's first manager.
+    find_elements_by_selector(doc->root, "link", discover_link_callback, doc);
+    if (!doc->resource_manager) return;
 
     log_debug("network: discovering document resources");
-
-    // Find all <link rel="stylesheet">
-    find_elements_by_selector(doc->root, "link", discover_link_callback, doc);
 
     discover_document_image_resources(doc);
 

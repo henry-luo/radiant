@@ -2,6 +2,7 @@
 #define NETWORK_INTEGRATION_H
 
 #include "lambda/input/css/dom_element.hpp"
+#include "lambda/network/network_priority.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,6 +16,9 @@ struct UiContext;
 
 // HTML keyword lists use ASCII whitespace and ASCII case-insensitive matching.
 bool radiant_html_has_token(const char* tokens, const char* token);
+
+// adjust a destination's default priority using the HTML enumerated hint.
+ResourcePriority radiant_html_fetch_priority(const char* keyword, ResourcePriority fallback);
 
 /**
  * Initialize network support for a document.
@@ -33,7 +37,8 @@ int radiant_init_network_support(DomDocument* doc,
 bool radiant_document_resource_is_active(DomNode* node);
 
 // Live top-level documents queue image bytes without blocking layout or paint.
-void radiant_request_live_image(DomDocument* doc, struct UiContext* ui, const char* source);
+void radiant_request_live_image(DomDocument* doc, struct UiContext* ui, const char* source,
+                                DomElement* owner = nullptr);
 void radiant_network_wake_platform(void* user_data);
 
 /**
