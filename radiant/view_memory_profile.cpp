@@ -190,7 +190,7 @@ static void view_memory_element_census(JsonWriter* writer, DomElement* root) {
         jw_kv_uint(writer, "authored", authored);
         jw_kv_uint(writer, "synthetic", synthetic);
         jw_kv_uint(writer, "element_size", sizeof(DomElement));
-        jw_kv_uint(writer, "ext_size", sizeof(DomElementExt));
+        jw_kv_uint(writer, "ext_size", sizeof(DomStyleRareExt));
         jw_kv_uint(writer, "prop_ext_size", sizeof(DomStyleExt));
         jw_kv_uint(writer, "prop_extensions", prop_extensions);
         jw_kv_uint(writer, "block_size", sizeof(BlockProp));

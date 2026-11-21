@@ -775,7 +775,7 @@ static_assert(view_slots_have_teardown_owners(), "an element view slot has no te
 // teardown left none behind. Compiled with its only caller, which is
 // debug-only: release builds would otherwise reject an unused static.
 static const void* view_slot_value(const DomElement* elem, DomViewSlot slot) {
-    const DomElementExt* ext = elem->ext;
+    const DomStyleRareExt* ext = elem->ext;
     switch (slot) {
         case DomViewSlot::font:             return elem->font;
         case DomViewSlot::in_line:          return elem->in_line;
