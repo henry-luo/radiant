@@ -4613,11 +4613,11 @@ void rebuild_lambda_doc(UiContext* uicon) {
                 log_error("rebuild_lambda_doc: failed to replace the document root");
                 return;
             }
-        } else {
-            dom_node_schedule_detached(doc, old_root);
         }
     }
     doc->root = lam::up(new_root);
+    // the current document root is protected until its replacement is published.
+    if (old_root && old_root != new_root) dom_node_schedule_detached(doc, old_root);
     if (state && old_root && old_root != new_root)
         dom_reconcile_post_replace(state, old_root, new_root);
 
@@ -4938,6 +4938,7 @@ void rebuild_lambda_doc_incremental(UiContext* uicon, RetransformResult* results
         layout_preserve_rebuilt_owners(doc, old_dom, new_dom);
 
         if (new_dom == old_dom) {
+            dom_node_cancel_detached(doc, new_dom);
             new_dom->parent = lam::up(parent_dom);
             new_dom->prev_sibling = lam::up(old_previous);
             new_dom->next_sibling = lam::own(old_next);
@@ -4961,6 +4962,7 @@ void rebuild_lambda_doc_incremental(UiContext* uicon, RetransformResult* results
         if (replaces_document_root) {
             // the retained #document links and layout must publish the same root.
             doc->root = lam::up(new_dom);
+            if (old_dom != new_dom) dom_node_schedule_detached(doc, old_dom);
             doc->input->root = {.element = html_elem};
         }
         if (state && old_dom != new_dom) dom_reconcile_post_replace(state, old_dom, new_dom);

@@ -82,6 +82,7 @@ TEST(NativeEditingWithoutScriptHost, TextEditPublishesMutationAndReflow) {
     Input* input = fixture.input;
     DomDocument* document = fixture.document;
     ASSERT_NE(document, nullptr);
+    dom_observe_native_pins(document);
     DomElement* parent = dom_create_backed_element_identity(document, "div", nullptr, false);
     ASSERT_NE(parent, nullptr);
     ASSERT_TRUE(parent->set_attribute("contenteditable", "true"));
@@ -440,6 +441,7 @@ TEST_F(StateStoreDomMutationTest, ScrollRequestReplacesAndReleasesPinnedTargets)
     ASSERT_TRUE(dom_lifecycle_init(&doc));
     ASSERT_TRUE(dom_node_registry_register(&doc, live, sizeof(DomElement), false));
     ASSERT_TRUE(dom_node_registry_register(&doc, orphan, sizeof(DomElement), false));
+    dom_observe_native_pins(&doc);
     DomNodeRef first = dom_node_ref(live), second = dom_node_ref(orphan);
     radiant_queue_scroll_into_view(&doc, live, true, false, DOM_SCROLL_ALIGN_END,
                                    DOM_SCROLL_ALIGN_CENTER, DOM_SCROLL_BEHAVIOR_SMOOTH);
@@ -1048,6 +1050,7 @@ TEST_F(StateStoreDomMutationTest, RebuiltEventOwnerTransfersLeaseOnlyForSameIden
     ASSERT_TRUE(dom_lifecycle_init(&doc));
     ASSERT_TRUE(dom_node_registry_register(&doc, live, sizeof(DomElement), false));
     ASSERT_TRUE(dom_node_registry_register(&doc, orphan, sizeof(DomElement), false));
+    dom_observe_native_pins(&doc);
     DomNodeRef owner = dom_node_ref(live);
     ASSERT_TRUE(dom_node_pin(&doc, owner, DOM_NODE_PIN_EVENT_QUEUE));
     ASSERT_TRUE(view_state_ref_follow_rebuild(&doc, &owner, live, orphan, DOM_NODE_PIN_EVENT_QUEUE));

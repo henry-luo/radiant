@@ -1009,6 +1009,7 @@ bool layout_apply_object_view_box_intrinsic_size(LayoutContext* lycon,
 
 static void pseudo_append_child(DomElement* parent, DomNode* child) {
     if (!parent || !child) return;
+    if (child->detached_root_slot) dom_node_cancel_detached(parent->doc, child);
     child->parent = lam::up(parent);
     child->next_sibling = nullptr;
     if (!parent->first_child) {
@@ -1581,6 +1582,7 @@ DomElement* layout_footnote_pseudo(LayoutContext* lycon, DomElement* note, bool 
             else parent->first_child = lam::own((DomNode*)pseudo);
             note->prev_sibling = lam::up((DomNode*)pseudo);
             pseudo->parent = lam::up((DomNode*)note);
+            dom_node_cancel_detached(note->doc, pseudo);
         } else {
             insert_pseudo_into_dom(note, pseudo, true);
         }
@@ -5381,6 +5383,7 @@ void layout_inline_svg(LayoutContext* lycon, ViewBlock* block) {
 
 void insert_pseudo_into_dom(DomElement* parent, DomElement* pseudo, bool is_before) {
     if (!parent || !pseudo) return;
+    if (pseudo->detached_root_slot) dom_node_cancel_detached(parent->doc, pseudo);
     for (DomNode* c = parent->first_child; c; c = c->next_sibling) {
         if (c == static_cast<DomNode*>(pseudo)) {
             // A DOM child replacement can unlink a generated node, then retain

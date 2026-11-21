@@ -3281,9 +3281,10 @@ static_assert(sizeof(ViewTableRow) == sizeof(DomElement), "ViewTableRow must not
 static_assert(sizeof(ViewTableCell) == sizeof(DomElement), "ViewTableCell must not add fields");
 // List now carries Lambda's array representation certificate after its stable
 // content offsets; DOM overlays inherit that one-word tail (D4.3.3).
-static_assert(sizeof(DomElement) <= 352, "DomElement size ratchet regressed");
-static_assert(sizeof(DomText) <= 120, "DomText size ratchet regressed");
-static_assert(sizeof(DomNode) <= 80, "DomNode size ratchet regressed");
+static_assert(sizeof(DomElement) <= 344, "DomElement size ratchet regressed");
+// nodes carry their physical arena and native ownership inline (D5.5.1).
+static_assert(sizeof(DomText) <= 136, "DomText size ratchet regressed");
+static_assert(sizeof(DomNode) <= 96, "DomNode size ratchet regressed");
 
 // View pools are rebuilt independently from the source DOM, so async state
 // must re-resolve logical nodes by their retained ID instead of retaining a
