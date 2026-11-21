@@ -835,9 +835,10 @@ static void render_output_trace_retained_stats(RenderPathTrace* trace,
 }
 
 struct RenderFrameKey {
-    uint64_t generations[12];
+    uint64_t generations[9];
     const UiContext* ui;
     const View* root;
+    uint32_t mutation_epoch, style_content_epoch, style_query_epoch;
     float scale;
     int width, height;
 };
@@ -898,26 +899,28 @@ static RenderFrameKey render_frame_key(UiContext* ui, ViewTree* tree, uint32_t b
     RenderFrameKey key = {};
     key.ui = ui; key.root = tree->root; key.scale = ui_context_raster_scale(ui);
     key.width = ui->surface->width; key.height = ui->surface->height;
-    key.generations[10] = background;
+    key.generations[7] = background;
     // a parity render with paint layers held or suspended must not replay a layered recording
-    key.generations[11] = (uint64_t)transparent | ((uint64_t)render_paint_layer_current_override() << 1);
+    key.generations[8] = (uint64_t)transparent | ((uint64_t)render_paint_layer_current_override() << 1);
     if (!doc) return key;
-    key.generations[0] = doc->mutation_epoch;
-    key.generations[1] = doc->style_content_epoch;
-    key.generations[2] = doc->style_query_epoch;
-    key.generations[3] = doc_state_content_version(doc->state);
-    key.generations[4] = font_context_glyph_cache_generation(ui->font_ctx);
-    key.generations[5] = font_context_resource_generation(ui->font_ctx);
-    key.generations[6] = image_cache_resource_generation(ui);
-    key.generations[7] = svg_animation_generation(doc);
-    key.generations[8] = tree->layout_generation;
-    key.generations[9] = doc->state ? doc->state->video_frame_generation : 0;
+    key.mutation_epoch = doc->mutation_epoch;
+    key.style_content_epoch = doc->style_content_epoch;
+    key.style_query_epoch = doc->style_query_epoch;
+    key.generations[0] = doc_state_content_version(doc->state);
+    key.generations[1] = font_context_glyph_cache_generation(ui->font_ctx);
+    key.generations[2] = font_context_resource_generation(ui->font_ctx);
+    key.generations[3] = image_cache_resource_generation(ui);
+    key.generations[4] = svg_animation_generation(doc);
+    key.generations[5] = tree->layout_generation;
+    key.generations[6] = doc->state ? doc->state->video_frame_generation : 0;
     return key;
 }
 
 static bool render_frame_key_equal(const RenderFrameKey& a, const RenderFrameKey& b) {
     return a.ui == b.ui && a.root == b.root && a.scale == b.scale &&
         a.width == b.width && a.height == b.height &&
+        a.mutation_epoch == b.mutation_epoch && a.style_content_epoch == b.style_content_epoch &&
+        a.style_query_epoch == b.style_query_epoch &&
         memcmp(a.generations, b.generations, sizeof(a.generations)) == 0;
 }
 
@@ -1316,7 +1319,8 @@ ImageSurface* render_secondary_page_snapshot(ViewTree* tree, uint32_t page_numbe
 
 struct RenderPageSnapshotEntry {
     LayoutViewRef page;
-    uint64_t source_epoch, resources, fonts;
+    uint64_t resources, fonts;
+    uint32_t source_epoch;
     float scale;
     Color backdrop;
     size_t bytes;
@@ -2024,7 +2028,7 @@ static int render_output_render_raster_target(UiContext* uicon, ViewTree* view_t
     RenderFrameKey key = render_frame_key(uicon, view_tree, canvas_bg, target->transparent_background);
     bool reused = can_retain && cache->valid && cache->recording.get() == &display_list &&
         render_frame_key_equal(cache->key, key) &&
-        dl_resource_summary_current(cache->resources, key.generations[9], key.generations[4]);
+        dl_resource_summary_current(cache->resources, key.generations[6], key.generations[1]);
     if (cache) cache->valid = false; // only a completed render can publish another reusable recording.
     if (!reused) {
         if (cache) render_frame_cache_invalidate(cache);

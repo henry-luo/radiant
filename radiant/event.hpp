@@ -891,7 +891,7 @@ typedef struct DomEditInvocation {
     // Captured after author notification. Each successful generic mutation
     // advances this to its own committed DOM epoch; a foreign write invalidates
     // the remaining package capability before it can apply a stale plan.
-    uint64_t mutation_epoch;
+    uint32_t mutation_epoch;
     // Created lazily by the first generic mutation. A declined invocation
     // owns no transaction or allocation, while an applied one has one owner
     // for its inverse journal until selection commit (D10.2.1).

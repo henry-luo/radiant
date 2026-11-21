@@ -3,6 +3,7 @@
 #include "scene3d.hpp"
 #include "scene3d_source.hpp"
 #include "lambda/core/navigation_graph.hpp"
+#include "lambda/input/css/dom_element.hpp"
 #include "lambda/input/css/dom_lifecycle.hpp"
 #include "lib/thread_pool.h"
 
@@ -90,7 +91,7 @@ struct Scene3dNavigation {
     Scene3dRuntime* runtime = nullptr;
     Scene3dNavigationAsset* assets = nullptr;
     Scene3dNavigationStats stats = {};
-    uint64_t epoch = UINT64_MAX, rejected_epoch = UINT64_MAX;
+    uint32_t epoch = DOM_MUTATION_EPOCH_UNSTAMPED, rejected_epoch = DOM_MUTATION_EPOCH_UNSTAMPED;
     uint64_t* next_generation = nullptr;
     char diagnostic[256] = {};
     ThreadPool* pool = nullptr;

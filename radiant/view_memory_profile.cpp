@@ -172,12 +172,12 @@ static void view_memory_element_census(JsonWriter* writer, DomElement* root) {
             if (elem->layout_cache) {
                 layout_caches++;
                 for (const auto& result : elem->layout_cache->measure_entries) {
-                    if (!result.valid) continue;
+                    if (!result.is_valid()) continue;
                     measurement_arrays++;
                     break;
                 }
                 for (const auto& query : elem->layout_cache->intrinsic_widths) {
-                    if (!query.context.valid) continue;
+                    if (!query.context.is_valid()) continue;
                     intrinsic_array_users++;
                     break;
                 }

@@ -2498,7 +2498,7 @@ const CssPropAccessor* css_prop_accessors(size_t* count) {
 struct CssomRefreshedElement {
     DomElement* element;
     uint32_t version;
-    uint64_t mutation_epoch;
+    uint32_t mutation_epoch;
 };
 using CssomRefreshedMap = TypedHashMap<CssomRefreshedElement,
     HashMapPointerMemberKeyOps<CssomRefreshedElement, &CssomRefreshedElement::element>>;

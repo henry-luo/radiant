@@ -107,8 +107,9 @@ struct Scene3dParticles {
     ParticleSpawnBatch pending;
     unsigned pending_spawns;
     uint64_t emitter_sequence;
-    uint64_t epoch, generation, replay_source_generation;
-    uint64_t replay_source_epoch, replay_clock_generation, replay_physics_generation, replay_world_identity,
+    uint32_t epoch, replay_source_epoch;
+    uint64_t generation, replay_source_generation;
+    uint64_t replay_clock_generation, replay_physics_generation, replay_world_identity,
         replay_animation_generation;
     size_t replay_ticks;
     double replay_timestep;

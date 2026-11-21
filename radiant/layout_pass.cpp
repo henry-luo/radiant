@@ -234,7 +234,7 @@ struct LayoutFlowResult {
     DomNode* root;
     uint32_t generation;
     uint32_t input_revision;
-    uint64_t style_epoch, mutation_epoch;
+    uint32_t style_epoch, mutation_epoch;
 };
 
 static void layout_flow_release_rects(Pool* pool, lam::Own<TextRect>& first) {
@@ -617,33 +617,19 @@ LayoutMeasureScope::~LayoutMeasureScope() {
     scratch_scope_end(&lycon->scratch, &snapshot_scope);
 }
 
+static KnownDimensions layout_known_dimensions_from_givens(float width, float height) {
+    return {width >= 0.0f ? width : NAN, height >= 0.0f ? height : NAN};
+}
+
 KnownDimensions layout_known_dimensions_from_block(::ViewBlock* block) {
-    KnownDimensions known = known_dimensions_none();
-    // zero is a definite CSS size; only negative givens represent an unknown axis.
-    if (block && block->blk && block->block()->given_width >= 0.0f) {
-        known.width = block->block()->given_width;
-        known.has_width = true;
-    }
-    if (block && block->blk && block->block()->given_height >= 0.0f) {
-        known.height = block->block()->given_height;
-        known.has_height = true;
-    }
-    return known;
+    if (!block || !block->blk) return known_dimensions_none();
+    const BlockProp* props = block->block();
+    return layout_known_dimensions_from_givens(props->given_width, props->given_height);
 }
 
 KnownDimensions layout_known_dimensions_from_context(::LayoutContext* lycon) {
-    KnownDimensions known = known_dimensions_none();
-    if (!lycon) return known;
-
-    if (lycon->block.given_width >= 0.0f) {
-        known.width = lycon->block.given_width;
-        known.has_width = true;
-    }
-    if (lycon->block.given_height >= 0.0f) {
-        known.height = lycon->block.given_height;
-        known.has_height = true;
-    }
-    return known;
+    if (!lycon) return known_dimensions_none();
+    return layout_known_dimensions_from_givens(lycon->block.given_width, lycon->block.given_height);
 }
 
 bool layout_pass_cache_get(::LayoutContext* lycon, ::DomElement* element,

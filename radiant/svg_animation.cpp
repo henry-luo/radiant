@@ -99,7 +99,7 @@ struct SvgAnimationRegistry : DomDocumentResourceData {
     HashMap* controls;
     uint64_t generation;
     uint64_t sampled_generation;
-    uint64_t sampled_epoch;
+    uint32_t sampled_epoch;
     bool sampling;
     bool reference_document;
     size_t sample_bytes;

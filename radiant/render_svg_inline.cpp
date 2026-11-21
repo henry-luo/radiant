@@ -732,10 +732,10 @@ static bool svg_style_init(SvgStyleContext* style, Element* root,
 // dominate scrolling. Invalidation also covers queries between paint passes.
 struct SvgPaintHostStyle : DomDocumentResourceData {
     uint64_t pass;
-    uint64_t mutation_epoch;
     uint64_t state_version;
-    uint64_t style_epoch;
-    uint64_t query_epoch;
+    uint32_t mutation_epoch;
+    uint32_t style_epoch;
+    uint32_t query_epoch;
     uint64_t animation_generation;
     uint64_t font_generation;
     uint32_t layout_generation;
@@ -8488,7 +8488,7 @@ void render_svg_to_vec_via_display_list(RdtVector* vec, Element* svg_element,
 
 struct SvgPaintStamp {
     uint32_t generation;            // layer_generation last painted
-    uint64_t document_epoch;        // host styles and cross-root resource mutations
+    uint32_t document_epoch;        // host styles and cross-root resource mutations
     uint64_t interaction_generation; // selector state, plus scrolling when embedded HTML may be painted
     uint64_t animation_generation;  // SMIL samples change paint without changing DOM base attributes
     uint64_t font_generation;       // glyph cache lifetime changes

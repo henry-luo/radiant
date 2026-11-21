@@ -202,7 +202,7 @@ void radiant_dom_mutation_begin(DomDocument* doc, DomJsMutationKind kind,
     parent = dom_source_inclusive_ancestor(parent);
     doc->js.mutation_count++;
     doc->js.mutation_sequence++;
-    doc->mutation_epoch++;
+    doc->advance_mutation_epoch();
     bool inherited_change = presentation_property == CSS_PROPERTY_UNKNOWN ||
         css_property_runtime_inherited(presentation_property);
     if (inherited_change) doc->style_content_epoch++;

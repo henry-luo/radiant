@@ -81,7 +81,7 @@ static bool paint_layer_aligned(float origin, float translation) {
 
 struct PaintLayerStamp {
     uint32_t generation;            // layer_generation of the root
-    uint64_t document_epoch;        // inherited styles and stylesheets
+    uint32_t document_epoch;        // inherited styles and stylesheets
     uint64_t content_version;       // interaction, form and scroll state
     uint64_t layout_count;          // completed document flows
     uint64_t font_generation;

@@ -1286,7 +1286,7 @@ void scene3d_animation_follow_rebuild(Scene3dAnimationState* state, DomNode* old
     if (!state)
         return;
     // a rebuild leaves the document's mutation epoch alone; force the next match to re-hash and reconcile
-    state->epoch = UINT64_MAX;
+    state->epoch = DOM_MUTATION_EPOCH_UNSTAMPED;
     view_state_ref_follow_rebuild(state->document, &state->root, old_root, new_root);
     for (auto* binding = state->bindings; binding; binding = binding->next)
         view_state_ref_follow_rebuild(state->document, &binding->node, old_root, new_root);

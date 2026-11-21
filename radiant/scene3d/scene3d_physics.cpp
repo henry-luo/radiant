@@ -892,7 +892,7 @@ void scene3d_physics_follow_rebuild(Scene3dPhysics* state, DomNode* old_root, Do
     }
     view_state_ref_follow_rebuild(state->document, &state->root, old_root, new_root);
     // a rebuild leaves the document's mutation epoch alone; force the next match to recompile
-    state->epoch = UINT64_MAX;
+    state->epoch = DOM_MUTATION_EPOCH_UNSTAMPED;
 }
 uint64_t scene3d_physics_generation(Scene3dPhysics* state) {
     return state ? state->generation : 0;
