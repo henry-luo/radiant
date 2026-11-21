@@ -2781,6 +2781,13 @@ float layout_unresolved_html_cell_horizontal_box_extra(DomElement* cell) {
     return extra;
 }
 
+bool layout_inline_has_vertical_align_adjustment(ViewSpan* span) {
+    // a baseline child follows the alignment of its enclosing inline subtree.
+    return span && span->in_line && span->inl()->vertical_align &&
+        (span->inl()->vertical_align != CSS_VALUE_BASELINE ||
+         span->inl()->vertical_align_offset != 0.0f);
+}
+
 void span_vertical_align(LayoutContext* lycon, ViewSpan* span) {
     FontBox pa_font = lycon->font;  CssEnum pa_line_align = lycon->line.vertical_align;
     float pa_valign_offset = lycon->line.vertical_align_offset;
@@ -2797,7 +2804,7 @@ void span_vertical_align(LayoutContext* lycon, ViewSpan* span) {
         if (span->font) {
             setup_font(lycon->ui_context, &lycon->font, span->font);
         }
-        if (span->in_line && span->inl()->vertical_align) {
+        if (layout_inline_has_vertical_align_adjustment(span)) {
             lycon->line.vertical_align = span->inl()->vertical_align;
             lycon->line.vertical_align_offset = span->inl()->vertical_align_offset;
         }
@@ -3222,9 +3229,10 @@ float layout_inline_font_box_y(LayoutContext* lycon, ViewSpan* span,
     layout_apply_dominant_font_baseline(lycon->block.flow_box, &ascender, &descender);
     // CSS Ruby §3.3 excludes an annotation's line-height from its own font box.
     if (span->display.inner == CSS_VALUE_RUBY_TEXT) span_line_height = ascender + descender;
-    CssEnum align = span->in_line && span->inl()->vertical_align
+    bool adjusts_alignment = layout_inline_has_vertical_align_adjustment(span);
+    CssEnum align = adjusts_alignment
         ? span->inl()->vertical_align : lycon->line.vertical_align;
-    float align_offset = span->in_line && span->inl()->vertical_align
+    float align_offset = adjusts_alignment
         ? span->inl()->vertical_align_offset : lycon->line.vertical_align_offset;
     float line_height = max(lycon->block.line_height,
                             lycon->line.max_ascender + lycon->line.max_descender);

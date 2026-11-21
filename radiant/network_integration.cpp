@@ -191,7 +191,7 @@ typedef struct NetworkSelectorWalk {
     void* user_data;
 } NetworkSelectorWalk;
 
-static bool document_resource_is_active(DomNode* node) {
+bool radiant_document_resource_is_active(DomNode* node) {
     // parser-backed template descendants remain in the native chain but are inert.
     for (DomNode* parent = node ? node->parent.get() : nullptr; parent; parent = parent->parent) {
         if (dom_element_is_html_tag(parent->as_element(), MARKUP_NAME_TEMPLATE)) return false;
@@ -202,7 +202,7 @@ static bool document_resource_is_active(DomNode* node) {
 static bool network_selector_visitor(DomNode* node, void* user_data) {
     NetworkSelectorWalk* walk = (NetworkSelectorWalk*)user_data;
     if (!node || !walk || !walk->callback || !node->is_element() ||
-        !document_resource_is_active(node)) return true;
+        !radiant_document_resource_is_active(node)) return true;
     DomElement* element = node->as_element();
     if (element->tag_name() && strcmp(element->tag_name(), walk->tag_name) == 0) {
         walk->callback(element, walk->user_data);
@@ -468,7 +468,7 @@ static bool prefetch_selected_css_property(StyleNode* node, void* context) {
 }
 
 static bool prefetch_selected_css_resources(DomNode* node, void* context) {
-    if (!node || !node->is_element() || !document_resource_is_active(node)) return true;
+    if (!node || !node->is_element() || !radiant_document_resource_is_active(node)) return true;
     CssResourcePrefetchContext* prefetch = (CssResourcePrefetchContext*)context;
     prefetch->element = node->as_element();
     prefetch->selected_style = prefetch->element->specified_style;
@@ -491,7 +491,7 @@ void radiant_prefetch_document_stylesheet_resources(DomDocument* doc) {
 }
 
 static bool prefetch_inline_style_resource_urls(DomNode* node, void* context) {
-    if (!node || !node->is_element() || !document_resource_is_active(node)) return true;
+    if (!node || !node->is_element() || !radiant_document_resource_is_active(node)) return true;
     CssResourcePrefetchContext* prefetch = (CssResourcePrefetchContext*)context;
     DomElement* element = node->as_element();
     CssRule* rule = dom_element_inline_declaration_block(element);

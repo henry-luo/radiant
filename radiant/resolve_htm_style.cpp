@@ -1368,6 +1368,38 @@ static void apply_html_centered_popup_style(LayoutContext* lycon, ViewBlock* blo
     if (fixed) apply_html_overflow(lycon, block, CSS_VALUE_AUTO);
 }
 
+bool layout_apply_html_text_color(LayoutContext* lycon, ViewSpan* span) {
+    NameId tag = span->tag();
+    if (tag != MARKUP_NAME_A && tag != MARKUP_NAME_FONT && tag != MARKUP_NAME_DIALOG) return false;
+    if (!dom_element_is_html_tag(span, tag)) return false;
+
+    // use the same element-local color on the initial pass and on CSS recascade.
+    Color color;
+    switch (tag) {
+    case MARKUP_NAME_A: {
+        HtmlUaElementDefault ua;
+        layout_html_ua_element_default(tag, &ua);
+        color = color_name_to_rgb(ua.color);
+        break;
+    }
+    case MARKUP_NAME_FONT: {
+        const char* attribute = span->get_attribute("color");
+        if (!attribute) return false;
+        color = parse_html_color(attribute);
+        break;
+    }
+    default: // dialog chrome is suppressed while the dialog is displayed as a popover.
+        if (span->is_popover_open() ||
+                layout_display_is_none(css_default_display_for_element(span, span))) return false;
+        color = Color{0xFF000000};
+        break;
+    }
+    InlineProp* inline_prop = span->ensure_inline(lycon);
+    inline_prop->color = color;
+    inline_prop->has_color = true;
+    return true;
+}
+
 static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt);
 
 void apply_element_default_style(LayoutContext* lycon, DomNode* elmt) {
@@ -1426,6 +1458,7 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
     // literal UA values below come from the table shared with selected views' UA stylesheet.
     HtmlUaElementDefault ua;
     if (!layout_html_ua_element_default(elmt_name, &ua)) ua = {};
+    layout_apply_html_text_color(lycon, span);
     if (ua.vertical_align != CSS_VALUE__UNDEF) {
         DomElement* parent = dom_parent_element(elmt->as_element());
         InlineProp* inl = block->ensure_inline(lycon);
@@ -1624,14 +1657,6 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         break;
     }
     case MARKUP_NAME_FONT: {
-        // parse font style
-        // Get color attribute using DomNode interface
-        const char* color_attr = span->get_attribute("color");
-        if (color_attr) {
-            span->ensure_inline(lycon);
-            span->in_line->color = parse_html_color(color_attr);
-            span->in_line->has_color = true;
-        }
         // Handle font size attribute (deprecated HTML but still supported)
         // size="1" = x-small (10px), size="2" = small (13px), size="3" = medium (16px, default)
         // size="4" = large (18px), size="5" = x-large (24px), size="6" = xx-large (32px), size="7" = 48px
@@ -1655,8 +1680,6 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         // anchor style
         span->ensure_inline(lycon);
         span->in_line->cursor = CSS_VALUE_POINTER;
-        span->in_line->color = color_name_to_rgb(ua.color);
-        span->in_line->has_color = true;
         span->ensure_font(lycon)->text_deco = ua.text_decoration;
         break;
     }
@@ -2223,9 +2246,6 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
             apply_html_centered_popup_style(lycon, block, 1.0f,
                 elmt->as_element()->is_dialog_modal());
             apply_html_background_color(lycon, block, (Color){.r=255, .g=255, .b=255, .a=255});
-            InlineProp* inl = block->ensure_inline(lycon);
-            inl->color = Color{0xFF000000};
-            inl->has_color = true;
             BoundaryProp* boundary = block->boundary_mut();
             for (int side = CSS_BOX_SIDE_TOP; side <= CSS_BOX_SIDE_LEFT; side++) {
                 boundary->padding.specificities[side] = -1;

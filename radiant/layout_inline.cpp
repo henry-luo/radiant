@@ -2417,7 +2417,7 @@ void layout_inline(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
         span->font->used_zoom = layout_effective_zoom((View*)span);
         setup_font(lycon->ui_context, &lycon->font,  span->font);
     }
-    if (span->in_line && span->inl()->vertical_align) {
+    if (layout_inline_has_vertical_align_adjustment(span)) {
         lycon->line.vertical_align = span->inl()->vertical_align;
         lycon->line.vertical_align_offset = span->inl()->vertical_align_offset;
     }
@@ -2493,7 +2493,8 @@ void layout_inline(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
             inline_left_edge + inline_right_edge;
         if (line_right > line_left && unbreakable_content_width > 0.0f &&
             lycon->line.wrap_opportunity_before_nowrap &&
-            lycon->line.advance_x + unbreakable_width > line_right) {
+            lycon->line.advance_x + unbreakable_width > line_right &&
+            !layout_inline_span_has_break_before_overflow(lycon, span)) {
             // CSS Text: only break an unbreakable inline at a legal boundary;
             // zero-width inline-blocks and adjacent content must overflow.
             line_break(lycon);

@@ -2806,6 +2806,8 @@ typedef enum LineFillStatus {
     RDT_LINE_NOT_FILLED = 1,
     RDT_LINE_FILLED = 2,
 } LineFillStatus;
+
+bool layout_inline_span_has_break_before_overflow(LayoutContext* context, ViewSpan* span);
 // Flex Layout
 
 typedef enum {
@@ -3077,6 +3079,7 @@ struct HtmlUaElementDefault {
 };
 bool layout_html_ua_element_default(NameId tag, HtmlUaElementDefault* result);
 CssEnum layout_html_ua_white_space(DomElement* element);
+bool layout_apply_html_text_color(LayoutContext* context, ViewSpan* span);
 // nested lists drop their outer margins; unordered markers step disc, circle, square.
 bool layout_html_ua_list_nesting_ancestor(NameId tag);
 CssEnum layout_html_ua_list_marker(NameId tag, size_t unordered_ancestors);
@@ -5596,6 +5599,7 @@ float layout_inline_font_metrics(LayoutContext* lycon, FontHandle* font, float l
                                 bool normal, float* ascender, float* descender);
 LayoutTextLineMetrics layout_measure_text_line_metrics(LayoutContext* lycon, ViewBlock* block,
     const char* text, size_t length, float line_height, bool normal);
+bool layout_inline_has_vertical_align_adjustment(ViewSpan* span);
 float vertical_align_baseline_shift(LayoutContext* lycon, CssEnum align,
                                     float valign_offset = 0);
 float layout_apply_baseline_shift(LayoutContext* lycon,

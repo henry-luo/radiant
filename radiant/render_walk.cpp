@@ -54,7 +54,7 @@ static bool render_walk_blend_mode_effective(CssEnum mode) {
     return mode && mode != CSS_VALUE_NORMAL;
 }
 
-static bool render_walk_filter_effective(const FilterProp* filter) {
+bool render_filter_effective(const FilterProp* filter) {
     return filter && filter->functions;
 }
 
@@ -66,7 +66,7 @@ static bool render_walk_block_effect_group(ViewBlock* block, float abs_x, float 
     CssEnum blend = (block->in_line &&
                      render_walk_blend_mode_effective(block->inl()->mix_blend_mode))
                     ? block->inl()->mix_blend_mode : (CssEnum)0;
-    bool has_filter = render_walk_filter_effective(block->filter_prop());
+    bool has_filter = render_filter_effective(block->filter_prop());
     bool has_backdrop_filter = render_effect_has_visible_backdrop(block, block->backdrop_filter_prop());
     bool has_shadow = block->bound && block->boundary_mut()->box_shadow;
     RadialGradient* mask = block->bound && block->boundary()->mask ? block->boundary()->mask->radial_gradient.get() : nullptr;
@@ -103,7 +103,7 @@ static bool render_walk_inline_effect_group(ViewSpan* span, PaintEffectGroup* gr
     CssEnum blend = (span->in_line &&
                      render_walk_blend_mode_effective(span->inl()->mix_blend_mode))
                     ? span->inl()->mix_blend_mode : (CssEnum)0;
-    bool has_filter = render_walk_filter_effective(span->filter_prop());
+    bool has_filter = render_filter_effective(span->filter_prop());
     bool has_backdrop_filter = render_effect_has_visible_backdrop(span, span->backdrop_filter_prop());
     if (opacity >= 0.9995f && !blend && !has_filter && !has_backdrop_filter) {
         return false;
