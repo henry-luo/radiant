@@ -10,6 +10,7 @@
 #include "lib/memtrack.h"
 #include "lib/arraylist.hpp"
 #include "event.hpp"
+#include "view.hpp"
 #include <math.h>
 #include <pthread.h>
 #include <string.h>
@@ -39,11 +40,12 @@ struct DocumentAudio : DomDocumentResourceData {
     lam::ArrayList<AudioSlot> slots;
     bool activated;               // D11.3.1 sticky activation; never cleared
     AudioSubmixId submix;         // created with the first audible stream
+    bool virtual_output;          // headless documents advance without an output device
     double last_tick_ms;          // offline output: frame clock at the previous tick
     double pending_frames;        // offline output: fractional frames not yet rendered
     AudioOwnerHook owners[8];      // the existing per-document Scene3D viewport bound
     struct { uint64_t id; size_t bytes; } storage[AUDIO_DECODED_SLOTS];
-    DocumentAudio() : slots(MEM_CAT_RENDER, 0), activated(false), submix(0), last_tick_ms(-1), pending_frames(0), owners{}, storage{} {}
+    DocumentAudio() : slots(MEM_CAT_RENDER, 0), activated(false), submix(0), virtual_output(false), last_tick_ms(-1), pending_frames(0), owners{}, storage{} {}
 };
 
 static void audio_slot_close(AudioSlot* slot) {
@@ -598,7 +600,16 @@ bool radiant_midi_routing(DomDocument* doc, uint64_t token, AudioProviderInfo* i
 }
 AudioSubmixId radiant_document_submix(DomDocument* doc) {
     DocumentAudio* audio = document_audio(doc, true);
-    if (audio && !audio->submix) audio->submix = audio_submix_create();
+    if (audio && !audio->submix) {
+        // A headless document must never join the physical output bus.
+#ifdef LAMBDA_HEADLESS
+        audio->virtual_output = true;
+#else
+        auto* ui = static_cast<UiContext*>(doc->js.host_ui_context);
+        audio->virtual_output = ui && ui->headless;
+#endif
+        audio->submix = audio_submix_create(audio->virtual_output);
+    }
     if (audio && !audio_submix_has_work(audio->submix)) {
         // anchor before the first voice, so its first frame neither loses time nor consumes idle time.
         radiant_document_clock(doc, &audio->last_tick_ms); audio->pending_frames = 0;
@@ -627,7 +638,7 @@ bool radiant_audio_tick(DomDocument* doc, double now_ms) {
     // offline output: the sub-mix follows this document's frame clock while it has voices.
     double delta_ms = audio->last_tick_ms < 0 ? 0 : now_ms - audio->last_tick_ms;
     audio->last_tick_ms = now_ms;
-    if (!audio_bus_offline() || !audio_submix_has_work(audio->submix)) { audio->pending_frames = 0; return capture_pending; }
+    if ((!audio->virtual_output && !audio_bus_offline()) || !audio_submix_has_work(audio->submix)) { audio->pending_frames = 0; return capture_pending; }
     // a resumed background document starts a new interval, not a catch-up burst.
     if (delta_ms < 0 || delta_ms > 1000) delta_ms = 0;
     audio->pending_frames += delta_ms * AUDIO_BUS_RATE / 1000.0;

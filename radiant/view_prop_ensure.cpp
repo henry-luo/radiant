@@ -29,10 +29,10 @@ static Pool* prop_pool(ViewTree* tree) { return tree ? tree->prop_pool : nullptr
 template <typename Prop, DomViewSlot Slot>
 static Prop* ensure_directory_prop(DomElement* elem, Pool* pool,
         lam::ViewProp<Prop, Slot> DomStyleExt::*member, const Prop& defaults) {
-    DomStyleExt* slots = elem->style_ext;
+    DomStyleExt* slots = elem->ext;
     if (!slots && pool) {
         assert_pool_owner(elem);
-        slots = elem->ensure_style_ext();
+        slots = elem->ensure_ext();
     }
     return slots ? ensure_view_prop(elem, pool, slots->*member, defaults) : nullptr;
 }
@@ -198,7 +198,7 @@ TableProp* DomElement::ensure_table(ViewTree* tree) {
     if (role_kind() != ROLE_NONE && role_kind() != ROLE_TABLE &&
         role_kind() != ROLE_FORM) return nullptr;
     if (role_kind() != ROLE_TABLE) {
-        if (style_ext) style_ext->tb = nullptr;
+        if (ext) ext->tb = nullptr;
         set_role_kind(ROLE_TABLE);
     }
     return ensure_directory_prop(this, prop_pool(tree), &DomStyleExt::tb, TABLE_PROP_DEFAULT);

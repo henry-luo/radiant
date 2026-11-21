@@ -1789,6 +1789,8 @@ static int view_doc_in_window_with_events_internal(const char* doc_file,
                                                    bool fullscreen = false,
                                                    int inspector_fd = -1,
                                                    bool microphone_granted = false) {
+    // Baseline runners must not create a visible window, including child processes.
+    if (getenv("LAMBDA_TEST_HEADLESS")) headless = true;
     if (!radiant_window_host_begin(paged_options)) {
         log_error("window-host: another window owns the host or its cleanup is pending");
         return 1;

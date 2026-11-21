@@ -158,7 +158,7 @@ void form_control_release_prop(DomElement* elem) {
         mem_free(form);
     }
     elem->set_form_storage(nullptr);
-    if (elem->style_ext && elem->style_ext->empty()) elem->release_style_ext();
+    if (elem->ext && elem->ext->empty()) elem->release_ext();
     if (elem->role_kind() == DomElement::ROLE_FORM) {
         elem->set_role_kind(DomElement::ROLE_NONE);
     }

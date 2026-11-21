@@ -219,7 +219,7 @@ static void* view_prop_get_##field(DomElement* elem) { \
     return elem ? elem->field##_prop() : nullptr; \
 } \
 static void view_prop_clear_##field(DomElement* elem, ViewTree*) { \
-    if (elem && elem->style_ext) elem->style_ext->field = nullptr; \
+    if (elem && elem->ext) elem->ext->field = nullptr; \
 }
 
 DEFINE_DIRECTORY_PROP_ACCESSORS(transform)
@@ -534,7 +534,7 @@ static void release_form_prop(DomElement* elem, ViewTree* tree) {
     // not the view tree's pool; the release hands it over here
     if (form->heap_allocated) {
         lam::Temp<FormControlProp> heap_form((FormControlProp*)elem->form_storage());
-        elem->style_ext->form = nullptr;
+        elem->ext->form = nullptr;
     }
 }
 
@@ -543,9 +543,9 @@ static void clear_item_prop(DomElement* elem, ViewTree*) {
     elem->fi = nullptr;
     elem->gi = nullptr;
     elem->td = nullptr;
-    if (elem->style_ext) {
-        elem->style_ext->tb = nullptr;
-        elem->style_ext->form = nullptr;
+    if (elem->ext) {
+        elem->ext->tb = nullptr;
+        elem->ext->form = nullptr;
     }
     elem->set_parent_item_kind(DomElement::PARENT_ITEM_NONE);
     elem->set_role_kind(DomElement::ROLE_NONE);
@@ -583,17 +583,17 @@ void layout_set_parent_item_kind(LayoutContext* lycon, DomElement* elem,
 static void free_item_prop_storage(DomElement* elem, ViewTree* tree, bool preserve_form) {
     if (!elem) return;
     free_parent_item_prop_storage(elem, tree);
-    if (elem->style_ext) {
-        view_pool_free(tree, elem->style_ext->tb);
-        elem->style_ext->tb = nullptr;
+    if (elem->ext) {
+        view_pool_free(tree, elem->ext->tb);
+        elem->ext->tb = nullptr;
     }
     view_pool_free(tree, elem->td);
     // script-created form state survives restyling; full teardown releases
     // its heap storage through release_form_prop before clearing this slot.
     if (!preserve_form) {
         if (elem->form_storage() && !elem->form_storage()->heap_allocated)
-            view_pool_free(tree, elem->style_ext->form);
-        if (elem->style_ext) elem->style_ext->form = nullptr;
+            view_pool_free(tree, elem->ext->form);
+        if (elem->ext) elem->ext->form = nullptr;
     }
     elem->fi = nullptr;
     elem->gi = nullptr;
@@ -662,16 +662,16 @@ static void reset_inline_prop(DomElement* elem, ViewTree*) {
 
 // Multicol fragment boxes: a `next`-linked list owned by the element.
 static void free_layout_fragments(DomElement* elem, ViewTree* tree) {
-    if (!elem || !elem->ext || !elem->ext->layout_fragments) return;
-    lam::Own<LayoutFragmentBox> head = lam::own((LayoutFragmentBox*)elem->ext->layout_fragments);
-    elem->ext->layout_fragments = nullptr;
+    if (!elem || !elem->rare_ext || !elem->rare_ext->layout_fragments) return;
+    lam::Own<LayoutFragmentBox> head = lam::own((LayoutFragmentBox*)elem->rare_ext->layout_fragments);
+    elem->rare_ext->layout_fragments = nullptr;
     view_pool_free_list(tree, head);
 }
 static void* view_prop_get_layout_fragments(DomElement* elem) {
-    return elem && elem->ext ? (void*)elem->ext->layout_fragments : nullptr;
+    return elem && elem->rare_ext ? (void*)elem->rare_ext->layout_fragments : nullptr;
 }
 static void view_prop_clear_layout_fragments(DomElement* elem, ViewTree*) {
-    if (elem && elem->ext) elem->ext->layout_fragments = nullptr;
+    if (elem && elem->rare_ext) elem->rare_ext->layout_fragments = nullptr;
 }
 
 // Each prop block returns to the pool through its owning field.
@@ -681,11 +681,11 @@ static void view_prop_free_##name(DomElement* elem, ViewTree* tree) { \
 }
 #define DEFINE_VIEW_EXT_PROP_FREE(name, field) \
 static void view_prop_free_##name(DomElement* elem, ViewTree* tree) { \
-    if (elem && elem->ext) view_pool_free(tree, elem->ext->field); \
+    if (elem && elem->rare_ext) view_pool_free(tree, elem->rare_ext->field); \
 }
 #define DEFINE_DIRECTORY_PROP_FREE(field) \
 static void view_prop_free_##field(DomElement* elem, ViewTree* tree) { \
-    if (elem && elem->style_ext) view_pool_free(tree, elem->style_ext->field); \
+    if (elem && elem->ext) view_pool_free(tree, elem->ext->field); \
 }
 DEFINE_VIEW_PROP_FREE(font, font)
 DEFINE_VIEW_PROP_FREE(bound, bound)
@@ -775,7 +775,7 @@ static_assert(view_slots_have_teardown_owners(), "an element view slot has no te
 // teardown left none behind. Compiled with its only caller, which is
 // debug-only: release builds would otherwise reject an unused static.
 static const void* view_slot_value(const DomElement* elem, DomViewSlot slot) {
-    const DomStyleRareExt* ext = elem->ext;
+    const DomStyleRareExt* ext = elem->rare_ext;
     switch (slot) {
         case DomViewSlot::font:             return elem->font;
         case DomViewSlot::in_line:          return elem->in_line;
@@ -904,7 +904,7 @@ static void view_teardown_apply_table(ViewTree* tree,
             }
         }
     }
-    if (elem->style_ext && elem->style_ext->empty()) elem->release_style_ext();
+    if (elem->ext && elem->ext->empty()) elem->release_ext();
 #ifndef NDEBUG
     // a pointer-clearing teardown leaves no element pointer into view-tree storage
     if ((flags & VIEW_TEARDOWN_CLEAR_POINTERS) && !(flags & VIEW_TEARDOWN_RESET_IN_PLACE)) {
@@ -934,7 +934,7 @@ static void view_teardown_clear_element_scalars(DomElement* elem) {
         elem->display = {CSS_VALUE__UNDEF, CSS_VALUE__UNDEF};
     }
     elem->set_float_prelaid(false);
-    elem->reset_view_ext();
+    elem->reset_rare_view_slots();
 }
 
 // Every text view slot (DOM_TEXT_VIEW_SLOTS) is cleared here; the switch lists
