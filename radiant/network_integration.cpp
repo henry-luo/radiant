@@ -82,7 +82,8 @@ static void attach_font_resource_callback(NetworkResource* res,
 // Returns a heap-allocated absolute URL string (caller must free with mem_free).
 // If resolution fails, returns a copy of the input.
 static char* resolve_url(const char* href, DomDocument* doc) {
-    Url* base = doc ? dom_document_resolve_url(doc) : nullptr;
+    // an already resolved request cannot depend on the document's <base>.
+    Url* base = doc && href && !url_is_absolute_url(href) ? dom_document_resolve_url(doc) : nullptr;
     char* result = radiant_resolve_resource_url(href, base, MEM_CAT_NETWORK);
     if (base) url_destroy(base);
     return result;
@@ -448,29 +449,55 @@ void radiant_prefetch_document_font_resources(DomDocument* doc) {
     discover_document_font_resources(doc, false);
 }
 
-typedef struct CssResourcePrefetchContext {
+struct CssResourcePrefetchContext {
     DomDocument* doc;
-    const Url* base_url;
-    int queued;
-    Pool* inline_parse_pool;
-    StyleTree* selected_style;
-    DomElement* element;
-} CssResourcePrefetchContext;
+    Url* document_base = nullptr;
+    Pool* inline_parse_pool = nullptr;
+    StyleTree* selected_style = nullptr;
+    DomElement* element = nullptr;
+    int queued = 0;
+
+    ~CssResourcePrefetchContext() {
+        if (document_base) url_destroy(document_base);
+        if (inline_parse_pool) pool_destroy(inline_parse_pool);
+    }
+};
+
+struct CssResourceUrlContext {
+    CssResourcePrefetchContext& prefetch;
+    const char* source_file;
+    Url* stylesheet_base = nullptr;
+    const Url* base_url = nullptr;
+};
 
 static void prefetch_css_resource_url(const CssValue* value, void* context) {
-    CssResourcePrefetchContext* prefetch = (CssResourcePrefetchContext*)context;
-    if (!prefetch || !prefetch->doc ||
-        !value || !value->data.url || !*value->data.url || *value->data.url == '#') {
-        return;
+    const char* href = value->data.url;
+    if (!*href || *href == '#') return;
+    CssResourceUrlContext* source = (CssResourceUrlContext*)context;
+    CssResourcePrefetchContext& prefetch = source->prefetch;
+    if (!source->base_url) {
+        // only URL-bearing values need a base. Reuse the document tree lookup for this pass.
+        if (source->source_file && strcmp(source->source_file, "<inline-style>") != 0)
+            source->stylesheet_base = url_parse(source->source_file);
+        if (!source->stylesheet_base && !prefetch.document_base)
+            prefetch.document_base = dom_document_resolve_url(prefetch.doc);
+        source->base_url = source->stylesheet_base ? source->stylesheet_base : prefetch.document_base;
     }
     // resolve the request without rewriting custom tokens, whose base belongs to their consumer.
-    Url* url = url_parse_with_base(value->data.url, prefetch->base_url);
+    Url* url = url_parse_with_base(href, source->base_url);
     // selected CSS URLs can initialize the document before any element resource exists.
     if (radiant_url_is_http(url) && queue_resolved_http_resource(
-            prefetch->doc, url_get_href(url), RESOURCE_PREFETCH, PRIORITY_LOW, nullptr)) {
-        prefetch->queued++;
+            prefetch.doc, url_get_href(url), RESOURCE_PREFETCH, PRIORITY_LOW, nullptr)) {
+        prefetch.queued++;
     }
     if (url) url_destroy(url);
+}
+
+static void prefetch_css_urls(CssResourcePrefetchContext& prefetch,
+                              const CssValue* value, const char* source_file = nullptr) {
+    CssResourceUrlContext context = {prefetch, source_file};
+    radiant_for_each_css_value_resource_url(value, prefetch_css_resource_url, &context);
+    if (context.stylesheet_base) url_destroy(context.stylesheet_base);
 }
 
 static bool prefetch_selected_css_property(StyleNode* node, void* context) {
@@ -485,14 +512,7 @@ static bool prefetch_selected_css_property(StyleNode* node, void* context) {
         value = css_resolve_element_var_value(prefetch->inline_parse_pool,
             prefetch->element, value, declaration->property_code);
     }
-    const char* source_file = declaration->source_file;
-    Url* source = source_file && strcmp(source_file, "<inline-style>") != 0
-        ? url_parse(source_file) : nullptr;
-    if (!source) source = dom_document_resolve_url(prefetch->doc);
-    prefetch->base_url = source;
-    radiant_for_each_css_value_resource_url(value, prefetch_css_resource_url, context);
-    if (source) url_destroy(source);
-    prefetch->base_url = nullptr;
+    prefetch_css_urls(*prefetch, value, declaration->source_file);
     return true;
 }
 
@@ -512,9 +532,8 @@ static bool prefetch_selected_css_resources(DomNode* node, void* context) {
 void radiant_prefetch_document_stylesheet_resources(DomDocument* doc) {
     if (!doc || !doc->root) return;
     // unmatched and inactive rules do not consume a page's finite resource identities.
-    CssResourcePrefetchContext context = {doc, nullptr, 0};
+    CssResourcePrefetchContext context = {doc};
     view_geometry_walk_dom_tree(doc->root, prefetch_selected_css_resources, &context);
-    if (context.inline_parse_pool) pool_destroy(context.inline_parse_pool);
     if (context.queued > 0)
         log_info("[PREFETCH] queued %d selected CSS declaration resources", context.queued);
 }
@@ -537,8 +556,7 @@ static bool prefetch_inline_style_resource_urls(DomNode* node, void* context) {
     }
     for (size_t index = 0; index < count; index++) {
         CssDeclaration* declaration = declarations[index];
-        if (declaration) radiant_for_each_css_value_resource_url(declaration->value,
-            prefetch_css_resource_url, context);
+        if (declaration) prefetch_css_urls(*prefetch, declaration->value);
     }
     return true;
 }
@@ -560,11 +578,8 @@ static void discover_document_media_resources(DomDocument* doc) {
 static void discover_document_image_resources(DomDocument* doc) {
     radiant_prefetch_document_stylesheet_resources(doc);
     // uncommitted inline edits still need their bytes before the next layout.
-    Url* base = dom_document_resolve_url(doc);
-    CssResourcePrefetchContext inline_resources = {doc, base, 0};
+    CssResourcePrefetchContext inline_resources = {doc};
     view_geometry_walk_dom_tree(doc->root, prefetch_inline_style_resource_urls, &inline_resources);
-    if (base) url_destroy(base);
-    if (inline_resources.inline_parse_pool) pool_destroy(inline_resources.inline_parse_pool);
     if (inline_resources.queued > 0)
         log_info("[PREFETCH] queued %d inline CSS declaration resources", inline_resources.queued);
     find_elements_by_selector(doc->root, "img", discover_img_callback, doc);

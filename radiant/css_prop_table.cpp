@@ -427,7 +427,7 @@ static bool format_css_value(DomElement* element, CssPropertyCode id,
         css_anchor_serialize_position_area(out, value, true)) return true;
     if (id == CSS_PROPERTY_OVERFLOW_CLIP_MARGIN)
         return format_overflow_clip_margin_computed_value(element, value, out, pseudo_type);
-    if (id == CSS_PROPERTY_LINE_CLAMP || id == CSS_PROPERTY_WEBKIT_LINE_CLAMP)
+    if (id == CSS_PROPERTY_LINE_CLAMP)
         return format_clamp_computed_value(element, value, out, pseudo_type);
     if ((id == CSS_PROPERTY_Z_INDEX || id == CSS_PROPERTY_ORDER) && value->type != CSS_VALUE_TYPE_KEYWORD) {
         double level = 0.0;
@@ -457,10 +457,6 @@ static bool format_css_value(DomElement* element, CssPropertyCode id,
             if (!written) return false;
         }
         return true;
-    }
-    if (id == CSS_PROPERTY_WEBKIT_BOX_ORIENT) {
-        return copy_text(out, css_value_has_identifier(value, "vertical") ||
-            css_value_has_identifier(value, "block-axis") ? "vertical" : "horizontal");
     }
     if (id == CSS_PROPERTY_GRID_TEMPLATE_AREAS) {
         String* text = css_grid_serialize_template_areas(out->pool, value);
@@ -721,7 +717,16 @@ static bool consume_cascaded_value(DomElement* element, CssPropertyCode id,
 
 bool css_prop_serialize_cascaded_value(DomElement* element, CssPropertyCode id,
         int pseudo_type, StringBuf* out, bool preserve_color_model) {
-    return consume_cascaded_value(element, id, pseudo_type, out, preserve_color_model, nullptr);
+    CssPropertyCode canonical = css_property_canonical_code(id);
+    if (id == CSS_PROPERTY_WEBKIT_BOX_ORIENT) {
+        if (!out) return false;
+        // prefixed CSSOM reads retain the old axis spelling over the same cascaded value.
+        StringBuf* direction = stringbuf_new(out->pool);
+        if (!direction || !consume_cascaded_value(element, canonical, pseudo_type,
+                direction, preserve_color_model, nullptr) || !direction->str) return false;
+        return copy_text(out, css_webkit_box_orientation_name(direction->str->chars));
+    }
+    return consume_cascaded_value(element, canonical, pseudo_type, out, preserve_color_model, nullptr);
 }
 
 bool css_prop_consume_cascaded_value(DomElement* element, CssPropertyCode id,
