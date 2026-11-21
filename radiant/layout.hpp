@@ -5004,6 +5004,7 @@ bool layout_is_inline_math_box(DomNode* node);
 // shadow-tree child while preserving the fragment's DOM parentage.
 DomElement* layout_shadow_formatting_parent(DomNode* node);
 bool layout_is_shadow_slot(DomNode* node);
+bool layout_slot_is_hidden(DomNode* slot);
 bool layout_node_is_hidden_by_closed_details(DomNode* node);
 void layout_shadow_slot_children(LayoutContext* lycon, DomElement* slot);
 DomElement* find_fieldset_rendered_legend(ViewBlock* fieldset);
