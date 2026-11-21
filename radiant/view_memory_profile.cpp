@@ -172,7 +172,7 @@ static void view_memory_element_census(JsonWriter* writer, DomElement* root) {
             if (elem->layout_cache) {
                 layout_caches++;
                 for (const auto& result : elem->layout_cache->measure_entries) {
-                    if (!result.is_valid()) continue;
+                    if (!result.key.is_valid()) continue;
                     measurement_arrays++;
                     break;
                 }

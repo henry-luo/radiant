@@ -41,9 +41,8 @@ static CssEnum find_inherited_block_keyword(DomElement* element,
 void resolve_spacing_prop(LayoutContext* lycon, uintptr_t property,
                           const CssValue* src_space, int64_t specificity,
                           Spacing* trg_spacing);
-static void copy_spacing_side(Spacing* target, const Spacing* source,
-                              Margin* target_margin, const Margin* source_margin,
-                              CssBoxSide side, int64_t specificity);
+static void copy_spacing_side(Spacing* target, Margin* margin, CssBoxSide side,
+                              ResolvedMarginSide source, int64_t specificity);
 
 
 static BackgroundProp* parent_computed_background(LayoutContext* lycon) {
@@ -973,14 +972,15 @@ static void resolve_border_box_part(LayoutContext* lycon, ViewSpan* span,
     }
 }
 
-void layout_set_spacing_side(Spacing* spacing, Margin* margin, CssBoxSide side,
+bool layout_set_spacing_side(Spacing* spacing, Margin* margin, CssBoxSide side,
                              float value, CssEnum type, int64_t specificity) {
     int64_t* side_spec = radiant_spacing_specificity(spacing, side);
-    if (specificity < *side_spec) return;
+    if (specificity < *side_spec) return false;
     // padding and border widths keep their nonnegative used range after math; margins allow negative values.
     *radiant_spacing_value(spacing, side) = margin ? value : max(value, 0.0f);
     *side_spec = specificity;
     if (margin) *radiant_margin_type(margin, side) = type;
+    return true;
 }
 
 static void resolve_spacing_sides(LayoutContext* lycon, ViewSpan* span, CssBoxSide first_side,
@@ -994,17 +994,14 @@ static void resolve_spacing_sides(LayoutContext* lycon, ViewSpan* span, CssBoxSi
         DomElement* current = lam::dom_require_element(lycon->view);
         DomElement* parent = current ? dom_parent_element(current) : nullptr;
         const BoundaryProp* source_bound = parent ? parent->boundary() : nullptr;
-        const Margin* source_margin = is_margin ? view_boundary_flow_margin(source_bound) : nullptr;
-        const Spacing* source = source_bound
-            ? (is_margin ? static_cast<const Spacing*>(source_margin)
-                         : &source_bound->padding) : nullptr;
-        if (source) {
-            copy_spacing_side(spacing, source, margin, source_margin,
-                              first_side, specificity);
-            if (second_side != first_side) {
-                copy_spacing_side(spacing, source, margin, source_margin,
-                                  second_side, specificity);
-            }
+        if (source_bound) {
+            auto copy_side = [&](CssBoxSide side) {
+                ResolvedMarginSide source = is_margin ? view_boundary_flow_margin(source_bound, side)
+                    : ResolvedMarginSide{source_bound->padding.values[side], CSS_VALUE__UNDEF};
+                copy_spacing_side(spacing, margin, side, source, specificity);
+            };
+            copy_side(first_side);
+            if (second_side != first_side) copy_side(second_side);
             return;
         }
     }
@@ -3805,20 +3802,14 @@ static CssEnum resolve_box_sizing_inherit(LayoutContext* lycon) {
     return CSS_VALUE_CONTENT_BOX;
 }
 
-static void copy_spacing_side(Spacing* target, const Spacing* source,
-                              Margin* target_margin, const Margin* source_margin,
-                              CssBoxSide side, int64_t specificity) {
+static void copy_spacing_side(Spacing* target, Margin* margin, CssBoxSide side,
+                              ResolvedMarginSide source, int64_t specificity) {
     float* target_value = radiant_spacing_value(target, side);
     int64_t* target_specificity = radiant_spacing_specificity(target, side);
     if (!target_value || !target_specificity || specificity < *target_specificity) return;
-    *target_value = *radiant_spacing_value((Spacing*)source, side);
+    *target_value = source.value;
     *target_specificity = specificity;
-    if (target_margin) {
-        CssEnum* target_type = radiant_margin_type(target_margin, side);
-        CssEnum* source_type = source_margin
-            ? radiant_margin_type((Margin*)source_margin, side) : nullptr;
-        if (target_type) *target_type = source_type ? *source_type : CSS_VALUE__UNDEF;
-    }
+    if (margin) *radiant_margin_type(margin, side) = source.type;
 }
 
 // shorthand expansion and cascade gate, so side-specific cases stay in one loop.
@@ -3831,22 +3822,17 @@ void resolve_spacing_prop(LayoutContext* lycon, uintptr_t property,
         src_space->data.keyword == CSS_VALUE_INHERIT) {
         DomElement* current = lam::dom_require<DOM_NODE_ELEMENT>(lycon->view);
         DomElement* parent = current ? dom_parent_element(current) : nullptr;
-        const Spacing* source = nullptr;
-        const Margin* source_margin = nullptr;
-        if (parent && parent->bound) {
-            const BoundaryProp* boundary = parent->boundary();
-            source_margin = is_margin ? view_boundary_flow_margin(boundary) : nullptr;
-            source = is_margin ? static_cast<const Spacing*>(source_margin) :
-                is_padding ? &boundary->padding :
-                (boundary->border ? &boundary->border->width : nullptr);
-        }
-        if (!source) {
-            return;
-        }
+        if (!parent || !parent->bound) return;
+        const BoundaryProp* boundary = parent->boundary();
+        const Spacing* source = is_margin ? static_cast<const Spacing*>(&boundary->margin) :
+            is_padding ? &boundary->padding : (boundary->border ? &boundary->border->width : nullptr);
+        if (!source) return;
         Margin* target_margin = is_margin ? (Margin*)trg_spacing : nullptr;
         for (int side = CSS_BOX_SIDE_TOP; side <= CSS_BOX_SIDE_LEFT; side++) {
-            copy_spacing_side(trg_spacing, source, target_margin, source_margin,
-                              (CssBoxSide)side, specificity);
+            CssBoxSide box_side = static_cast<CssBoxSide>(side);
+            ResolvedMarginSide inherited = is_margin ? view_boundary_flow_margin(boundary, box_side)
+                : ResolvedMarginSide{source->values[side], CSS_VALUE__UNDEF};
+            copy_spacing_side(trg_spacing, target_margin, box_side, inherited, specificity);
         }
         return;
     }
@@ -3864,8 +3850,8 @@ void resolve_spacing_prop(LayoutContext* lycon, uintptr_t property,
     }
     Margin* target_margin = is_margin ? (Margin*)trg_spacing : nullptr;
     for (int side = CSS_BOX_SIDE_TOP; side <= CSS_BOX_SIDE_LEFT; side++) {
-        copy_spacing_side(trg_spacing, &parsed, target_margin, is_margin ? &parsed : nullptr,
-                          (CssBoxSide)side, specificity);
+        copy_spacing_side(trg_spacing, target_margin, static_cast<CssBoxSide>(side),
+            {parsed.values[side], is_margin ? parsed.types[side] : CSS_VALUE__UNDEF}, specificity);
     }
 }
 

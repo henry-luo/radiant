@@ -1194,10 +1194,10 @@ static bool flex_flow_key(LayoutContext* context, ViewBlock* item,
 }
 
 static bool flex_flow_keys_equal(DomElement* item, const FlexMeasuredFlowKey& a, const FlexMeasuredFlowKey& b) {
-    CacheEntry constraints = {};
+    LayoutCacheKey constraints = {};
     constraints.available_space = a.available_space;
     // atomic inline shrink-to-fit can distinguish intrinsic and definite available space.
-    return layout_cache_constraints_match(&constraints, known_dimensions_none(), b.available_space, 0.0f) &&
+    return layout_cache_constraints_match(constraints, known_dimensions_none(), b.available_space, 0.0f) &&
         css_font_keys_equal(a.font, b.font) && a.text == b.text && a.length == b.length &&
         a.style_epoch == b.style_epoch && a.mutation_epoch == b.mutation_epoch &&
         a.font_generation == b.font_generation && a.generation == b.generation &&
@@ -1312,8 +1312,12 @@ bool flex_measure_completed_flow(LayoutContext* context, ViewElement* element,
 static void flex_update_item_scroller(ViewBlock* item) {
     if (!item->scroller) return;
     // content_height excludes the content origin; scrollers compare against the border box.
+    float scroll_width = item->content_width;
     float scroll_height = layout_border_size_from_content_box(item, item->content_height, false);
-    update_scroller(item, item->content_width, scroll_height);
+    // keep the descendant bounds block flow measured: a grid item's content_height is 0, and
+    // refreshing from it alone left an overflow:auto grid item with nothing to scroll.
+    layout_scroll_container_extent(item, false, &scroll_width, &scroll_height, nullptr, nullptr);
+    update_scroller(item, scroll_width, scroll_height);
 }
 
 static bool flex_content_reads_block_constraint(DomNode* node, unsigned depth) {

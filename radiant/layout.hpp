@@ -855,13 +855,17 @@ inline SizeF size_f_zero() {
     return {0.0f, 0.0f};
 }
 // tier-3: layout-transient, valid within pass
-struct CacheEntry {
+struct LayoutCacheKey {
     AvailableSpace available_space = {{AVAILABLE_SIZE_CACHE_EMPTY, 0.0f}, {}};
     KnownDimensions known_dimensions;
-    SizeF computed_size;
 
     bool is_valid() const { return available_space.width.type != AVAILABLE_SIZE_CACHE_EMPTY; }
     void invalidate() { available_space.width.type = AVAILABLE_SIZE_CACHE_EMPTY; }
+};
+
+struct CacheEntry {
+    LayoutCacheKey key;
+    SizeF computed_size;
 };
 // tier-3: computed font inputs, borrowing the view's family name.
 struct CssFontKey {
@@ -876,7 +880,7 @@ bool css_font_keys_equal(const CssFontKey& a, const CssFontKey& b);
 // tier-2: scalar queries retained while subtree, inherited and environment inputs match.
 struct IntrinsicWidthCacheEntry {
     IntrinsicSizes sizes;
-    CacheEntry context;
+    LayoutCacheKey context;
     SizeF block_size;
     SizeF parent_size;
     uint32_t generation;
@@ -905,7 +909,6 @@ struct LayoutCache {
     lam::Own<IntrinsicHeightCache> intrinsic_heights;
     lam::Own<FlexMeasuredFlow> measured_flex_flow;
     lam::Own<IntrinsicWidthHistory> intrinsic_width_history;
-    CacheEntry final_layout;
     CacheEntry measure_entries[LAYOUT_CACHE_SIZE];
     // keep the latest query inline; history retains earlier complete constraints.
     IntrinsicWidthCacheEntry intrinsic_widths[4];
@@ -924,8 +927,7 @@ inline void layout_cache_init(LayoutCache* cache, uint32_t generation = 0) {
     cache->intrinsic_heights = nullptr;
     cache->measured_flex_flow = nullptr;
     cache->intrinsic_width_history = nullptr;
-    cache->final_layout.invalidate();
-    for (CacheEntry& entry : cache->measure_entries) entry.invalidate();
+    for (CacheEntry& entry : cache->measure_entries) entry.key.invalidate();
     cache->next_measure_entry = 0;
     for (int i = 0; i < 4; i++) {
         cache->intrinsic_widths[i].context.invalidate();
@@ -973,24 +975,24 @@ inline bool layout_cache_known_dimensions_match(KnownDimensions cached, KnownDim
 }
 
 inline bool layout_cache_constraints_match(
-    CacheEntry* entry,
+    const LayoutCacheKey& key,
     KnownDimensions known,
     AvailableSpace available,
     float tolerance = 0.1f
 ) {
-    if (!entry->is_valid()) return false;
+    if (!key.is_valid()) return false;
 
-    if (!layout_cache_known_dimensions_match(entry->known_dimensions, known, tolerance)) return false;
+    if (!layout_cache_known_dimensions_match(key.known_dimensions, known, tolerance)) return false;
 
-    if (entry->available_space.width.type != available.width.type) return false;
-    if (entry->available_space.height.type != available.height.type) return false;
+    if (key.available_space.width.type != available.width.type) return false;
+    if (key.available_space.height.type != available.height.type) return false;
 
     if (available.width.is_definite()) {
-        float diff = entry->available_space.width.value - available.width.value;
+        float diff = key.available_space.width.value - available.width.value;
         if (diff < -tolerance || diff > tolerance) return false;
     }
     if (available.height.is_definite()) {
-        float diff = entry->available_space.height.value - available.height.value;
+        float diff = key.available_space.height.value - available.height.value;
         if (diff < -tolerance || diff > tolerance) return false;
     }
 
@@ -1001,7 +1003,7 @@ inline CacheEntry* layout_cache_find_measurement(LayoutCache* cache, KnownDimens
                                                   AvailableSpace available) {
     // scanning full keys lets multiple widths share the same sizing mode.
     for (CacheEntry& entry : cache->measure_entries) {
-        if (layout_cache_constraints_match(&entry, known, available)) return &entry;
+        if (layout_cache_constraints_match(entry.key, known, available)) return &entry;
     }
     return nullptr;
 }
@@ -1010,18 +1012,9 @@ inline bool layout_cache_get(
     LayoutCache* cache,
     KnownDimensions known_dimensions,
     AvailableSpace available_space,
-    RunMode mode,
     SizeF* out_size
 ) {
     if (cache->is_empty) return false;
-
-    if (mode == RunMode::PerformLayout) {
-        if (layout_cache_constraints_match(&cache->final_layout, known_dimensions, available_space)) {
-            *out_size = cache->final_layout.computed_size;
-            return true;
-        }
-        return false;
-    }
 
     CacheEntry* entry = layout_cache_find_measurement(cache, known_dimensions, available_space);
     if (!entry) return false;
@@ -1033,22 +1026,18 @@ inline void layout_cache_store(
     LayoutCache* cache,
     KnownDimensions known_dimensions,
     AvailableSpace available_space,
-    RunMode mode,
     SizeF result
 ) {
     cache->is_empty = false;
 
-    CacheEntry* entry = &cache->final_layout;
-    if (mode != RunMode::PerformLayout) {
-        entry = layout_cache_find_measurement(cache, known_dimensions, available_space);
-        if (!entry) {
-            // a new key replaces the oldest insertion; refreshing a key keeps its slot.
-            entry = &cache->measure_entries[cache->next_measure_entry];
-            cache->next_measure_entry = (cache->next_measure_entry + 1) % LAYOUT_CACHE_SIZE;
-        }
+    CacheEntry* entry = layout_cache_find_measurement(cache, known_dimensions, available_space);
+    if (!entry) {
+        // a new key replaces the oldest insertion; refreshing a key keeps its slot.
+        entry = &cache->measure_entries[cache->next_measure_entry];
+        cache->next_measure_entry = (cache->next_measure_entry + 1) % LAYOUT_CACHE_SIZE;
     }
 
-    *entry = {available_space, known_dimensions, result};
+    *entry = {{available_space, known_dimensions}, result};
 }
 
 } // namespace radiant
@@ -2989,6 +2978,12 @@ float layout_in_flow_content_extent(ViewElement* elem, LayoutAxis axis,
 void layout_in_flow_content_bounds(ViewElement* elem, LayoutAxis axis,
                                    bool include_out_of_flow,
                                    float* out_min, float* out_max);
+// CSS Overflow 3 scrollable overflow: grows a scroll container's flow extent (border-box
+// width/height) to its in-flow descendants' bounds on each axis that can scroll and sets the
+// signed scroll origins (min_x/min_y may be null). A grid or flex container's content_height
+// stops at its own flow cursor, so its rows reach the scroll range only through these bounds.
+void layout_scroll_container_extent(ViewBlock* block, bool is_root, float* width, float* height,
+                                    float* min_x, float* min_y);
 // renderer-only cache: bounds are immutable after layout and can be shared by
 // repeated paint culling without revisiting a large descendant tree.
 HashMap* layout_content_bounds_cache_create();
@@ -4448,7 +4443,7 @@ void layout_reresolve_percentage_box(ViewBlock* block, float inline_base);
 // a context also re-evaluates percentage-bearing math at the supplied inline basis.
 void layout_reresolve_percentage_box(ViewBlock* block, float inline_base, LayoutContext* lycon);
 void layout_reresolve_percentage_margins(ViewBlock* block, float inline_base, LayoutContext* lycon);
-void layout_set_spacing_side(Spacing* spacing, Margin* margin, CssBoxSide side,
+bool layout_set_spacing_side(Spacing* spacing, Margin* margin, CssBoxSide side,
     float value, CssEnum type, int64_t specificity);
 bool layout_element_has_percentage_spacing(ViewBlock* block);
 bool layout_view_tree_has_percentage_spacing(View* root);

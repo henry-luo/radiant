@@ -948,14 +948,13 @@ static CssAnimationLengthSlot css_animation_length_slot(DomElement* element,
             if (writable) boundary = element->ensure_boundary(tree);
             if (!boundary) return {};
             // collapse mutates margin; transitions capture the uncollapsed source.
-            Margin* margin = !writable && boundary->has_flow_margin
-                ? &boundary->flow_margin : &boundary->margin;
-            return {radiant_spacing_value(margin, side), radiant_margin_type(margin, side),
+            bool read_flow = !writable && boundary->has_flow_margin;
+            bool write_flow = writable && boundary->has_flow_margin;
+            return {read_flow ? &boundary->flow_margin.values[side] : radiant_spacing_value(&boundary->margin, side),
+                read_flow ? &boundary->flow_margin.types[side] : radiant_margin_type(&boundary->margin, side),
                 nullptr, nullptr,
-                writable && boundary->has_flow_margin
-                    ? radiant_spacing_value(&boundary->flow_margin, side) : nullptr,
-                writable && boundary->has_flow_margin
-                    ? radiant_margin_type(&boundary->flow_margin, side) : nullptr, true};
+                write_flow ? &boundary->flow_margin.values[side] : nullptr,
+                write_flow ? &boundary->flow_margin.types[side] : nullptr, true};
         }
         case CSS_PROPERTY_PADDING_TOP:
         case CSS_PROPERTY_PADDING_RIGHT:

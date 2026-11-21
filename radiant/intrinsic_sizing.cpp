@@ -3668,7 +3668,7 @@ static bool intrinsic_width_query_matches(IntrinsicWidthCacheEntry& entry,
         ((entry.context_independent &&
           layout_cache_known_dimensions_match(entry.context.known_dimensions,
                                               query.context.known_dimensions, 0.0f)) ||
-         (layout_cache_constraints_match(&entry.context,
+         (layout_cache_constraints_match(entry.context,
             query.context.known_dimensions, query.context.available_space, 0.0f) &&
           entry.block_size.width == query.block_size.width &&
           entry.block_size.height == query.block_size.height &&
@@ -3825,7 +3825,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         int reason = !cached || !cached->context.is_valid() ? 0 :
             !element->has_cached_intrinsic_widths() ? 1 :
             cached->generation != measurement_generation ? 2 :
-            !inputs_match || !radiant::layout_cache_constraints_match(&cached->context,
+            !inputs_match || !radiant::layout_cache_constraints_match(cached->context,
                 query.context.known_dimensions, query.context.available_space, 0.0f) ? 3 :
             cached->block_size.width != query.block_size.width ||
                 cached->block_size.height != query.block_size.height ? 4 : 5;
@@ -8373,13 +8373,13 @@ static bool intrinsic_height_version_equal(const IntrinsicHeightVersion& a,
 
 static uint8_t intrinsic_height_key_changes(const IntrinsicHeightKey& a, const IntrinsicHeightKey& b,
                                            bool context_independent) {
-    CacheEntry available = {};
+    LayoutCacheKey available = {};
     available.available_space = a.available_space;
     uint8_t changed = 0;
     // ordinary independent flow consumes the explicit wrapping width, not the
     // caller's intrinsic/definite space label. Descendant proof is propagated on store.
     if (!context_independent &&
-        !layout_cache_constraints_match(&available, known_dimensions_none(), b.available_space, 0.0f))
+        !layout_cache_constraints_match(available, known_dimensions_none(), b.available_space, 0.0f))
         changed |= 1;
     if (!(context_independent
             ? a.geometry.viewport.width == b.geometry.viewport.width &&

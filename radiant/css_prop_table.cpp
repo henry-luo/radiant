@@ -1882,13 +1882,17 @@ static bool serialize_edge(const CssPropAccessor* accessor, DomElement* element,
     const BoundaryProp* boundary = element->boundary();
     // normal-flow collapse consumes vertical margins after their used lengths
     // are resolved; CSSOM reflects the owned value captured before that step.
-    const Margin& flow_margin = *view_boundary_flow_margin(boundary);
     float value = 0.0f;
     CssEnum type = CSS_VALUE__UNDEF;
     switch (accessor->id) {
-        case CSS_PROPERTY_MARGIN_TOP: value = flow_margin.top; type = flow_margin.top_type; break;
+        case CSS_PROPERTY_MARGIN_TOP:
+        case CSS_PROPERTY_MARGIN_BOTTOM: {
+            ResolvedMarginSide margin = view_boundary_flow_margin(boundary, radiant_css_box_side(accessor->id));
+            value = margin.value;
+            type = margin.type;
+            break;
+        }
         case CSS_PROPERTY_MARGIN_RIGHT: value = boundary->margin.right; type = boundary->margin.right_type; break;
-        case CSS_PROPERTY_MARGIN_BOTTOM: value = flow_margin.bottom; type = flow_margin.bottom_type; break;
         case CSS_PROPERTY_MARGIN_LEFT: value = boundary->margin.left; type = boundary->margin.left_type; break;
         case CSS_PROPERTY_PADDING_TOP: value = boundary->padding.top; break;
         case CSS_PROPERTY_PADDING_RIGHT: value = boundary->padding.right; break;

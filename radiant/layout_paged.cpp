@@ -4703,7 +4703,7 @@ static TypesetStatus paged_flow_widths_capture(PagedFlowState* state) {
 static void paged_break_truncate_margin(ViewBlock* block) {
     if (!block->bound) return;
     BoundaryProp* boundary = block->boundary_mut();
-    if (!boundary->has_flow_margin) { boundary->flow_margin = boundary->margin; boundary->has_flow_margin = true; }
+    capture_flow_margin(boundary);
     boundary->margin.top = 0.0f;
 }
 

@@ -1199,12 +1199,6 @@ static inline bool has_margin_chain(BoundaryProp* bound) {
     return bound && (bound->margin_chain_positive != 0 || bound->margin_chain_negative != 0);
 }
 
-static void capture_flow_margin(BoundaryProp* boundary) {
-    if (!boundary || boundary->has_flow_margin) return;
-    boundary->flow_margin = boundary->margin;
-    boundary->has_flow_margin = true;
-}
-
 static View* layout_rendered_first_placed_child(ViewBlock* block) {
     return block ? static_cast<View*>(layout_rendered_first_child_node(block->as_element()))
                  : nullptr;
@@ -3157,15 +3151,14 @@ static void include_flow_margin_chain(ViewBlock* block, WritingMode mode, bool s
     bool through, float* positive, float* negative) {
     // retain both signs across the whole adjoining set; folding already
     // collapsed scalar margins would lose components in mixed-sign chains.
-    const Margin* resolved = view_boundary_flow_margin(block->bound);
     LayoutLogicalSides sides = layout_logical_sides(mode != WM_HORIZONTAL_TB,
         mode == WM_VERTICAL_RL);
-    float margin = resolved ? resolved->values[start ? sides.block_start : sides.block_end] : 0.0f;
+    float margin = view_boundary_flow_margin(block->bound, start ? sides.block_start : sides.block_end).value;
     float next_positive, next_negative;
     margin_to_chain(margin, &next_positive, &next_negative);
     include_margin_chain(positive, negative, next_positive, next_negative);
-    if (through && resolved) {
-        margin = resolved->values[start ? sides.block_end : sides.block_start];
+    if (through && block->bound) {
+        margin = view_boundary_flow_margin(block->bound, start ? sides.block_end : sides.block_start).value;
         margin_to_chain(margin, &next_positive, &next_negative);
         include_margin_chain(positive, negative, next_positive, next_negative);
     }
@@ -4223,6 +4216,26 @@ void layout_store_last_remembered_size(LayoutContext* lycon, ViewBlock* block, b
     }
 }
 
+void layout_scroll_container_extent(ViewBlock* block, bool is_root, float* width, float* height,
+                                    float* min_x, float* min_y) {
+    if (!(block->scroller || is_root) || !block->is_element()) return;
+    ViewElement* element = lam::view_require_element(block);
+    BoxEdges border = layout_box_metrics(block).border;
+    for (LayoutAxis axis : layout_axes()) {
+        bool horizontal = layout_axis_is_horizontal(axis);
+        // overflow:clip never scrolls; the root viewport always can.
+        if (!is_root && (horizontal ? block->scroll()->overflow_x : block->scroll()->overflow_y) == CSS_VALUE_CLIP)
+            continue;
+        // scroll ranges include visible descendants without changing an auto-height ancestor.
+        float low = 0.0f, high = 0.0f;
+        layout_in_flow_content_bounds(element, axis, true, &low, &high);
+        float* extent = horizontal ? width : height;
+        *extent = max(*extent, high + (horizontal ? border.right : border.bottom));
+        float* origin = horizontal ? min_x : min_y;
+        if (origin) *origin = min(low, 0.0f);
+    }
+}
+
 void finalize_block_flow(LayoutContext* lycon, ViewBlock* block, CssEnum display) {
     float flow_width, flow_height;
     bool preserved_empty_vertical_multicol_line = false;
@@ -4243,10 +4256,6 @@ void finalize_block_flow(LayoutContext* lycon, ViewBlock* block, CssEnum display
     float scroll_flow_height = flow_height;
     float scroll_min_x = 0.0f;
     float scroll_min_y = 0.0f;
-    float content_min_x = 0.0f;
-    float content_max_x = 0.0f;
-    float content_min_y = 0.0f;
-    float content_max_y = 0.0f;
     if (layout_empty_editing_host(block) && lycon->block.line_height > 0.0f) {
         // html editing hosts expose the caret's anonymous line box when empty.
         lycon->block.advance_y += lycon->block.line_height;
@@ -4265,25 +4274,8 @@ void finalize_block_flow(LayoutContext* lycon, ViewBlock* block, CssEnum display
         scroll_flow_height = flow_height;
     }
     auto capture_scroll_bounds = [&]() {
-        if (!(block->scroller || is_root_element) || !block->is_element()) return;
-        ViewElement* element = lam::view_require_element(block);
-        bool can_scroll_x = is_root_element || block->scroll()->overflow_x != CSS_VALUE_CLIP;
-        bool can_scroll_y = is_root_element || block->scroll()->overflow_y != CSS_VALUE_CLIP;
-        // scroll ranges include visible descendants without changing an auto-height ancestor.
-        if (can_scroll_x) {
-            layout_in_flow_content_bounds(
-                element, LAYOUT_AXIS_X, true, &content_min_x, &content_max_x);
-            scroll_flow_width = max(scroll_flow_width,
-                content_max_x + block_box.border.right);
-            scroll_min_x = min(content_min_x, 0.0f);
-        }
-        if (can_scroll_y) {
-            layout_in_flow_content_bounds(
-                element, LAYOUT_AXIS_Y, true, &content_min_y, &content_max_y);
-            scroll_flow_height = max(scroll_flow_height,
-                content_max_y + block_box.border.bottom);
-            scroll_min_y = min(content_min_y, 0.0f);
-        }
+        layout_scroll_container_extent(block, is_root_element, &scroll_flow_width, &scroll_flow_height,
+            &scroll_min_x, &scroll_min_y);
     };
     if (!project_scroll_extents) capture_scroll_bounds();
     if (is_multicol_container(block) &&
