@@ -3878,6 +3878,9 @@ extern const FormFileButtonProp FORM_FILE_BUTTON_DEFAULT;
 
 // tier-2: view-pool, rebuilt each relayout
 struct FormControlProp {
+    DomElement* element_owner; // document-owned cleanup chain, including never-attached controls
+    FormControlProp* document_next;
+    FormControlProp** document_link;
     // Fast-read pointer to centralized state owner. Writers must use state_store APIs.
     struct DocState* state_ref;
     ViewState* form_state_ref;
@@ -4034,6 +4037,7 @@ void form_control_prop_init(FormControlProp* f);
 // Release owned heap pointers (custom_validity_msg). Clears
 // the borrowed current_value cache but does not free it or `f` itself.
 void form_control_prop_release(DomElement* elem, FormControlProp* f);
+void form_control_bind_document(DomElement* elem, FormControlProp* form);
 
 // Release a form-control property attached to a DOM element. This is used by
 // both layout-owned views and JS-created detached nodes.

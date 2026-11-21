@@ -1892,6 +1892,9 @@ extern "C" void selection_refresh_presentation(DocState* state) {
 }
 
 void DocState::destroy() {
+    // release outstanding endpoint holds while detached nodes and the range arena are live.
+    for (DomRange* range = live_ranges; range; range = range->next)
+        dom_range_assign_boundaries(range, {}, {});
     // a document may close during preedit, before any compositionend can release its bytes.
     editing_composition_clear_preedit(this);
     // The package can retain opaque generic DOM delta ids. Release their
@@ -2485,7 +2488,7 @@ static uint32_t view_state_resolve_id(View* view) {
     if (view->id != 0) return view->id;
     DomDocument* doc = view_state_resolve_document(view);
     if (doc) {
-        view->id = doc->next_node_id++;
+        view->id = dom_document_alloc_node_id(doc);
         return view->id;
     }
     return 0;

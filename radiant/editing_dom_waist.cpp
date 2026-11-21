@@ -991,8 +991,7 @@ static void editing_dom_transaction_restore_ranges(
             static_cast<DomMutationRangeSnapshot*>(
                 transaction->range_snapshots->data[i]);
         if (!snapshot || !snapshot->range) continue;
-        snapshot->range->start = snapshot->start;
-        snapshot->range->end = snapshot->end;
+        dom_range_assign_boundaries(snapshot->range, snapshot->start, snapshot->end);
         snapshot->range->layout_valid = snapshot->layout_valid;
     }
 }

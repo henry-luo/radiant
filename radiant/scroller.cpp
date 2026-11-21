@@ -339,7 +339,7 @@ struct ScrollSnapSearch {
     bool use_x, use_y, found_x, found_y;
     DomElement* best_target_x;
     DomElement* best_target_y;
-    DomElement* retained_target;
+    DomNodeRef retained_target;
     bool retained_found;
 };
 
@@ -421,7 +421,9 @@ static void scroll_snap_consider_axis(ScrollSnapSearch* search,
     float distance = fabsf(position - (horizontal
         ? search->desired_x : search->desired_y));
     float* best_distance = horizontal ? &search->distance_x : &search->distance_y;
-    bool retained = target == search->retained_target;
+    // compare against a current snap area; the saved address may have been recycled.
+    bool retained = search->retained_target.expected_id && target == search->retained_target.address &&
+        static_cast<DomNode*>(target)->id == search->retained_target.expected_id;
     if (retained || (!search->retained_found && distance < *best_distance)) {
         *best_distance = distance;
         *(horizontal ? &search->best_x : &search->best_y) = position;
@@ -467,10 +469,8 @@ void scroll_snap_adjust_position(ViewBlock* block, float* x, float* y,
     }
     if (!search.use_x && !search.use_y) return;
     if (preserve_target) {
-        DomNodeRef retained = scroll_state_get_snap_target_for_view(state, block);
-        if (!retained.address) return;
-        DomNode* target = dom_node_ref_validate(block->doc, retained);
-        if (target && target->is_element()) search.retained_target = target->as_element();
+        search.retained_target = scroll_state_get_snap_target_for_view(state, block);
+        if (!search.retained_target.address) return;
     }
     search.desired_x = *x;
     search.desired_y = *y;

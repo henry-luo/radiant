@@ -426,6 +426,7 @@ static void release_embedded_document(DomElement* elem) {
 static void release_detached_embedded_documents(DomNode* node) {
     if (!node || !node->is_element()) return;
     DomElement* elem = node->as_element();
+    if (DomElement* shadow = elem->shadow_root_element()) release_detached_embedded_documents(shadow);
     for (DomNode* child = elem->first_child; child; child = child->next_sibling) {
         release_detached_embedded_documents(child);
     }
@@ -538,8 +539,10 @@ static void release_form_prop(DomElement* elem, ViewTree* tree) {
     }
 }
 
-static void clear_item_prop(DomElement* elem, ViewTree*) {
+static void clear_item_prop(DomElement* elem, ViewTree* tree) {
     if (!elem) return;
+    if (elem->form_storage() && elem->form_storage()->element_owner == elem)
+        release_form_prop(elem, tree);
     elem->fi = nullptr;
     elem->gi = nullptr;
     elem->td = nullptr;
@@ -591,6 +594,8 @@ static void free_item_prop_storage(DomElement* elem, ViewTree* tree, bool preser
     // script-created form state survives restyling; full teardown releases
     // its heap storage through release_form_prop before clearing this slot.
     if (!preserve_form) {
+        if (elem->form_storage() && elem->form_storage()->element_owner == elem)
+            release_form_prop(elem, tree);
         if (elem->form_storage() && !elem->form_storage()->heap_allocated)
             view_pool_free(tree, elem->ext->form);
         if (elem->ext) elem->ext->form = nullptr;
@@ -1166,6 +1171,7 @@ void view_pool_release_detached_subtree(DomNode* root) {
 static void view_pool_release_detached_form_props_walk(DomNode* node) {
     if (!node || !node->is_element()) return;
     DomElement* elem = node->as_element();
+    if (DomElement* shadow = elem->shadow_root_element()) view_pool_release_detached_form_props_walk(shadow);
     for (DomNode* child = elem->first_child; child; child = child->next_sibling) {
         view_pool_release_detached_form_props_walk(child);
     }

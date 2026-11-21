@@ -81,11 +81,48 @@ void release_form_file_button(FormControlProp* form, Pool* pool) {
     release_form_paint(pool, form->file_button_paint);
 }
 
+static void form_control_unbind_document(FormControlProp* form) {
+    if (!form->document_link) return;
+    *form->document_link = form->document_next;
+    if (form->document_next) form->document_next->document_link = form->document_link;
+    form->document_next = nullptr;
+    form->document_link = nullptr;
+    form->element_owner = nullptr;
+}
+
+void form_control_bind_document(DomElement* elem, FormControlProp* form) {
+    if (!form || !elem->doc || form->document_link) return;
+    FormControlProp** head = &elem->doc->services.form_controls;
+    form->element_owner = elem;
+    form->document_link = head;
+    form->document_next = *head;
+    if (*head) (*head)->document_link = &form->document_next;
+    *head = form;
+}
+
+void form_control_adopt_document(DomElement* elem) {
+    if (FormControlProp* form = elem->form_storage()) {
+        form_control_unbind_document(form);
+        form_control_bind_document(elem, form);
+    }
+}
+
+void form_control_release_document(DomDocument* doc, bool include_attached) {
+    for (FormControlProp* form = doc->services.form_controls; form;) {
+        FormControlProp* next = form->document_next;
+        DomElement* elem = form->element_owner;
+        if (include_attached || !dom_shadow_including_contains(doc->root, elem))
+            form_control_release_prop(elem);
+        form = next;
+    }
+}
+
 void form_control_prop_release(DomElement* elem, FormControlProp* f) {
     if (!f) return;
     // Both release paths funnel through here. A live state store may still name
     // this control as its open dropdown owner, so only dereference the borrowed
     // state_ref while it remains this document's active state (ESO28).
+    form_control_unbind_document(f);
     DocState* state = f->state_ref;
     if (state && elem && elem->doc && elem->doc->state == state && state->open_dropdown) {
         View* owner = state->open_dropdown;
@@ -136,6 +173,7 @@ FormControlProp* tc_get_or_create_form(DomElement* elem) {
         mem_free(f);
         return nullptr;
     }
+    form_control_bind_document(elem, f);
     if (f->control_type != FORM_CONTROL_NONE &&
         elem->role_kind() == DomElement::ROLE_NONE) {
         elem->set_role_kind(DomElement::ROLE_FORM);

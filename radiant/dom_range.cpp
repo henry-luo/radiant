@@ -301,8 +301,8 @@ DomRange* dom_range_create(DocState* state) {
     // A fresh Range starts at (document, 0); leaving null boundaries made
     // detach() appear to destroy the Range even though detach is a legacy no-op.
     DomNode* document_root = dom_range_state_document_root(state);
-    r->start = {document_root, 0};
-    r->end = {document_root, 0};
+    dom_range_assign_boundaries(r, {document_root, 0}, {document_root, 0});
+    dom_range_link_into_state(state, r);
     return r;
 }
 
@@ -322,6 +322,7 @@ void dom_range_release(DomRange* range) {
     if (released == REF_COUNT_LAST) {
         DocState* state = range->state;
         dom_range_unlink_from_state(state, range);
+        dom_range_assign_boundaries(range, {}, {});
         DomRange** freelist = dom_range_state_range_freelist_slot(
             range->allocation_state);
         if (freelist) {
@@ -378,18 +379,17 @@ extern "C" __attribute__((weak)) bool dom_mutation_transaction_active(
 // After a boundary mutation, ensure start <= end. If not, collapse the
 // other end to match (per spec: "If range's start is after its end, set
 // the other boundary to the same point as the changed boundary.")
-static void enforce_range_invariant(DomRange* r, bool start_was_set) {
-    if (!r->start.node || !r->end.node) {
-        // First-time set: mirror the unset end to the set one.
-        if (start_was_set && !r->end.node) r->end = r->start;
-        if (!start_was_set && !r->start.node) r->start = r->end;
-        return;
+static void set_ordered_boundaries(DomRange* r, DomBoundary start, DomBoundary end, bool start_was_set) {
+    if (!start.node) start = end;
+    else if (!end.node) end = start;
+    else {
+        DomBoundaryOrder order = dom_boundary_compare(&start, &end);
+        if (order == DOM_BOUNDARY_AFTER || order == DOM_BOUNDARY_DISJOINT) {
+            if (start_was_set) end = start;
+            else start = end;
+        }
     }
-    DomBoundaryOrder ord = dom_boundary_compare(&r->start, &r->end);
-    if (ord == DOM_BOUNDARY_AFTER || ord == DOM_BOUNDARY_DISJOINT) {
-        if (start_was_set) r->end = r->start;
-        else r->start = r->end;
-    }
+    dom_range_assign_boundaries(r, start, end);
 }
 
 bool dom_range_set_start(DomRange* r, DomNode* node, uint32_t offset, const char** out_exception) {
@@ -398,9 +398,7 @@ bool dom_range_set_start(DomRange* r, DomNode* node, uint32_t offset, const char
         set_exception(out_exception, "IndexSizeError");
         return false;
     }
-    r->start.node = node;
-    r->start.offset = offset;
-    enforce_range_invariant(r, /*start_was_set=*/true);
+    set_ordered_boundaries(r, {node, offset}, r->end, true);
     dom_range_invalidate_layout(r);
     range_check_cross_root_drop(r);
     resync_selection_after_mutation(r->state);
@@ -413,9 +411,7 @@ bool dom_range_set_end(DomRange* r, DomNode* node, uint32_t offset, const char**
         set_exception(out_exception, "IndexSizeError");
         return false;
     }
-    r->end.node = node;
-    r->end.offset = offset;
-    enforce_range_invariant(r, /*start_was_set=*/false);
+    set_ordered_boundaries(r, r->start, {node, offset}, false);
     dom_range_invalidate_layout(r);
     range_check_cross_root_drop(r);
     resync_selection_after_mutation(r->state);
@@ -453,8 +449,8 @@ bool dom_range_set_end_after(DomRange* r, DomNode* node, const char** out_except
 
 void dom_range_collapse(DomRange* r, bool to_start) {
     if (!r) return;
-    if (to_start) r->end = r->start;
-    else r->start = r->end;
+    DomBoundary point = to_start ? r->start : r->end;
+    dom_range_assign_boundaries(r, point, point);
     dom_range_invalidate_layout(r);
 }
 
@@ -587,8 +583,7 @@ DomRange* dom_range_clone(const DomRange* r) {
     if (!r) return NULL;
     DomRange* c = dom_range_create(r->state);
     if (!c) return NULL;
-    c->start = r->start;
-    c->end = r->end;
+    dom_range_assign_boundaries(c, r->start, r->end);
     return c;
 }
 
@@ -806,8 +801,7 @@ bool dom_selection_collapse(DomSelection* s, DomNode* node, uint32_t offset, con
     dom_selection_remove_all_ranges(s);
     DomRange* r = ensure_primary_range(s);
     if (!r) return false;
-    r->start.node = r->end.node = node;
-    r->start.offset = r->end.offset = offset;
+    dom_range_assign_boundaries(r, {node, offset}, {node, offset});
     dom_range_invalidate_layout(r);
     sync_anchor_focus(s, /*forward=*/true);
     return true;
@@ -847,8 +841,7 @@ bool dom_selection_extend(DomSelection* s, DomNode* node, uint32_t offset, const
     dom_selection_remove_all_ranges(s);
     DomRange* r = ensure_primary_range(s);
     if (!r) return false;
-    r->start = new_start;
-    r->end = new_end;
+    dom_range_assign_boundaries(r, new_start, new_end);
     dom_range_invalidate_layout(r);
     sync_anchor_focus(s, forward);
     return true;
@@ -874,8 +867,7 @@ bool dom_selection_set_base_and_extent(DomSelection* s,
     dom_selection_remove_all_ranges(s);
     DomRange* r = ensure_primary_range(s);
     if (!r) return false;
-    if (forward) { r->start = a; r->end = f; }
-    else         { r->start = f; r->end = a; }
+    dom_range_assign_boundaries(r, forward ? a : f, forward ? f : a);
     dom_range_invalidate_layout(r);
     sync_anchor_focus(s, forward);
     return true;
@@ -965,26 +957,6 @@ void dom_range_adopt_subtree(DocState* source, DocState* destination,
             dom_range_link_into_state(destination, range);
         }
         range = next;
-    }
-}
-
-void dom_range_refresh_lifecycle_pins(DomDocument* doc) {
-    // State teardown releases every live Range before document retirement.
-    // Without a state there are no endpoints to preserve and no pins to refresh.
-    if (!doc || !doc->state) return;
-    dom_node_clear_reason_pins(doc, DOM_NODE_PIN_RANGE);
-    DomRange** head = dom_range_state_live_ranges_slot(doc->state);
-    if (!head) return;
-    for (DomRange* range = *head; range; range = range->next) {
-        DomNode* endpoints[2] = {range->start.node, range->end.node};
-        for (int i = 0; i < 2; i++) {
-            DomNode* node = endpoints[i];
-            if (!node) continue;
-            DomNodeRef ref = dom_node_ref(node);
-            if (dom_node_ref_validate(doc, ref)) {
-                dom_node_pin(doc, ref, DOM_NODE_PIN_RANGE);
-            }
-        }
     }
 }
 
@@ -1109,16 +1081,16 @@ static void normalize_selection_after_atomic_remove(DocState* state,
     if (!previous_text) return;
 
     DomRange* r = s->ranges[0];
+    DomBoundary start = r->start, end = r->end;
     bool start_changed = false;
     bool end_changed = false;
     normalize_selection_endpoint_after_atomic_remove(
-        &r->start, parent, index, previous_text, &start_changed);
+        &start, parent, index, previous_text, &start_changed);
     normalize_selection_endpoint_after_atomic_remove(
-        &r->end, parent, index, previous_text, &end_changed);
+        &end, parent, index, previous_text, &end_changed);
     if (!start_changed && !end_changed) return;
 
-    if (start_changed) enforce_range_invariant(r, /*start_was_set=*/true);
-    if (end_changed) enforce_range_invariant(r, /*start_was_set=*/false);
+    set_ordered_boundaries(r, start, end, start_changed);
     r->layout_valid = false;
 }
 
@@ -1138,9 +1110,11 @@ static void dom_mutation_prepare_remove(DocState* state, DomNode* child, DomNode
         for (DomRange* r = *head; r; r = r->next) {
             bool relocated = false;
             bool collapsed = dom_range_collapsed(r);
-            bool changed = adjust_one_endpoint_for_remove(&r->start, parent, child, index, replacement, &relocated);
-            changed = adjust_one_endpoint_for_remove(&r->end, parent, child, index, replacement, &relocated) || changed;
-            if (replacement) enforce_range_invariant(r, true);
+            DomBoundary start = r->start, end = r->end;
+            bool changed = adjust_one_endpoint_for_remove(&start, parent, child, index, replacement, &relocated);
+            changed = adjust_one_endpoint_for_remove(&end, parent, child, index, replacement, &relocated) || changed;
+            if (replacement) set_ordered_boundaries(r, start, end, true);
+            else dom_range_assign_boundaries(r, start, end);
             if (r == primary) {
                 selection_changed = changed || collapsed != dom_range_collapsed(r);
                 selection_relocated = relocated;
@@ -1231,14 +1205,16 @@ void dom_mutation_text_split(DocState* state, DomText* original,
     if (head) {
         // Step 1: move endpoints inside `original` past `offset` to `new_node`.
         for (DomRange* r = *head; r; r = r->next) {
-            if (r->start.node == static_cast<DomNode*>(original) && r->start.offset > offset) {
-                r->start.node   = static_cast<DomNode*>(new_node);
-                r->start.offset = r->start.offset - offset;
+            DomBoundary start = r->start, end = r->end;
+            if (start.node == static_cast<DomNode*>(original) && start.offset > offset) {
+                start.node   = static_cast<DomNode*>(new_node);
+                start.offset = start.offset - offset;
             }
-            if (r->end.node == static_cast<DomNode*>(original) && r->end.offset > offset) {
-                r->end.node   = static_cast<DomNode*>(new_node);
-                r->end.offset = r->end.offset - offset;
+            if (end.node == static_cast<DomNode*>(original) && end.offset > offset) {
+                end.node   = static_cast<DomNode*>(new_node);
+                end.offset = end.offset - offset;
             }
+            dom_range_assign_boundaries(r, start, end);
             r->layout_valid = false;
         }
     }
@@ -1256,14 +1232,16 @@ void dom_mutation_text_merge(DocState* state, DomText* prev,
     DomRange** head = dom_range_state_live_ranges_slot(state);
     if (head) {
         for (DomRange* r = *head; r; r = r->next) {
-            if (r->start.node == static_cast<DomNode*>(next)) {
-                r->start.node   = static_cast<DomNode*>(prev);
-                r->start.offset = prev_u16_len + r->start.offset;
+            DomBoundary start = r->start, end = r->end;
+            if (start.node == static_cast<DomNode*>(next)) {
+                start.node   = static_cast<DomNode*>(prev);
+                start.offset = prev_u16_len + start.offset;
             }
-            if (r->end.node == static_cast<DomNode*>(next)) {
-                r->end.node   = static_cast<DomNode*>(prev);
-                r->end.offset = prev_u16_len + r->end.offset;
+            if (end.node == static_cast<DomNode*>(next)) {
+                end.node   = static_cast<DomNode*>(prev);
+                end.offset = prev_u16_len + end.offset;
             }
+            dom_range_assign_boundaries(r, start, end);
             r->layout_valid = false;
         }
     }
@@ -1566,8 +1544,7 @@ static DomElement* range_process_contents(DomRange* r, RangeOp op,
         }
         if (op != ROP_CLONE) {
             // Range becomes collapsed at (sn, so).
-            r->start = { sn, so };
-            r->end   = r->start;
+            dom_range_assign_boundaries(r, {sn, so}, {sn, so});
             r->layout_valid = false;
         }
         return fragment;
@@ -1645,8 +1622,7 @@ static DomElement* range_process_contents(DomRange* r, RangeOp op,
 
     // Update range boundary for delete/extract.
     if (op != ROP_CLONE) {
-        r->start = { new_node, new_off };
-        r->end   = r->start;
+        dom_range_assign_boundaries(r, {new_node, new_off}, {new_node, new_off});
         r->layout_valid = false;
     }
     return fragment;
@@ -1816,8 +1792,7 @@ bool dom_range_surround_contents(DomRange* r, DomNode* node, const char** out_ex
     DomNode* parent = node->parent;
     if (parent) {
         uint32_t idx = dom_node_child_index(node);
-        r->start = { parent, idx };
-        r->end   = { parent, idx + 1 };
+        dom_range_assign_boundaries(r, {parent, idx}, {parent, idx + 1});
         r->layout_valid = false;
     }
     return true;
