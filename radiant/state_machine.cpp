@@ -49,8 +49,11 @@ static bool finish_transition(DocState* state,
     if (sync_selection) state_machine_sync_selection_projection(state);
     if (sync_editing) editing_interaction_sync_projection(state);
     sm_guard->commit();
+    // the reportless validation always returned true. Refresh its projection
+    // explicitly and keep the invariant check at the transition boundary.
+    state_machine_sync_selection_projection(state);
     radiant_state_assert_valid(state, context);
-    return radiant_state_validate_interaction(state, NULL);
+    return true;
 }
 
 typedef void (*SingleTargetSetter)(DocState* state, View* target);
