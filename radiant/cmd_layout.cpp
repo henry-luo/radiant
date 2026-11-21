@@ -1142,15 +1142,15 @@ typedef enum {
 
 static ResourcePriority external_prefetch_priority(Element* elem,
                                                    ExternalPrefetchKind kind) {
-    if (kind != EXTERNAL_PREFETCH_SCRIPT) return PRIORITY_HIGH;
-    const char* type = extract_element_attribute(elem, "type", nullptr);
-    const char* async = extract_element_attribute(elem, "async", nullptr);
-    const char* defer = extract_element_attribute(elem, "defer", nullptr);
-    if (async || defer ||
-        (type && str_ieq_cstr(type, "module"))) {
-        return PRIORITY_NORMAL;
+    ResourcePriority priority = PRIORITY_HIGH;
+    if (kind == EXTERNAL_PREFETCH_SCRIPT) {
+        const char* type = extract_element_attribute(elem, "type", nullptr);
+        const char* async = extract_element_attribute(elem, "async", nullptr);
+        const char* defer = extract_element_attribute(elem, "defer", nullptr);
+        if (async || defer || (type && str_ieq_cstr(type, "module")))
+            priority = PRIORITY_NORMAL;
     }
-    return PRIORITY_HIGH;
+    return radiant_html_fetch_priority(extract_element_attribute(elem, "fetchpriority", nullptr), priority);
 }
 
 // Collect one resource class per pass so stylesheet requests cannot wait on

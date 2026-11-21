@@ -20,6 +20,7 @@
 #include "lambda/input/css/css_parser.hpp"
 #include "lambda/input/css/css_engine.hpp"
 #include "lambda/input/css/css_font_face.hpp"
+#include "lambda/input/css/css_style.hpp"
 #include "view.hpp"
 #include "layout.hpp"
 #include "radiant.hpp"
@@ -64,6 +65,19 @@ void radiant_for_each_css_value_resource_url(const CssValue* value, RadiantCssUr
     if (!value || !visitor) return;
     if (value->type == CSS_VALUE_TYPE_URL && value->data.url) {
         visitor(value, context);
+    } else if (css_value_is_image_set(value)) {
+        const CssFunction* function = value->data.function;
+        for (int i = 0; i < function->arg_count; i++) {
+            CssImageSetOption option;
+            if (!css_image_set_option(function->args[i], &option)) continue;
+            // only image-set's image string denotes a URL; type() strings are metadata.
+            CssValue image = *option.image;
+            if (image.type == CSS_VALUE_TYPE_STRING) {
+                image.type = CSS_VALUE_TYPE_URL;
+                image.data.url = option.image->data.string;
+            }
+            radiant_for_each_css_value_resource_url(&image, visitor, context);
+        }
     } else if (value->type == CSS_VALUE_TYPE_FUNCTION && value->data.function) {
         CssFunction* func = value->data.function;
         for (int i = 0; i < func->arg_count; i++) {

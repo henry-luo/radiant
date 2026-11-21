@@ -434,7 +434,8 @@ inline float grid_item_minimum_contribution(
     bool horizontal,
     float min_content,
     float max_content,
-    bool is_scroll_container)
+    bool is_scroll_container,
+    bool spans_flexible_tracks = false)
 {
     CssEnum min_keyword = layout_intrinsic_min_size_keyword(item, horizontal);
     if (min_keyword == CSS_VALUE_MAX_CONTENT) return max_content;
@@ -449,11 +450,13 @@ inline float grid_item_minimum_contribution(
         return layout_css_size_to_border_box(
             item ? item->bound : nullptr, layout_box_sizing(item), explicit_min, horizontal);
     }
-    return is_scroll_container ? 0.0f : min_content;
+    // grid §6.6 zeroes an automatic minimum when a multi-track span crosses fr tracks.
+    return is_scroll_container || spans_flexible_tracks ? 0.0f : min_content;
 }
 
 inline ContribArray collect_item_contributions(
-    GridContainerLayout* grid_layout, ViewBlock** items, int item_count, bool is_column_axis)
+    GridContainerLayout* grid_layout, ViewBlock** items, int item_count, bool is_column_axis,
+    const TrackArray& tracks)
 {
     ContribArray contributions;
     if (!grid_layout || !items || item_count <= 0) return contributions;
@@ -503,7 +506,8 @@ inline ContribArray collect_item_contributions(
             (horizontal ? item->scroll()->overflow_x : item->scroll()->overflow_y) != CSS_VALUE_VISIBLE;
         contrib.minimum_contribution = grid_item_minimum_contribution(item, horizontal,
             contrib.min_content_contribution - margins, contrib.max_content_contribution - margins,
-            contrib.is_scroll_container) + margins;
+            contrib.is_scroll_container, contrib.track_span > 1 &&
+                item_crosses_flexible_track(tracks, contrib.track_start, contrib.track_span, true)) + margins;
         if (contrib.track_span > 0 && !contributions.push_back(contrib)) {
             grid_layout->storage_failed = true;
             return contributions;
@@ -616,7 +620,7 @@ inline void run_enhanced_track_sizing(
 
         // 11.5 Resolve Intrinsic Track Sizes
         ContribArray col_contributions =
-            collect_item_contributions(grid_layout, items, item_count, true /* is_column_axis */);
+            collect_item_contributions(grid_layout, items, item_count, true /* is_column_axis */, col_tracks);
         if (grid_layout->storage_failed) return;
 
         // When the container has definite width, cap auto track growth limits to prevent
@@ -799,7 +803,7 @@ inline void run_enhanced_track_sizing(
         // 11.5 Resolve Intrinsic Track Sizes
         // NOTE: This uses grid_layout->computed_columns which was just updated above
         ContribArray row_contributions =
-            collect_item_contributions(grid_layout, items, item_count, false /* is_column_axis */);
+            collect_item_contributions(grid_layout, items, item_count, false /* is_column_axis */, row_tracks);
         if (grid_layout->storage_failed) return;
         resolve_intrinsic_track_sizes(row_tracks, row_contributions, grid_layout->row_gap, row_percentage_base);
 

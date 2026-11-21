@@ -23,6 +23,11 @@ CssEnum css_ruby_compute_unicode_bidi(CssEnum value) {
 }
 
 const char* css_display_special_name(DisplayValue display) {
+    // internal table roles use the inner keyword rather than their block outer display.
+    if (is_table_internal_display(display.inner)) {
+        const CssEnumInfo* info = css_enum_info(display.inner);
+        return info ? info->name : nullptr;
+    }
     // atomic inline layout normalizes inline flow-root to the inline-block role.
     bool inline_outer = display.outer == CSS_VALUE_INLINE || display.outer == CSS_VALUE_INLINE_BLOCK;
     if (display.inner.list_item() && inline_outer &&

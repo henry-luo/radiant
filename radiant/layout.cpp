@@ -1018,6 +1018,12 @@ void layout_reset_boundary_flow_state(BoundaryProp* boundary) {
 static void reset_non_inherited_style_cache(LayoutContext* lycon, ViewSpan* view) {
     if (!lycon || !view) return;
 
+    if (view->in_line) {
+        // an expired effect or removed declaration must not retain sampled opacity.
+        InlineProp* inline_prop = view->ensure_inline(lycon);
+        if (inline_prop) inline_prop->opacity = INLINE_PROP_DEFAULT.opacity;
+    }
+
     if (view->blk) {
         // removed size declarations must not constrain the next retained layout.
         BlockProp* block = view->block_mut();
@@ -6476,8 +6482,11 @@ void layout_publish_document_geometry(UiContext* ui, DomDocument* doc) {
     DocumentLayoutPublication inputs = layout_document_inputs(ui, doc);
     // a proven paint-only/detached batch consumes its own input versions, but
     // cannot also satisfy an unrelated resize or newly registered font.
-    if (layout_document_environment_equal(*doc->view_tree->document_layout, inputs))
+    if (layout_document_environment_equal(*doc->view_tree->document_layout, inputs)) {
+        // the admitted batch consumed its invalidation too; retaining it forces another full flow.
+        view_geometry_walk_dom_tree(doc->root, layout_clear_dirty_visitor, nullptr);
         *doc->view_tree->document_layout = inputs;
+    }
 }
 
 static bool layout_document_geometry_current(UiContext* ui, DomDocument* doc) {
