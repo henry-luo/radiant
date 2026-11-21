@@ -3008,6 +3008,12 @@ float layout_in_flow_content_extent(ViewElement* elem, LayoutAxis axis,
 void layout_in_flow_content_bounds(ViewElement* elem, LayoutAxis axis,
                                    bool include_out_of_flow,
                                    float* out_min, float* out_max);
+// CSS Overflow 3 scrollable overflow: grows a scroll container's flow extent (border-box
+// width/height) to its in-flow descendants' bounds on each axis that can scroll and sets the
+// signed scroll origins (min_x/min_y may be null). A grid or flex container's content_height
+// stops at its own flow cursor, so its rows reach the scroll range only through these bounds.
+void layout_scroll_container_extent(ViewBlock* block, bool is_root, float* width, float* height,
+                                    float* min_x, float* min_y);
 // renderer-only cache: bounds are immutable after layout and can be shared by
 // repeated paint culling without revisiting a large descendant tree.
 HashMap* layout_content_bounds_cache_create();

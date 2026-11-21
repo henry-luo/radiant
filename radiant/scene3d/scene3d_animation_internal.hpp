@@ -36,7 +36,9 @@ struct Scene3dAnimationState {
     uint64_t epoch, generation, revision, command_revision, event_replays, source_hash, number_count, text_bytes;
     uint32_t source_generation;
     unsigned binding_count, clip_count;
-    bool automatic, quiet, coupled;
+    // automatic: the host clock drives the mixer; playable: the template asks for it (an autoplay clip or a
+    // controller); manual: a seek or an explicit host command chose the clock, so later edits keep that choice
+    bool automatic, quiet, coupled, playable, manual;
     const char* diagnostic;
     Scene3dAnimationEvents* replay_events;
 };
