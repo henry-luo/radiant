@@ -1018,7 +1018,7 @@ static bool inline_block_contains_list_item(View* atomic) {
     ViewElement* atomic_element = lam::view_require_element(atomic);
     for (View* child = atomic_element->first_placed_child(); child; child = child->next()) {
         ViewBlock* block = lam::view_as_block(child);
-        if (block && block->display.list_item) {
+        if (block && block->display_list_item()) {
             return true;
         }
     }
@@ -1028,7 +1028,7 @@ static bool inline_block_contains_list_item(View* atomic) {
 static bool inline_child_is_list_item(View* child) {
     if (!child || child->view_type != RDT_VIEW_INLINE_BLOCK) return false;
     ViewBlock* block = lam::view_as_block(child);
-    if (block && block->display.list_item) {
+    if (block && block->display_list_item()) {
         return true;
     }
     return inline_block_contains_list_item(child);
@@ -2407,7 +2407,7 @@ void layout_inline(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
 
     if (elmt->is_element()) {
         ViewBlock* block_api_span = lam::unsafe_view_block_api_span(span);
-        layout_materialize_pseudo_content(lycon, block_api_span, display.list_item, false);
+        layout_materialize_pseudo_content(lycon, block_api_span, display.inner.list_item(), false);
     }
 
     if (pa_font.style) {
@@ -2776,7 +2776,7 @@ void layout_inline(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
     // CSS 2.1 §9.2.1.1 and §17.2.1: table-internal children are block
     // fragments after table fix-up; preserve an inline list-item's fragment
     // geometry during the later line-height correction.
-    bool preserve_inline_list_marker_fragment = span->display.list_item &&
+    bool preserve_inline_list_marker_fragment = span->display_list_item() &&
         span->display.outer == CSS_VALUE_INLINE;
     bool has_block_fragment_child = layout_inline_span_has_in_flow_block_child(
         span, preserve_inline_list_marker_fragment);

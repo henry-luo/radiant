@@ -7,7 +7,7 @@
 
 
 static bool element_is_password_text_control(DomElement* elem) {
-    if (!elem || !elem->tag_name || str_icmp_cstr(elem->tag_name, "input") != 0) {
+    if (!elem || !elem->tag_name() || str_icmp_cstr(elem->tag_name(), "input") != 0) {
         return false;
     }
     const char* type = elem->get_attribute("type");
@@ -15,7 +15,7 @@ static bool element_is_password_text_control(DomElement* elem) {
 }
 
 static bool element_is_textarea(DomElement* elem) {
-    return elem && elem->tag_name && str_icmp_cstr(elem->tag_name, "textarea") == 0;
+    return elem && elem->tag_name() && str_icmp_cstr(elem->tag_name(), "textarea") == 0;
 }
 
 static DocState* element_doc_state(DomElement* elem) {

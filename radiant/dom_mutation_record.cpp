@@ -145,7 +145,7 @@ static void dom_record_inline_stylesheets_in_subtree(DomDocument* doc,
     if (!node) return;
     if (node->is_element()) {
         DomElement* element = static_cast<DomElement*>(node);
-        if (element->tag_name && str_icmp_cstr(element->tag_name, "style") == 0) {
+        if (element->tag_name() && str_icmp_cstr(element->tag_name(), "style") == 0) {
             radiant_dom_record_inline_stylesheet_owner(doc, element);
         }
         if (dom_element_is_html_tag(element, MARKUP_NAME_TEMPLATE)) return;
@@ -166,7 +166,7 @@ static DomElement* dom_inline_stylesheet_mutation_owner(DomNode* target,
             ? static_cast<DomElement*>(node)
             : (node->parent && node->parent->is_element()
                 ? static_cast<DomElement*>(node->parent) : nullptr);
-        if (element && element->tag_name && str_icmp_cstr(element->tag_name, "style") == 0) {
+        if (element && element->tag_name() && str_icmp_cstr(element->tag_name(), "style") == 0) {
             return element;
         }
     }

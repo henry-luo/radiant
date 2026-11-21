@@ -5,7 +5,7 @@
 #include <string.h>
 
 // A scratch-lived element gets every prop it needs when it is created, in its
-// own scratch; allocating one from the view-tree pool would leak per pass.
+// own scratch; allocating one from a longer-lived pool would leak per pass.
 static void assert_pool_owner(const DomElement* owner) {
     assert(!owner || !owner->scratch_lived());
     (void)owner;
@@ -28,11 +28,11 @@ static Pool* prop_pool(ViewTree* tree) { return tree ? tree->prop_pool : nullptr
 
 template <typename Prop, DomViewSlot Slot>
 static Prop* ensure_directory_prop(DomElement* elem, Pool* pool,
-        lam::ViewProp<Prop, Slot> DomPropExt::*member, const Prop& defaults) {
-    DomPropExt* slots = elem->prop_ext;
+        lam::ViewProp<Prop, Slot> DomStyleExt::*member, const Prop& defaults) {
+    DomStyleExt* slots = elem->style_ext;
     if (!slots && pool) {
         assert_pool_owner(elem);
-        slots = elem->ensure_prop_ext();
+        slots = elem->ensure_style_ext();
     }
     return slots ? ensure_view_prop(elem, pool, slots->*member, defaults) : nullptr;
 }
@@ -142,9 +142,11 @@ static ScrollProp* ensure_scroll_prop(DomElement* element, Pool* pool) {
 ScrollProp* DomElement::ensure_scroll(ViewTree* tree) { return ensure_scroll_prop(this, prop_pool(tree)); }
 
 PositionProp* DomElement::ensure_position(ViewTree* tree) { return ensure_view_prop(this, prop_pool(tree), position, POSITION_PROP_DEFAULT); }
-EmbedProp* DomElement::ensure_embed(ViewTree* tree) { return ensure_view_prop(this, prop_pool(tree), embed, EMBED_PROP_DEFAULT); }
+EmbedStyle* DomElement::ensure_embed() {
+    return ensure_view_prop(this, storage_pool(), embed, EMBED_STYLE_DEFAULT);
+}
 TransformProp* DomElement::ensure_transform(ViewTree* tree) {
-    return ensure_directory_prop(this, prop_pool(tree), &DomPropExt::transform, TRANSFORM_PROP_DEFAULT);
+    return ensure_directory_prop(this, prop_pool(tree), &DomStyleExt::transform, TRANSFORM_PROP_DEFAULT);
 }
 static FilterProp* ensure_filter_prop(DomElement* element, Pool* pool) {
     FilterProp* value = element->filter_prop();
@@ -196,10 +198,10 @@ TableProp* DomElement::ensure_table(ViewTree* tree) {
     if (role_kind() != ROLE_NONE && role_kind() != ROLE_TABLE &&
         role_kind() != ROLE_FORM) return nullptr;
     if (role_kind() != ROLE_TABLE) {
-        if (prop_ext) prop_ext->tb = nullptr;
+        if (style_ext) style_ext->tb = nullptr;
         set_role_kind(ROLE_TABLE);
     }
-    return ensure_directory_prop(this, prop_pool(tree), &DomPropExt::tb, TABLE_PROP_DEFAULT);
+    return ensure_directory_prop(this, prop_pool(tree), &DomStyleExt::tb, TABLE_PROP_DEFAULT);
 }
 
 TableCellProp* DomElement::ensure_cell(ViewTree* tree) {
@@ -213,7 +215,7 @@ FormControlProp* DomElement::ensure_form(ViewTree* tree) {
     if (role_kind() != ROLE_NONE && role_kind() != ROLE_FORM &&
         role_kind() != ROLE_TABLE && role_kind() != ROLE_CELL) return nullptr;
     if (role_kind() == ROLE_NONE) set_role_kind(ROLE_FORM);
-    return ensure_directory_prop(this, prop_pool(tree), &DomPropExt::form, FORM_CONTROL_PROP_DEFAULT);
+    return ensure_directory_prop(this, prop_pool(tree), &DomStyleExt::form, FORM_CONTROL_PROP_DEFAULT);
 }
 
 BoundaryProp* DomElement::ensure_boundary(LayoutContext* lycon) { return ensure_view_prop(this, prop_pool(lycon), bound, BOUNDARY_PROP_DEFAULT); }
@@ -221,12 +223,11 @@ InlineProp* DomElement::ensure_inline(LayoutContext* lycon) {
     return ensure_inline_prop(this, prop_pool(lycon), prop_tree(lycon));
 }
 PositionProp* DomElement::ensure_position(LayoutContext* lycon) { return ensure_view_prop(this, prop_pool(lycon), position, POSITION_PROP_DEFAULT); }
-EmbedProp* DomElement::ensure_embed(LayoutContext* lycon) { return ensure_view_prop(this, prop_pool(lycon), embed, EMBED_PROP_DEFAULT); }
 TransformProp* DomElement::ensure_transform(LayoutContext* lycon) {
-    return ensure_directory_prop(this, prop_pool(lycon), &DomPropExt::transform, TRANSFORM_PROP_DEFAULT);
+    return ensure_directory_prop(this, prop_pool(lycon), &DomStyleExt::transform, TRANSFORM_PROP_DEFAULT);
 }
 PseudoContentProp* DomElement::ensure_pseudo(LayoutContext* lycon) {
-    return ensure_directory_prop(this, prop_pool(lycon), &DomPropExt::pseudo, PseudoContentProp{});
+    return ensure_directory_prop(this, prop_pool(lycon), &DomStyleExt::pseudo, PseudoContentProp{});
 }
 FilterProp* DomElement::ensure_filter(LayoutContext* lycon) {
     return ensure_filter_prop(this, prop_pool(lycon));

@@ -113,7 +113,7 @@ static bool history_load_from_state(const char* url, const char* title,
 // Walk DOM to find <title> element text content
 static const char* find_title_text(DomElement* root) {
     if (!root) return nullptr;
-    if (root->tag_name && strcmp(root->tag_name, "title") == 0) {
+    if (root->tag_name() && strcmp(root->tag_name(), "title") == 0) {
         // get text content of <title>
         DomNode* child = root->first_child;
         while (child) {

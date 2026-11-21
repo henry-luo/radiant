@@ -326,7 +326,7 @@ static bool sim_element_matches_assertions(const char* assertion, DomDocument* d
     bool passed = true;
     DomElement* found_elem = found->as_element();
     if (ev->expected_at_tag && found_elem) {
-        const char* tag = found_elem->tag_name;
+        const char* tag = found_elem->tag_name();
         if (!tag || str_icmp_cstr(tag, ev->expected_at_tag) != 0) {
             log_error("event_sim: %s FAIL - expected tag '%s', got '%s' at (%.2f, %.2f)",
                       assertion, ev->expected_at_tag, tag ? tag : "(null)", x, y);
@@ -4090,7 +4090,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
                 const char* draggable = src_dom->get_attribute("draggable");
                 bool ok = draggable && strcmp(draggable, "true") == 0;
                 if (!ok && !(draggable && strcmp(draggable, "false") == 0)) {
-                    const char* tag = src_dom->tag_name;
+                    const char* tag = src_dom->tag_name();
                     if (tag && (str_icmp_cstr(tag, "img") == 0 ||
                                 (str_icmp_cstr(tag, "a") == 0 &&
                                  src_dom->get_attribute("href")))) {

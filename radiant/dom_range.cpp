@@ -1289,7 +1289,7 @@ DomNode* dom_node_clone(DomNode* node, bool deep) {
     }
     if (node->is_element()) {
         DomElement* e = node->as_element();
-        DomElement* clone = DomElement::create(doc, e->tag_name, dom_element_backing(e));
+        DomElement* clone = DomElement::create(doc, e->tag_name(), dom_element_backing(e));
         if (!clone) return nullptr;
         // DomElement::create already snapshots the backing attributes into
         // independently owned document-pool caches; borrowing the source cache
@@ -1712,8 +1712,8 @@ bool dom_range_insert_node(DomRange* r, DomNode* node, const char** out_exceptio
 
     // If node is a DocumentFragment, move its children before reference.
     bool is_frag = node->is_element() &&
-                   node->as_element()->tag_name &&
-                   strcmp(node->as_element()->tag_name, "#document-fragment") == 0;
+                   node->as_element()->tag_name() &&
+                   strcmp(node->as_element()->tag_name(), "#document-fragment") == 0;
     if (is_frag) {
         DomElement* frag = node->as_element();
         DomNode* c = frag->first_child;
@@ -1740,7 +1740,7 @@ bool dom_range_surround_contents(DomRange* r, DomNode* node, const char** out_ex
     }
     // Reject Document / DocumentType / DocumentFragment per spec.
     if (node->is_element()) {
-        const char* tag = node->as_element()->tag_name;
+        const char* tag = node->as_element()->tag_name();
         if (tag && (strcmp(tag, "#document") == 0 ||
                     strcmp(tag, "#document-fragment") == 0 ||
                     strcmp(tag, "#doctype") == 0)) {
@@ -1841,7 +1841,7 @@ static bool node_is_in_non_selectable_subtree(const DomNode* n) {
     if (view_content_visibility_hides(element, CONTENT_VISIBILITY_USER_AGENT, true)) return true;
     for (const DomNode* p = n; p; p = p->parent) {
         if (!p->is_element()) continue;
-        const char* tag = p->as_element()->tag_name;
+        const char* tag = p->as_element()->tag_name();
         if (!tag) continue;
         if (tag[0] == ':' && tag[1] == ':') return true;
         if (str_icmp_cstr(tag, "script") == 0 ||
@@ -2022,7 +2022,7 @@ static DomElement* nearest_block_ancestor_or_self(DomNode* n, bool include_atomi
         if (cur->is_element()) {
             DomElement* e = cur->as_element();
             if (include_atomic && text_is_atomic_inline(e)) return e;
-            if (tag_is_block(e->tag_name)) return e;
+            if (tag_is_block(e->tag_name())) return e;
             // CSS override: any element with explicit display:block (e.g. a
             // <script style="display:block"> or <style style="display:block">)
             // becomes block-level for selection-stringify boundary purposes.
@@ -2072,8 +2072,8 @@ static DomNode* next_node_in_doc_order(DomNode* n) {
 
 // True iff `n` is a <br> element.
 static bool node_is_br(DomNode* n) {
-    return n && n->is_element() && n->as_element()->tag_name &&
-           tag_ieq(n->as_element()->tag_name, "br");
+    return n && n->is_element() && n->as_element()->tag_name() &&
+           tag_ieq(n->as_element()->tag_name(), "br");
 }
 
 // Find the next/prev paragraph-eligible text from `start`. Paragraph boundary
@@ -2211,11 +2211,11 @@ static bool text_excluded_for_rendered_stringify(const DomText* t, DomStringifyM
     static const char* never_rendered[] = {
         "head", "title", "meta", "link", "noscript", "template", "noembed", nullptr
     };
-    if (parent->tag_name) {
+    if (parent->tag_name()) {
         for (int i = 0; never_rendered[i]; i++) {
-            if (tag_ieq(parent->tag_name, never_rendered[i])) return true;
+            if (tag_ieq(parent->tag_name(), never_rendered[i])) return true;
         }
-        if (tag_ieq(parent->tag_name, "script") || tag_ieq(parent->tag_name, "style")) {
+        if (tag_ieq(parent->tag_name(), "script") || tag_ieq(parent->tag_name(), "style")) {
             CssEnum disp = effective_keyword(parent, CSS_PROPERTY_DISPLAY);
             // Only include script/style when an author override forces them
             // to be visible (display: block or inline).
@@ -2277,14 +2277,14 @@ static bool select_all_skip_subtree(DomElement* elem) {
     if (effective_user_select(static_cast<DomNode*>(elem)) == CSS_VALUE_NONE) {
         return true;
     }
-    const char* tag = elem->tag_name;
+    const char* tag = elem->tag_name();
     return tag_ieq(tag, "script") || tag_ieq(tag, "style") ||
         tag_ieq(tag, "noscript");
 }
 
 static bool select_all_atomic_node(DomNode* node) {
     if (!node || !node->is_element()) return false;
-    const char* tag = node->as_element()->tag_name;
+    const char* tag = node->as_element()->tag_name();
     return tag_ieq(tag, "br") || tag_ieq(tag, "hr") ||
         tag_ieq(tag, "table") || tag_ieq(tag, "iframe") ||
         tag_ieq(tag, "object") || tag_ieq(tag, "select");
@@ -3052,7 +3052,7 @@ static bool node_is_atomic_caret_stop(DomNode* n) {
     DomElement* e = n->as_element();
     const char* ce = e->get_attribute("contenteditable");
     if (ce && tag_ieq(ce, "false")) return true;
-    const char* tag = e->tag_name;
+    const char* tag = e->tag_name();
     return tag_ieq(tag, "img") ||
         tag_ieq(tag, "input") ||
         tag_ieq(tag, "textarea") ||
@@ -3915,7 +3915,7 @@ static DomBoundary normalize_forward_word_anchor(DomBoundary anchor) {
         if (cur->next_sibling) return boundary_after_node(cur);
         DomElement* parent = cur->parent->is_element()
             ? cur->parent->as_element() : nullptr;
-        if (parent && tag_is_block(parent->tag_name)) break;
+        if (parent && tag_is_block(parent->tag_name())) break;
         cur = cur->parent;
     }
     return anchor;
@@ -4014,7 +4014,7 @@ static bool line_stop_append(DomLineStopList* list, DomBoundary boundary) {
 }
 
 static bool element_tag_is(DomElement* elem, const char* tag) {
-    return elem && elem->tag_name && tag_ieq(elem->tag_name, tag);
+    return elem && elem->tag_name() && tag_ieq(elem->tag_name(), tag);
 }
 
 static bool node_tag_is(DomNode* node, const char* tag) {

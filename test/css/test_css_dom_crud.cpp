@@ -330,16 +330,16 @@ TEST_F(DomIntegrationTest, SetAttribute_SpaceSeparatedClasses) {
     EXPECT_TRUE(element->has_class("foo"));
     EXPECT_TRUE(element->has_class("bar"));
     EXPECT_TRUE(element->has_class("baz"));
-    EXPECT_EQ(element->class_count, 3);
+    EXPECT_EQ(element->class_count(), 3);
 
-    // Test with extra whitespace (spaces, tabs, newlines)
-    EXPECT_TRUE(element->set_attribute("class", "  alpha  \t\tbeta\n\ngamma  "));
+    // Test extra whitespace and a repeated class.
+    EXPECT_TRUE(element->set_attribute("class", "  alpha  \t\tbeta\n\ngamma  beta  "));
 
     // Verify all three classes were parsed correctly
     EXPECT_TRUE(element->has_class("alpha"));
     EXPECT_TRUE(element->has_class("beta"));
     EXPECT_TRUE(element->has_class("gamma"));
-    EXPECT_EQ(element->class_count, 3);
+    EXPECT_EQ(element->class_count(), 3);
 
     // Old classes should be replaced
     EXPECT_FALSE(element->has_class("foo"));
@@ -349,12 +349,12 @@ TEST_F(DomIntegrationTest, SetAttribute_SpaceSeparatedClasses) {
     // Test single class still works
     EXPECT_TRUE(element->set_attribute("class", "single-class"));
     EXPECT_TRUE(element->has_class("single-class"));
-    EXPECT_EQ(element->class_count, 1);
+    EXPECT_EQ(element->class_count(), 1);
     EXPECT_FALSE(element->has_class("alpha"));
 
     // Test empty class attribute
     EXPECT_TRUE(element->set_attribute("class", ""));
-    EXPECT_EQ(element->class_count, 0);
+    EXPECT_EQ(element->class_count(), 0);
     EXPECT_FALSE(element->has_class("single-class"));
 }
 

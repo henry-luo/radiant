@@ -83,22 +83,22 @@ ViewTableRow* ViewTable::next_row(ViewTableRow* current) {
         this, current, RDT_VIEW_TABLE_ROW));
 }
 
-static TableSectionType table_section_type(const DomElement* element, DisplayValue resolved) {
+static TableSectionType table_section_type(const DomElement* element, CssEnum inner_display) {
     NameId tag = element->tag_id;
     if (tag == MARKUP_NAME_THEAD) return TABLE_SECTION_THEAD;
     if (tag == MARKUP_NAME_TFOOT) return TABLE_SECTION_TFOOT;
     if (tag == MARKUP_NAME_TBODY) return TABLE_SECTION_TBODY;
-    if (resolved.inner == CSS_VALUE_TABLE_HEADER_GROUP) {
+    if (inner_display == CSS_VALUE_TABLE_HEADER_GROUP) {
         return TABLE_SECTION_THEAD;
     }
-    if (resolved.inner == CSS_VALUE_TABLE_FOOTER_GROUP) {
+    if (inner_display == CSS_VALUE_TABLE_FOOTER_GROUP) {
         return TABLE_SECTION_TFOOT;
     }
     return TABLE_SECTION_TBODY;
 }
 
 TableSectionType ViewTableRowGroup::get_section_type() const {
-    return table_section_type(this, display);
+    return table_section_type(this, display.inner);
 }
 
 static bool table_accept_body_group(LayoutTableSectionOrder* order, DomElement* group, TableSectionType section) {
@@ -108,7 +108,8 @@ static bool table_accept_body_group(LayoutTableSectionOrder* order, DomElement* 
 }
 
 bool LayoutTableSectionOrder::accept_body_group(DomElement* group) {
-    return table_accept_body_group(this, group, table_section_type(group, layout_resolved_display(group)));
+    return table_accept_body_group(this, group,
+        table_section_type(group, layout_resolved_display(group).inner));
 }
 
 bool LayoutTableSectionOrder::accept_body_group(ViewTableRowGroup* group) {
@@ -3886,14 +3887,14 @@ static void inherit_anonymous_table_inline(LayoutContext* lycon, DomElement* ano
 }
 
 static DomElement* create_anonymous_table_element(LayoutContext* lycon, DomElement* parent,
-                                                   CssEnum display_type, const char* tag_name) {
+                                                   CssEnum display_type, NameId tag_id) {
     if (!lycon || !parent) return nullptr;
     Pool* pool = lycon->doc->view_tree->prop_pool;
     if (!pool) return nullptr;
     DomElement* anon = lam::pool_alloc_dom_element(pool);
     if (!anon) return nullptr;
     anon->set_table_fixup(true);
-    dom_element_retain_tag_name(anon, lam::borrow_const(lam::promote_to_pool(pool, tag_name)));
+    anon->tag_id = tag_id;
     anon->doc = parent->doc;
     anon->parent = lam::up(parent);
     switch (display_type) {
@@ -4069,7 +4070,7 @@ static CssEnum table_effective_internal_display(DomNode* node) {
     DisplayValue display = layout_resolved_display(node);
     return display.outer == CSS_VALUE_CONTENTS
         ? table_display_contents_first_internal_display(node->as_element())
-        : display.inner;
+        : display.inner.mode();
 }
 
 static void wrap_run_in_cells(LayoutContext* lycon, ArrayList* run, DomElement* parent_row) {
@@ -4091,7 +4092,7 @@ static void wrap_run_in_cells(LayoutContext* lycon, ArrayList* run, DomElement* 
         } else {
             if (!current_anon_td) {
                 current_anon_td = create_anonymous_table_element(lycon, parent_row,
-                    CSS_VALUE_TABLE_CELL, "::anon-td");
+                    CSS_VALUE_TABLE_CELL, MARKUP_NAME_DOM_ANON_TD);
                 append_child_to_element(parent_row, current_anon_td);
             }
             reparent_node(node, current_anon_td);
@@ -4122,7 +4123,7 @@ static bool table_display_contents_has_row_content(DomElement* element) {
 static void table_wrap_display_contents_children(LayoutContext* lycon,
                                                  DomElement* contents,
                                                  CssEnum display_type,
-                                                 const char* tag_name) {
+                                                 NameId tag_id) {
     if (!lycon || !contents) return;
     for (DomNode* child = contents->first_child; child; child = child->next_sibling) {
         if (child->is_element() && child->as_element()->is_table_fixup() &&
@@ -4131,7 +4132,7 @@ static void table_wrap_display_contents_children(LayoutContext* lycon,
         }
     }
     DomElement* anonymous = create_anonymous_table_element(
-        lycon, contents, display_type, tag_name);
+        lycon, contents, display_type, tag_id);
     if (!anonymous) return;
     ArrayList* children = layout_table_snapshot_children(contents);
     if (!children) return;
@@ -4144,8 +4145,8 @@ static void table_wrap_display_contents_children(LayoutContext* lycon,
 }
 
 static bool table_fixup_is_outer_anonymous_table(DomElement* element) {
-    return element && element->is_table_fixup() && element->tag_name &&
-        strcmp(element->tag_name, "::anon-table") == 0;
+    return element && element->is_table_fixup() && element->tag_name() &&
+        strcmp(element->tag_name(), "::anon-table") == 0;
 }
 
 static void remerge_stale_anonymous_table_runs(DomElement* parent, bool table_children = false) {
@@ -4203,21 +4204,21 @@ static void flush_anonymous_run(LayoutContext* lycon, DomElement* parent,
         DomElement* row_group = nullptr;
         if (create_row_group) {
             row_group = create_anonymous_table_element(
-                lycon, parent, CSS_VALUE_TABLE_ROW_GROUP, "::anon-tbody");
+                lycon, parent, CSS_VALUE_TABLE_ROW_GROUP, MARKUP_NAME_DOM_ANON_TBODY);
             row_parent = row_group;
         }
         DomElement* row = create_anonymous_table_element(
-            lycon, row_parent, CSS_VALUE_TABLE_ROW, "::anon-tr");
+            lycon, row_parent, CSS_VALUE_TABLE_ROW, MARKUP_NAME_DOM_ANON_TR);
         if (row_group) append_child_to_element(row_group, row);
         wrap_run_in_cells(lycon, run, row);
         generated = row_group ? row_group : row;
     } else if (kind == TABLE_ANONYMOUS_ROW_RUN) {
         generated = create_anonymous_table_element(
-            lycon, parent, CSS_VALUE_TABLE_ROW_GROUP, "::anon-tbody");
+            lycon, parent, CSS_VALUE_TABLE_ROW_GROUP, MARKUP_NAME_DOM_ANON_TBODY);
         reparent_run(run, generated);
     } else {
         generated = create_anonymous_table_element(
-            lycon, parent, CSS_VALUE_TABLE_CELL, "::anon-td");
+            lycon, parent, CSS_VALUE_TABLE_CELL, MARKUP_NAME_DOM_ANON_TD);
         if (!generated) return;
         reparent_run(run, generated);
     }
@@ -4264,7 +4265,7 @@ static void repair_anonymous_table_children(LayoutContext* lycon,
             // CSS Tables 3 §2.2: a boxless row-like subtree needs an anonymous
             // row around its flattened cell/content sequence.
             table_wrap_display_contents_children(
-                lycon, child->as_element(), CSS_VALUE_TABLE_ROW, "::anon-tr");
+                lycon, child->as_element(), CSS_VALUE_TABLE_ROW, MARKUP_NAME_DOM_ANON_TR);
             continue;
         }
         bool is_transparent_proper_run = display.outer == CSS_VALUE_CONTENTS &&
@@ -4610,7 +4611,7 @@ static void mark_table_node(LayoutContext* lycon, DomNode* node, ViewElement* pa
                             insert_pseudo_into_dom(row_elem, pseudo, is_before);
                         } else {
                             DomElement* anon_td = create_anonymous_table_element(lycon, row_elem,
-                                CSS_VALUE_TABLE_CELL, "::anon-td");
+                                CSS_VALUE_TABLE_CELL, MARKUP_NAME_DOM_ANON_TD);
                             if (anon_td) {
                                 pseudo->parent = lam::up(anon_td);
                                 anon_td->first_child = lam::own(pseudo);
@@ -5409,7 +5410,7 @@ static bool table_apply_reference_row_distribution(TableMetadata* meta,
 
 static bool table_cell_is_anonymous(ViewTableCell* cell) {
     DomElement* element = cell ? cell->as_element() : nullptr;
-    return element && element->tag_name && strcmp(element->tag_name, "::anon-td") == 0;
+    return element && element->tag_name() && strcmp(element->tag_name(), "::anon-td") == 0;
 }
 
 static bool table_cell_is_in_anonymous_table(ViewTableCell* cell) {
@@ -5417,7 +5418,7 @@ static bool table_cell_is_in_anonymous_table(ViewTableCell* cell) {
     for (DomNode* parent = cell->parent; parent && parent->is_element();
          parent = parent->parent) {
         DomElement* element = parent->as_element();
-        if (element->tag_name && strncmp(element->tag_name, "::anon-", 7) == 0) {
+        if (element->tag_name() && strncmp(element->tag_name(), "::anon-", 7) == 0) {
             return true;
         }
     }
@@ -7847,7 +7848,7 @@ bool wrap_orphaned_table_children(LayoutContext* lycon, DomElement* parent) {
             // orphaned table-internal children therefore need block-level table
             // fixup rather than an inline-table wrapper in its inline run.
             table_wrapper = create_anonymous_table_element(
-                lycon, parent, CSS_VALUE_TABLE, "::anon-table");
+                lycon, parent, CSS_VALUE_TABLE, MARKUP_NAME_DOM_ANON_TABLE);
             if (table_wrapper) {
                 table_wrapper->display.outer = parent_is_inline ? CSS_VALUE_INLINE : CSS_VALUE_BLOCK;
                 if (!parent->font && lycon->font.style) {

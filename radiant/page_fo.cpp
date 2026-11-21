@@ -98,7 +98,7 @@ static bool fo_failure(FoTranslationContext* context, DomElement* source, const 
     RadiantFoDiagnostic& diagnostic = context->result->diagnostic;
     if (diagnostic.status == TYPESET_OK) {
         diagnostic.status = status; diagnostic.source = source ? dom_node_ref(source) : DomNodeRef{};
-        diagnostic.qname = source ? source->tag_name.get() : nullptr;
+        diagnostic.qname = source ? source->tag_name() : nullptr;
         diagnostic.property = property; diagnostic.reason = reason;
         const RadiantFoSourceSpan* span = source ? fo_source_span(context, source) : nullptr;
         if (span) { diagnostic.start = span->start; diagnostic.end = span->end; diagnostic.has_range = true; }
@@ -1384,7 +1384,7 @@ static Item fo_translate_element(FoTranslationContext* context, DomElement* sour
     Item translated = output.final();
     RadiantFoOrigin* origin = (RadiantFoOrigin*)pool_calloc(context->document->document_pool, sizeof(RadiantFoOrigin));
     if (!origin) { fo_failure(context, source, nullptr, "FO provenance allocation failed", TYPESET_OUT_OF_MEMORY); return ItemNull; }
-    origin->source = dom_node_ref(source); origin->translated = translated.element; origin->qname = source->tag_name;
+    origin->source = dom_node_ref(source); origin->translated = translated.element; origin->qname = source->tag_name();
     const RadiantFoSourceSpan* span = fo_source_span(context, source);
     if (span) { origin->start = span->start; origin->end = span->end; origin->has_range = true; }
     origin->next = context->result->origins; context->result->origins = origin;

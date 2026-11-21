@@ -640,8 +640,8 @@ static uint32_t cascade_rule_index_candidates(CascadeRuleIndex* index, DomElemen
     uint32_t count = 0;
     cascade_collect_bucket(index, &index->universal, &count);
     cascade_collect_key(index, CASCADE_KEY_ID, element->id, &count);
-    for (int i = 0; i < element->class_count; i++)
-        cascade_collect_key(index, CASCADE_KEY_CLASS, element->class_names[i], &count);
+    for (int i = 0; i < element->class_count(); i++)
+        cascade_collect_key(index, CASCADE_KEY_CLASS, element->class_names()[i], &count);
     cascade_collect_key(index, CASCADE_KEY_TAG, element->local_name(), &count);
     if (count > 1) qsort(index->candidates, count, sizeof(uint32_t), cascade_compare_rule_position);
     return count;

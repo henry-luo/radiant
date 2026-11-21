@@ -118,7 +118,7 @@ static bool image_is_generated_content_child(ViewBlock* block) {
         return false;
     }
     DomElement* parent = lam::dom_require_element(block->parent);
-    const char* tag = parent ? parent->tag_name : nullptr;
+    const char* tag = parent ? parent->tag_name() : nullptr;
     return tag && (strcmp(tag, "::before") == 0 || strcmp(tag, "::after") == 0);
 }
 
@@ -152,7 +152,7 @@ static bool layout_set_broken_image_alt_fallback(LayoutContext* lycon,
     if (!lycon || !block) return false;
     const char* alt_text = block->get_attribute("alt");
     if (!alt_text || alt_text[0] == '\0') return false;
-    if (!block->embed) block->ensure_embed(lycon);
+    if (!block->embed) block->ensure_embed();
     if (!block->embed) return false;
 
     // alternative text uses this element's line-height, before its inner flow is initialized.
@@ -1059,15 +1059,13 @@ static DomElement* pseudo_create_image_child(LayoutContext* lycon, DomElement* p
     if (!lycon || !pseudo_elem || !raw_url || !raw_url[0]) return nullptr;
     DomElement* img_elem = retained ? retained : DomElement::create(pseudo_elem->doc, "img", nullptr);
     if (!img_elem) return nullptr;
-    if (!img_elem->embed) {
-        img_elem->ensure_embed(lycon);
-    }
-    if (!img_elem->embed) return nullptr;
     char* resolved_url = resolve_css_resource_url(lycon, content_decl, raw_url);
     if (!resolved_url) return nullptr;
     // intrinsic/used layout revalidates images from their source, independently of temporary embed slots.
     if (!img_elem->set_attribute("src", resolved_url)) return nullptr;
-    img_elem->embed->img = lam::up(load_document_image(lycon->doc, lycon->ui_context, resolved_url));
+    EmbedStyle* embed = img_elem->ensure_embed();
+    if (!embed) return nullptr;
+    embed->img = lam::up(load_document_image(lycon->doc, lycon->ui_context, resolved_url));
     return img_elem;
 }
 
@@ -1084,11 +1082,17 @@ static bool pseudo_materialize_content_children(LayoutContext* lycon, DomElement
     bool appended_any = false;
     DomNode* retained = refresh ? pseudo_elem->first_child.get() : nullptr;
     if (refresh) { pseudo_elem->first_child = nullptr; pseudo_elem->last_child = nullptr; }
+    auto release_discarded_image = [&](DomNode* child) {
+        // discarded image boxes own document-pool styles even within a single layout pass
+        if (child && child->is_element() && child->as_element()->embed)
+            view_pool_release_detached_subtree_in_tree(layout_context_view_tree(lycon), child);
+    };
     auto take_child = [&](const char* tag) -> DomNode* {
         DomNode* child = retained;
         if (child) retained = child->next_sibling;
-        bool matches = child && (tag ? child->is_element() && child->as_element()->tag_name &&
-            strcmp(child->as_element()->tag_name, tag) == 0 : child->is_text());
+        bool matches = child && (tag ? child->is_element() && child->as_element()->tag_name() &&
+            strcmp(child->as_element()->tag_name(), tag) == 0 : child->is_text());
+        if (!matches) release_discarded_image(child);
         return matches ? child : nullptr;
     };
     auto flush_text = [&]() {
@@ -1116,6 +1120,8 @@ static bool pseudo_materialize_content_children(LayoutContext* lycon, DomElement
                     img_elem->embedp()->img, content_image.resolution);
                 pseudo_append_child(pseudo_elem, static_cast<DomNode*>(img_elem));
                 appended_any = true;
+            } else {
+                release_discarded_image(retained_image);
             }
         } else if (item->type == CSS_VALUE_TYPE_FUNCTION && css_function_name_is(item->data.function, "leader")) {
             flush_text();
@@ -1147,6 +1153,11 @@ static bool pseudo_materialize_content_children(LayoutContext* lycon, DomElement
         }
     }
     flush_text();
+    while (retained) {
+        DomNode* next = retained->next_sibling;
+        release_discarded_image(retained);
+        retained = next;
+    }
     strbuf_free(text_buf);
     return appended_any;
 }
@@ -1502,7 +1513,7 @@ bool layout_generated_pseudo(const DomElement* element, uint8_t* pseudo, PseudoS
         {"::footnote-call", PSEUDO_ELEMENT_FOOTNOTE_CALL, PSEUDO_STYLE_FOOTNOTE_CALL},
         {"::footnote-marker", PSEUDO_ELEMENT_FOOTNOTE_MARKER, PSEUDO_STYLE_FOOTNOTE_MARKER},
     };
-    const char* tag = element && element->is_synthetic() ? element->tag_name : nullptr;
+    const char* tag = element && element->is_synthetic() ? element->tag_name() : nullptr;
     if (!tag || tag[0] != ':' || tag[1] != ':') return false;
     for (const auto& entry : generated) {
         if (strcmp(tag, entry.tag) != 0) continue;
@@ -1560,7 +1571,7 @@ DomElement* layout_footnote_pseudo(LayoutContext* lycon, DomElement* note, bool 
     // a retained box from an earlier pass of the same layout epoch is reused
     DomNode* slot = call ? note->prev_sibling.get() : note->first_child.get();
     DomElement* pseudo = slot && slot->is_element() && slot->parent == (DomNode*)note &&
-        slot->as_element()->is_synthetic() && strcmp(slot->as_element()->tag_name, tag) == 0 ? slot->as_element() : nullptr;
+        slot->as_element()->is_synthetic() && strcmp(slot->as_element()->tag_name(), tag) == 0 ? slot->as_element() : nullptr;
     if (!pseudo) {
         pseudo = DomElement::create(note->doc, tag, nullptr);
         if (!pseudo) return nullptr;
@@ -1645,7 +1656,7 @@ DomElement* layout_generated_text(DomElement* owner, const char* text) {
     if (!owner || !owner->doc) return nullptr;
     DomNode* first = owner->first_child;
     DomElement* box = first && first->is_element() && first->as_element()->is_synthetic() &&
-        first->as_element()->tag_name && strcmp(first->as_element()->tag_name, "::generated") == 0 ? first->as_element() : nullptr;
+        first->as_element()->tag_name() && strcmp(first->as_element()->tag_name(), "::generated") == 0 ? first->as_element() : nullptr;
     if (!box) {
         box = DomElement::create(owner->doc, "::generated", nullptr);
         if (!box) return nullptr;
@@ -1669,7 +1680,7 @@ void layout_materialize_before_after(LayoutContext* lycon, ViewBlock* block) {
         if (!pseudo) return;
     }
     if (has_before && !pseudo->before_generated) {
-        log_info("%s [PSEUDO] Getting before content for <%s>", block->source_loc(), elem->tag_name ? elem->tag_name : "?");
+        log_info("%s [PSEUDO] Getting before content for <%s>", block->source_loc(), elem->tag_name() ? elem->tag_name() : "?");
         const char* before_content = resolve_pseudo_generated_content(lycon, elem, true);
         pseudo->before = lam::up(create_pseudo_element(lycon, elem, before_content ? before_content : "", true, block->font));
         pseudo->before_generated = true;
@@ -1770,8 +1781,8 @@ static void create_first_letter_pseudo(LayoutContext* lycon, ViewBlock* block) {
     DomElement* elem = lam::dom_require<DOM_NODE_ELEMENT>(block);
     if (!elem->pseudo_style(PSEUDO_STYLE_FIRST_LETTER)) return;
     for (DomNode* child = elem->first_child; child; child = child->next_sibling) {
-        if (child->is_element() && child->as_element()->tag_name &&
-            strcmp(child->as_element()->tag_name, "::first-letter") == 0) {
+        if (child->is_element() && child->as_element()->tag_name() &&
+            strcmp(child->as_element()->tag_name(), "::first-letter") == 0) {
             // keep the existing split; re-running layout must not nest pseudo-elements.
             return;
         }
@@ -1800,7 +1811,7 @@ static void create_first_letter_pseudo(LayoutContext* lycon, ViewBlock* block) {
     if (!pool) return;
     DomElement* fl_elem = lam::pool_alloc_dom_element(pool);
     if (!fl_elem) return;
-    dom_element_retain_tag_name(fl_elem, lam::borrow_const(lam::promote_to_pool(pool, "::first-letter")));
+    fl_elem->tag_id = MARKUP_NAME_DOM_FIRST_LETTER;
     fl_elem->doc = elem->doc;
     fl_elem->parent = text_node->parent;  // same parent as the text node
     dom_element_borrow_specified_style(
@@ -4296,7 +4307,7 @@ void finalize_block_flow(LayoutContext* lycon, ViewBlock* block, CssEnum display
     // CSS 2.1 §12.5: List-items with visible markers generate at least one line box.
     // Float blockification changes view_type to block, so the display role is the
     // invariant that preserves the empty marker line for blockified list items.
-    if (block->display.list_item) {
+    if (block->display_list_item()) {
         float content_area_height = lycon->block.advance_y -
             layout_axis_decoration_start(block->bound, LAYOUT_AXIS_Y);
         if (content_area_height <= 0) {
@@ -4670,7 +4681,7 @@ void finalize_block_flow(LayoutContext* lycon, ViewBlock* block, CssEnum display
             block->height = final_height;
         }
         bool list_item_table = block->tag_id == MARKUP_NAME_TABLE &&
-            block->display.list_item;
+            block->display_list_item();
         if (list_item_table && block->height <= 0.0f &&
             layout_list_item_has_visible_marker(block)) {
             // CSS Display keeps the list-item marker in the principal flow;
@@ -5115,7 +5126,8 @@ DomDocument* layout_ensure_iframe_document(LayoutContext* lycon, ViewBlock* bloc
         layout_load_iframe_src_doc(lycon, block->as_element(), src,
             (int)viewport_width, (int)viewport_height); // INT_CAST_OK: loader viewport API uses integer CSS pixels
     if (doc) {
-        if (!layout_iframe_track_source(doc, source_text, viewport_width, viewport_height)) {
+        if (!layout_iframe_track_source(doc, source_text, viewport_width, viewport_height) ||
+            !block->ensure_embed()) {
             free_document(doc);
             doc = nullptr;
         } else {
@@ -5125,7 +5137,6 @@ DomDocument* layout_ensure_iframe_document(LayoutContext* lycon, ViewBlock* bloc
                 if (lycon->ui_context->font_ctx) font_context_reset_glyph_caches(lycon->ui_context->font_ctx);
                 dom_document_clear_embedding(previous);
             }
-            if (!block->embed) block->ensure_embed(lycon);
             block->embed->doc = lam::own(doc);
             dom_document_set_embedding(doc, lycon->ui_context->document, block->as_element());
             radiant_document_ensure_state(doc, "iframe source snapshot");
@@ -5441,14 +5452,14 @@ static void remove_pseudo_from_dom(DomElement* parent, DomElement* pseudo) {
 
 static bool layout_node_is_generated_pseudo_content(DomNode* node) {
     if (!node || !node->is_element()) return false;
-    const char* tag_name = node->as_element()->tag_name;
+    const char* tag_name = node->as_element()->tag_name();
     return tag_name && strncmp(tag_name, "::", 2) == 0 &&
         strncmp(tag_name, "::anon-", 7) != 0;
 }
 
 static void layout_restore_first_letter_source_text(DomElement* pseudo) {
-    if (!pseudo || !pseudo->tag_name ||
-        strcmp(pseudo->tag_name, "::first-letter") != 0) {
+    if (!pseudo || !pseudo->tag_name() ||
+        strcmp(pseudo->tag_name(), "::first-letter") != 0) {
         return;
     }
     DomNode* continuation = pseudo->next_sibling;
@@ -5465,8 +5476,8 @@ void layout_detach_first_letter_pseudo_content_for_layout_reset(DomElement* root
     if (!root) return;
     for (DomNode* child = root->first_child; child; ) {
         DomNode* next = child->next_sibling;
-        if (child->is_element() && child->as_element()->tag_name &&
-            strcmp(child->as_element()->tag_name, "::first-letter") == 0) {
+        if (child->is_element() && child->as_element()->tag_name() &&
+            strcmp(child->as_element()->tag_name(), "::first-letter") == 0) {
             // First-letter nodes live in the view pool, so restore and unlink
             // their split before that pool releases the node storage.
             layout_restore_first_letter_source_text(child->as_element());
@@ -5559,7 +5570,7 @@ void layout_materialize_pseudo_content(LayoutContext* lycon, ViewBlock* block,
             insert_pseudo_into_rendered_tree(element, block->pseudo_prop()->after, false);
         }
         bool marker_allowed = include_marker &&
-            (block->display.list_item || block->display.outer == CSS_VALUE_LIST_ITEM) &&
+            (block->display_list_item() || block->display.outer == CSS_VALUE_LIST_ITEM) &&
             (!block->pseudo_prop()->marker || !block->pseudo_prop()->marker->marker_prop() ||
              !block->pseudo_prop()->marker->marker_prop()->suppressed);
         if (block->pseudo_prop()->marker) {
@@ -5590,7 +5601,7 @@ DisplayValue layout_button_used_display(DomElement* element,
     if (computed.inner == CSS_VALUE_FLEX || computed.inner == CSS_VALUE_GRID) {
         return computed;
     }
-    computed.list_item = false;
+    computed.inner.set_list_item(false);
     if (computed.outer == CSS_VALUE_LIST_ITEM) {
         // HTML button layout replaces the list-item principal box with a
         // flow-root; the browser therefore does not expose a marker box here.
@@ -5974,7 +5985,7 @@ static bool layout_retained_subtree_walk(DomNode* node, int depth,
         if ((position->float_prop != CSS_VALUE_NONE && position->float_prop != CSS_VALUE__UNDEF) ||
             (position->clear != CSS_VALUE_NONE && position->clear != CSS_VALUE__UNDEF)) return false;
     }
-    if (element->display.list_item ||
+    if (element->display_list_item() ||
         (element->blk && (element->block()->extras().counter_reset ||
                           element->block()->extras().counter_increment ||
                           element->block()->extras().counter_set ||
@@ -6122,7 +6133,7 @@ void layout_block_inner_content(LayoutContext* lycon, ViewBlock* block,
         if (block->tag() == MARKUP_NAME_BUTTON) {
             // button layout consumes display:list-item as flow-root behavior;
             // its anonymous button content must not acquire a list marker line.
-            block->display.list_item = false;
+            block->set_display_list_item(false);
         }
     }
     // Buttons are form controls for intrinsic sizing but their CSS flow inner
@@ -6181,9 +6192,7 @@ void layout_block_inner_content(LayoutContext* lycon, ViewBlock* block,
         else if (elmt_name == MARKUP_NAME_WEBVIEW) {
             // a native web view runs its page's scripts
             if (lycon->doc && (lycon->doc->services.svg_image_document || lycon->doc->scripting_disabled)) return;
-            if (!block->embed) {
-                block->ensure_embed(lycon);
-            }
+            if (!block->ensure_embed()) return;
             if (!block->embedp()->webview) {
                 WebViewProp* wv = (WebViewProp*)alloc_prop(lycon, sizeof(WebViewProp));
                 // webview attributes are borrowed from the DOM pool and must stay registered across retained view-pool resets.
@@ -6567,7 +6576,7 @@ void layout_svg_foreign_objects(LayoutContext* lycon, DomElement* element, unsig
     }
     // SVG leaves need cascade/motion state even though they create no CSS layout box.
     if (depth) layout_init_display_contents_view(lycon, element);
-    const char* tag = element->tag_name;
+    const char* tag = element->tag_name();
     bool is_switch = tag && strcmp(tag, "switch") == 0;
     if (!tag || (strcmp(tag, "svg") != 0 && strcmp(tag, "g") != 0 && strcmp(tag, "a") != 0 && !is_switch)) return;
     if (layout_display_is_none(layout_resolved_display(element))) return;
@@ -6667,9 +6676,7 @@ void layout_finalize_line_clamp(LayoutContext* lycon, ViewBlock* block) {
 }
 
 int layout_line_clamp_count(const ViewBlock* block) {
-    return block && block->blk &&
-        (!block->block()->line_clamp_legacy || block->display.legacy_clamp)
-        ? block->block()->line_clamp : 0;
+    return block && block->blk ? block->block()->line_clamp : 0;
 }
 
 float layout_line_clamp_intrinsic_height(ViewBlock* block, float height, float line_height) {
@@ -6742,7 +6749,7 @@ void layout_setup_inline_direction(LayoutContext* lycon, ViewBlock* block) {
     // CSS 2.1 §9.2.1: Propagate direction to block context
     if (block->blk) {
         lycon->block.direction = layout_block_used_css_direction(block);
-        bool has_outside_marker = block->display.list_item && block->pseudo_prop() &&
+        bool has_outside_marker = block->display_list_item() && block->pseudo_prop() &&
             block->pseudo_prop()->marker_generated && block->pseudo_prop()->marker &&
             block->pseudo_prop()->marker->marker_prop() &&
             block->pseudo_prop()->marker->marker_prop()->is_outside;
@@ -8270,7 +8277,7 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
             }
         }
         const char* alternative = elmt_name == MARKUP_NAME_IMG ? block->get_attribute("alt") : nullptr;
-        if (alternative && alternative[0] && !block->embed) block->ensure_embed(lycon);
+        if (alternative && alternative[0] && !block->embed) block->ensure_embed();
         // alt text retains its text baseline even when explicit dimensions preserve the image box.
         if (block->embed) block->embed->broken_alt_fallback = !block->embedp()->img &&
             alternative && alternative[0];

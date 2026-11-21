@@ -231,10 +231,11 @@ static const char* css_inherited_identity(LayoutContext* context, DomElement* el
 static const char* css_custom_identity(LayoutContext* context, DomElement* element) {
     DomElement* parent = css_style_parent(element);
     CssResolvedStyle* inherited = parent && parent->layout_cache ? parent->layout_cache->resolved_style.get() : nullptr;
-    if (!element->css_variables && (!inherited || !inherited->custom_identity)) return nullptr;
+    const CssCustomProp* variables = element->css_variables();
+    if (!variables && (!inherited || !inherited->custom_identity)) return nullptr;
     CssInheritedIdentity identity;
     identity.add(inherited ? inherited->custom_identity : nullptr);
-    for (const CssCustomProp* variable = element->css_variables; variable; variable = variable->next) {
+    for (const CssCustomProp* variable = variables; variable; variable = variable->next) {
         identity.add(true); identity.text(variable->name); identity.text(variable->value_text);
         identity.add(variable->animation_owner);
         if (!variable->value_text) identity.add(variable->value.get());

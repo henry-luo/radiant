@@ -11,9 +11,6 @@ extern "C" {
 // NOTE: All conversion functions removed - enums now align directly with Lexbor constants
 
 CssEnum layout_flex_direction(ViewElement* container) {
-    // legacy orientation selects the used axis without changing computed flex-direction.
-    if (container && container->display.legacy_box)
-        return container->display.legacy_vertical ? CSS_VALUE_COLUMN : CSS_VALUE_ROW;
     return container && container->embed && container->embedp()->flex
         ? (CssEnum)container->embedp()->flex->direction : CSS_VALUE_ROW;
 }
@@ -695,10 +692,7 @@ float flex_column_content_contribution(LayoutContext* lycon, ViewElement* contai
 void init_flex_container(LayoutContext* lycon, ViewBlock* container) {
     if (!lycon || !container) return;
 
-    if (!container->embed) {
-        // Flex containers share EmbedProp ownership with the view pool; heap
-        container->ensure_embed(lycon);
-    }
+    container->ensure_embed();
 
     ScratchMark mark = scratch_mark(&lycon->scratch);
     FlexContainerLayout* flex = (FlexContainerLayout*)scratch_calloc(&lycon->scratch, sizeof(FlexContainerLayout));

@@ -108,7 +108,6 @@ protected:
         ASSERT_NE(block, nullptr);
         block->node_type = DOM_NODE_ELEMENT;
         block->set_synthetic(true);
-        block->tag_name = lam::up(tag);
         block->tag_id = DomNode::tag_name_to_id(tag);
         block->view_type = RDT_VIEW_BLOCK;
         block->width = width;
@@ -285,15 +284,15 @@ TEST_F(CustomLayoutTest, ExplicitParentSizeWinsOverPlacedChildBounds) {
 
 TEST_F(CustomLayoutTest, FlexEmbedImageDoesNotBecomeLinkIntrinsicSize) {
     ViewBlock link = {};
-    EmbedProp embed = EMBED_PROP_DEFAULT;
+    EmbedStyle embed = EMBED_STYLE_DEFAULT;
     ImageSurface image = {};
     image.width = 640;
     image.height = 360;
     image.has_intrinsic_size = true;
 
     init_block(&link, "a", 0.0f, 0.0f);
-    link.display = {CSS_VALUE_BLOCK, CSS_VALUE_FLEX, false};
-    link.embed = lam::view_prop(&embed);
+    link.display = {CSS_VALUE_BLOCK, CSS_VALUE_FLEX};
+    link.embed = lam::own(&embed);
     link.embed->img = lam::up(&image);
 
     EXPECT_FALSE(layout_replaced_image_surface_contributes(&link));

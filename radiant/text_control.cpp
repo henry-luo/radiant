@@ -28,9 +28,9 @@ void tc_notify_selection_changed(DomElement* elem) {
 
 
 bool tc_is_text_control(DomElement* elem) {
-    if (!elem || !elem->tag_name) return false;
-    if (str_icmp_cstr(elem->tag_name, "textarea") == 0) return true;
-    if (str_icmp_cstr(elem->tag_name, "input") == 0) {
+    if (!elem || !elem->tag_name()) return false;
+    if (str_icmp_cstr(elem->tag_name(), "textarea") == 0) return true;
+    if (str_icmp_cstr(elem->tag_name(), "input") == 0) {
         // Button/select form props can temporarily lack input_type; HTML's
         // missing-value default is text only for input elements.
         const char* input_type = elem->form_control() ? elem->form_storage()->input_type
@@ -112,18 +112,18 @@ FormControlProp* tc_get_or_create_form(DomElement* elem) {
     form_control_prop_init(f);
     f->heap_allocated = 1;
     f->state_ref = elem->doc ? (DocState*)elem->doc->state : nullptr;
-    if (elem->tag_name && str_icmp_cstr(elem->tag_name, "textarea") == 0) {
+    if (elem->tag_name() && str_icmp_cstr(elem->tag_name(), "textarea") == 0) {
         f->control_type = FORM_CONTROL_TEXTAREA;
-    } else if (elem->tag_name && str_icmp_cstr(elem->tag_name, "input") == 0) {
+    } else if (elem->tag_name() && str_icmp_cstr(elem->tag_name(), "input") == 0) {
         f->input_type = elem->get_attribute("type");
         f->control_type = get_input_control_type(f->input_type);
-    } else if (elem->tag_name && str_icmp_cstr(elem->tag_name, "select") == 0) {
+    } else if (elem->tag_name() && str_icmp_cstr(elem->tag_name(), "select") == 0) {
         f->control_type = FORM_CONTROL_SELECT;
-    } else if (elem->tag_name && str_icmp_cstr(elem->tag_name, "button") == 0) {
+    } else if (elem->tag_name() && str_icmp_cstr(elem->tag_name(), "button") == 0) {
         f->control_type = FORM_CONTROL_BUTTON;
-    } else if (elem->tag_name &&
-               (str_icmp_cstr(elem->tag_name, "fieldset") == 0 ||
-                str_icmp_cstr(elem->tag_name, "output") == 0)) {
+    } else if (elem->tag_name() &&
+               (str_icmp_cstr(elem->tag_name(), "fieldset") == 0 ||
+                str_icmp_cstr(elem->tag_name(), "output") == 0)) {
         // These expose setCustomValidity but have no editable control state.
         f->control_type = FORM_CONTROL_NONE;
     } else {
@@ -158,7 +158,7 @@ void form_control_release_prop(DomElement* elem) {
         mem_free(form);
     }
     elem->set_form_storage(nullptr);
-    if (elem->prop_ext && elem->prop_ext->empty()) elem->release_prop_ext();
+    if (elem->style_ext && elem->style_ext->empty()) elem->release_style_ext();
     if (elem->role_kind() == DomElement::ROLE_FORM) {
         elem->set_role_kind(DomElement::ROLE_NONE);
     }
@@ -169,7 +169,7 @@ void form_control_release_prop(DomElement* elem) {
 char* tc_copy_initial_value(DomElement* elem, uint32_t* out_len) {
     if (out_len) *out_len = 0;
     if (!elem) return nullptr;
-    if (elem->tag_name && str_icmp_cstr(elem->tag_name, "textarea") == 0) {
+    if (elem->tag_name() && str_icmp_cstr(elem->tag_name(), "textarea") == 0) {
         StrBuf* sb = strbuf_new_cap(64);
         if (!sb) return nullptr;
         dom_collect_text_content((DomNode*)elem, sb);

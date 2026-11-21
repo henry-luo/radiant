@@ -1055,7 +1055,7 @@ static void initialize_html_media(LayoutContext* lycon, DomNode* element,
                                   ViewBlock* block, bool is_video) {
     DomElement* media_element = element ? element->as_element() : nullptr;
     MediaViewState* retained = radiant_media_prepare(media_element);
-    if (!block->embed) block->ensure_embed(lycon);
+    if (!block->ensure_embed()) return;
     block->embed->video = lam::up(retained ? retained->player : nullptr);
     if (is_video) {
         block->embed->has_controls = element->has_attribute("controls");

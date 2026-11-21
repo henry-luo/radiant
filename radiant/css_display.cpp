@@ -2,7 +2,6 @@
 #include "view.hpp"
 #include "lambda/input/css/dom_element.hpp"
 #include "lib/str.h"
-#include "lib/stringbuf.h"
 #include <string.h>
 
 bool css_display_is_ruby_internal(CssEnum display) {
@@ -23,49 +22,7 @@ CssEnum css_ruby_compute_unicode_bidi(CssEnum value) {
     return value == CSS_VALUE_BIDI_OVERRIDE ? CSS_VALUE_ISOLATE_OVERRIDE : value;
 }
 
-static bool css_legacy_box_is_vertical(DomElement* element) {
-    Pool* scratch = pool_create();
-    if (!scratch) return false;
-    StringBuf* output = stringbuf_new(scratch);
-    bool vertical = output && css_prop_serialize_cascaded_value(element,
-        CSS_PROPERTY_WEBKIT_BOX_ORIENT, 0, output) && output->str &&
-        strcmp(output->str->chars, "vertical") == 0;
-    pool_destroy(scratch);
-    return vertical;
-}
-
-DisplayValue css_legacy_box_display(DomElement* element, uint8_t kind) {
-    DisplayValue display = {kind == 2 ? CSS_VALUE_INLINE_BLOCK : CSS_VALUE_BLOCK, CSS_VALUE_FLEX};
-    display.legacy_box = kind;
-    display.legacy_vertical = css_legacy_box_is_vertical(element);
-    if (!display.legacy_vertical) return display;
-    CssPropertyCode property;
-    if (!layout_cascaded_line_clamp_declaration(element, &property)) return display;
-    Pool* scratch = pool_create();
-    if (!scratch) return display;
-    StringBuf* output = stringbuf_new(scratch);
-    bool clamped = output && css_prop_serialize_cascaded_value(element, property, 0, output) &&
-        output->str && strtod(output->str->chars, nullptr) > 0.0;
-    if (clamped) {
-        // css overflow 4 §5.3 converts a vertical clamped legacy box to a flow formatting context.
-        display.inner = CSS_VALUE_FLOW_ROOT;
-        display.legacy_box = 0;
-        display.legacy_clamp = true;
-    }
-    pool_destroy(scratch);
-    return display;
-}
-
-DisplayValue css_inherit_display_value(DomElement* element, DisplayValue parent) {
-    if (parent.legacy_box) return css_legacy_box_display(element, parent.legacy_box);
-    // inherit copies computed flow-root/inline-block, not the parent's legacy applicability.
-    parent.legacy_clamp = false;
-    parent.legacy_vertical = false;
-    return parent;
-}
-
 const char* css_display_special_name(DisplayValue display) {
-    if (display.legacy_box) return display.legacy_box == 2 ? "-webkit-inline-box" : "-webkit-box";
     // internal table roles use the inner keyword rather than their block outer display.
     if (is_table_internal_display(display.inner)) {
         const CssEnumInfo* info = css_enum_info(display.inner);
@@ -73,13 +30,13 @@ const char* css_display_special_name(DisplayValue display) {
     }
     // atomic inline layout normalizes inline flow-root to the inline-block role.
     bool inline_outer = display.outer == CSS_VALUE_INLINE || display.outer == CSS_VALUE_INLINE_BLOCK;
-    if (display.list_item && inline_outer &&
+    if (display.inner.list_item() && inline_outer &&
         (display.inner == CSS_VALUE_FLOW || display.inner == CSS_VALUE_FLOW_ROOT)) {
         return display.inner == CSS_VALUE_FLOW_ROOT ? "inline flow-root list-item" : "inline list-item";
     }
     if (display.inner == CSS_VALUE_FLOW_ROOT) {
         if (inline_outer) return "inline-block";
-        return display.list_item ? "flow-root list-item" : "flow-root";
+        return display.inner.list_item() ? "flow-root list-item" : "flow-root";
     }
     return nullptr;
 }
@@ -168,9 +125,9 @@ bool css_display_element_is_replaced(DomElement* dom_elem) {
 }
 
 bool css_is_mathml_element(const DomElement* element) {
-    if (!element || !element->tag_name) return false;
+    if (!element || !element->tag_name()) return false;
     // MathML Core §4.1: the math inner display type applies only to MathML elements.
-    const char* tag = element->tag_name;
+    const char* tag = element->tag_name();
     // display resolution asks this for every element; all MathML names start with
     // 'm' except these three, so the first byte rejects HTML tags without a scan.
     if (tag[0] == 's') return strcmp(tag, "semantics") == 0;
@@ -199,10 +156,9 @@ struct CssDisplayKeywordResult {
 struct CssDisplayKeywordSpec {
     CssEnum keyword;
     CssEnum outer;
-    CssEnum inner;
+    DisplayInner inner;
     bool blockify;
     bool replaced_inner;
-    bool list_item;
 };
 
 static CssDisplayKeywordResult css_display_keyword_result(CssEnum keyword,
@@ -210,47 +166,43 @@ static CssDisplayKeywordResult css_display_keyword_result(CssEnum keyword,
                                                            bool is_mathml) {
     static const CssDisplayKeywordSpec specs[] = {
         // display is non-inherited: CSS-wide resets use inline, not the tag's UA default.
-        {CSS_VALUE_INITIAL, CSS_VALUE_INLINE, CSS_VALUE_FLOW, true, true, false},
-        {CSS_VALUE_UNSET, CSS_VALUE_INLINE, CSS_VALUE_FLOW, true, true, false},
-        {CSS_VALUE_FLEX, CSS_VALUE_BLOCK, CSS_VALUE_FLEX, false, false, false},
-        {CSS_VALUE_INLINE_FLEX, CSS_VALUE_INLINE_BLOCK, CSS_VALUE_FLEX, false, false, false},
-        {CSS_VALUE_GRID, CSS_VALUE_BLOCK, CSS_VALUE_GRID, false, false, false},
-        {CSS_VALUE_INLINE_GRID, CSS_VALUE_INLINE_BLOCK, CSS_VALUE_GRID, false, false, false},
-        {CSS_VALUE_BLOCK, CSS_VALUE_BLOCK, CSS_VALUE_FLOW, false, true, false},
-        {CSS_VALUE_INLINE, CSS_VALUE_INLINE, CSS_VALUE_FLOW, true, true, false},
-        {CSS_VALUE_INLINE_BLOCK, CSS_VALUE_INLINE_BLOCK, CSS_VALUE_FLOW, true, true, false},
-        {CSS_VALUE_LIST_ITEM, CSS_VALUE_LIST_ITEM, CSS_VALUE_FLOW, false, false, true},
-        {CSS_VALUE_NONE, CSS_VALUE_NONE, CSS_VALUE_NONE, false, false, false},
-        {CSS_VALUE_CONTENTS, CSS_VALUE_CONTENTS, CSS_VALUE_CONTENTS, false, false, false},
-        {CSS_VALUE_MATH, CSS_VALUE_INLINE, CSS_VALUE_MATH, false, true, false},
-        {CSS_VALUE_FLOW_ROOT, CSS_VALUE_BLOCK, CSS_VALUE_FLOW_ROOT, false, false, false},
-        {CSS_VALUE_TABLE, CSS_VALUE_BLOCK, CSS_VALUE_TABLE, false, false, false},
-        {CSS_VALUE_INLINE_TABLE, CSS_VALUE_INLINE, CSS_VALUE_TABLE, true, false, false},
-        {CSS_VALUE_RUBY, CSS_VALUE_INLINE, CSS_VALUE_RUBY, true, false, false},
-        {CSS_VALUE_RUBY_BASE, CSS_VALUE_INLINE, CSS_VALUE_RUBY_BASE, false, false, false},
-        {CSS_VALUE_RUBY_TEXT, CSS_VALUE_INLINE, CSS_VALUE_RUBY_TEXT, false, false, false},
-        {CSS_VALUE_RUBY_BASE_CONTAINER, CSS_VALUE_INLINE, CSS_VALUE_RUBY_BASE_CONTAINER, false, false, false},
-        {CSS_VALUE_RUBY_TEXT_CONTAINER, CSS_VALUE_INLINE, CSS_VALUE_RUBY_TEXT_CONTAINER, false, false, false},
-        {CSS_VALUE_TABLE_ROW, CSS_VALUE_BLOCK, CSS_VALUE_TABLE_ROW, true, false, false},
-        {CSS_VALUE_TABLE_CELL, CSS_VALUE_TABLE_CELL, CSS_VALUE_TABLE_CELL, true, false, false},
-        {CSS_VALUE_TABLE_ROW_GROUP, CSS_VALUE_BLOCK, CSS_VALUE_TABLE_ROW_GROUP, true, false, false},
-        {CSS_VALUE_TABLE_HEADER_GROUP, CSS_VALUE_BLOCK, CSS_VALUE_TABLE_HEADER_GROUP, true, false, false},
-        {CSS_VALUE_TABLE_FOOTER_GROUP, CSS_VALUE_BLOCK, CSS_VALUE_TABLE_FOOTER_GROUP, true, false, false},
-        {CSS_VALUE_TABLE_COLUMN, CSS_VALUE_BLOCK, CSS_VALUE_TABLE_COLUMN, true, false, false},
-        {CSS_VALUE_TABLE_COLUMN_GROUP, CSS_VALUE_BLOCK, CSS_VALUE_TABLE_COLUMN_GROUP, true, false, false},
-        {CSS_VALUE_TABLE_CAPTION, CSS_VALUE_BLOCK, CSS_VALUE_TABLE_CAPTION, true, false, false},
+        {CSS_VALUE_INITIAL, CSS_VALUE_INLINE, CSS_VALUE_FLOW, true, true},
+        {CSS_VALUE_UNSET, CSS_VALUE_INLINE, CSS_VALUE_FLOW, true, true},
+        {CSS_VALUE_FLEX, CSS_VALUE_BLOCK, CSS_VALUE_FLEX, false, false},
+        {CSS_VALUE_INLINE_FLEX, CSS_VALUE_INLINE_BLOCK, CSS_VALUE_FLEX, false, false},
+        {CSS_VALUE_GRID, CSS_VALUE_BLOCK, CSS_VALUE_GRID, false, false},
+        {CSS_VALUE_INLINE_GRID, CSS_VALUE_INLINE_BLOCK, CSS_VALUE_GRID, false, false},
+        {CSS_VALUE_BLOCK, CSS_VALUE_BLOCK, CSS_VALUE_FLOW, false, true},
+        {CSS_VALUE_INLINE, CSS_VALUE_INLINE, CSS_VALUE_FLOW, true, true},
+        {CSS_VALUE_INLINE_BLOCK, CSS_VALUE_INLINE_BLOCK, CSS_VALUE_FLOW, true, true},
+        {CSS_VALUE_LIST_ITEM, CSS_VALUE_LIST_ITEM, {CSS_VALUE_FLOW, true}, false, false},
+        {CSS_VALUE_NONE, CSS_VALUE_NONE, CSS_VALUE_NONE, false, false},
+        {CSS_VALUE_CONTENTS, CSS_VALUE_CONTENTS, CSS_VALUE_CONTENTS, false, false},
+        {CSS_VALUE_MATH, CSS_VALUE_INLINE, CSS_VALUE_MATH, false, true},
+        {CSS_VALUE_FLOW_ROOT, CSS_VALUE_BLOCK, CSS_VALUE_FLOW_ROOT, false, false},
+        {CSS_VALUE_TABLE, CSS_VALUE_BLOCK, CSS_VALUE_TABLE, false, false},
+        {CSS_VALUE_INLINE_TABLE, CSS_VALUE_INLINE, CSS_VALUE_TABLE, true, false},
+        {CSS_VALUE_RUBY, CSS_VALUE_INLINE, CSS_VALUE_RUBY, true, false},
+        {CSS_VALUE_RUBY_BASE, CSS_VALUE_INLINE, CSS_VALUE_RUBY_BASE, false, false},
+        {CSS_VALUE_RUBY_TEXT, CSS_VALUE_INLINE, CSS_VALUE_RUBY_TEXT, false, false},
+        {CSS_VALUE_RUBY_BASE_CONTAINER, CSS_VALUE_INLINE, CSS_VALUE_RUBY_BASE_CONTAINER, false, false},
+        {CSS_VALUE_RUBY_TEXT_CONTAINER, CSS_VALUE_INLINE, CSS_VALUE_RUBY_TEXT_CONTAINER, false, false},
+        {CSS_VALUE_TABLE_ROW, CSS_VALUE_BLOCK, CSS_VALUE_TABLE_ROW, true, false},
+        {CSS_VALUE_TABLE_CELL, CSS_VALUE_TABLE_CELL, CSS_VALUE_TABLE_CELL, true, false},
+        {CSS_VALUE_TABLE_ROW_GROUP, CSS_VALUE_BLOCK, CSS_VALUE_TABLE_ROW_GROUP, true, false},
+        {CSS_VALUE_TABLE_HEADER_GROUP, CSS_VALUE_BLOCK, CSS_VALUE_TABLE_HEADER_GROUP, true, false},
+        {CSS_VALUE_TABLE_FOOTER_GROUP, CSS_VALUE_BLOCK, CSS_VALUE_TABLE_FOOTER_GROUP, true, false},
+        {CSS_VALUE_TABLE_COLUMN, CSS_VALUE_BLOCK, CSS_VALUE_TABLE_COLUMN, true, false},
+        {CSS_VALUE_TABLE_COLUMN_GROUP, CSS_VALUE_BLOCK, CSS_VALUE_TABLE_COLUMN_GROUP, true, false},
+        {CSS_VALUE_TABLE_CAPTION, CSS_VALUE_BLOCK, CSS_VALUE_TABLE_CAPTION, true, false},
     };
     for (const CssDisplayKeywordSpec& spec : specs) {
         if (spec.keyword != keyword) continue;
-        CssDisplayKeywordResult result = {
-            {spec.outer, spec.replaced_inner && is_replaced
-                ? RDT_DISPLAY_REPLACED :
-                (spec.inner == CSS_VALUE_MATH && !is_mathml
-                    ? (is_replaced ? RDT_DISPLAY_REPLACED : CSS_VALUE_FLOW)
-                    : spec.inner)}, false, spec.blockify};
-        result.display.list_item = spec.list_item;
-        result.handled = true;
-        return result;
+        DisplayInner inner = spec.inner;
+        if (spec.replaced_inner && is_replaced) inner = RDT_DISPLAY_REPLACED;
+        else if (inner == CSS_VALUE_MATH && !is_mathml)
+            inner = is_replaced ? RDT_DISPLAY_REPLACED : CSS_VALUE_FLOW;
+        return {{spec.outer, inner}, true, spec.blockify};
     }
     return {{CSS_VALUE_BLOCK, CSS_VALUE_FLOW}, false, false};
 }
@@ -298,23 +250,20 @@ static bool css_display_list_value(const CssValue* value, bool is_replaced,
     }
 
     if (has_list_item) {
-        out_display->list_item = true;
         // CSS Display 3: `inline list-item` remains an inline-level principal
         // box; treating it as inline-block changes line participation and breaks
         // marker placement for every following sibling.
-        out_display->outer = outer == CSS_VALUE_INLINE
-            ? CSS_VALUE_INLINE : CSS_VALUE_LIST_ITEM;
-        out_display->inner = inner == CSS_VALUE_FLOW_ROOT
+        CssEnum list_outer = outer == CSS_VALUE_INLINE ? CSS_VALUE_INLINE : CSS_VALUE_LIST_ITEM;
+        CssEnum list_inner = inner == CSS_VALUE_FLOW_ROOT
             ? CSS_VALUE_FLOW_ROOT
             : (is_replaced && inner == CSS_VALUE_FLOW
                 ? RDT_DISPLAY_REPLACED : CSS_VALUE_FLOW);
+        *out_display = {list_outer, {list_inner, true}};
         return true;
     }
     if (count >= 2 && outer != CSS_VALUE__UNDEF && inner != CSS_VALUE__UNDEF) {
-        out_display->outer = outer == CSS_VALUE_INLINE
-            ? CSS_VALUE_INLINE : CSS_VALUE_BLOCK;
-        out_display->inner = css_display_list_inner(
-            inner, is_replaced, is_mathml);
+        *out_display = {outer == CSS_VALUE_INLINE ? CSS_VALUE_INLINE : CSS_VALUE_BLOCK,
+                        css_display_list_inner(inner, is_replaced, is_mathml)};
         return true;
     }
     if (count == 1 && values[0] && values[0]->type == CSS_VALUE_TYPE_KEYWORD) {
@@ -331,12 +280,6 @@ static bool css_display_list_value(const CssValue* value, bool is_replaced,
 bool css_resolve_display_css_value(DomElement* element, const CssValue* value,
                                    DisplayValue* out_display) {
     if (!element || !value || !out_display) return false;
-    if (value->type == CSS_VALUE_TYPE_CUSTOM &&
-        css_display_legacy_keyword_supported(value->data.custom_property.name)) {
-        *out_display = css_legacy_box_display(element,
-            strcmp(value->data.custom_property.name, "-webkit-inline-box") == 0 ? 2 : 1);
-        return true;
-    }
     bool is_replaced = css_display_element_is_replaced(element);
     bool is_mathml = css_is_mathml_element(element);
     if (value->type == CSS_VALUE_TYPE_KEYWORD) {

@@ -204,7 +204,7 @@ static bool network_selector_visitor(DomNode* node, void* user_data) {
     if (!node || !walk || !walk->callback || !node->is_element() ||
         !radiant_document_resource_is_active(node)) return true;
     DomElement* element = node->as_element();
-    if (element->tag_name && strcmp(element->tag_name, walk->tag_name) == 0) {
+    if (element->tag_name() && strcmp(element->tag_name(), walk->tag_name) == 0) {
         walk->callback(element, walk->user_data);
     }
     return true;

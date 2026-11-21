@@ -54,7 +54,7 @@ static DomImageSource* image_source_for(DomElement* element,bool create) {
 ImageSurface* image_element_surface(DomElement* element) {
     if(!element||!element->doc||element->tag()!=MARKUP_NAME_IMG) return nullptr;
     DomImageSource* source=image_source_for(element,false);
-    // intrinsic loader state outlives layout's EmbedProp, including detached TextureLoader images.
+    // intrinsic loader state outlives layout's EmbedStyle, including detached TextureLoader images.
     if(source) return dom_node_ref_validate(element->doc,source->node)?image_surface_lookup(source->surface):nullptr;
     return element->embed?element->embed->img:nullptr;
 }

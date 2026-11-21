@@ -1359,12 +1359,6 @@ static GridProp* resolve_grid_prop(LayoutContext* lycon, ViewBlock* block) {
     return block->embedp()->grid;
 }
 
-static EmbedProp* resolve_embed_prop(LayoutContext* lycon, ViewBlock* block) {
-    if (!block) return nullptr;
-    if (!block->embed) block->ensure_embed(lycon);
-    return block->embed;
-}
-
 static void resolve_flex_item_number(LayoutContext* lycon, ViewSpan* span,
                                      CssPropertyCode property, const CssValue* value) {
     if (property == CSS_PROPERTY_ORDER) {
@@ -2043,7 +2037,7 @@ static bool parse_object_position_component(LayoutContext* lycon, const CssValue
     return false;
 }
 
-void resolve_object_position_value(LayoutContext* lycon, const CssValue* value, EmbedProp* embed) {
+void resolve_object_position_value(LayoutContext* lycon, const CssValue* value, EmbedStyle* embed) {
     if (!value || !embed) return;
     float x = 50.0f, y = 50.0f;
     bool x_is_percent = true, y_is_percent = true;
@@ -2846,7 +2840,6 @@ DisplayValue blockify_display(DisplayValue display) {
     }
     if (display.outer == CSS_VALUE_INLINE_BLOCK) {
         display.outer = CSS_VALUE_BLOCK;
-        if (display.legacy_box) display.legacy_box = 1;
     }
     if (display.outer == CSS_VALUE_INLINE) {
         // CSS Display §2.7: blockification changes the outside role of ruby,
@@ -2875,7 +2868,7 @@ DisplayValue css_default_display_for_element(DomElement* dom_elem, DomNode* node
     DisplayValue control;
     if (tag_id == NAME_ID_NONE && radiant_page_control_display(dom_elem, &control)) return control;
     if (css_is_mathml_element(dom_elem)) {
-        if (strcmp(dom_elem->tag_name, "math") == 0) {
+        if (strcmp(dom_elem->tag_name(), "math") == 0) {
             const char* mode = dom_elem->get_attribute("display");
             // Core §2.1.1: display="block" changes the outer box, retaining math internals.
             return {mode && str_icmp_cstr(mode, "block") == 0 ? CSS_VALUE_BLOCK : CSS_VALUE_INLINE,
@@ -2924,9 +2917,7 @@ DisplayValue css_default_display_for_element(DomElement* dom_elem, DomNode* node
         return {CSS_VALUE_INLINE, CSS_VALUE_FLOW};
     }
     if (tag_id == MARKUP_NAME_LI) {
-        DisplayValue display = {CSS_VALUE_LIST_ITEM, CSS_VALUE_FLOW};
-        display.list_item = true;
-        return display;
+        return {CSS_VALUE_LIST_ITEM, {CSS_VALUE_FLOW, true}};
     }
     if (tag_id == MARKUP_NAME_SUMMARY) {
         // HTML details rendering gives the disclosure marker only to a direct
@@ -2934,9 +2925,7 @@ DisplayValue css_default_display_for_element(DomElement* dom_elem, DomNode* node
         bool direct_details_child = node && node->parent && node->parent->is_element() &&
             node->parent->as_element()->tag() == MARKUP_NAME_DETAILS;
         if (!direct_details_child) return {CSS_VALUE_BLOCK, CSS_VALUE_FLOW};
-        DisplayValue display = {CSS_VALUE_LIST_ITEM, CSS_VALUE_FLOW};
-        display.list_item = true;
-        return display;
+        return {CSS_VALUE_LIST_ITEM, {CSS_VALUE_FLOW, true}};
     }
     if (tag_id == MARKUP_NAME_OBJECT) {
         return dom_elem && dom_elem->get_attribute(MARKUP_NAME_DATA)
@@ -3003,7 +2992,7 @@ static DisplayValue resolve_variable_display_value(DomElement* element,
         if (value->type == CSS_VALUE_TYPE_KEYWORD &&
             value->data.keyword == CSS_VALUE_INHERIT) {
             DomElement* parent = dom_parent_element(element);
-            if (parent) resolved = css_inherit_display_value(element, resolve_display_value(parent));
+            if (parent) resolved = resolve_display_value(parent);
         } else if (custom_layout_name_from_css_value(value)) {
             resolved = {CSS_VALUE_BLOCK, CSS_VALUE_FLOW};
         } else {
@@ -3076,8 +3065,8 @@ static DisplayValue resolve_display_value_raw(void* child,
         NameId tag_id = dom_elem ? dom_elem->tag_id : NAME_ID_NONE;
         bool is_mathml = css_is_mathml_element(dom_elem);
 
-        if (dom_elem && dom_elem->tag_name &&
-            strcmp(dom_elem->tag_name, "::first-letter") == 0) {
+        if (dom_elem && dom_elem->tag_name() &&
+            strcmp(dom_elem->tag_name(), "::first-letter") == 0) {
             // CSS Pseudo §4.2: first-letter ignores authored display; float
             // blockifies the pseudo, while an unfloated first letter is inline.
             CssEnum first_letter_float = layout_specified_keyword(
@@ -3211,8 +3200,7 @@ static DisplayValue resolve_display_value_raw(void* child,
                             // CSS 2.1 §9.2.4: inherit from the parent's computed display.
                             DomElement* parent_elem = dom_parent_element(dom_elem);
                             if (parent_elem) {
-                                DisplayValue parent_display = css_inherit_display_value(
-                                    dom_elem, resolve_display_value((void*)parent_elem));
+                                DisplayValue parent_display = resolve_display_value(parent_elem);
                                 return needs_blockify ? blockify_display(parent_display) : parent_display;
                             }
                         } else if (css_resolve_display_css_value(
@@ -4749,8 +4737,8 @@ static bool apply_chromium_monospace_font_size_quirk(StyleTree* style_tree,
 static void apply_initial_letter_used_font_size(DomElement* dom_elem,
                                                 LayoutContext* lycon,
                                                 const FontBox& parent_font) {
-    if (!dom_elem || !lycon || !dom_elem->tag_name ||
-        strcmp(dom_elem->tag_name, "::first-letter") != 0) {
+    if (!dom_elem || !lycon || !dom_elem->tag_name() ||
+        strcmp(dom_elem->tag_name(), "::first-letter") != 0) {
         return;
     }
     InitialLetterInfo initial = {};
@@ -5026,26 +5014,10 @@ static void resolve_grid_components(DomElement* element, LayoutContext* lycon) {
     }
 }
 
-CssDeclaration* layout_cascaded_line_clamp_declaration(DomElement* element,
-                                                       CssPropertyCode* property) {
-    const CssPropertyCode properties[] = {CSS_PROPERTY_LINE_CLAMP, CSS_PROPERTY_WEBKIT_LINE_CLAMP};
-    CssDeclaration* winner = nullptr;
-    *property = CSS_PROPERTY_LINE_CLAMP;
-    for (CssPropertyCode candidate_property : properties) {
-        CssDeclaration* candidate = layout_cascaded_physical_declaration(element, candidate_property);
-        if (candidate && (!winner || css_declaration_cascade_compare(candidate, winner) > 0)) {
-            winner = candidate;
-            *property = candidate_property;
-        }
-    }
-    return winner;
-}
-
 static void resolve_line_clamp_count(DomElement* element, LayoutContext* lycon) {
-    CssPropertyCode property;
-    CssDeclaration* winner = layout_cascaded_line_clamp_declaration(element, &property);
-    // both numeric clamp forms target the same count; evaluate after the owner's font, including all/rollback.
-    if (winner) resolve_css_property(property, winner, lycon);
+    // resolve the count after the owner's font, including all and rollback.
+    CssDeclaration* winner = layout_cascaded_physical_declaration(element, CSS_PROPERTY_LINE_CLAMP);
+    if (winner) resolve_css_property(CSS_PROPERTY_LINE_CLAMP, winner, lycon);
 }
 
 static void resolve_flex_components(DomElement* element, LayoutContext* lycon) {
@@ -5626,7 +5598,7 @@ static void resolve_css_inherited_properties(DomElement* dom_elem,
                     // alignment; an authored table declaration is applied later.
                     continue;
                 }
-                if (cur_elem && cur_elem->tag_name && strcmp(cur_elem->tag_name, "th") == 0) {
+                if (cur_elem && cur_elem->tag_name() && strcmp(cur_elem->tag_name(), "th") == 0) {
                     bool inherited_is_noninitial = false;
                     for (DomElement* p = dom_parent_element(dom_elem);
                          p; p = dom_parent_element(p)) {
@@ -6130,7 +6102,7 @@ void resolve_css_styles(DomElement* dom_elem, LayoutContext* lycon) {
     // Only apply to actual <table> HTML elements, not to other elements with display:table.
     // Only apply if not explicitly set by author CSS.
     bool is_html_table = (dom_elem->tag_id == MARKUP_NAME_TABLE) ||
-        (dom_elem->tag_name && strcmp(dom_elem->tag_name, "table") == 0);
+        (dom_elem->tag_name() && strcmp(dom_elem->tag_name(), "table") == 0);
     if (is_html_table && di == CSS_VALUE_TABLE) {
         ViewBlock* block = css_property_box(lycon);
         if (block && block->blk) {
@@ -7954,21 +7926,20 @@ static void resolve_inline_visibility_opacity(LayoutContext* lycon, ViewSpan* sp
 }
 
 static void resolve_line_count_property(LayoutContext* lycon, ViewSpan* block,
-                                        CssPropertyCode property, const CssValue* value) {
+                                        const CssValue* value) {
     if (!block) return;
     block->ensure_block(lycon);
     block->blk->line_clamp = 0;
-    block->blk->line_clamp_legacy = property == CSS_PROPERTY_WEBKIT_LINE_CLAMP;
     if (value->type == CSS_VALUE_TYPE_KEYWORD) {
         if (value->data.keyword != CSS_VALUE_INHERIT) return;
         DomElement* parent = dom_parent_element(lam::dom_require_element(lycon->view));
         Pool* scratch = lycon->css_value_scratch ? lycon->css_value_scratch.get() : layout_prop_pool(lycon);
         // copy the parent's computed scalar rather than re-evaluating its expression at the child's font.
-        String* text = parent ? css_prop_serialize_computed_value(scratch, parent, property, 0) : nullptr;
+        String* text = parent ? css_prop_serialize_computed_value(scratch, parent, CSS_PROPERTY_LINE_CLAMP, 0) : nullptr;
         value = text ? css_parse_component_value_text(text->chars, text->len, scratch) : nullptr;
     }
     double count;
-    if (layout_compute_css_integer(lycon, property, value, 1.0, (double)INT_MAX, &count))
+    if (layout_compute_css_integer(lycon, CSS_PROPERTY_LINE_CLAMP, value, 1.0, (double)INT_MAX, &count))
         block->blk->line_clamp = static_cast<int>(count); // INT_CAST_OK: finite positive line count bounded by INT_MAX.
 }
 
@@ -8963,22 +8934,11 @@ void resolve_css_property(CssPropertyCode prop_id, const CssDeclaration* decl, L
     int64_t specificity = get_style_pass_cascade_priority(lycon, decl);
     if (decl->property_name && decl->property_name[0] == '-' && decl->property_name[1] == '-') {
         DomElement* element = lam::dom_require<DOM_NODE_ELEMENT>(lycon->view);
-        CssCustomProp* new_var = element->css_variables;
+        CssCustomProp* new_var = element->css_variables();
         while (new_var && strcmp(new_var->name, decl->property_name) != 0) {
             new_var = new_var->next;
         }
-        if (!new_var) {
-            // CSS variables are retained DOM state, not a view-generation prop;
-            // document-pool ownership keeps retained reset from dangling this list.
-            new_var = (CssCustomProp*)pool_calloc(
-                lycon->doc->document_pool, sizeof(CssCustomProp));
-            if (new_var) {
-                new_var->name = lam::up(decl->property_name);
-                dom_element_invalidate_custom_property_index(element);
-                new_var->next = element->css_variables;
-                element->css_variables = lam::own(new_var);
-            }
-        }
+        if (!new_var) new_var = element->prepend_css_variable(decl->property_name);
         if (new_var) {
             new_var->value = lam::up(value);
         }
@@ -10097,12 +10057,8 @@ void css_apply_computed_property(CssPropertyCode prop_id,
             break;
         }
         case CSS_PROPERTY_LINE_CLAMP:
-        case CSS_PROPERTY_WEBKIT_LINE_CLAMP:
             // intrinsic measurement resolves counts before the element has a block view tag.
-            resolve_line_count_property(lycon, span, prop_id, value);
-            break;
-        case CSS_PROPERTY_WEBKIT_BOX_ORIENT:
-            // display and legacy flex routing consume the cascaded orientation directly.
+            resolve_line_count_property(lycon, span, value);
             break;
         case CSS_PROPERTY_TAB_SIZE: {
             span->ensure_block(lycon);
@@ -10504,7 +10460,7 @@ void css_apply_computed_property(CssPropertyCode prop_id,
             resolve_contain_intrinsic_property(lycon, block, prop_id, decl, value);
             break;
         case CSS_PROPERTY_OBJECT_FIT: {
-            EmbedProp* embed = resolve_embed_prop(lycon, block);
+            EmbedStyle* embed = block ? block->ensure_embed() : nullptr;
             if (embed && value->type == CSS_VALUE_TYPE_KEYWORD) {
                 CssEnum val = value->data.keyword;
                 if (val == CSS_VALUE_FILL || val == CSS_VALUE_CONTAIN ||
@@ -10516,7 +10472,7 @@ void css_apply_computed_property(CssPropertyCode prop_id,
             break;
         }
         case CSS_PROPERTY_OBJECT_POSITION: {
-            EmbedProp* embed = resolve_embed_prop(lycon, block);
+            EmbedStyle* embed = block ? block->ensure_embed() : nullptr;
             if (!embed) break;
             resolve_object_position_value(lycon, value, embed);
             break;

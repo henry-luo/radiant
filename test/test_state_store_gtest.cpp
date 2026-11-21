@@ -413,7 +413,7 @@ TEST_F(StateStoreDomMutationTest, BatchesNestIndependentlyAcrossDocuments) {
 }
 
 TEST_F(StateStoreDomMutationTest, NativeOptionPseudoStatesFollowLiveSelectedness) {
-    live->tag_name = lam::up("option");
+    live->tag_id = MARKUP_NAME_OPTION;
     SelectorQueryScratch query;
     ASSERT_TRUE(query.parse_list(":checked"));
     query.matcher = selector_matcher_create(query.pool);
@@ -640,7 +640,6 @@ TEST_F(StateStoreDomMutationTest, DetachedRegisteredViewStopsResolvingBeforeReti
     EXPECT_EQ(doc_state->hover_target, nullptr);
     EXPECT_EQ(view_state_get(doc_state, static_cast<View*>(orphan)), nullptr);
 
-    orphan->tag_name = lam::up("button");
     orphan->tag_id = MARKUP_NAME_BUTTON;
     doc_state->active_cascade_depth++;
     focus_set_programmatic(doc_state, static_cast<View*>(orphan));
@@ -699,7 +698,6 @@ TEST_F(StateStoreDomMutationTest, DetachedPointerPhasesDoNotRecreatePrunedState)
     ASSERT_TRUE(dom_lifecycle_init(&doc));
     ASSERT_TRUE(dom_node_registry_register(&doc, orphan, sizeof(DomElement), false));
 
-    orphan->tag_name = lam::up("button");
     orphan->tag_id = MARKUP_NAME_BUTTON;
     doc_state_set_hover_target(doc_state, static_cast<View*>(orphan));
     doc_state_set_active_target(doc_state, static_cast<View*>(orphan));
@@ -807,7 +805,6 @@ TEST_F(StateStoreDomMutationTest, FocusDoesNotPopulateUnrelatedSubtrees) {
         ASSERT_TRUE(children.append(child));
         ASSERT_TRUE(orphan->append_child(child));
     }
-    live->tag_name = lam::up("button");
     live->tag_id = MARKUP_NAME_BUTTON;
     doc_state->transition_depth++;
     focus_set_programmatic(doc_state, live, true);
@@ -841,7 +838,6 @@ TEST_F(StateStoreDomMutationTest, BulkPruningPreservesLiveValuesAndRebuildsFocus
     }
     state_end_batch(doc_state);
 
-    live->tag_name = lam::up("button");
     live->tag_id = MARKUP_NAME_BUTTON;
     doc_state->transition_depth++;
     focus_set_programmatic(doc_state, live, true);
@@ -873,7 +869,6 @@ TEST_F(StateStoreDomMutationTest, PruneAfterReflowRestoresFocusAssignedBeforeVie
     DocState* doc_state = state();
     ASSERT_NE(doc_state, nullptr);
 
-    live->tag_name = lam::up("input");
     live->tag_id = MARKUP_NAME_INPUT;
     static_cast<DomNode*>(live)->id = 0;
     ASSERT_EQ(live->tag(), MARKUP_NAME_INPUT);
@@ -945,7 +940,6 @@ TEST_F(StateStoreDomMutationTest, RegeneratedTextControlKeepsNativeValueOnlyForS
     FormControlProp old_prop{};
     FormControlProp new_prop{};
     old_prop.control_type = new_prop.control_type = FORM_CONTROL_TEXT;
-    live->tag_name = orphan->tag_name = lam::up("input");
     live->tag_id = orphan->tag_id = MARKUP_NAME_INPUT;
     live->id = orphan->id = lam::up("field");
     ASSERT_TRUE(live->set_form_storage(&old_prop));
@@ -1026,7 +1020,6 @@ TEST_F(StateStoreDomMutationTest, HiddenSelectUpdatesRetainedSelectionWithoutLay
     FormControlProp form{};
     form.control_type = FORM_CONTROL_SELECT;
     form.option_count = 3;
-    live->tag_name = lam::up("select");
     live->tag_id = MARKUP_NAME_SELECT;
     live->set_role_kind(DomElement::ROLE_FORM);
     ASSERT_TRUE(live->set_form_storage(&form));
@@ -1050,7 +1043,7 @@ TEST_F(StateStoreDomMutationTest, HiddenSelectUpdatesRetainedSelectionWithoutLay
 struct MediaLifetimeProbe { unsigned released, paused; };
 
 TEST_F(StateStoreDomMutationTest, RebuiltEventOwnerTransfersLeaseOnlyForSameIdentity) {
-    live->tag_name = orphan->tag_name = lam::up("input");
+    live->tag_id = orphan->tag_id = MARKUP_NAME_INPUT;
     live->id = orphan->id = lam::up("field");
     ASSERT_TRUE(dom_lifecycle_init(&doc));
     ASSERT_TRUE(dom_node_registry_register(&doc, live, sizeof(DomElement), false));
@@ -1078,8 +1071,8 @@ static void pause_media_probe(RdtVideo* player) {
 TEST_F(StateStoreDomMutationTest, KeyedOwnerSurvivesRemovalOfItsEarlierSibling) {
     DomElement* replacement = make_element();
     DomElement* retained = make_element();
-    root->tag_name = replacement->tag_name = lam::up("div");
-    orphan->tag_name = retained->tag_name = lam::up("video");
+    root->tag_id = replacement->tag_id = MARKUP_NAME_DIV;
+    orphan->tag_id = retained->tag_id = MARKUP_NAME_VIDEO;
     orphan->id = retained->id = lam::up("retained-player");
     ASSERT_TRUE(static_cast<DomNode*>(replacement)->append_child(retained));
     MediaLifetimeProbe probe{};
@@ -1126,7 +1119,6 @@ TEST_F(StateStoreDomMutationTest, DetachedRegisteredMediaPausesOnceAndRetainsIts
 
 TEST_F(StateStoreDomMutationTest, MediaOwnerSurvivesRebuildAndReleasesOnRetirement) {
     MediaLifetimeProbe probe{};
-    live->tag_name = orphan->tag_name = lam::up("video");
     live->tag_id = orphan->tag_id = MARKUP_NAME_VIDEO;
     MediaViewState* before = media_view_state_get(state(), live, true);
     ASSERT_NE(before, nullptr);
@@ -1164,7 +1156,6 @@ TEST_F(StateStoreDomMutationTest, RegeneratedControlAppliesConstraintsAndKeepsNa
     FormControlProp old_prop{};
     FormControlProp new_prop{};
     old_prop.control_type = new_prop.control_type = FORM_CONTROL_TEXT;
-    live->tag_name = orphan->tag_name = lam::up("input");
     live->tag_id = orphan->tag_id = MARKUP_NAME_INPUT;
     live->id = orphan->id = lam::up("field");
     ASSERT_TRUE(live->set_form_storage(&old_prop));
@@ -1256,7 +1247,6 @@ TEST_F(StateStoreDomMutationTest, DetachedTextControlRetainsValueAcrossReflow) {
     ASSERT_TRUE(dom_lifecycle_init(&doc));
     ASSERT_TRUE(dom_node_registry_register(&doc, orphan, sizeof(DomElement), false));
 
-    orphan->tag_name = lam::up("input");
     orphan->tag_id = MARKUP_NAME_INPUT;
     FormControlProp* form = new FormControlProp{};
     form->control_type = FORM_CONTROL_TEXT;

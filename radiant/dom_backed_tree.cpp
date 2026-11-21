@@ -126,9 +126,9 @@ bool radiant_dom_remove_edit_child(DomNode* child) {
     DomElement* parent = child->parent->as_element();
     DomDocument* document = parent->doc;
     if (!document || !dom_node_registry_owns(document, child)) return false;
-    bool reset_select = parent->tag_name && str_icmp_cstr(parent->tag_name, "select") == 0 &&
-        child->is_element() && child->as_element()->tag_name &&
-        str_icmp_cstr(child->as_element()->tag_name, "option") == 0;
+    bool reset_select = parent->tag_name() && str_icmp_cstr(parent->tag_name(), "select") == 0 &&
+        child->is_element() && child->as_element()->tag_name() &&
+        str_icmp_cstr(child->as_element()->tag_name(), "option") == 0;
     if (reset_select && !dom_edit_snapshot_native_select(document, parent)) return false;
     bool deferred = false;
     if (!dom_edit_defer_native_retirement(document, child, &deferred) || !deferred) return false;

@@ -209,7 +209,7 @@ ReplacedIntrinsicFacts layout_replaced_intrinsic_facts(LayoutContext* lycon,
         layout_ensure_replaced_image_surface(
             lycon, block, block->as_element());
     }
-    // EmbedProp also carries flex/grid state, so only replaced boxes may
+    // EmbedStyle also carries flex/grid state, so only replaced boxes may
     // interpret its image slot as intrinsic content.
     if (layout_replaced_image_surface_contributes(block) &&
         block->embed && block->embedp()->img) {
