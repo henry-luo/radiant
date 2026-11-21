@@ -3627,6 +3627,7 @@ void intrinsic_width_history_release(LayoutCache* cache, Pool* pool) {
 }
 
 static IntrinsicWidthHistory* intrinsic_width_history_slot(LayoutCache* cache, Pool* pool) {
+    constexpr unsigned INTRINSIC_WIDTH_HISTORY_LIMIT = 9;
     IntrinsicWidthHistory* oldest = cache->intrinsic_width_history;
     IntrinsicWidthHistory* previous = nullptr;
     unsigned count = oldest ? 1 : 0;
@@ -3635,7 +3636,7 @@ static IntrinsicWidthHistory* intrinsic_width_history_slot(LayoutCache* cache, P
         oldest = oldest->next;
         count++;
     }
-    if (count < LAYOUT_CACHE_SIZE)
+    if (count < INTRINSIC_WIDTH_HISTORY_LIMIT)
         return (IntrinsicWidthHistory*)pool_calloc(pool, sizeof(IntrinsicWidthHistory));
     // keep alternating constraint queries across passes without unbounded retained history.
     if (previous) previous->next = nullptr;
@@ -3663,10 +3664,10 @@ static bool intrinsic_width_inputs_equal(const IntrinsicWidthCacheEntry& a,
 
 static bool intrinsic_width_query_matches(IntrinsicWidthCacheEntry& entry,
                                           const IntrinsicWidthCacheEntry& query) {
-    return entry.context.valid && intrinsic_width_inputs_equal(entry, query) &&
+    return entry.context.is_valid() && intrinsic_width_inputs_equal(entry, query) &&
         ((entry.context_independent &&
-          entry.context.known_dimensions.width == query.context.known_dimensions.width &&
-          entry.context.known_dimensions.height == query.context.known_dimensions.height) ||
+          layout_cache_known_dimensions_match(entry.context.known_dimensions,
+                                              query.context.known_dimensions, 0.0f)) ||
          (layout_cache_constraints_match(&entry.context,
             query.context.known_dimensions, query.context.available_space, 0.0f) &&
           entry.block_size.width == query.block_size.width &&
@@ -3721,9 +3722,8 @@ struct IntrinsicWidthCacheScope {
         // grid and definite-size shortcuts must retain their complete result too.
         entry.sizes = sizes;
         entry.generation = generation;
-        entry.context.valid = true;
         radiant::IntrinsicWidthCacheEntry& previous = cache->intrinsic_widths[basis];
-        if (previous.context.valid && radiant::intrinsic_width_version_equal(previous, entry) &&
+        if (previous.context.is_valid() && radiant::intrinsic_width_version_equal(previous, entry) &&
             !radiant::intrinsic_width_query_matches(previous, entry) && lycon->pool) {
             // alternating flex constraints must not evict a completed subtree query.
             auto* history = radiant::intrinsic_width_history_slot(cache, lycon->pool);
@@ -3771,7 +3771,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     query.parent_revision = radiant::css_resolved_style_inherited_revision(element->parent_element());
     query.retain_across_passes = layout_can_retain_geometry(lycon, true) && !lycon->paged &&
         !lycon->css_query_probe && !lycon->selected_style && !lycon->doc->view_tree->model;
-    query.context.known_dimensions = {lycon->width, lycon->height, true, true};
+    query.context.known_dimensions = {lycon->width, lycon->height};
     query.context.available_space = lycon->available_space;
     query.block_size = {lycon->block.content_width, lycon->block.content_height};
     query.parent_size = {lycon->block.parent ? lycon->block.parent->content_width : -1.0f,
@@ -3788,10 +3788,10 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     if (element->layout_cache && !element->has_cached_intrinsic_widths()) {
         // an explicit invalidation retires every constraint, even without a new epoch.
         for (auto& contribution : element->layout_cache->intrinsic_widths) {
-            contribution.context.valid = false;
+            contribution.context.invalidate();
         }
     }
-    bool inputs_match = cached && cached->context.valid &&
+    bool inputs_match = cached && cached->context.is_valid() &&
         radiant::intrinsic_width_inputs_equal(*cached, query);
     radiant::IntrinsicWidthHistory* history = element->layout_cache
         ? element->layout_cache->intrinsic_width_history.get() : nullptr;
@@ -3822,7 +3822,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         return {0, 0};
     }
     if (lycon->profiler.enabled) {
-        int reason = !cached || !cached->context.valid ? 0 :
+        int reason = !cached || !cached->context.is_valid() ? 0 :
             !element->has_cached_intrinsic_widths() ? 1 :
             cached->generation != measurement_generation ? 2 :
             !inputs_match || !radiant::layout_cache_constraints_match(&cached->context,
@@ -8323,7 +8323,8 @@ struct IntrinsicHeightKey {
 };
 
 struct IntrinsicHeightVersion {
-    uint64_t style_epoch, mutation_epoch, font_generation;
+    uint32_t style_epoch, mutation_epoch;
+    uint64_t font_generation;
     uint32_t generation, style_revision, input_revision;
 };
 
@@ -8373,7 +8374,6 @@ static bool intrinsic_height_version_equal(const IntrinsicHeightVersion& a,
 static uint8_t intrinsic_height_key_changes(const IntrinsicHeightKey& a, const IntrinsicHeightKey& b,
                                            bool context_independent) {
     CacheEntry available = {};
-    available.valid = true;
     available.available_space = a.available_space;
     uint8_t changed = 0;
     // ordinary independent flow consumes the explicit wrapping width, not the

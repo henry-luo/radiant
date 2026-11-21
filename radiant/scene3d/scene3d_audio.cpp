@@ -337,7 +337,7 @@ Scene3dAudio* scene3d_audio_create(DomElement* root, Scene3dRuntime* runtime) {
     if (!root || !runtime) return nullptr;
     auto* state = (Scene3dAudio*)mem_calloc(1, sizeof(Scene3dAudio), MEM_CAT_RENDER);
     if (state) { state->document = root->doc; state->root = dom_node_ref(root); state->runtime = runtime;
-        state->generation = 1; state->epoch = UINT64_MAX; state->speed = 343; state->cue_epoch = 1; }
+        state->generation = 1; state->epoch = DOM_MUTATION_EPOCH_UNSTAMPED; state->speed = 343; state->cue_epoch = 1; }
     return state;
 }
 void scene3d_audio_cues_collect(Scene3dAudio* state) {
@@ -483,6 +483,6 @@ void scene3d_audio_follow_rebuild(Scene3dAudio* state, DomNode* before, DomNode*
     view_state_ref_follow_rebuild(state->document, &state->root, before, after);
     view_state_ref_follow_rebuild(state->document, &state->listener.node, before, after);
     for (unsigned i = 0; i < state->count; i++) view_state_ref_follow_rebuild(state->document, &state->sources[i].node, before, after);
-    state->epoch = UINT64_MAX;
+    state->epoch = DOM_MUTATION_EPOCH_UNSTAMPED;
 }
 const char* scene3d_audio_diagnostic(Scene3dAudio* state) { return state && state->diagnostic[0] ? state->diagnostic : nullptr; }

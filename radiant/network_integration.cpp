@@ -347,7 +347,7 @@ static void discover_use_callback(DomElement* use, void* user_data) {
 static void discover_script_callback(DomElement* script, void* user_data) {
     DomDocument* doc = (DomDocument*)user_data;
     // an attached script host owns preparation and fetching, including inert scripts.
-    if (doc->js.prepare_inline_script || (script->ext && script->ext->script_already_started)) return;
+    if (doc->js.prepare_inline_script || (script->rare_ext && script->rare_ext->script_already_started)) return;
 
     const char* src = script->get_attribute("src");
     if (!src) return;  // inline script, no download needed

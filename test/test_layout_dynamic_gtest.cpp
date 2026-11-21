@@ -35,14 +35,15 @@ TEST(LayoutCacheTest, ZeroDimensionsRemainDistinctFromAutoCacheKeys) {
         parent_blk.given_width = horizontal ? 0.0f : -1.0f;
         parent_blk.given_height = horizontal ? -1.0f : 0.0f;
         radiant::KnownDimensions zero = radiant::layout_known_dimensions_from_block(&block);
-        EXPECT_EQ(zero.has_width, horizontal);
-        EXPECT_EQ(zero.has_height, !horizontal);
+        EXPECT_EQ(isnan(zero.width), !horizontal);
+        EXPECT_EQ(isnan(zero.height), horizontal);
+        EXPECT_FLOAT_EQ(horizontal ? zero.width : zero.height, 0.0f);
         radiant::layout_cache_store(&cache, zero, space,
             radiant::RunMode::ComputeSize, radiant::size_f(0.0f, 0.0f));
         parent_blk.given_width = parent_blk.given_height = -1.0f;
         radiant::KnownDimensions automatic = radiant::layout_known_dimensions_from_block(&block);
-        EXPECT_FALSE(automatic.has_width);
-        EXPECT_FALSE(automatic.has_height);
+        EXPECT_TRUE(isnan(automatic.width));
+        EXPECT_TRUE(isnan(automatic.height));
         radiant::SizeF result = {};
         EXPECT_FALSE(radiant::layout_cache_get(&cache, automatic, space,
             radiant::RunMode::ComputeSize, &result));
@@ -50,6 +51,59 @@ TEST(LayoutCacheTest, ZeroDimensionsRemainDistinctFromAutoCacheKeys) {
             radiant::RunMode::ComputeSize, &result));
         radiant::layout_cache_init(&cache);
     }
+}
+
+TEST(LayoutCacheTest, EmptyEntryIsDistinctFromAnUnconstrainedMeasurement) {
+    radiant::LayoutCache cache = {};
+    radiant::layout_cache_init(&cache);
+    const auto known = radiant::known_dimensions_none();
+    const auto space = AvailableSpace::make_min_content();
+    const auto mode = radiant::RunMode::ComputeSize;
+    radiant::SizeF result = {};
+    EXPECT_FALSE(radiant::CacheEntry{}.is_valid());
+
+    radiant::layout_cache_store(&cache, known, space, mode, {20.0f, 10.0f});
+    ASSERT_TRUE(radiant::layout_cache_get(&cache, known, space, mode, &result));
+    EXPECT_FLOAT_EQ(result.width, 20.0f);
+    EXPECT_FLOAT_EQ(result.height, 10.0f);
+
+    radiant::CacheEntry* entry = radiant::layout_cache_find_measurement(&cache, known, space);
+    ASSERT_NE(entry, nullptr);
+    entry->invalidate();
+    EXPECT_FALSE(radiant::layout_cache_get(&cache, known, space, mode, &result));
+}
+
+TEST(LayoutCacheTest, RetainsFourConstraintKeysAndEvictsOldestInsertion) {
+    radiant::LayoutCache cache = {};
+    radiant::layout_cache_init(&cache);
+    const AvailableSpace space = AvailableSpace::make_indefinite();
+    const auto mode = radiant::RunMode::ComputeSize;
+    const float widths[] = {20.0f, 40.0f, 60.0f, 80.0f};
+    for (float width : widths) {
+        radiant::layout_cache_store(&cache, {width, NAN}, space, mode, {width, 10.0f});
+    }
+    radiant::layout_cache_store(&cache, {40.0f, NAN}, space, mode, {40.0f, 15.0f});
+    radiant::SizeF result = {};
+    for (float width : widths) {
+        ASSERT_TRUE(radiant::layout_cache_get(&cache, {width, NAN}, space, mode, &result));
+        EXPECT_FLOAT_EQ(result.width, width);
+        EXPECT_FLOAT_EQ(result.height, width == 40.0f ? 15.0f : 10.0f);
+    }
+
+    radiant::layout_cache_store(&cache, {100.0f, NAN}, space, mode, {100.0f, 10.0f});
+    EXPECT_FALSE(radiant::layout_cache_get(&cache, {20.0f, NAN}, space, mode, &result));
+    for (float width : {40.0f, 60.0f, 80.0f, 100.0f}) {
+        EXPECT_TRUE(radiant::layout_cache_get(&cache, {width, NAN}, space, mode, &result));
+    }
+}
+
+TEST(DocumentEpochTest, MutationWrapSkipsUnstampedValue) {
+    DomDocument document;
+    document.mutation_epoch = DOM_MUTATION_EPOCH_UNSTAMPED - 1;
+    document.advance_mutation_epoch();
+    EXPECT_EQ(dom_mutation_epoch(&document), 0u);
+    document.advance_mutation_epoch();
+    EXPECT_EQ(dom_mutation_epoch(&document), 1u);
 }
 
 TEST(NativeEditingWithoutScriptHost, FormDirectoryIsLazyAndReclaimedBeforeLayout) {
@@ -61,8 +115,8 @@ TEST(NativeEditingWithoutScriptHost, FormDirectoryIsLazyAndReclaimedBeforeLayout
     ASSERT_TRUE(host && control);
     document->root = lam::up(host);
     ASSERT_TRUE(host->DomNode::append_child(control));
-    EXPECT_FALSE(host->style_ext);
-    EXPECT_FALSE(control->style_ext);
+    EXPECT_FALSE(host->ext);
+    EXPECT_FALSE(control->ext);
     EXPECT_FALSE(document->view_tree);
 
     FormControlProp* form = tc_get_or_create_form(control);
@@ -70,13 +124,13 @@ TEST(NativeEditingWithoutScriptHost, FormDirectoryIsLazyAndReclaimedBeforeLayout
     EXPECT_TRUE(form->heap_allocated);
     EXPECT_EQ(control->form_control(), form);
     EXPECT_EQ(tc_get_or_create_form(control), form);
-    ASSERT_TRUE(control->style_ext);
-    EXPECT_FALSE(control->style_ext->tb);
-    EXPECT_FALSE(control->style_ext->transform);
-    EXPECT_FALSE(control->style_ext->pseudo);
+    ASSERT_TRUE(control->ext);
+    EXPECT_FALSE(control->ext->tb);
+    EXPECT_FALSE(control->ext->transform);
+    EXPECT_FALSE(control->ext->pseudo);
 
     form_control_release_prop(control);
-    EXPECT_FALSE(control->style_ext);
+    EXPECT_FALSE(control->ext);
     ASSERT_NE(tc_get_or_create_form(control), nullptr);
     DomNodeRef detached = dom_node_ref(control);
     ASSERT_TRUE(host->remove_child(control));
@@ -2034,8 +2088,8 @@ TEST_F(DynamicLayoutTest, UniversalPseudoResetSharesStylesUntilOverridden) {
     StyleTree* shared = plain->pseudo_style(PSEUDO_STYLE_BEFORE);
     ASSERT_NE(shared, nullptr);
     EXPECT_EQ(other->pseudo_style(PSEUDO_STYLE_BEFORE), shared);
-    EXPECT_FALSE(plain->style_ext);
     EXPECT_FALSE(plain->ext);
+    EXPECT_FALSE(plain->rare_ext);
     EXPECT_FALSE(other->pseudo_prop());
     ASSERT_NE(host->pseudo_prop(), nullptr);
     ASSERT_NE(host->pseudo_prop()->before, nullptr);
@@ -2064,7 +2118,7 @@ TEST_F(DynamicLayoutTest, UniversalPseudoResetSharesStylesUntilOverridden) {
     radiant_recascade_document(document);
     EXPECT_EQ(plain->pseudo_style(PSEUDO_STYLE_BEFORE), nullptr);
     EXPECT_EQ(plain->pseudo_style(PSEUDO_STYLE_AFTER), nullptr);
-    EXPECT_FALSE(plain->style_ext);
+    EXPECT_FALSE(plain->ext);
     ASSERT_TRUE(css_prop_serialize_computed(plain, CSS_PROPERTY_BOX_SIZING,
         PSEUDO_ELEMENT_BEFORE, value, sizeof(value)));
     EXPECT_STREQ(value, "content-box");

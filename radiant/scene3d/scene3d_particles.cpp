@@ -1113,7 +1113,7 @@ Scene3dParticles *scene3d_particles_create(DomElement *root, Scene3dRuntime *run
     state->root = dom_node_ref(root);
     state->runtime = runtime;
     state->gpu_ops = gpu;
-    state->epoch = UINT64_MAX;
+    state->epoch = DOM_MUTATION_EPOCH_UNSTAMPED;
     state->generation = 1;
     if (!scene3d_runtime_bind(runtime, SCENE3D_TICK_PARTICLES, state, particles_tick)) {
         mem_free(state);
@@ -1359,7 +1359,7 @@ bool scene3d_particles_prepare(Scene3dParticles *state, DomElement *root, bool a
 void scene3d_particles_follow_rebuild(Scene3dParticles *state, DomNode *old_root, DomNode *new_root) {
     if (!state)
         return;
-    state->epoch = UINT64_MAX;
+    state->epoch = DOM_MUTATION_EPOCH_UNSTAMPED;
     view_state_ref_follow_rebuild(state->document, &state->root, old_root, new_root);
     for (unsigned i = 0; i < state->count; i++)
         view_state_ref_follow_rebuild(state->document, &state->emitters[i]->source, old_root, new_root);

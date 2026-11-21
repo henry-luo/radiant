@@ -6409,7 +6409,8 @@ struct DocumentLayoutPublication {
     FontContext* fonts;
     CssEngine* cascade;
     radiant::CssFontKey default_font;
-    uint64_t mutation_epoch, style_epoch, cascade_epoch, font_generation;
+    uint32_t mutation_epoch, style_epoch;
+    uint64_t cascade_epoch, font_generation;
     uint32_t input_revision, generation;
     float width, height, raster_scale, minimum_font_size;
     CssInputCapabilities input_capabilities;

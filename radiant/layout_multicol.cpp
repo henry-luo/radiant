@@ -5817,10 +5817,10 @@ static Pool* multicol_layout_fragment_pool(DomElement* elem) {
 // A relayout replaces the element's fragment list; the old boxes return to the
 // pool they came from instead of being dropped until the view tree goes.
 static void multicol_release_layout_fragments(DomElement* elem) {
-    if (!elem || !elem->ext || !elem->ext->layout_fragments) return;
+    if (!elem || !elem->rare_ext || !elem->rare_ext->layout_fragments) return;
     Pool* pool = multicol_layout_fragment_pool(elem);
-    lam::Own<LayoutFragmentBox> fragment = lam::own((LayoutFragmentBox*)elem->ext->layout_fragments);
-    elem->ext->layout_fragments = nullptr;
+    lam::Own<LayoutFragmentBox> fragment = lam::own((LayoutFragmentBox*)elem->rare_ext->layout_fragments);
+    elem->rare_ext->layout_fragments = nullptr;
     while (fragment) {
         lam::Own<LayoutFragmentBox> next = fragment->next;
         if (pool) lam::free_owned(pool, fragment);

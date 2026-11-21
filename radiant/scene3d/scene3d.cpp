@@ -377,7 +377,8 @@ struct Scene3dEntry {
     // consumer asks (Radiant_Design_GPU_Compositor C4)
     NativeGlResource published;
     bool snapshot_pending;
-    uint64_t mutation_epoch, source_key, projection_generation, snapshot_generation;
+    uint32_t mutation_epoch;
+    uint64_t source_key, projection_generation, snapshot_generation;
     uint32_t source_generation;
     float width, height, scale;
     Scene3dStats stats;
@@ -446,10 +447,10 @@ bool scene3d_present(DomElement* node, const char* key) {
 }
 // dom_layer_note_mutation advances layer_generation on a mutated node and every ancestor, so the
 // root's generation moves exactly when its subtree does; a page's own HUD writes leave it alone.
-bool scene3d_source_unchanged(DomElement* root, uint64_t* epoch, uint32_t generation) {
+bool scene3d_source_unchanged(DomElement* root, uint32_t* epoch, uint32_t generation) {
     if (*epoch == root->doc->mutation_epoch)
         return true;
-    if (*epoch == UINT64_MAX || generation != root->layer_generation)
+    if (*epoch == DOM_MUTATION_EPOCH_UNSTAMPED || generation != root->layer_generation)
         return false;
     *epoch = root->doc->mutation_epoch;
     return true;
@@ -3507,7 +3508,7 @@ void scene3d_follow_rebuild(DomDocument* document, DomNode* old_root, DomNode* n
         if (!replacement || !replacement->is_element() || !scene3d_tag(replacement->as_element(), "scene3d"))
             continue;
         entry->root = dom_node_ref(replacement);
-        entry->mutation_epoch = UINT64_MAX;
+        entry->mutation_epoch = DOM_MUTATION_EPOCH_UNSTAMPED;
         scene3d_runtime_follow_rebuild(entry->runtime, old_root, new_root);
         for (auto* choice = entry->lod_choices; choice; choice = choice->next) {
             view_state_ref_follow_rebuild(document, &choice->source, old_root, new_root);
@@ -3578,7 +3579,7 @@ static Scene3dEntry* scene3d_entry(DomElement* root, bool create) {
         return nullptr;
     }
     entry->root = ref;
-    entry->mutation_epoch = UINT64_MAX;
+    entry->mutation_epoch = DOM_MUTATION_EPOCH_UNSTAMPED;
     entry->next = registry->entries;
     registry->entries = entry;
     registry->count++;
@@ -3781,7 +3782,7 @@ void scene3d_context_lost(DomElement* root) {
     e->white = {};
     e->dfg = {};
     scene3d_retire_snapshot(e);
-    e->mutation_epoch = UINT64_MAX;
+    e->mutation_epoch = DOM_MUTATION_EPOCH_UNSTAMPED;
     e->environment_atlas = {};
     e->environment_pingpong = {};
     e->environment_filter = {};
@@ -6229,7 +6230,7 @@ ImageSurface* scene3d_frame(DomElement* root, UiContext* ui, float width, float 
         source_key = 5381;
         unsigned count = 0;
         reproject = !scene3d_source_key(root, &source_key, &count) || !entry->projection.pool ||
-                    entry->mutation_epoch == UINT64_MAX || source_key != entry->source_key;
+                    entry->mutation_epoch == DOM_MUTATION_EPOCH_UNSTAMPED || source_key != entry->source_key;
     }
     if (reproject && !scene3d_compile(entry, root, ui)) {
         scene3d_projection_destroy(entry);
