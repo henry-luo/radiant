@@ -1018,6 +1018,12 @@ void layout_reset_boundary_flow_state(BoundaryProp* boundary) {
 static void reset_non_inherited_style_cache(LayoutContext* lycon, ViewSpan* view) {
     if (!lycon || !view) return;
 
+    if (view->in_line) {
+        // an expired effect or removed declaration must not retain sampled opacity.
+        InlineProp* inline_prop = view->ensure_inline(lycon);
+        if (inline_prop) inline_prop->opacity = INLINE_PROP_DEFAULT.opacity;
+    }
+
     if (view->blk) {
         // removed size declarations must not constrain the next retained layout.
         BlockProp* block = view->block_mut();
@@ -6403,7 +6409,8 @@ struct DocumentLayoutPublication {
     FontContext* fonts;
     CssEngine* cascade;
     radiant::CssFontKey default_font;
-    uint64_t mutation_epoch, style_epoch, cascade_epoch, font_generation;
+    uint32_t mutation_epoch, style_epoch;
+    uint64_t cascade_epoch, font_generation;
     uint32_t input_revision, generation;
     float width, height, raster_scale, minimum_font_size;
     CssInputCapabilities input_capabilities;

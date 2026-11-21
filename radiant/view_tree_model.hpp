@@ -212,7 +212,7 @@ bool view_page_selection_text_valid(const char* text);
 struct ViewTreeModel {
     lam::Up<DomDocument> document;
     ViewEnvironment environment;
-    uint64_t source_epoch;
+    uint32_t source_epoch;
     uint64_t tree_id;
     lam::Own<Arena> arena;
     lam::Own<hashmap> source_states;

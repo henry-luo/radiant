@@ -1199,12 +1199,6 @@ static inline bool has_margin_chain(BoundaryProp* bound) {
     return bound && (bound->margin_chain_positive != 0 || bound->margin_chain_negative != 0);
 }
 
-static void capture_flow_margin(BoundaryProp* boundary) {
-    if (!boundary || boundary->has_flow_margin) return;
-    boundary->flow_margin = boundary->margin;
-    boundary->has_flow_margin = true;
-}
-
 static View* layout_rendered_first_placed_child(ViewBlock* block) {
     return block ? static_cast<View*>(layout_rendered_first_child_node(block->as_element()))
                  : nullptr;
@@ -3157,15 +3151,14 @@ static void include_flow_margin_chain(ViewBlock* block, WritingMode mode, bool s
     bool through, float* positive, float* negative) {
     // retain both signs across the whole adjoining set; folding already
     // collapsed scalar margins would lose components in mixed-sign chains.
-    const Margin* resolved = view_boundary_flow_margin(block->bound);
     LayoutLogicalSides sides = layout_logical_sides(mode != WM_HORIZONTAL_TB,
         mode == WM_VERTICAL_RL);
-    float margin = resolved ? resolved->values[start ? sides.block_start : sides.block_end] : 0.0f;
+    float margin = view_boundary_flow_margin(block->bound, start ? sides.block_start : sides.block_end).value;
     float next_positive, next_negative;
     margin_to_chain(margin, &next_positive, &next_negative);
     include_margin_chain(positive, negative, next_positive, next_negative);
-    if (through && resolved) {
-        margin = resolved->values[start ? sides.block_end : sides.block_start];
+    if (through && block->bound) {
+        margin = view_boundary_flow_margin(block->bound, start ? sides.block_end : sides.block_start).value;
         margin_to_chain(margin, &next_positive, &next_negative);
         include_margin_chain(positive, negative, next_positive, next_negative);
     }

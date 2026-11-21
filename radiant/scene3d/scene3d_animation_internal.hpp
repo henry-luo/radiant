@@ -33,7 +33,8 @@ struct Scene3dAnimationState {
     DomNodeRef pending[SCENE_MOTION_CONTROLLER_LIMIT];
     unsigned pending_count;
     Scene3dRuntime* runtime;
-    uint64_t epoch, generation, revision, command_revision, event_replays, source_hash, number_count, text_bytes;
+    uint32_t epoch;
+    uint64_t generation, revision, command_revision, event_replays, source_hash, number_count, text_bytes;
     uint32_t source_generation;
     unsigned binding_count, clip_count;
     // automatic: the host clock drives the mixer; playable: the template asks for it (an autoplay clip or a

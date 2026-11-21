@@ -199,7 +199,7 @@ struct LayoutFlowNode {
     LayoutOutputTail<BlockProp, offsetof(BlockProp, first_line_max_ascender)> block_output;
     float collapsed_through_mb, margin_chain_positive, margin_chain_negative;
     bool has_clearance, clearance_in_margin_chain;
-    Margin flow_margin;
+    FlowMargin flow_margin;
     bool has_flow_margin;
     FragmentUnion fragments[FRAGMENT_UNION_COUNT];
     uint8_t fragment_presence_mask;
@@ -234,7 +234,7 @@ struct LayoutFlowResult {
     DomNode* root;
     uint32_t generation;
     uint32_t input_revision;
-    uint64_t style_epoch, mutation_epoch;
+    uint32_t style_epoch, mutation_epoch;
 };
 
 static void layout_flow_release_rects(Pool* pool, lam::Own<TextRect>& first) {
@@ -617,33 +617,19 @@ LayoutMeasureScope::~LayoutMeasureScope() {
     scratch_scope_end(&lycon->scratch, &snapshot_scope);
 }
 
+static KnownDimensions layout_known_dimensions_from_givens(float width, float height) {
+    return {width >= 0.0f ? width : NAN, height >= 0.0f ? height : NAN};
+}
+
 KnownDimensions layout_known_dimensions_from_block(::ViewBlock* block) {
-    KnownDimensions known = known_dimensions_none();
-    // zero is a definite CSS size; only negative givens represent an unknown axis.
-    if (block && block->blk && block->block()->given_width >= 0.0f) {
-        known.width = block->block()->given_width;
-        known.has_width = true;
-    }
-    if (block && block->blk && block->block()->given_height >= 0.0f) {
-        known.height = block->block()->given_height;
-        known.has_height = true;
-    }
-    return known;
+    if (!block || !block->blk) return known_dimensions_none();
+    const BlockProp* props = block->block();
+    return layout_known_dimensions_from_givens(props->given_width, props->given_height);
 }
 
 KnownDimensions layout_known_dimensions_from_context(::LayoutContext* lycon) {
-    KnownDimensions known = known_dimensions_none();
-    if (!lycon) return known;
-
-    if (lycon->block.given_width >= 0.0f) {
-        known.width = lycon->block.given_width;
-        known.has_width = true;
-    }
-    if (lycon->block.given_height >= 0.0f) {
-        known.height = lycon->block.given_height;
-        known.has_height = true;
-    }
-    return known;
+    if (!lycon) return known_dimensions_none();
+    return layout_known_dimensions_from_givens(lycon->block.given_width, lycon->block.given_height);
 }
 
 bool layout_pass_cache_get(::LayoutContext* lycon, ::DomElement* element,
@@ -668,8 +654,7 @@ bool layout_pass_cache_get_for_space(::LayoutContext* lycon, ::DomElement* eleme
     // the prop pool survives document updates; unkeyed scalar entries do not.
     layout_pass_ensure_cache(lycon, element);
 
-    if (layout_cache_get(element->layout_cache, known_dimensions, available_space,
-                         lycon->run_mode, out_size)) {
+    if (layout_cache_get(element->layout_cache, known_dimensions, available_space, out_size)) {
         g_layout_cache_hits++;
         layout_profiler_note_cache_hit(&lycon->profiler);
         log_info("%s %s CACHE HIT: element=%s, size=(%.1f x %.1f), mode=%d",
@@ -721,7 +706,7 @@ void layout_pass_cache_store_for_space(::LayoutContext* lycon, ::DomElement* ele
     LayoutCache* cache = layout_pass_ensure_cache(lycon, element);
     if (!cache) return;
 
-    layout_cache_store(cache, known_dimensions, available_space, lycon->run_mode, result);
+    layout_cache_store(cache, known_dimensions, available_space, result);
     g_layout_cache_stores++;
     log_debug("%s %s CACHE STORE: element=%s, size=(%.1f x %.1f), mode=%d",
               element->source_loc(), label ? label : "LAYOUT",

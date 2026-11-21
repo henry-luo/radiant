@@ -148,7 +148,8 @@ enum AvailableSizeType {
     AVAILABLE_SIZE_DEFINITE,
     AVAILABLE_SIZE_INDEFINITE,
     AVAILABLE_SIZE_MIN_CONTENT,
-    AVAILABLE_SIZE_MAX_CONTENT
+    AVAILABLE_SIZE_MAX_CONTENT,
+    AVAILABLE_SIZE_CACHE_EMPTY  // reserved for the width tag of an unused cache entry
 };
 // tier-3: layout-transient, valid within pass
 struct AvailableSize {
@@ -830,17 +831,15 @@ void layout_reset_position_style(LayoutContext* context, ViewSpan* view);
 
 namespace radiant {
 
-#define LAYOUT_CACHE_SIZE 9
+constexpr int LAYOUT_CACHE_SIZE = 4;
 // tier-3: layout-transient, valid within pass
 struct KnownDimensions {
-    float width;
-    float height;
-    bool has_width;
-    bool has_height;
+    float width = NAN;  // use NaN for an unknown axis so zero stays definite.
+    float height = NAN;
 };
 
 inline KnownDimensions known_dimensions_none() {
-    return {0.0f, 0.0f, false, false};
+    return {};
 }
 // tier-3: layout-transient, valid within pass
 struct SizeF {
@@ -856,11 +855,17 @@ inline SizeF size_f_zero() {
     return {0.0f, 0.0f};
 }
 // tier-3: layout-transient, valid within pass
-struct CacheEntry {
+struct LayoutCacheKey {
+    AvailableSpace available_space = {{AVAILABLE_SIZE_CACHE_EMPTY, 0.0f}, {}};
     KnownDimensions known_dimensions;
-    AvailableSpace available_space;
+
+    bool is_valid() const { return available_space.width.type != AVAILABLE_SIZE_CACHE_EMPTY; }
+    void invalidate() { available_space.width.type = AVAILABLE_SIZE_CACHE_EMPTY; }
+};
+
+struct CacheEntry {
+    LayoutCacheKey key;
     SizeF computed_size;
-    bool valid;
 };
 // tier-3: computed font inputs, borrowing the view's family name.
 struct CssFontKey {
@@ -875,13 +880,13 @@ bool css_font_keys_equal(const CssFontKey& a, const CssFontKey& b);
 // tier-2: scalar queries retained while subtree, inherited and environment inputs match.
 struct IntrinsicWidthCacheEntry {
     IntrinsicSizes sizes;
-    CacheEntry context;
+    LayoutCacheKey context;
     SizeF block_size;
     SizeF parent_size;
     uint32_t generation;
     uint32_t layout_generation, input_revision, parent_revision, presentation_revision;
+    uint32_t style_epoch;
     CssFontKey input_font;
-    uint64_t style_epoch;
     uint64_t font_generation;
     uint32_t style_version;
     float root_font_size, raster_scale;
@@ -904,16 +909,16 @@ struct LayoutCache {
     lam::Own<IntrinsicHeightCache> intrinsic_heights;
     lam::Own<FlexMeasuredFlow> measured_flex_flow;
     lam::Own<IntrinsicWidthHistory> intrinsic_width_history;
-    CacheEntry final_layout;
     CacheEntry measure_entries[LAYOUT_CACHE_SIZE];
     // keep the latest query inline; history retains earlier complete constraints.
     IntrinsicWidthCacheEntry intrinsic_widths[4];
     // conservative ancestry declarations for negative inheritance queries.
     uint64_t inherited_declaration_mask;
-    uint64_t inherited_style_epoch;
-    uint64_t inherited_mutation_epoch;
+    uint32_t inherited_style_epoch;
+    uint32_t inherited_mutation_epoch;
     uint32_t inherited_generation;
     bool is_empty;
+    uint8_t next_measure_entry;
     uint32_t generation;
 };
 
@@ -922,12 +927,10 @@ inline void layout_cache_init(LayoutCache* cache, uint32_t generation = 0) {
     cache->intrinsic_heights = nullptr;
     cache->measured_flex_flow = nullptr;
     cache->intrinsic_width_history = nullptr;
-    cache->final_layout.valid = false;
-    for (int i = 0; i < LAYOUT_CACHE_SIZE; i++) {
-        cache->measure_entries[i].valid = false;
-    }
+    for (CacheEntry& entry : cache->measure_entries) entry.key.invalidate();
+    cache->next_measure_entry = 0;
     for (int i = 0; i < 4; i++) {
-        cache->intrinsic_widths[i].context.valid = false;
+        cache->intrinsic_widths[i].context.invalidate();
         cache->intrinsic_widths[i].generation = 0;
     }
     cache->is_empty = true;
@@ -960,114 +963,81 @@ void intrinsic_height_cache_release(LayoutCache* cache, Pool* pool);
 void flex_measured_flow_release(LayoutCache* cache, Pool* pool);
 void flex_measured_flow_invalidate(DomElement* element);
 
-inline int layout_cache_compute_slot(
-    KnownDimensions known_dimensions,
-    AvailableSpace available_space
-) {
-    bool has_width = known_dimensions.has_width;
-    bool has_height = known_dimensions.has_height;
+inline bool layout_cache_dimension_matches(float cached, float requested, float tolerance) {
+    return cached == requested ||
+        (isnan(cached) ? isnan(requested) : fabsf(cached - requested) <= tolerance);
+}
 
-    if (has_width && has_height) return 0;
-    if (has_width) {
-        return available_space.height.is_min_content() ? 2 : 1;
-    }
-    if (has_height) {
-        return available_space.width.is_min_content() ? 4 : 3;
-    }
-
-    bool width_is_min = available_space.width.is_min_content();
-    bool height_is_min = available_space.height.is_min_content();
-
-    if (!width_is_min && !height_is_min) return 5;
-    if (!width_is_min && height_is_min) return 6;
-    if (width_is_min && !height_is_min) return 7;
-    return 8;
+inline bool layout_cache_known_dimensions_match(KnownDimensions cached, KnownDimensions requested,
+                                                float tolerance) {
+    return layout_cache_dimension_matches(cached.width, requested.width, tolerance) &&
+        layout_cache_dimension_matches(cached.height, requested.height, tolerance);
 }
 
 inline bool layout_cache_constraints_match(
-    CacheEntry* entry,
+    const LayoutCacheKey& key,
     KnownDimensions known,
     AvailableSpace available,
     float tolerance = 0.1f
 ) {
-    if (!entry->valid) return false;
+    if (!key.is_valid()) return false;
 
-    if (entry->known_dimensions.has_width != known.has_width) return false;
-    if (entry->known_dimensions.has_height != known.has_height) return false;
+    if (!layout_cache_known_dimensions_match(key.known_dimensions, known, tolerance)) return false;
 
-    if (known.has_width) {
-        float diff = entry->known_dimensions.width - known.width;
-        if (diff < -tolerance || diff > tolerance) return false;
-    }
-    if (known.has_height) {
-        float diff = entry->known_dimensions.height - known.height;
-        if (diff < -tolerance || diff > tolerance) return false;
-    }
-
-    if (entry->available_space.width.type != available.width.type) return false;
-    if (entry->available_space.height.type != available.height.type) return false;
+    if (key.available_space.width.type != available.width.type) return false;
+    if (key.available_space.height.type != available.height.type) return false;
 
     if (available.width.is_definite()) {
-        float diff = entry->available_space.width.value - available.width.value;
+        float diff = key.available_space.width.value - available.width.value;
         if (diff < -tolerance || diff > tolerance) return false;
     }
     if (available.height.is_definite()) {
-        float diff = entry->available_space.height.value - available.height.value;
+        float diff = key.available_space.height.value - available.height.value;
         if (diff < -tolerance || diff > tolerance) return false;
     }
 
     return true;
 }
 
+inline CacheEntry* layout_cache_find_measurement(LayoutCache* cache, KnownDimensions known,
+                                                  AvailableSpace available) {
+    // scanning full keys lets multiple widths share the same sizing mode.
+    for (CacheEntry& entry : cache->measure_entries) {
+        if (layout_cache_constraints_match(entry.key, known, available)) return &entry;
+    }
+    return nullptr;
+}
+
 inline bool layout_cache_get(
     LayoutCache* cache,
     KnownDimensions known_dimensions,
     AvailableSpace available_space,
-    RunMode mode,
     SizeF* out_size
 ) {
     if (cache->is_empty) return false;
 
-    if (mode == RunMode::PerformLayout) {
-        if (layout_cache_constraints_match(&cache->final_layout, known_dimensions, available_space)) {
-            *out_size = cache->final_layout.computed_size;
-            return true;
-        }
-        return false;
-    }
-
-    int slot = layout_cache_compute_slot(known_dimensions, available_space);
-    CacheEntry* entry = &cache->measure_entries[slot];
-
-    if (layout_cache_constraints_match(entry, known_dimensions, available_space)) {
-        *out_size = entry->computed_size;
-        return true;
-    }
-
-    return false;
+    CacheEntry* entry = layout_cache_find_measurement(cache, known_dimensions, available_space);
+    if (!entry) return false;
+    *out_size = entry->computed_size;
+    return true;
 }
 
 inline void layout_cache_store(
     LayoutCache* cache,
     KnownDimensions known_dimensions,
     AvailableSpace available_space,
-    RunMode mode,
     SizeF result
 ) {
     cache->is_empty = false;
 
-    CacheEntry* entry;
-    if (mode == RunMode::PerformLayout) {
-        entry = &cache->final_layout;
-    } else {
-        int slot = layout_cache_compute_slot(known_dimensions, available_space);
-        entry = &cache->measure_entries[slot];
+    CacheEntry* entry = layout_cache_find_measurement(cache, known_dimensions, available_space);
+    if (!entry) {
+        // a new key replaces the oldest insertion; refreshing a key keeps its slot.
+        entry = &cache->measure_entries[cache->next_measure_entry];
+        cache->next_measure_entry = (cache->next_measure_entry + 1) % LAYOUT_CACHE_SIZE;
     }
 
-    entry->known_dimensions = known_dimensions;
-    entry->available_space = available_space;
-    entry->computed_size = result;
-    entry->valid = true;
+    *entry = {{available_space, known_dimensions}, result};
 }
 
 } // namespace radiant
@@ -4090,14 +4060,14 @@ typedef struct LayoutContext {
     // glyphs in one text run share CSS orientation; expire on style/tree/pass changes.
     lam::Up<DomNode> text_orientation_owner;
     TextOrientationPolicy text_orientation_policy;
-    uint64_t text_orientation_style_epoch, text_orientation_mutation_epoch;
+    uint32_t text_orientation_style_epoch, text_orientation_mutation_epoch;
     uint32_t text_orientation_generation, text_orientation_measurement_generation;
     ViewType text_orientation_view_type;
     struct {
         lam::Up<DomElement> owner;
         lam::Up<BlockProp> block;
         CssEnum value;
-        uint64_t style_epoch, mutation_epoch;
+        uint32_t style_epoch, mutation_epoch;
         uint32_t layout_generation, measurement_generation;
         ViewType view_type;
         bool styles_resolved;
@@ -4473,7 +4443,7 @@ void layout_reresolve_percentage_box(ViewBlock* block, float inline_base);
 // a context also re-evaluates percentage-bearing math at the supplied inline basis.
 void layout_reresolve_percentage_box(ViewBlock* block, float inline_base, LayoutContext* lycon);
 void layout_reresolve_percentage_margins(ViewBlock* block, float inline_base, LayoutContext* lycon);
-void layout_set_spacing_side(Spacing* spacing, Margin* margin, CssBoxSide side,
+bool layout_set_spacing_side(Spacing* spacing, Margin* margin, CssBoxSide side,
     float value, CssEnum type, int64_t specificity);
 bool layout_element_has_percentage_spacing(ViewBlock* block);
 bool layout_view_tree_has_percentage_spacing(View* root);

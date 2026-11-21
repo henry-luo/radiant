@@ -46,8 +46,8 @@ struct DomMutationTransaction;
 
 static void editing_dom_transaction_note_owned_write(
         DomEditInvocation* invocation);
-static uint64_t editing_dom_transaction_expected_epoch(
-        const DomMutationTransaction* transaction, uint64_t fallback);
+static uint32_t editing_dom_transaction_expected_epoch(
+        const DomMutationTransaction* transaction, uint32_t fallback);
 
 static void editing_dom_record_selection(DomEditInvocation* invocation,
                                           DomBoundary anchor, DomBoundary focus) {
@@ -80,7 +80,7 @@ static bool editing_dom_invocation_epoch_is_current(
     // Package plans may compose ordinary DOM setters with waist primitives.
     // Once the generic transaction owns the document clock, compare against
     // its owned-write watermark rather than the invocation's initial epoch.
-    uint64_t expected_epoch = editing_dom_transaction_expected_epoch(
+    uint32_t expected_epoch = editing_dom_transaction_expected_epoch(
         invocation->transaction, invocation->mutation_epoch);
     return dom_mutation_epoch(invocation->host->doc) == expected_epoch;
 }
@@ -184,7 +184,7 @@ struct DomRetainedMutation {
     ArrayList* after_nodes;
     DomRetainedSelection before_selection;
     DomRetainedSelection after_selection;
-    uint64_t expected_epoch;
+    uint32_t expected_epoch;
     struct DomRetainedMutation* next;
 };
 
@@ -212,7 +212,7 @@ struct DomMutationTransaction {
     DomDocument* document;
     DomElement* host;
     DomNodeRef host_ref;
-    uint64_t expected_epoch;
+    uint32_t expected_epoch;
     int initial_record_count;
     int initial_record_overflow;
     uint32_t initial_kind_mask;
@@ -236,8 +236,8 @@ struct DomMutationTransaction {
     bool notification_failed;
 };
 
-static uint64_t editing_dom_transaction_expected_epoch(
-        const DomMutationTransaction* transaction, uint64_t fallback) {
+static uint32_t editing_dom_transaction_expected_epoch(
+        const DomMutationTransaction* transaction, uint32_t fallback) {
     return transaction ? transaction->expected_epoch : fallback;
 }
 
@@ -286,7 +286,7 @@ static bool editing_dom_transaction_append_notification(
     // The document clock changes at the write boundary even though observers
     // are held until commit, so a nested package call cannot reuse this plan.
     if (transaction->document) {
-        transaction->document->mutation_epoch++;
+        transaction->document->advance_mutation_epoch();
         transaction->document->style_content_epoch++;
     }
     transaction->changed = true;

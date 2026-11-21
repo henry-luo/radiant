@@ -532,13 +532,15 @@ static void multicol_flow_margins(ViewBlock* container, ViewBlock* child,
     if (out_after) *out_after = 0.0f;
     if (!container || !child) return;
 
-    const Margin* margin = view_boundary_flow_margin(child->bound ? child->boundary() : nullptr);
-    if (!margin) return;
+    if (!child->bound) return;
+    const BoundaryProp* boundary = child->boundary();
 
     if (multicol_has_vertical_inline_axis(container)) {
         WritingMode mode = layout_block_writing_mode(container);
-        if (out_before) *out_before = mode == WM_VERTICAL_RL ? margin->right : margin->left;
-        if (out_after) *out_after = mode == WM_VERTICAL_RL ? margin->left : margin->right;
+        if (out_before) *out_before = view_boundary_flow_margin(boundary,
+            mode == WM_VERTICAL_RL ? CSS_BOX_SIDE_RIGHT : CSS_BOX_SIDE_LEFT).value;
+        if (out_after) *out_after = view_boundary_flow_margin(boundary,
+            mode == WM_VERTICAL_RL ? CSS_BOX_SIDE_LEFT : CSS_BOX_SIDE_RIGHT).value;
         return;
     }
 
@@ -549,8 +551,8 @@ static void multicol_flow_margins(ViewBlock* container, ViewBlock* child,
         if (out_after) *out_after = layout_vertical_flow_effective_margin(child, WM_HORIZONTAL_TB, false);
         return;
     }
-    if (out_before) *out_before = margin->top;
-    if (out_after) *out_after = margin->bottom;
+    if (out_before) *out_before = view_boundary_flow_margin(boundary, CSS_BOX_SIDE_TOP).value;
+    if (out_after) *out_after = view_boundary_flow_margin(boundary, CSS_BOX_SIDE_BOTTOM).value;
 }
 
 static float multicol_resolve_line_advance(
@@ -5817,10 +5819,10 @@ static Pool* multicol_layout_fragment_pool(DomElement* elem) {
 // A relayout replaces the element's fragment list; the old boxes return to the
 // pool they came from instead of being dropped until the view tree goes.
 static void multicol_release_layout_fragments(DomElement* elem) {
-    if (!elem || !elem->ext || !elem->ext->layout_fragments) return;
+    if (!elem || !elem->rare_ext || !elem->rare_ext->layout_fragments) return;
     Pool* pool = multicol_layout_fragment_pool(elem);
-    lam::Own<LayoutFragmentBox> fragment = lam::own((LayoutFragmentBox*)elem->ext->layout_fragments);
-    elem->ext->layout_fragments = nullptr;
+    lam::Own<LayoutFragmentBox> fragment = lam::own((LayoutFragmentBox*)elem->rare_ext->layout_fragments);
+    elem->rare_ext->layout_fragments = nullptr;
     while (fragment) {
         lam::Own<LayoutFragmentBox> next = fragment->next;
         if (pool) lam::free_owned(pool, fragment);

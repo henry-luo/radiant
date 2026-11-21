@@ -13,6 +13,7 @@
 #include "radiant/network_integration.h"
 #include "lambda/input/input.hpp"
 #include "lambda/network/enhanced_file_cache.h"
+#include "lambda/network/network_resource_manager.h"
 #include "lambda/network/cookie_jar.h"
 #include "lambda/input/css/css_engine.hpp"
 #include "lambda/io/image_io.h"
@@ -34,21 +35,73 @@ TEST(LayoutCacheTest, ZeroDimensionsRemainDistinctFromAutoCacheKeys) {
         parent_blk.given_width = horizontal ? 0.0f : -1.0f;
         parent_blk.given_height = horizontal ? -1.0f : 0.0f;
         radiant::KnownDimensions zero = radiant::layout_known_dimensions_from_block(&block);
-        EXPECT_EQ(zero.has_width, horizontal);
-        EXPECT_EQ(zero.has_height, !horizontal);
+        EXPECT_EQ(isnan(zero.width), !horizontal);
+        EXPECT_EQ(isnan(zero.height), horizontal);
+        EXPECT_FLOAT_EQ(horizontal ? zero.width : zero.height, 0.0f);
         radiant::layout_cache_store(&cache, zero, space,
-            radiant::RunMode::ComputeSize, radiant::size_f(0.0f, 0.0f));
+            radiant::size_f(0.0f, 0.0f));
         parent_blk.given_width = parent_blk.given_height = -1.0f;
         radiant::KnownDimensions automatic = radiant::layout_known_dimensions_from_block(&block);
-        EXPECT_FALSE(automatic.has_width);
-        EXPECT_FALSE(automatic.has_height);
+        EXPECT_TRUE(isnan(automatic.width));
+        EXPECT_TRUE(isnan(automatic.height));
         radiant::SizeF result = {};
         EXPECT_FALSE(radiant::layout_cache_get(&cache, automatic, space,
-            radiant::RunMode::ComputeSize, &result));
+            &result));
         EXPECT_TRUE(radiant::layout_cache_get(&cache, zero, space,
-            radiant::RunMode::ComputeSize, &result));
+            &result));
         radiant::layout_cache_init(&cache);
     }
+}
+
+TEST(LayoutCacheTest, EmptyEntryIsDistinctFromAnUnconstrainedMeasurement) {
+    radiant::LayoutCache cache = {};
+    radiant::layout_cache_init(&cache);
+    const auto known = radiant::known_dimensions_none();
+    const auto space = AvailableSpace::make_min_content();
+    radiant::SizeF result = {};
+    EXPECT_FALSE(radiant::CacheEntry{}.key.is_valid());
+
+    radiant::layout_cache_store(&cache, known, space, {20.0f, 10.0f});
+    ASSERT_TRUE(radiant::layout_cache_get(&cache, known, space, &result));
+    EXPECT_FLOAT_EQ(result.width, 20.0f);
+    EXPECT_FLOAT_EQ(result.height, 10.0f);
+
+    radiant::CacheEntry* entry = radiant::layout_cache_find_measurement(&cache, known, space);
+    ASSERT_NE(entry, nullptr);
+    entry->key.invalidate();
+    EXPECT_FALSE(radiant::layout_cache_get(&cache, known, space, &result));
+}
+
+TEST(LayoutCacheTest, RetainsFourConstraintKeysAndEvictsOldestInsertion) {
+    radiant::LayoutCache cache = {};
+    radiant::layout_cache_init(&cache);
+    const AvailableSpace space = AvailableSpace::make_indefinite();
+    const float widths[] = {20.0f, 40.0f, 60.0f, 80.0f};
+    for (float width : widths) {
+        radiant::layout_cache_store(&cache, {width, NAN}, space, {width, 10.0f});
+    }
+    radiant::layout_cache_store(&cache, {40.0f, NAN}, space, {40.0f, 15.0f});
+    radiant::SizeF result = {};
+    for (float width : widths) {
+        ASSERT_TRUE(radiant::layout_cache_get(&cache, {width, NAN}, space, &result));
+        EXPECT_FLOAT_EQ(result.width, width);
+        EXPECT_FLOAT_EQ(result.height, width == 40.0f ? 15.0f : 10.0f);
+    }
+
+    radiant::layout_cache_store(&cache, {100.0f, NAN}, space, {100.0f, 10.0f});
+    EXPECT_FALSE(radiant::layout_cache_get(&cache, {20.0f, NAN}, space, &result));
+    for (float width : {40.0f, 60.0f, 80.0f, 100.0f}) {
+        EXPECT_TRUE(radiant::layout_cache_get(&cache, {width, NAN}, space, &result));
+    }
+}
+
+TEST(DocumentEpochTest, MutationWrapSkipsUnstampedValue) {
+    DomDocument document;
+    document.mutation_epoch = DOM_MUTATION_EPOCH_UNSTAMPED - 1;
+    document.advance_mutation_epoch();
+    EXPECT_EQ(dom_mutation_epoch(&document), 0u);
+    document.advance_mutation_epoch();
+    EXPECT_EQ(dom_mutation_epoch(&document), 1u);
 }
 
 TEST(NativeEditingWithoutScriptHost, FormDirectoryIsLazyAndReclaimedBeforeLayout) {
@@ -60,8 +113,8 @@ TEST(NativeEditingWithoutScriptHost, FormDirectoryIsLazyAndReclaimedBeforeLayout
     ASSERT_TRUE(host && control);
     document->root = lam::up(host);
     ASSERT_TRUE(host->DomNode::append_child(control));
-    EXPECT_FALSE(host->style_ext);
-    EXPECT_FALSE(control->style_ext);
+    EXPECT_FALSE(host->ext);
+    EXPECT_FALSE(control->ext);
     EXPECT_FALSE(document->view_tree);
 
     FormControlProp* form = tc_get_or_create_form(control);
@@ -69,18 +122,133 @@ TEST(NativeEditingWithoutScriptHost, FormDirectoryIsLazyAndReclaimedBeforeLayout
     EXPECT_TRUE(form->heap_allocated);
     EXPECT_EQ(control->form_control(), form);
     EXPECT_EQ(tc_get_or_create_form(control), form);
-    ASSERT_TRUE(control->style_ext);
-    EXPECT_FALSE(control->style_ext->tb);
-    EXPECT_FALSE(control->style_ext->transform);
-    EXPECT_FALSE(control->style_ext->pseudo);
+    ASSERT_TRUE(control->ext);
+    EXPECT_FALSE(control->ext->tb);
+    EXPECT_FALSE(control->ext->transform);
+    EXPECT_FALSE(control->ext->pseudo);
 
     form_control_release_prop(control);
-    EXPECT_FALSE(control->style_ext);
+    EXPECT_FALSE(control->ext);
     ASSERT_NE(tc_get_or_create_form(control), nullptr);
     DomNodeRef detached = dom_node_ref(control);
     ASSERT_TRUE(host->remove_child(control));
     ASSERT_EQ(dom_retire_sweep(document), 1u);
     EXPECT_EQ(dom_node_ref_validate(document, detached), nullptr);
+}
+
+TEST(NetworkResourcePriority, DiscoveryHonorsHintsAndPromotesSharedRequests) {
+    ASSERT_EQ(file_ensure_dir("temp"), 0);
+    struct CacheGuard {
+        EnhancedFileCache* value = enhanced_cache_create(
+            "temp/radiant_priority_cache", 1024 * 1024, 32);
+        ~CacheGuard() { if (value) enhanced_cache_destroy(value); }
+    } cache;
+    ASSERT_NE(cache.value, nullptr);
+    NativeInputDocument fixture;
+    DomDocument* document = fixture.document;
+    ASSERT_NE(document, nullptr);
+    document->url = lam::own(url_parse("https://priority.example.test/"));
+    DomElement* root = dom_create_backed_element_identity(document, "html", nullptr, false);
+    ASSERT_NE(root, nullptr);
+    document->root = lam::up(root);
+    struct Case {
+        const char* tag;
+        const char* hint;
+        const char* modifier;
+        ResourceType type;
+        ResourcePriority expected;
+    };
+    const Case cases[] = {
+        {"img", "HiGh", nullptr, RESOURCE_IMAGE, PRIORITY_HIGH},
+        {"img", "LOW", nullptr, RESOURCE_IMAGE, PRIORITY_LOW},
+        {"img", "auto", nullptr, RESOURCE_IMAGE, PRIORITY_NORMAL},
+        {"img", " high ", nullptr, RESOURCE_IMAGE, PRIORITY_NORMAL},
+        {"img", nullptr, nullptr, RESOURCE_IMAGE, PRIORITY_NORMAL},
+        {"link", "high", "image", RESOURCE_IMAGE, PRIORITY_HIGH},
+        {"link", "low", "image", RESOURCE_IMAGE, PRIORITY_LOW},
+        {"link", "high", "style", RESOURCE_CSS, PRIORITY_CRITICAL},
+        {"link", "low", "style", RESOURCE_CSS, PRIORITY_NORMAL},
+        {"link", nullptr, "style", RESOURCE_CSS, PRIORITY_HIGH},
+        {"link", "high", "stylesheet", RESOURCE_CSS, PRIORITY_CRITICAL},
+        {"link", "low", "stylesheet", RESOURCE_CSS, PRIORITY_NORMAL},
+        {"link", "low", "font", RESOURCE_FONT, PRIORITY_NORMAL},
+        {"script", "high", "async", RESOURCE_SCRIPT, PRIORITY_HIGH},
+        {"script", "low", "defer", RESOURCE_SCRIPT, PRIORITY_LOW},
+        {"script", "low", nullptr, RESOURCE_SCRIPT, PRIORITY_NORMAL},
+        {"script", nullptr, nullptr, RESOURCE_SCRIPT, PRIORITY_HIGH},
+        {"script", nullptr, "module", RESOURCE_SCRIPT, PRIORITY_NORMAL}
+    };
+    for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
+        const Case& entry = cases[index];
+        DomElement* element = dom_create_backed_element_identity(document, entry.tag, nullptr, false);
+        ASSERT_NE(element, nullptr);
+        char reference[80];
+        snprintf(reference, sizeof(reference), "https://priority.example.test/resource%zu", index);
+        const char* content = entry.type == RESOURCE_IMAGE
+            ? "<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/>" : "/* cached */";
+        lam::Temp<char> stored(enhanced_cache_store(cache.value, reference, content, strlen(content), nullptr));
+        ASSERT_NE(stored.get(), nullptr);
+        ASSERT_TRUE(element->set_attribute(entry.tag[0] == 'l' ? "href" : "src", reference));
+        if (entry.hint) ASSERT_TRUE(element->set_attribute("fetchpriority", entry.hint));
+        if (entry.tag[0] == 'l') {
+            ASSERT_TRUE(element->set_attribute("rel",
+                strcmp(entry.modifier, "stylesheet") == 0 ? "stylesheet" : "preload"));
+            if (strcmp(entry.modifier, "stylesheet") != 0)
+                ASSERT_TRUE(element->set_attribute("as", entry.modifier));
+        } else if (entry.modifier) {
+            ASSERT_TRUE(element->set_attribute(strcmp(entry.modifier, "module") == 0
+                ? "type" : entry.modifier, entry.modifier));
+        }
+        ASSERT_TRUE(root->DomNode::append_child(element));
+    }
+    ASSERT_EQ(radiant_init_network_support(document, nullptr, cache.value), 0);
+    radiant_discover_document_resources(document);
+    NetworkResource* promoted = nullptr;
+    for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
+        SCOPED_TRACE(index);
+        char reference[80];
+        snprintf(reference, sizeof(reference), "https://priority.example.test/resource%zu", index);
+        NetworkResource* resource = resource_manager_find(document->resource_manager, reference);
+        ASSERT_NE(resource, nullptr);
+        EXPECT_EQ(resource->state, STATE_CACHED);
+        EXPECT_EQ(resource->priority, cases[index].expected);
+        if (index == 1) promoted = resource;
+    }
+    EXPECT_EQ(resource_manager_find(document->resource_manager,
+        "https://priority.example.test/absent"), nullptr);
+    UiContext ui = {};
+    ui.headless = true;
+    ui.async_script_navigation = true;
+    ui.document = lam::up(document);
+    radiant_request_live_image(document, &ui, "https://priority.example.test/resource1");
+    EXPECT_EQ(promoted->priority, PRIORITY_LOW);
+    const char* dynamic_url = "https://priority.example.test/dynamic.svg";
+    const char* svg = "<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/>";
+    lam::Temp<char> stored(enhanced_cache_store(cache.value, dynamic_url, svg, strlen(svg), nullptr));
+    ASSERT_NE(stored.get(), nullptr);
+    DomElement* dynamic = dom_create_backed_element_identity(document, "img", nullptr, false);
+    ASSERT_NE(dynamic, nullptr);
+    ASSERT_TRUE(dynamic->set_attribute("fetchpriority", "low"));
+    radiant_request_live_image(document, &ui, dynamic_url, dynamic);
+    NetworkResource* dynamic_resource = resource_manager_find(document->resource_manager, dynamic_url);
+    ASSERT_NE(dynamic_resource, nullptr);
+    EXPECT_EQ(dynamic_resource->priority, PRIORITY_LOW);
+    radiant_request_live_image(document, &ui, dynamic_url);
+    EXPECT_EQ(dynamic_resource->priority, PRIORITY_LOW);
+    ASSERT_TRUE(dynamic->set_attribute("fetchpriority", "high"));
+    radiant_request_live_image(document, &ui, dynamic_url, dynamic);
+    EXPECT_EQ(resource_manager_find(document->resource_manager, dynamic_url), dynamic_resource);
+    EXPECT_EQ(dynamic_resource->priority, PRIORITY_HIGH);
+    resource_manager_set_ui_context(document->resource_manager, nullptr);
+    DomElement* urgent = dom_create_backed_element_identity(document, "img", nullptr, false);
+    ASSERT_NE(urgent, nullptr);
+    ASSERT_TRUE(urgent->set_attribute("src", "https://priority.example.test/resource1"));
+    ASSERT_TRUE(urgent->set_attribute("fetchpriority", "high"));
+    ASSERT_TRUE(root->DomNode::append_child(urgent));
+    int initial_count = document->resource_manager->total_resources;
+    radiant_discover_document_resources(document);
+    EXPECT_EQ(document->resource_manager->total_resources, initial_count);
+    EXPECT_EQ(promoted->priority, PRIORITY_HIGH);
 }
 
 class DynamicLayoutTest : public ::testing::Test {
@@ -233,13 +401,18 @@ TEST_F(DynamicLayoutTest, ExportQueuesOrdinaryNetworkImagesBeforeInitialLayout) 
     lam::Temp<char> cached_path(enhanced_cache_store(cache, image_url, svg, strlen(svg), nullptr));
     enhanced_cache_destroy(cache);
     ASSERT_NE(cached_path.get(), nullptr);
-    struct Case { const char* markup; float width; float height; };
+    struct Case { const char* markup; float width; float height; bool background = false; };
     const Case cases[] = {
         {"<img id='image' src='radiant-export-ready.svg'>", 73.0f, 41.0f},
         {"<video id='image' width='146' height='82' poster='radiant-export-ready.svg'></video>", 146.0f, 82.0f},
         {"<video id='image' poster='radiant-export-ready.svg'></video>", 73.0f, 41.0f},
         {"<video id='image' style='max-height:20.5px' poster='radiant-export-ready.svg'></video>", 36.5f, 20.5f},
-        {"<video id='image' style='contain:size;contain-intrinsic-size:32px 48px' poster='radiant-export-ready.svg'></video>", 32.0f, 48.0f}
+        {"<video id='image' style='contain:size;contain-intrinsic-size:32px 48px' poster='radiant-export-ready.svg'></video>", 32.0f, 48.0f},
+        {"<div id='image' style='width:73px;height:41px;background-image:url(radiant-export-ready.svg)'></div>", 73.0f, 41.0f, true},
+        {"<style>#image{width:73px;height:41px;background-image:url(radiant-export-ready.svg)}</style><div id='image'></div>", 73.0f, 41.0f, true},
+        {"<style>#image{width:73px;height:41px;--hero:url(radiant-export-ready.svg);background-image:var(--hero)}</style><div id='image'></div>", 73.0f, 41.0f, true},
+        {"<style>#image{width:73px;height:41px;background-image:image-set(\"radiant-export-ready.svg\" type(\"image/svg+xml\") 1x)}</style><div id='image'></div>", 73.0f, 41.0f, true},
+        {"<style>#image{width:73px;height:41px}#image::before{content:'';display:block;width:73px;height:41px;background-image:url(radiant-export-ready.svg)}</style><div id='image'></div>", 73.0f, 41.0f, true}
     };
     for (const Case& entry : cases) {
         SCOPED_TRACE(entry.markup);
@@ -260,9 +433,17 @@ TEST_F(DynamicLayoutTest, ExportQueuesOrdinaryNetworkImagesBeforeInitialLayout) 
         ASSERT_NE(image, nullptr);
         EXPECT_FLOAT_EQ(image->width, entry.width);
         EXPECT_FLOAT_EQ(image->height, entry.height);
-        ASSERT_NE(image->embed, nullptr);
-        EXPECT_NE(image->tag_id == MARKUP_NAME_VIDEO
-            ? image->embed->poster.get() : image->embed->img.get(), nullptr);
+        if (entry.background) {
+            EXPECT_NE(exported->resource_manager, nullptr);
+            NetworkResource* resource = resource_manager_find(exported->resource_manager, image_url);
+            EXPECT_NE(resource, nullptr);
+            if (resource) EXPECT_EQ(resource->state, STATE_CACHED);
+            EXPECT_NE(load_document_image(exported, session.value.ui_context, image_url), nullptr);
+        } else {
+            ASSERT_NE(image->embed, nullptr);
+            EXPECT_NE(image->tag_id == MARKUP_NAME_VIDEO
+                ? image->embed->poster.get() : image->embed->img.get(), nullptr);
+        }
         EXPECT_DOUBLE_EQ(exported->js.virtual_clock_ms, 0.0);
         EXPECT_TRUE(render_export_session_finish(&session.value));
     }
@@ -1638,6 +1819,22 @@ TEST_F(DynamicLayoutTest, BalancedColumnsIncludeAdjoiningParagraphMargins) {
     EXPECT_NEAR(element("columns")->height, 72.53f, 1.0f);
 }
 
+TEST_F(DynamicLayoutTest, DeferredPercentagesUpdateOnlyWinningFlowMargins) {
+    load("<!doctype html><style>"
+         "#frame{display:flow-root;width:100px;padding:1px}"
+         ".card{margin-block-end:25%}#card{margin-top:10%;margin-bottom:7px;height:10px}"
+         "</style><div id='frame'><div id='card' class='card'></div></div>");
+    ViewBlock* card = lam::view_as_block(element("card"));
+    ASSERT_NE(card, nullptr);
+    ASSERT_TRUE(card->boundary()->has_flow_margin);
+
+    layout_reresolve_percentage_margins(card, 200.0f, nullptr);
+    ResolvedMarginSide top = view_boundary_flow_margin(card->boundary(), CSS_BOX_SIDE_TOP);
+    EXPECT_FLOAT_EQ(top.value, 20.0f);
+    EXPECT_EQ(top.type, CSS_VALUE__PERCENTAGE);
+    EXPECT_FLOAT_EQ(view_boundary_flow_margin(card->boundary(), CSS_BOX_SIDE_BOTTOM).value, 7.0f);
+}
+
 TEST_F(DynamicLayoutTest, ReversedCounterIncludesOwnIncrement) {
     load("<!doctype html><style>span{counter-increment:part -2}"
          "#reset{counter-reset:reversed(part)}#result::before{content:counter(part)}</style>"
@@ -1905,8 +2102,8 @@ TEST_F(DynamicLayoutTest, UniversalPseudoResetSharesStylesUntilOverridden) {
     StyleTree* shared = plain->pseudo_style(PSEUDO_STYLE_BEFORE);
     ASSERT_NE(shared, nullptr);
     EXPECT_EQ(other->pseudo_style(PSEUDO_STYLE_BEFORE), shared);
-    EXPECT_FALSE(plain->style_ext);
     EXPECT_FALSE(plain->ext);
+    EXPECT_FALSE(plain->rare_ext);
     EXPECT_FALSE(other->pseudo_prop());
     ASSERT_NE(host->pseudo_prop(), nullptr);
     ASSERT_NE(host->pseudo_prop()->before, nullptr);
@@ -1935,7 +2132,7 @@ TEST_F(DynamicLayoutTest, UniversalPseudoResetSharesStylesUntilOverridden) {
     radiant_recascade_document(document);
     EXPECT_EQ(plain->pseudo_style(PSEUDO_STYLE_BEFORE), nullptr);
     EXPECT_EQ(plain->pseudo_style(PSEUDO_STYLE_AFTER), nullptr);
-    EXPECT_FALSE(plain->style_ext);
+    EXPECT_FALSE(plain->ext);
     ASSERT_TRUE(css_prop_serialize_computed(plain, CSS_PROPERTY_BOX_SIZING,
         PSEUDO_ELEMENT_BEFORE, value, sizeof(value)));
     EXPECT_STREQ(value, "content-box");

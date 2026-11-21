@@ -232,8 +232,8 @@ bool scene3d_navigation_geometry_key(DomElement* root, const Scene3dNavigationSe
 
 // true when nothing under root changed since *epoch and generation were recorded. The document epoch
 // also moves for presentation writes and edits elsewhere on the page; an unchanged subtree adopts the
-// newer epoch so the next check is immediate. UINT64_MAX forces a re-read.
-bool scene3d_source_unchanged(DomElement* root, uint64_t* epoch, uint32_t generation);
+// newer epoch so the next check is immediate. DOM_MUTATION_EPOCH_UNSTAMPED forces a re-read.
+bool scene3d_source_unchanged(DomElement* root, uint32_t* epoch, uint32_t generation);
 // shared bounded source readers for projection and animation adapters; no authored data is retained.
 const char* scene3d_text(DomElement* node, const char* key);
 bool scene3d_tag(DomElement* node, const char* tag);

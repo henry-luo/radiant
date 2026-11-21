@@ -419,7 +419,7 @@ bool geomap_shape_hit(const GeoMapShape* shape,Rect query,bool rectangle,float t
     return dom_geometry_path_query(shape->path,query.x,query.y,query.x+query.width,query.y+query.height,rectangle,
         shape->stroke_width<0?(int)shape->rule:-1,shape->stroke_width<0?tolerance*2:shape->stroke_width+tolerance*2,shape->cap,shape->join);
 }
-struct GeoMapEntry {GeoMapEntry* next;DomNodeRef root;GeoMapFrame* frame;uint64_t epoch,style_epoch,revision;float width,height;bool valid;char diagnostic[256];};
+struct GeoMapEntry {GeoMapEntry* next;DomNodeRef root;GeoMapFrame* frame;uint64_t revision;uint32_t epoch,style_epoch;float width,height;bool valid;char diagnostic[256];};
 struct GeoMapRegistry:DomDocumentResourceData {GeoMapEntry* entries;};
 static void geomap_registry_destroy(DomDocumentResourceData* data) {
     auto* registry=(GeoMapRegistry*)data;
@@ -453,7 +453,7 @@ static GeoMapEntry* geomap_entry(DomElement* root,bool create) {
         if(entry->root.address==ref.address && entry->root.expected_id==ref.expected_id) return entry;
     if(!create) return nullptr;
     auto* entry=(GeoMapEntry*)mem_calloc(1,sizeof(GeoMapEntry),MEM_CAT_RENDER);if(!entry) return nullptr;
-    entry->root=ref;entry->epoch=UINT64_MAX;entry->next=registry->entries;registry->entries=entry;return entry;
+    entry->root=ref;entry->epoch=DOM_MUTATION_EPOCH_UNSTAMPED;entry->next=registry->entries;registry->entries=entry;return entry;
 }
 GeoMapFrame* geomap_displayed_frame(DomElement* root) {auto* entry=geomap_entry(root,false);return entry && entry->valid?entry->frame:nullptr;}
 void geomap_follow_rebuild(DomDocument* document, DomNode* old_root, DomNode* new_root) {
@@ -466,7 +466,7 @@ void geomap_follow_rebuild(DomDocument* document, DomNode* old_root, DomNode* ne
             replacement->as_element()->tag_id != MARKUP_NAME_GEOMAP) continue;
         // Input queries keep the last displayed frame until the replacement actually paints.
         entry->root = dom_node_ref(replacement);
-        entry->epoch = UINT64_MAX;
+        entry->epoch = DOM_MUTATION_EPOCH_UNSTAMPED;
     }
 }
 bool geomap_paint(PaintList* paint,DomElement* root,Rect viewport,char* diagnostic,size_t capacity) {

@@ -1457,16 +1457,16 @@ TEST_F(DomIntegrationTest, NamespaceUrisShareInputNamePool) {
     EXPECT_STREQ(local, "title");
     ASSERT_TRUE(first->set_attribute("__lambda_ns_uri", uri));
     EXPECT_EQ(first->get_attribute("__lambda_ns_uri"), canonical->chars);
-    EXPECT_FALSE(first->style_ext);
+    EXPECT_FALSE(first->ext);
     EXPECT_EQ(dom_element_namespace_uri(second), canonical->chars);
 
     DomElement* synthetic = dom_element_create(doc, "span", nullptr);
     ASSERT_NE(synthetic, nullptr);
     ASSERT_TRUE(synthetic->set_attribute("__lambda_ns_uri", uri));
     EXPECT_EQ(dom_element_namespace_uri(synthetic), canonical->chars);
-    EXPECT_FALSE(synthetic->ext);
+    EXPECT_FALSE(synthetic->rare_ext);
     ASSERT_TRUE(synthetic->remove_attribute("__lambda_ns_uri"));
-    EXPECT_FALSE(synthetic->style_ext);
+    EXPECT_FALSE(synthetic->ext);
     String* html_uri = namespace_uri_intern(input->name_pool, "http://www.w3.org/1999/xhtml");
     ASSERT_NE(html_uri, nullptr);
     EXPECT_EQ(dom_element_namespace_uri(synthetic), html_uri->chars);
@@ -1557,23 +1557,23 @@ TEST_F(DomIntegrationTest, ExplicitElementIdentitySeparatesLiteralAndQualifiedNa
     EXPECT_STREQ(qualified->tag_name(), "h:span");
     EXPECT_STREQ(qualified->get_attribute("__lambda_ns_local_name"), "span");
     EXPECT_STREQ(qualified->local_name(), "span");
+    EXPECT_FALSE(qualified->rare_ext);
     EXPECT_FALSE(qualified->ext);
-    EXPECT_FALSE(qualified->style_ext);
     DomElement* literal = create_element_with_backing("h:span");
     ASSERT_TRUE(dom_element_set_namespace_identity(literal, "http://www.w3.org/1999/xhtml", "h:span"));
     EXPECT_STREQ(literal->local_name(), "h:span");
-    EXPECT_FALSE(literal->style_ext);
+    EXPECT_FALSE(literal->ext);
     DomElement* plain = create_element_with_backing("svg");
     ASSERT_TRUE(dom_element_set_namespace_identity(plain, "", "svg"));
     ASSERT_TRUE(qualified->append_child(plain));
     EXPECT_STREQ(dom_element_namespace_uri(plain), ""); EXPECT_STREQ(plain->local_name(), "svg");
-    ASSERT_TRUE(plain->style_ext);
-    EXPECT_FALSE(plain->ext);
+    ASSERT_TRUE(plain->ext);
+    EXPECT_FALSE(plain->rare_ext);
     EXPECT_FALSE(dom_element_set_namespace_identity(plain, "urn:test", "alias"));
     EXPECT_STREQ(dom_element_namespace_uri(plain), "");
     EXPECT_STREQ(plain->local_name(), "svg");
     ASSERT_TRUE(dom_element_set_namespace_identity(plain, "http://www.w3.org/1999/xhtml", "svg"));
-    EXPECT_FALSE(plain->style_ext);
+    EXPECT_FALSE(plain->ext);
 }
 
 TEST_F(DomIntegrationTest, CustomTagNameBorrowsBackingSpelling) {
@@ -1582,7 +1582,7 @@ TEST_F(DomIntegrationTest, CustomTagNameBorrowsBackingSpelling) {
     const char* backing_name = static_cast<const TypeElmt*>(element->elmt.type)->name.str;
     EXPECT_EQ(element->tag_name(), backing_name);
     EXPECT_EQ(element->tag_id, NAME_ID_NONE);
-    EXPECT_FALSE(element->style_ext);
+    EXPECT_FALSE(element->ext);
     EXPECT_FALSE(doc->services.tag_name_overrides);
     ASSERT_TRUE(element->set_attribute("data-state", "open"));
     EXPECT_STREQ(element->tag_name(), "my-card");
@@ -1619,7 +1619,7 @@ TEST_F(DomIntegrationTest, PrivateLocalNameAttributeCannotOverrideTag) {
     ASSERT_NE(element, nullptr);
     EXPECT_STREQ(element->local_name(), "div");
     EXPECT_STREQ(element->get_attribute("__lambda_ns_local_name"), "div");
-    EXPECT_FALSE(element->style_ext);
+    EXPECT_FALSE(element->ext);
 }
 
 TEST_F(DomIntegrationTest, XhtmlUsesTypedTagNamesWithExplicitNamespaces) {
@@ -1880,8 +1880,8 @@ TEST_F(DomIntegrationTest, ShadowPropsPreserveDeclarativeRootAndRetireWithNode) 
     EXPECT_TRUE(state->serializable);
     EXPECT_TRUE(state->declarative);
 
-    host->reset_view_ext();
-    root->reset_view_ext();
+    host->reset_rare_view_slots();
+    root->reset_rare_view_slots();
     EXPECT_EQ(root->shadow_style(), state);
     EXPECT_EQ(host->shadow_root_element(), root);
     DomParsedChildren children = dom_parsed_children(doc, dom_element_backing(host));
@@ -1901,7 +1901,7 @@ TEST_F(DomIntegrationTest, ShadowPropsPreserveDeclarativeRootAndRetireWithNode) 
     ASSERT_NE(sheet, nullptr);
     EXPECT_EQ(sheet->rule_count, 1u);
     EXPECT_EQ(doc->stylesheet_count, 0);
-    style->reset_view_ext();
+    style->reset_rare_view_slots();
     EXPECT_EQ(radiant_shadow_inline_stylesheet(style), sheet);
     Pool* storage = style->storage_pool();
     EXPECT_TRUE(pool_owns(storage, style_state));
@@ -2016,7 +2016,7 @@ TEST_F(DomIntegrationTest, PopoverPropsSurviveViewResetAndRetireWithNode) {
     state->opened_mode = DOM_POPOVER_AUTO;
     state->toggle.pending = true;
     ASSERT_TRUE(dom_top_layer_add(element, invoker));
-    element->reset_view_ext();
+    element->reset_rare_view_slots();
     EXPECT_EQ(element->popover_style(), state);
     EXPECT_TRUE(element->is_popover_open());
     EXPECT_EQ(state->order, 1u);

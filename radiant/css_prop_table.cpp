@@ -427,7 +427,7 @@ static bool format_css_value(DomElement* element, CssPropertyCode id,
         css_anchor_serialize_position_area(out, value, true)) return true;
     if (id == CSS_PROPERTY_OVERFLOW_CLIP_MARGIN)
         return format_overflow_clip_margin_computed_value(element, value, out, pseudo_type);
-    if (id == CSS_PROPERTY_LINE_CLAMP || id == CSS_PROPERTY_WEBKIT_LINE_CLAMP)
+    if (id == CSS_PROPERTY_LINE_CLAMP)
         return format_clamp_computed_value(element, value, out, pseudo_type);
     if ((id == CSS_PROPERTY_Z_INDEX || id == CSS_PROPERTY_ORDER) && value->type != CSS_VALUE_TYPE_KEYWORD) {
         double level = 0.0;
@@ -457,10 +457,6 @@ static bool format_css_value(DomElement* element, CssPropertyCode id,
             if (!written) return false;
         }
         return true;
-    }
-    if (id == CSS_PROPERTY_WEBKIT_BOX_ORIENT) {
-        return copy_text(out, css_value_has_identifier(value, "vertical") ||
-            css_value_has_identifier(value, "block-axis") ? "vertical" : "horizontal");
     }
     if (id == CSS_PROPERTY_GRID_TEMPLATE_AREAS) {
         String* text = css_grid_serialize_template_areas(out->pool, value);
@@ -721,7 +717,16 @@ static bool consume_cascaded_value(DomElement* element, CssPropertyCode id,
 
 bool css_prop_serialize_cascaded_value(DomElement* element, CssPropertyCode id,
         int pseudo_type, StringBuf* out, bool preserve_color_model) {
-    return consume_cascaded_value(element, id, pseudo_type, out, preserve_color_model, nullptr);
+    CssPropertyCode canonical = css_property_canonical_code(id);
+    if (id == CSS_PROPERTY_WEBKIT_BOX_ORIENT) {
+        if (!out) return false;
+        // prefixed CSSOM reads retain the old axis spelling over the same cascaded value.
+        StringBuf* direction = stringbuf_new(out->pool);
+        if (!direction || !consume_cascaded_value(element, canonical, pseudo_type,
+                direction, preserve_color_model, nullptr) || !direction->str) return false;
+        return copy_text(out, css_webkit_box_orientation_name(direction->str->chars));
+    }
+    return consume_cascaded_value(element, canonical, pseudo_type, out, preserve_color_model, nullptr);
 }
 
 bool css_prop_consume_cascaded_value(DomElement* element, CssPropertyCode id,
@@ -1877,13 +1882,17 @@ static bool serialize_edge(const CssPropAccessor* accessor, DomElement* element,
     const BoundaryProp* boundary = element->boundary();
     // normal-flow collapse consumes vertical margins after their used lengths
     // are resolved; CSSOM reflects the owned value captured before that step.
-    const Margin& flow_margin = *view_boundary_flow_margin(boundary);
     float value = 0.0f;
     CssEnum type = CSS_VALUE__UNDEF;
     switch (accessor->id) {
-        case CSS_PROPERTY_MARGIN_TOP: value = flow_margin.top; type = flow_margin.top_type; break;
+        case CSS_PROPERTY_MARGIN_TOP:
+        case CSS_PROPERTY_MARGIN_BOTTOM: {
+            ResolvedMarginSide margin = view_boundary_flow_margin(boundary, radiant_css_box_side(accessor->id));
+            value = margin.value;
+            type = margin.type;
+            break;
+        }
         case CSS_PROPERTY_MARGIN_RIGHT: value = boundary->margin.right; type = boundary->margin.right_type; break;
-        case CSS_PROPERTY_MARGIN_BOTTOM: value = flow_margin.bottom; type = flow_margin.bottom_type; break;
         case CSS_PROPERTY_MARGIN_LEFT: value = boundary->margin.left; type = boundary->margin.left_type; break;
         case CSS_PROPERTY_PADDING_TOP: value = boundary->padding.top; break;
         case CSS_PROPERTY_PADDING_RIGHT: value = boundary->padding.right; break;
@@ -2498,7 +2507,7 @@ const CssPropAccessor* css_prop_accessors(size_t* count) {
 struct CssomRefreshedElement {
     DomElement* element;
     uint32_t version;
-    uint64_t mutation_epoch;
+    uint32_t mutation_epoch;
 };
 using CssomRefreshedMap = TypedHashMap<CssomRefreshedElement,
     HashMapPointerMemberKeyOps<CssomRefreshedElement, &CssomRefreshedElement::element>>;

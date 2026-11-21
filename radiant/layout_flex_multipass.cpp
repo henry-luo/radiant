@@ -1036,7 +1036,8 @@ struct FlexMeasuredFlowKey {
     CssGeometryContext geometry_context;
     const char* text;
     size_t length;
-    uint64_t style_epoch, mutation_epoch, font_generation;
+    uint32_t style_epoch, mutation_epoch;
+    uint64_t font_generation;
     uint32_t generation, style_revision, input_revision;
     float width, block_constraint, viewport_width, viewport_height, root_font_size, raster_scale;
     CssEnum text_wrap_style;
@@ -1193,11 +1194,10 @@ static bool flex_flow_key(LayoutContext* context, ViewBlock* item,
 }
 
 static bool flex_flow_keys_equal(DomElement* item, const FlexMeasuredFlowKey& a, const FlexMeasuredFlowKey& b) {
-    CacheEntry constraints = {};
-    constraints.valid = true;
+    LayoutCacheKey constraints = {};
     constraints.available_space = a.available_space;
     // atomic inline shrink-to-fit can distinguish intrinsic and definite available space.
-    return layout_cache_constraints_match(&constraints, known_dimensions_none(), b.available_space, 0.0f) &&
+    return layout_cache_constraints_match(constraints, known_dimensions_none(), b.available_space, 0.0f) &&
         css_font_keys_equal(a.font, b.font) && a.text == b.text && a.length == b.length &&
         a.style_epoch == b.style_epoch && a.mutation_epoch == b.mutation_epoch &&
         a.font_generation == b.font_generation && a.generation == b.generation &&
@@ -1235,6 +1235,7 @@ static FlexFlowEntry* flex_replay_measured_flow(LayoutContext* context, ViewBloc
 
 static bool flex_record_measured_flow(LayoutContext* context, ViewBlock* item,
                                       FlexContainerLayout* parent, float height, bool natural) {
+    constexpr unsigned FLEX_MEASURED_FLOW_LIMIT = 9;
     FlexMeasuredFlowKey key = {};
     if (!flex_flow_key(context, item, parent, &key)) return false;
     LayoutCache* owner = layout_pass_ensure_cache(context, item);
@@ -1261,7 +1262,7 @@ static bool flex_record_measured_flow(LayoutContext* context, ViewBlock* item,
     cache->first = entry;
     cache->live = entry;
     cache->count++;
-    if (cache->count > LAYOUT_CACHE_SIZE) {
+    if (cache->count > FLEX_MEASURED_FLOW_LIMIT) {
         FlexFlowEntry* previous = cache->first;
         while (previous->next && previous->next->next) previous = previous->next;
         lam::Own<FlexFlowEntry> expired = previous->next;

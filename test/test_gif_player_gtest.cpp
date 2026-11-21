@@ -266,6 +266,22 @@ protected:
         animation_scheduler_destroy(scheduler);
         pool_destroy(pool);
     }
+
+    static void set_gif_plays(GifFrames* gif, int plays) {
+        gif->has_loop_extension = plays != 1;
+        gif->loop_count = plays > 0 ? plays - 1 : 0;
+    }
+
+    AnimationInstance* start_looping_gif(double start_time, int plays = 0) {
+        GifFrames* gif = image_gif_load_from_memory(ANIM_GIF_2FRAME, ANIM_GIF_2FRAME_LEN);
+        if (!gif) return nullptr;
+        set_gif_plays(gif, plays);
+        surface.width = gif->width;
+        surface.height = gif->height;
+        AnimationInstance* inst = gif_animation_create(scheduler, &surface, gif, start_time, pool);
+        if (!inst) image_gif_free(gif);
+        return inst;
+    }
 };
 
 TEST_F(GifAnimationTest, CreateNullArgsReturnsNull) {
@@ -310,7 +326,7 @@ TEST_F(GifAnimationTest, CreateAndTickFrames) {
     gif->frame_count = 3;
     gif->width = W;
     gif->height = H;
-    gif->loop_count = 1; // play once
+    set_gif_plays(gif, 1);
 
     surface.width = W;
     surface.height = H;
@@ -365,13 +381,9 @@ TEST_F(GifAnimationTest, CreateAndTickFrames) {
 }
 
 TEST_F(GifAnimationTest, FrameClockContinuesAcrossSchedulerLoops) {
-    GifFrames* gif = image_gif_load_from_memory(ANIM_GIF_2FRAME, ANIM_GIF_2FRAME_LEN);
-    ASSERT_NE(gif, nullptr);
-    surface.width = gif->width;
-    surface.height = gif->height;
-
-    AnimationInstance* inst = gif_animation_create(scheduler, &surface, gif, 12.0, pool);
+    AnimationInstance* inst = start_looping_gif(12.0);
     ASSERT_NE(inst, nullptr);
+    GifFrames* gif = ((GifAnimation*)inst->state)->frames;
     EXPECT_EQ(surface.pitch, gif->width * 4);
     EXPECT_EQ(surface.pixels, gif->frames[0].pixels);
 
@@ -381,6 +393,73 @@ TEST_F(GifAnimationTest, FrameClockContinuesAcrossSchedulerLoops) {
     EXPECT_EQ(surface.pixels, gif->frames[0].pixels);
     animation_scheduler_tick(scheduler, 12.41, nullptr);
     EXPECT_EQ(surface.pixels, gif->frames[1].pixels);
+}
+
+TEST_F(GifAnimationTest, SparseTicksChooseFrameAtElapsedTime) {
+    // this GIF shows red for 100ms and blue for 200ms in each 300ms loop.
+    const struct {
+        double first_sample, next_sample;
+        int frame, loops;
+        double deadline;
+    } cases[] = {
+        {12.35, 0.0, 0, 1, 0.4},
+        {12.95, 0.0, 0, 3, 1.0},
+        {12.15, 12.45, 1, 1, 0.6},
+        {12.15, 12.95, 0, 3, 1.0},
+        {123468.05, 0.0, 0, 411520, 123456.1},
+    };
+    for (const auto& sample : cases) {
+        SCOPED_TRACE(sample.first_sample);
+        AnimationInstance* inst = start_looping_gif(12.0);
+        ASSERT_NE(inst, nullptr);
+        animation_scheduler_tick(scheduler, sample.first_sample, nullptr);
+        if (sample.next_sample > 0.0)
+            animation_scheduler_tick(scheduler, sample.next_sample, nullptr);
+        GifAnimation* player = (GifAnimation*)inst->state;
+        ASSERT_NE(player, nullptr);
+        EXPECT_EQ(sample.frame, player->current_frame);
+        EXPECT_EQ(sample.loops, player->loops_completed);
+        EXPECT_NEAR(sample.deadline, player->frame_end_time, 0.00001);
+        EXPECT_EQ(player->frames->frames[sample.frame].pixels, surface.pixels);
+        EXPECT_EQ(ANIM_PLAY_RUNNING, inst->play_state);
+        animation_scheduler_cancel(scheduler, inst);
+    }
+}
+
+TEST_F(GifAnimationTest, EncodedRepeatCountIncludesTheInitialPlay) {
+    AnimationInstance* once = start_looping_gif(12.0, 1);
+    ASSERT_NE(once, nullptr);
+    EXPECT_EQ(1, once->iteration_count);
+    animation_scheduler_cancel(scheduler, once);
+
+    AnimationInstance* twice = start_looping_gif(12.0, 2);
+    ASSERT_NE(twice, nullptr);
+    EXPECT_EQ(2, twice->iteration_count);
+    animation_scheduler_tick(scheduler, 12.35, nullptr);
+    ASSERT_EQ(1, scheduler->count);
+    GifAnimation* player = (GifAnimation*)twice->state;
+    ASSERT_NE(player, nullptr);
+    EXPECT_EQ(player->frames->frames[0].pixels, surface.pixels);
+    EXPECT_EQ(ANIM_PLAY_RUNNING, twice->play_state);
+}
+
+TEST_F(GifAnimationTest, CompletedGifKeepsFinalFrameUntilCancellation) {
+    AnimationInstance* inst = start_looping_gif(12.0, 1);
+    ASSERT_NE(inst, nullptr);
+    GifAnimation* player = (GifAnimation*)inst->state;
+    uint32_t* final_pixels = player->frames->frames[1].pixels;
+    animation_scheduler_tick(scheduler, 12.35, nullptr);
+    ASSERT_EQ(1, scheduler->count);
+    ASSERT_NE(inst->state, nullptr);
+    EXPECT_EQ(ANIM_PLAY_FINISHED, inst->play_state);
+    EXPECT_EQ(final_pixels, surface.pixels);
+    EXPECT_EQ(nullptr, player->frames->frames[0].pixels);
+    EXPECT_FALSE(scheduler->has_active_animations);
+    animation_scheduler_tick(scheduler, 13.0, nullptr);
+    EXPECT_EQ(final_pixels, surface.pixels);
+    animation_scheduler_cancel(scheduler, inst);
+    EXPECT_EQ(nullptr, surface.pixels);
+    EXPECT_EQ(0, scheduler->count);
 }
 
 TEST_F(GifAnimationTest, InfiniteLoopDoesNotFinish) {
@@ -395,7 +474,7 @@ TEST_F(GifAnimationTest, InfiniteLoopDoesNotFinish) {
     gif->frame_count = 2;
     gif->width = W;
     gif->height = H;
-    gif->loop_count = 0; // infinite
+    set_gif_plays(gif, 0);
 
     surface.width = W;
     surface.height = H;
@@ -430,7 +509,7 @@ TEST_F(GifAnimationTest, FinishCleansUp) {
     gif->frame_count = 2;
     gif->width = 2;
     gif->height = 2;
-    gif->loop_count = 1;
+    set_gif_plays(gif, 1);
 
     surface.width = 2;
     surface.height = 2;
@@ -477,7 +556,7 @@ TEST_F(GifAnimationTest, SchedulerAddsGifAnimation) {
     gif->frame_count = 2;
     gif->width = 1;
     gif->height = 1;
-    gif->loop_count = 0;
+    set_gif_plays(gif, 0);
 
     surface.width = 1;
     surface.height = 1;
@@ -504,7 +583,7 @@ TEST_F(GifAnimationTest, BoundsMatchDimensions) {
     gif->frame_count = 2;
     gif->width = 100;
     gif->height = 200;
-    gif->loop_count = 0;
+    set_gif_plays(gif, 0);
 
     surface.width = 100;
     surface.height = 200;

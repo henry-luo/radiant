@@ -135,8 +135,8 @@ static void view_memory_element_census(JsonWriter* writer, DomElement* root) {
         if (elem) {
             if (elem->is_synthetic()) synthetic++;
             else authored++;
-            prop_extensions += elem->style_ext != nullptr;
-            bool slots[] = {elem->ext != nullptr, elem->blk != nullptr,
+            prop_extensions += elem->ext != nullptr;
+            bool slots[] = {elem->rare_ext != nullptr, elem->blk != nullptr,
                 elem->parent_item_kind() == DomElement::PARENT_ITEM_FLEX && elem->fi,
                 elem->parent_item_kind() == DomElement::PARENT_ITEM_GRID && elem->gi,
                 elem->table_storage() != nullptr, elem->td != nullptr, elem->form_storage() != nullptr,
@@ -153,9 +153,9 @@ static void view_memory_element_census(JsonWriter* writer, DomElement* root) {
                 move_union++;
                 if (slots[0]) move_union_with_ext++;
             }
-            if (elem->ext) {
-                attribute_state_elements += elem->ext->attributes != nullptr;
-                fragment_groups += elem->ext->fragment_geometry != nullptr;
+            if (elem->rare_ext) {
+                attribute_state_elements += elem->rare_ext->attributes != nullptr;
+                fragment_groups += elem->rare_ext->fragment_geometry != nullptr;
             }
             pseudo_style_groups += elem->pseudo_style_group() != nullptr;
             shared_pseudo_reset_elements += elem->shared_pseudo_reset_slots != 0;
@@ -172,12 +172,12 @@ static void view_memory_element_census(JsonWriter* writer, DomElement* root) {
             if (elem->layout_cache) {
                 layout_caches++;
                 for (const auto& result : elem->layout_cache->measure_entries) {
-                    if (!result.valid) continue;
+                    if (!result.key.is_valid()) continue;
                     measurement_arrays++;
                     break;
                 }
                 for (const auto& query : elem->layout_cache->intrinsic_widths) {
-                    if (!query.context.valid) continue;
+                    if (!query.context.is_valid()) continue;
                     intrinsic_array_users++;
                     break;
                 }

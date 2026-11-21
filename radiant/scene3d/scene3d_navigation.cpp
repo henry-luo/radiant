@@ -474,7 +474,7 @@ bool scene3d_navigation_prepare(Scene3dNavigation* state, DomElement* root, char
     state->stats.source_triangles = source_triangles;
     *state->next_generation = next_generation;
     state->epoch = root->doc->mutation_epoch;
-    state->rejected_epoch = UINT64_MAX;
+    state->rejected_epoch = DOM_MUTATION_EPOCH_UNSTAMPED;
     state->diagnostic[0] = 0;
     return scene3d_nav_agents_schedule(state, root);
 }
@@ -486,7 +486,7 @@ void scene3d_navigation_follow_rebuild(Scene3dNavigation* state, DomNode* old_ro
         view_state_ref_follow_rebuild(state->document, &asset->source, old_root, new_root);
     for (auto* agent = state->agents; agent; agent = agent->next)
         view_state_ref_follow_rebuild(state->document, &agent->body, old_root, new_root);
-    state->epoch = state->rejected_epoch = UINT64_MAX;
+    state->epoch = state->rejected_epoch = DOM_MUTATION_EPOCH_UNSTAMPED;
 }
 bool scene3d_navigation_stats(Scene3dNavigation* state, Scene3dNavigationStats* stats) {
     if (!state || !stats)

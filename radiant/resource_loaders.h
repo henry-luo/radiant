@@ -28,6 +28,7 @@ void process_html_resource(NetworkResource* res, struct DomDocument* doc);
 void process_script_resource(NetworkResource* res, struct DomDocument* doc);
 
 // Visit authored CSS url() values without changing their consumer-relative spelling.
+// Values are borrowed only for the duration of the visitor call.
 void radiant_for_each_css_value_resource_url(const struct CssValue* value,
                                              RadiantCssUrlVisitor visitor,
                                              void* context);

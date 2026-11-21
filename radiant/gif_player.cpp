@@ -4,6 +4,8 @@
 #include "event.hpp"
 #include "lib/log.h"
 #include "lib/memtrack.h"
+#include <limits.h>
+#include <math.h>
 #include <string.h>
 
 // ============================================================================
@@ -18,33 +20,34 @@ void GifAnimation::tick(AnimationInstance* anim, float t) {
     double now = (anim->current_iteration + (double)t) * anim->duration;
     int n = frames->frame_count;
 
-    // Check if it's time to advance the frame
-    if (now >= frame_end_time) {
-        int next = current_frame + 1;
-        if (next >= n) {
-            // End of sequence — check loop
-            loops_completed++;
-            if (loop_count != 0 && loops_completed >= loop_count) {
-                // All loops done — stop
-                anim->play_state = ANIM_PLAY_FINISHED;
-                return;
-            }
-            next = 0;  // restart from first frame
+    if (now < frame_end_time) return;
+
+    // sample the active loop directly so sparse ticks skip missed frames without replaying loops.
+    double iteration = anim->duration > 0.0 ? floor(now / anim->duration) : 0.0;
+    loops_completed = iteration < INT_MAX ? (int)iteration : INT_MAX; // INT_CAST_OK: diagnostic count saturates before conversion.
+    double deadline = iteration * anim->duration + frames->frames[0].delay_ms / 1000.0;
+    int next = 0;
+    if (loop_count != 0 && iteration >= loop_count) {
+        loops_completed = loop_count;
+        next = n - 1;
+        deadline = loop_count * anim->duration;
+        anim->play_state = ANIM_PLAY_FINISHED;
+    } else {
+        while (next + 1 < n && now >= deadline) {
+            next++;
+            deadline += frames->frames[next].delay_ms / 1000.0;
         }
-
-        current_frame = next;
-        GifFrameData* frame = &frames->frames[next];
-
-        // Swap the surface pixel pointer to the new frame
-        surface->pixels = frame->pixels;
-        surface->alpha_mode = IMAGE_ALPHA_STRAIGHT;
-        image_surface_bump_generation(surface);
-
-        // Set next frame end time
-        frame_end_time += frame->delay_ms / 1000.0;
-
-        log_debug("gif tick: frame %d/%d, delay %dms", next, n, frame->delay_ms);
     }
+    frame_end_time = deadline;
+    if (next == current_frame) return;
+
+    current_frame = next;
+    GifFrameData* frame = &frames->frames[next];
+    surface->pixels = frame->pixels;
+    surface->alpha_mode = IMAGE_ALPHA_STRAIGHT;
+    image_surface_bump_generation(surface);
+
+    log_debug("gif tick: frame %d/%d, delay %dms", next, n, frame->delay_ms);
 }
 
 void GifAnimation::finish(AnimationInstance* anim) {
@@ -78,6 +81,17 @@ void gif_animation_finish(AnimationInstance* anim) {
     animation_player_finish<GifAnimation>(anim);
 }
 
+static void gif_animation_complete(AnimationInstance* anim) {
+    GifAnimation* player = (GifAnimation*)anim->state;
+    if (!player || !player->frames) return;
+    // completed images retain only the displayed frame until cancellation.
+    for (int i = 0; i < player->frames->frame_count; i++) {
+        if (i == player->current_frame) continue;
+        image_free((unsigned char*)player->frames->frames[i].pixels);
+        player->frames->frames[i].pixels = NULL;
+    }
+}
+
 // ============================================================================
 // GIF Animation Creation
 // ============================================================================
@@ -101,7 +115,9 @@ AnimationInstance* gif_animation_create(AnimationScheduler* scheduler,
     ga->frames = lam::own(gif_frames);
     ga->current_frame = 0;
     ga->surface = lam::up(surface);
-    ga->loop_count = gif_frames->loop_count;
+    // the extension counts repetitions after the initial play; absence means play once.
+    ga->loop_count = !gif_frames->has_loop_extension ? 1 :
+        gif_frames->loop_count == 0 ? 0 : gif_frames->loop_count + 1;
     ga->loops_completed = 0;
     ga->frame_end_time = gif_frames->frames[0].delay_ms / 1000.0;
     ga->still_pitch = surface->pitch;
@@ -127,14 +143,15 @@ AnimationInstance* gif_animation_create(AnimationScheduler* scheduler,
     inst->duration = total_ms / 1000.0;
     inst->delay = 0;
     // Infinite iterations — GIF manages its own loop counting in the tick callback
-    inst->iteration_count = (gif_frames->loop_count == 0) ? -1 : gif_frames->loop_count;
+    inst->iteration_count = ga->loop_count == 0 ? -1 : ga->loop_count;
     inst->current_iteration = 0;
     inst->direction = ANIM_DIR_NORMAL;
-    inst->fill_mode = ANIM_FILL_NONE;
+    inst->fill_mode = ANIM_FILL_FORWARDS;
     inst->play_state = ANIM_PLAY_RUNNING;
     inst->timing.type = TIMING_LINEAR;
     inst->tick = animation_player_tick<GifAnimation>;
-    inst->on_finish = animation_player_finish<GifAnimation>;
+    // retain final pixels until cancellation releases the cache-borrowing player.
+    inst->on_finish = gif_animation_complete;
     inst->on_cancel = animation_player_finish<GifAnimation>;
 
     // Bounds: use the image surface dimensions (will be updated by layout)

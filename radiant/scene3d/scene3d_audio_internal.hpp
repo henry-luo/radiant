@@ -58,7 +58,8 @@ struct Scene3dAudio {
     AudioClip clips[AUDIO_SCENE_CLIPS];
     AudioListener listener;
     unsigned count, clip_count;
-    uint64_t epoch, generation, sample_sequence, identity;
+    uint32_t epoch;
+    uint64_t generation, sample_sequence, identity;
     float speed;
     AudioGraphId graph;
     AudioSubmixId submix;

@@ -37,7 +37,8 @@ struct Scene3dPhysics {
     PhysicsWorld* world = nullptr;
     PhysicsState published = {};
     Scene3dRuntime* runtime = nullptr;
-    uint64_t epoch = 0, generation = 1;
+    uint32_t epoch = 0;
+    uint64_t generation = 1;
     uint32_t source_generation = 0;
     uint64_t world_identity = 0;
     uint64_t* next_identity = nullptr;

@@ -97,6 +97,7 @@ extern "C" bool dom_engine_set_image_source(DomElement* element,const char* name
     auto* ui=(UiContext*)element->doc->js.host_ui_context;
     if(!ui) return image_source_complete(element, false);
     // A live cache miss queues the transfer; a warm image completes immediately.
+    radiant_request_live_image(element->doc, ui, source->url, element);
     ImageSurface* image=load_document_image(element->doc,ui,name);
     if(image) {
         source->surface=image->self;if(element->embed) element->embed->img=lam::up(image);
@@ -106,7 +107,8 @@ extern "C" bool dom_engine_set_image_source(DomElement* element,const char* name
         Url* absolute = dom_document_resolve_url(element->doc, name);
         if (absolute && radiant_url_is_http(absolute)) {
             NetworkResource* resource = resource_manager_load(element->doc->resource_manager,
-                url_get_href(absolute), RESOURCE_IMAGE, PRIORITY_NORMAL, nullptr);
+                url_get_href(absolute), RESOURCE_IMAGE,
+                radiant_html_fetch_priority(element->get_attribute("fetchpriority"), PRIORITY_NORMAL), nullptr);
             if (resource && resource->state != STATE_COMPLETED && resource->state != STATE_CACHED &&
                 resource->state != STATE_FAILED) {
                 source->pending_url = mem_strdup(url_get_href(absolute), MEM_CAT_RENDER);

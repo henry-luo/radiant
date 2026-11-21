@@ -4290,7 +4290,7 @@ struct RdtSvgFilterNode {
 struct RdtSvgFilterProgram {
     lam::Own<Arena> arena;               // holds nodes, noise, merge inputs and tokens
     lam::Up<Element> element;
-    uint64_t epoch;
+    uint32_t epoch;
     uint64_t animation_generation;
     lam::Own<RdtSvgFilterProgram> next;
     lam::OwnArr<RdtSvgFilterNode> nodes;
