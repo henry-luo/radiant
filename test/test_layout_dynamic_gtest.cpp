@@ -23,6 +23,32 @@
 #include "lib/host_paths.h"
 #include "lib/url.h"
 
+TEST(BlockPropertyStorageTest, DefaultsAndListWritesKeepRareStorageLazy) {
+    Pool* pool = pool_create();
+    ASSERT_NE(pool, nullptr);
+    BlockProp block = BLOCK_PROP_DEFAULT;
+    block.set_ext(pool, &BlockPropExt::tab_size, 8.0f);
+    block.set_ext(pool, &BlockPropExt::given_width_fit_content_percent, NAN);
+    block.set_flow(pool, &BlockFlowOutput::vertical_geometry_published, false);
+    EXPECT_EQ(block.ext.get(), nullptr);
+
+    BlockListProp* list = block.ensure_list(pool);
+    EXPECT_NE(list, nullptr);
+    if (list) list->list_style_type = CSS_VALUE_DISC;
+    EXPECT_EQ(block.ext.get(), nullptr);
+
+    block.set_ext(pool, &BlockPropExt::text_indent, 12.0f);
+    EXPECT_FLOAT_EQ(block.rare().text_indent, 12.0f);
+    EXPECT_EQ(block.list_props.get(), list);
+    EXPECT_TRUE(isnan(block.rare().given_width_fit_content_percent));
+
+    release_block_prop_groups(&block, pool);
+    EXPECT_EQ(block.ext.get(), nullptr);
+    EXPECT_EQ(block.list_props.get(), nullptr);
+    EXPECT_FLOAT_EQ(block.rare().text_indent, 0.0f);
+    pool_destroy(pool);
+}
+
 TEST(LayoutCacheTest, ZeroDimensionsRemainDistinctFromAutoCacheKeys) {
     ViewBlock block = {};
     BlockProp parent_blk = {};

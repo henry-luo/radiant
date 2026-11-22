@@ -7,8 +7,8 @@ void css_store_self_alignment(LayoutContext* lycon, ViewSpan* span,
     if (!span || value.value == CSS_VALUE__UNDEF) return;
     BlockProp* block = span->ensure_block(lycon);
     if (!block) return;
-    if (justify) block->justify_self = value;
-    else block->align_self = value;
+    block->set_ext(layout_prop_pool(lycon),
+                   justify ? &BlockPropExt::justify_self : &BlockPropExt::align_self, value);
 }
 
 void css_store_content_alignment(LayoutContext* lycon, ViewBlock* block,
@@ -16,8 +16,9 @@ void css_store_content_alignment(LayoutContext* lycon, ViewBlock* block,
     if (!block) return;
     if (!justify) {
         BlockProp* block_prop = block->ensure_block(lycon);
-        block_prop->align_content = alignment.value;
-        block_prop->align_content_detail = alignment;
+        Pool* pool = layout_prop_pool(lycon);
+        block_prop->set_ext(pool, &BlockPropExt::align_content, alignment.value);
+        block_prop->set_ext(pool, &BlockPropExt::align_content_detail, alignment);
         if (block->display.inner == CSS_VALUE_FLEX) {
             alloc_flex_prop(lycon, block);
             block->embedp()->flex->align_content = alignment.value;

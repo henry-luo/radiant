@@ -133,7 +133,7 @@ static bool render_block_solid_box(RasterRenderContext* rdcon, ViewBlock* block,
         block->filter_prop() || block->backdrop_filter_prop() || block->layout_fragment_list() ||
         view_visibility_is_hidden(block) ||
         (block->position && block->positionp()->first_abs_child) ||
-        (block->blk && block->block()->extras().list_style_type) ||
+        (block->blk && block->block()->list().list_style_type) ||
         (block->in_line && (block->inl()->opacity != 1.0f ||
             (block->inl()->mix_blend_mode && block->inl()->mix_blend_mode != CSS_VALUE_NORMAL)))) return false;
     if (css_display_element_is_replaced(block)) return false;

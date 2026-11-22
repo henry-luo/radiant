@@ -124,7 +124,7 @@ static void view_memory_element_census(JsonWriter* writer, DomElement* root) {
     uint64_t authored = 0, synthetic = 0, move_union = 0, move_union_with_ext = 0;
     uint64_t attribute_state_elements = 0, fragment_groups = 0, pseudo_style_groups = 0;
     uint64_t shared_pseudo_reset_elements = 0;
-    uint64_t block_extras = 0, block_containment = 0;
+    uint64_t block_extras = 0, block_lists = 0, block_containment = 0;
     uint64_t prop_extensions = 0;
     uint64_t scroll_snap_groups = 0, individual_transform_groups = 0;
     uint64_t form_placeholder_groups = 0, form_file_button_groups = 0;
@@ -161,7 +161,8 @@ static void view_memory_element_census(JsonWriter* writer, DomElement* root) {
             shared_pseudo_reset_elements += elem->shared_pseudo_reset_slots != 0;
             if (elem->blk) {
                 block_extras += elem->blk->ext != nullptr;
-                block_containment += elem->blk->containment_props != nullptr;
+                block_lists += elem->blk->list_props != nullptr;
+                block_containment += elem->blk->rare().containment_props != nullptr;
             }
             if (elem->scroller) scroll_snap_groups += elem->scroller->snap != nullptr;
             if (elem->transform_prop()) individual_transform_groups += elem->transform_prop()->individual != nullptr;
@@ -194,6 +195,8 @@ static void view_memory_element_census(JsonWriter* writer, DomElement* root) {
         jw_kv_uint(writer, "prop_ext_size", sizeof(DomStyleExt));
         jw_kv_uint(writer, "prop_extensions", prop_extensions);
         jw_kv_uint(writer, "block_size", sizeof(BlockProp));
+        jw_kv_uint(writer, "block_extra_size", sizeof(BlockPropExt));
+        jw_kv_uint(writer, "block_list_size", sizeof(BlockListProp));
         jw_kv_uint(writer, "move_union", move_union);
         jw_kv_uint(writer, "move_union_with_ext", move_union_with_ext);
         jw_kv_uint(writer, "attribute_state_elements", attribute_state_elements);
@@ -201,6 +204,7 @@ static void view_memory_element_census(JsonWriter* writer, DomElement* root) {
         jw_kv_uint(writer, "pseudo_style_groups", pseudo_style_groups);
         jw_kv_uint(writer, "shared_pseudo_reset_elements", shared_pseudo_reset_elements);
         jw_kv_uint(writer, "block_extras", block_extras);
+        jw_kv_uint(writer, "block_lists", block_lists);
         jw_kv_uint(writer, "block_containment", block_containment);
         jw_kv_uint(writer, "scroll_snap_groups", scroll_snap_groups);
         jw_kv_uint(writer, "individual_transform_groups", individual_transform_groups);

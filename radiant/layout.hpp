@@ -438,7 +438,7 @@ TextIntrinsicWidths measure_text_intrinsic_widths(LayoutContext* lycon,
                                                    CssEnum line_break = CSS_VALUE_AUTO);
 float measure_text_max_content_width(LayoutContext* lycon, const char* text, size_t length);
 CssEnum get_inherited_text_enum(LayoutContext* lycon, CssPropertyCode property,
-    CssEnum BlockProp::*member, CssEnum fallback, DomNode* node = nullptr);
+    CssEnum BlockPropExt::*member, CssEnum fallback, DomNode* node = nullptr);
 float layout_broken_image_fallback_inline_size(LayoutContext* lycon, ViewBlock* block,
                                                const char* fallback_text);
 void layout_broken_image_fallback_size(LayoutContext* lycon, ViewBlock* block,
@@ -1716,7 +1716,7 @@ int32_t resolve_justify_self(int32_t justify_self, int32_t justify_items);
 inline bool layout_prefers_last_baseline(const ViewBlock* block,
                                          bool auto_prefers_last) {
     if (!block || !block->blk) return auto_prefers_last;
-    CssEnum baseline_source = block->block()->baseline_source;
+    CssEnum baseline_source = block->block()->rare().baseline_source;
     if (baseline_source == CSS_VALUE_FIRST) return false;
     if (baseline_source == CSS_VALUE_LAST) return true;
     return auto_prefers_last;
@@ -1742,7 +1742,7 @@ inline float layout_inline_baseline_for_source(const ViewBlock* block,
 
 inline bool layout_uses_explicit_baseline_source(const ViewBlock* block) {
     if (!block || !block->blk) return false;
-    CssEnum baseline_source = block->block()->baseline_source;
+    CssEnum baseline_source = block->block()->rare().baseline_source;
     return baseline_source == CSS_VALUE_FIRST || baseline_source == CSS_VALUE_LAST;
 }
 
@@ -1766,7 +1766,7 @@ inline bool layout_exports_content_baseline(const ViewBlock* block,
 
 inline bool layout_uses_scrollable_block_end_baseline(ViewBlock* block) {
     if (!block || !block->blk || !block->scroller ||
-        block->block()->baseline_source != CSS_VALUE_AUTO) {
+        block->block()->rare().baseline_source != CSS_VALUE_AUTO) {
         return false;
     }
     if (block->display.inner != CSS_VALUE_FLOW &&
@@ -3142,10 +3142,12 @@ typedef struct LayoutAxisRefs {
         given_percent = lam::up(horizontal ? &block->given_width_percent : &block->given_height_percent);
         minimum_percent = lam::up(horizontal ? &block->given_min_width_percent : &block->given_min_height_percent);
         maximum_percent = lam::up(horizontal ? &block->given_max_width_percent : &block->given_max_height_percent);
-        given_fit_content_limit = lam::up(horizontal ? &block->given_width_fit_content_limit
-                                             : &block->given_height_fit_content_limit);
-        given_fit_content_percent = lam::up(horizontal ? &block->given_width_fit_content_percent
-                                               : &block->given_height_fit_content_percent);
+        if (auto* rare = block->ext.get()) {
+            given_fit_content_limit = lam::up(horizontal ? &rare->given_width_fit_content_limit
+                                                        : &rare->given_height_fit_content_limit);
+            given_fit_content_percent = lam::up(horizontal ? &rare->given_width_fit_content_percent
+                                                          : &rare->given_height_fit_content_percent);
+        }
         given_type = lam::up(horizontal ? &block->given_width_type : &block->given_height_type);
         minimum_type = lam::up(horizontal ? &block->given_min_width_type : &block->given_min_height_type);
         maximum_type = lam::up(horizontal ? &block->given_max_width_type : &block->given_max_height_type);
@@ -4736,6 +4738,15 @@ void* alloc_prop(LayoutContext* lycon, size_t size);
 // The pool element props of this pass come from: the view tree's prop pool,
 // or the pass pool where a focused test has no view tree.
 Pool* layout_prop_pool(LayoutContext* lycon);
+BlockListProp* ensure_block_list(DomElement* element, LayoutContext* lycon);
+
+inline void set_block_fit_content(BlockProp* block, Pool* pool, bool horizontal,
+                                  float limit, float percent) {
+    block->set_ext(pool, horizontal ? &BlockPropExt::given_width_fit_content_limit
+                                    : &BlockPropExt::given_height_fit_content_limit, limit);
+    block->set_ext(pool, horizontal ? &BlockPropExt::given_width_fit_content_percent
+                                    : &BlockPropExt::given_height_fit_content_percent, percent);
+}
 // shared sizing consumers also accept discrete animation endpoints.
 const CssValue* layout_css_fit_content_function_limit(const CssValue* value);
 void resolve_css_axis_size(LayoutContext* lycon, ViewBlock* block,

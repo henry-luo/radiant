@@ -61,7 +61,7 @@ float layout_grid_item_border_box_size(LayoutContext* lycon, ViewBlock* item,
             *axis.given = preferred;
             // final grid areas make cyclic percentage heights definite for their descendants.
             if (resolved_percentage && !horizontal)
-                item->blk->percentage_height_resolved_late = true;
+                item->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::percentage_height_resolved_late, true);
         }
         float border_size = layout_css_size_to_border_box(
             item->bound, layout_box_sizing(item), preferred, horizontal);
@@ -536,7 +536,7 @@ CssSelfAlignment resolve_grid_item_self_alignment_detail(
         horizontal ? LAYOUT_AXIS_X : LAYOUT_AXIS_Y);
     // GridItemProp keeps the effective keyword for track sizing; style storage
     // preserves the safe/unsafe modifier needed by the final positioning pass.
-    result = inline_axis ? item->block()->justify_self : item->block()->align_self;
+    result = inline_axis ? item->block()->rare().justify_self : item->block()->rare().align_self;
     CssEnum requested = inline_axis ? (CssEnum)grid_item->justify_self
                                    : (CssEnum)grid_item->align_self_grid;
     if (inline_axis && (requested == CSS_VALUE_AUTO || requested == CSS_VALUE__UNDEF) &&
@@ -650,7 +650,7 @@ void align_grid_item(ViewBlock* item, GridContainerLayout* grid_layout) {
     // CSS Box 4 §3.2 margin-trim for grid containers: trim margins of items
     // adjacent to the container edges.
     ViewBlock* grid_container = grid_layout->container;
-    uint8_t grid_margin_trim = (grid_container && grid_container->blk) ? grid_container->block()->margin_trim : 0;
+    uint8_t grid_margin_trim = (grid_container && grid_container->blk) ? grid_container->block()->rare().margin_trim : 0;
     if (grid_margin_trim) {
         const LayoutAxis axes[2] = {LAYOUT_AXIS_X, LAYOUT_AXIS_Y};
         const uint8_t trim_start[2] = {

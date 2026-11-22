@@ -368,9 +368,9 @@ RenderTextPaintScope::RenderTextPaintScope(RenderContext* context, ViewBlock* bl
     : context(lam::up(context)), previous(lam::up(context ? context->text_paint.get() : nullptr)), data(nullptr) {
     if (!context) return;
     context->text_paint = nullptr;
-    bool ellipsis = block && block->blk && block->blk->text_overflow == CSS_VALUE_ELLIPSIS &&
+    bool ellipsis = block && block->blk && block->blk->rare().text_overflow == CSS_VALUE_ELLIPSIS &&
         block->scroller && block->scroll()->overflow_x != CSS_VALUE_VISIBLE;
-    bool clamp = block && block->blk && block->blk->line_clamp > 0;
+    bool clamp = block && block->blk && block->blk->rare().line_clamp > 0;
     bool bidi = block && render_text_has_bidi_runs(block->first_child);
     if ((!ellipsis && !clamp && !bidi) || !font || !font_box_handle(font) || !color) return;
 
@@ -481,7 +481,7 @@ bool render_text_overflow_atomic_hidden(UiContext* uicon, View* view) {
     if (!uicon || !view || !view->is_element() ||
         !layout_intrinsic_element_is_atomic_inline(lam::dom_require_element(view))) return false;
     ViewBlock* block = layout_nearest_block_ancestor(view->parent_view());
-    if (!block || block->block()->text_overflow != CSS_VALUE_ELLIPSIS) return false;
+    if (!block || block->block()->rare().text_overflow != CSS_VALUE_ELLIPSIS) return false;
     RenderContext query = {};
     query.ui_context = lam::up(uicon);
     setup_font(uicon, &query.font, block->font ? block->font.get() : &uicon->default_font);

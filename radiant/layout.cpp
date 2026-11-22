@@ -1041,8 +1041,7 @@ static void reset_non_inherited_style_cache(LayoutContext* lycon, ViewSpan* view
             *axis.given_type = *initial.given_type;
             *axis.minimum_type = *initial.minimum_type;
             *axis.maximum_type = *initial.maximum_type;
-            *axis.given_fit_content_limit = *initial.given_fit_content_limit;
-            *axis.given_fit_content_percent = *initial.given_fit_content_percent;
+            set_block_fit_content(block, nullptr, horizontal, -1.0f, NAN);
         }
     }
 
@@ -1965,9 +1964,9 @@ void layout_resolve_inherited_text_wrap(LayoutContext* context, DomNode* node,
                                         CssEnum* overflow_wrap, CssEnum* word_break) {
     // inherited properties resolve independently; an unrelated default field cannot stop the other lookup.
     CssEnum word = get_inherited_text_enum(context, CSS_PROPERTY_WORD_BREAK,
-        &BlockProp::word_break, CSS_VALUE_NORMAL, node);
+        &BlockPropExt::word_break, CSS_VALUE_NORMAL, node);
     CssEnum overflow = get_inherited_text_enum(context, CSS_PROPERTY_OVERFLOW_WRAP,
-        &BlockProp::overflow_wrap, CSS_VALUE_NORMAL, node);
+        &BlockPropExt::overflow_wrap, CSS_VALUE_NORMAL, node);
     if (word == CSS_VALUE_BREAK_WORD) overflow = CSS_VALUE_ANYWHERE;
     if (word_break) *word_break = word;
     if (overflow_wrap) *overflow_wrap = overflow;
@@ -2252,7 +2251,7 @@ void setup_line_height(LayoutContext* lycon, ViewBlock* block) {
 
 bool layout_block_uses_central_baseline(ViewBlock* block) {
     if (!block || !layout_block_inline_axis_is_vertical(block)) return false;
-    CssEnum baseline = block->block()->dominant_baseline;
+    CssEnum baseline = block->block()->rare().dominant_baseline;
     if (baseline != CSS_VALUE_AUTO) return baseline == CSS_VALUE_CENTRAL;
     CssEnum mode = layout_element_css_writing_mode(block->as_element());
     return mode != CSS_VALUE_SIDEWAYS_LR && mode != CSS_VALUE_SIDEWAYS_RL &&
@@ -2263,7 +2262,7 @@ bool layout_block_uses_central_baseline(ViewBlock* block) {
 static float layout_dominant_baseline_position(ViewBlock* block, float extent,
                                                 float alphabetic) {
     // CSS Inline 3 §3.3/A.3: font and atomic tables share the selected baseline's coordinate.
-    CssEnum baseline = block && block->blk ? block->block()->dominant_baseline : CSS_VALUE_AUTO;
+    CssEnum baseline = block && block->blk ? block->block()->rare().dominant_baseline : CSS_VALUE_AUTO;
     if (baseline == CSS_VALUE_TEXT_TOP) return 0.0f;
     if (baseline == CSS_VALUE_TEXT_BOTTOM) return extent;
     if (layout_block_uses_central_baseline(block)) return extent / 2.0f;
@@ -5352,7 +5351,7 @@ void layout_html_root(LayoutContext* lycon, DomNode* elmt) {
     // a principal mode propagated from the body still needs per-pass geometry
     // state when the root has no declarations that allocate BlockProp.
     if (layout_block_inline_axis_is_vertical(html)) html->ensure_block(lycon);
-    if (html->blk) html->blk->vertical_geometry_published = false;
+    if (html->blk) html->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::vertical_geometry_published, false);
 
     bool root_is_form_control = html->form_control() != nullptr;
     if (root_is_form_control) {

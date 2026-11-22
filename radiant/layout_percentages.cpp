@@ -262,7 +262,7 @@ bool layout_percentage_height_basis_is_algorithmically_definite(ViewBlock* conta
     }
     // a ratio-transferred block height supplies a definite percentage basis
     // while its final auto height may still grow around its content.
-    if (containing_block->blk && containing_block->block()->aspect_ratio_auto_height) return true;
+    if (containing_block->blk && containing_block->block()->rare().aspect_ratio_auto_height) return true;
     if (containing_block->height <= 0.0f) return false;
     // A table-cell used height is established by row/table sizing even when its
     // own CSS height is auto; percentage descendants use that content box.
@@ -327,7 +327,7 @@ bool layout_percentage_height_is_automatic(ViewBlock* block, LayoutContext* cont
     // css writing modes §7.3.1 supplies definite fallback space for an
     // orthogonal inline size; the cyclic block-height rule does not erase it.
     if (layout_orthogonal_inline_percentage_applies(block, LAYOUT_AXIS_Y)) return false;
-    if (block->block()->percentage_height_resolved_late) {
+    if (block->block()->rare().percentage_height_resolved_late) {
         // positioned/grid percentages become definite after their containing size finishes;
         // retain that used-value definiteness for descendants.
         return false;

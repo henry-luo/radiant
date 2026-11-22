@@ -196,24 +196,24 @@ static const char* css_inherited_identity(LayoutContext* context, DomElement* el
     const BlockProp* block = element->blk ? element->block() : &BLOCK_PROP_DEFAULT;
 #define BLOCK_ID(field) identity.add(block->field)
     BLOCK_ID(text_align); BLOCK_ID(text_align_last); BLOCK_ID(text_justify); BLOCK_ID(direction);
-    BLOCK_ID(writing_mode); BLOCK_ID(text_transform); BLOCK_ID(white_space); BLOCK_ID(text_wrap_mode);
-    BLOCK_ID(text_wrap_style); BLOCK_ID(word_break); BLOCK_ID(overflow_wrap); BLOCK_ID(hyphens);
-    BLOCK_ID(hyphenate_limits[0]); BLOCK_ID(hyphenate_limits[1]); BLOCK_ID(hyphenate_limits[2]);
-    BLOCK_ID(hyphenate_limits_is_set); BLOCK_ID(line_break); BLOCK_ID(text_spacing_trim);
-    BLOCK_ID(text_autospace); BLOCK_ID(text_autospace_is_set); BLOCK_ID(tab_size); BLOCK_ID(tab_size_length);
-    BLOCK_ID(text_indent); BLOCK_ID(text_indent_percent); BLOCK_ID(text_indent_calc);
-    BLOCK_ID(text_indent_hanging); BLOCK_ID(text_indent_each_line); BLOCK_ID(dominant_baseline);
+    BLOCK_ID(writing_mode); BLOCK_ID(text_transform); BLOCK_ID(white_space); BLOCK_ID(rare().text_wrap_mode);
+    BLOCK_ID(rare().text_wrap_style); BLOCK_ID(rare().word_break); BLOCK_ID(rare().overflow_wrap); BLOCK_ID(rare().hyphens);
+    BLOCK_ID(rare().hyphenate_limits[0]); BLOCK_ID(rare().hyphenate_limits[1]); BLOCK_ID(rare().hyphenate_limits[2]);
+    BLOCK_ID(rare().hyphenate_limits_is_set); BLOCK_ID(rare().line_break); BLOCK_ID(rare().text_spacing_trim);
+    BLOCK_ID(rare().text_autospace); BLOCK_ID(rare().text_autospace_is_set); BLOCK_ID(rare().tab_size); BLOCK_ID(rare().tab_size_length);
+    BLOCK_ID(rare().text_indent); BLOCK_ID(rare().text_indent_percent); BLOCK_ID(rare().text_indent_calc);
+    BLOCK_ID(rare().text_indent_hanging); BLOCK_ID(rare().text_indent_each_line); BLOCK_ID(rare().dominant_baseline);
 #undef BLOCK_ID
-    const BlockPropExt& extras = block->extras();
-    identity.add(extras.list_style_type); identity.add(extras.list_style_position);
-    identity.text(block->hyphenate_character);
-    identity.text(extras.list_style_type_string);
-    identity.text(extras.list_style_image.url);
-    identity.add(extras.list_style_image.gradient_type);
-    identity.add(extras.list_style_image.linear_gradient.get());
-    identity.add(extras.list_style_image.radial_gradient.get());
-    identity.add(extras.list_style_image.conic_gradient.get());
-    identity.add(extras.list_style_image.resolution);
+    const BlockListProp& list = block->list();
+    identity.add(list.list_style_type); identity.add(list.list_style_position);
+    identity.text(block->rare().hyphenate_character);
+    identity.text(list.list_style_type_string);
+    identity.text(list.list_style_image.url);
+    identity.add(list.list_style_image.gradient_type);
+    identity.add(list.list_style_image.linear_gradient.get());
+    identity.add(list.list_style_image.radial_gradient.get());
+    identity.add(list.list_style_image.conic_gradient.get());
+    identity.add(list.list_style_image.resolution);
     const CssValue* leading = block->line_height ? block->line_height.get() : css_line_height_normal_value();
     identity.add(leading->type);
     if (leading->type == CSS_VALUE_TYPE_KEYWORD) identity.add(leading->data.keyword);
@@ -407,16 +407,23 @@ static void css_geometry_transfer(LayoutContext* context, DomElement* element,
             CSS_AXIS_VALUE(given_percent, percent);
             CSS_AXIS_VALUE(minimum_percent, min_percent);
             CSS_AXIS_VALUE(maximum_percent, max_percent);
-            CSS_AXIS_VALUE(given_fit_content_limit, fit_limit);
-            CSS_AXIS_VALUE(given_fit_content_percent, fit_percent);
+            if constexpr (capture) {
+                values->fit_limit = refs.given_fit_content_limit ? *refs.given_fit_content_limit : -1.0f;
+                values->fit_percent = refs.given_fit_content_percent ? *refs.given_fit_content_percent : NAN;
+            } else {
+                set_block_fit_content(block, layout_prop_pool(context), axis == 0,
+                                      values->fit_limit, values->fit_percent);
+            }
             CSS_AXIS_VALUE(given_type, type);
             CSS_AXIS_VALUE(minimum_type, min_type);
             CSS_AXIS_VALUE(maximum_type, max_type);
 #undef CSS_AXIS_VALUE
         }
         if constexpr (!capture) {
-            element->blk->aspect_ratio_auto_height = false;
-            element->blk->percentage_height_resolved_late = false;
+            if (auto* rare = block->ext.get()) {
+                rare->aspect_ratio_auto_height = false;
+                rare->percentage_height_resolved_late = false;
+            }
         }
     }
     if (capture || element->bound) {

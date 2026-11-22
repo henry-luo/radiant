@@ -259,8 +259,8 @@ void setup_list_container_counters(LayoutContext* lycon, ViewBlock* block, DomEl
     // enabling counters(list-item, ".") to show nested numbering (e.g., "1.2.3").
     // Only skip if explicit counter-reset already includes "list-item".
     bool explicit_has_list_item = false;
-    if (block->blk && block->block()->extras().counter_reset) {
-        explicit_has_list_item = strstr(block->block()->extras().counter_reset, "list-item") != nullptr;
+    if (block->blk && block->block()->list().counter_reset) {
+        explicit_has_list_item = strstr(block->block()->list().counter_reset, "list-item") != nullptr;
     }
     if (explicit_has_list_item) return;
     // Check <ol start="N"> attribute: resets to N-1 so first li increments to N
@@ -608,8 +608,8 @@ void layout_apply_list_item_counter(LayoutContext* lycon, ViewBlock* block,
         }
     }
     // CSS Lists 3 §4.5: implicit increments precede counter-set and the HTML value hint.
-    bool explicit_list_item_inc = (block->blk && block->block()->extras().counter_increment &&
-                                   strstr(block->block()->extras().counter_increment, "list-item") != nullptr);
+    bool explicit_list_item_inc = (block->blk && block->block()->list().counter_increment &&
+                                   strstr(block->block()->list().counter_increment, "list-item") != nullptr);
     if (!explicit_list_item_inc) {
         counter_increment(lycon->counter_context, parent_reversed ? "list-item -1" : "list-item 1");
     }
@@ -635,11 +635,11 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
     // CSS 2.1 Section 12.5.1: Initial value is 'outside'
     bool is_outside_position = !is_inline_list_item;  // Default is outside, but inside for inline
     CssEnum list_style_position = block->blk
-        ? block->block()->extras().list_style_position : (CssEnum)0;
+        ? block->block()->list().list_style_position : (CssEnum)0;
     for (DomElement* ancestor = dom_elem ? dom_elem->parent_element() : nullptr;
          list_style_position == 0 && ancestor;
          ancestor = ancestor->parent_element()) {
-        if (ancestor->blk) list_style_position = ancestor->block()->extras().list_style_position;
+        if (ancestor->blk) list_style_position = ancestor->block()->list().list_style_position;
     }
     if (list_style_position != 0) {
         if (list_style_position == 1) {
@@ -650,14 +650,14 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
     }
     // Generate list marker if list-style-type is not 'none'
     // CSS 2.1 §12.5: list-style-type is inherited. Check element first, then parent.
-    CssEnum effective_list_style = block->blk ? block->block()->extras().list_style_type : (CssEnum)0;
+    CssEnum effective_list_style = block->blk ? block->block()->list().list_style_type : (CssEnum)0;
     if (effective_list_style == 0) {
         // CSS Lists 3 §4.1: list-style-type inherits through every inline
         // ancestor, so an intervening span must not hide its ordered-list value.
         for (DomElement* ancestor = dom_elem->parent_element(); ancestor;
              ancestor = ancestor->parent_element()) {
-            if (ancestor->blk && ancestor->block()->extras().list_style_type != 0) {
-                effective_list_style = ancestor->block()->extras().list_style_type;
+            if (ancestor->blk && ancestor->block()->list().list_style_type != 0) {
+                effective_list_style = ancestor->block()->list().list_style_type;
                 break;
             }
         }
@@ -666,13 +666,13 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
         }
     }
     // CSS Lists 3 §4.1: check for string marker value
-    const char* string_marker = (block->blk) ? block->block()->extras().list_style_type_string : nullptr;
-    const ListStyleImage* image = block->blk ? &block->block()->extras().list_style_image : nullptr;
+    const char* string_marker = (block->blk) ? block->block()->list().list_style_type_string : nullptr;
+    const ListStyleImage* image = block->blk ? &block->block()->list().list_style_image : nullptr;
     // unset values inherit through ancestors; an explicit none terminates the search.
     for (DomElement* ancestor = dom_elem->parent_element();
          (!image || (!image->url && image->gradient_type == GRADIENT_NONE)) && ancestor;
          ancestor = ancestor->parent_element()) {
-        if (ancestor->blk) image = &ancestor->block()->extras().list_style_image;
+        if (ancestor->blk) image = &ancestor->block()->list().list_style_image;
     }
     bool has_image = !list_style_image_is_none(image) &&
         (image->gradient_type != GRADIENT_NONE ||
@@ -827,15 +827,15 @@ bool LayoutCounterScope::enter(LayoutContext* lycon, ViewSpan* span,
     } else {
         setup_list_container_counters(lycon, block, element);
         if (span->blk) {
-            if (span->block()->extras().counter_reset) {
-                counter_reset(context, span->block()->extras().counter_reset);
+            if (span->block()->list().counter_reset) {
+                counter_reset(context, span->block()->list().counter_reset);
                 compute_reversed_counter_initial(lycon, element);
             }
-            if (span->block()->extras().counter_increment) counter_increment(context, span->block()->extras().counter_increment);
+            if (span->block()->list().counter_increment) counter_increment(context, span->block()->list().counter_increment);
         }
         if (list_item) layout_apply_list_item_counter(lycon, block, element);
         // author counter-set overrides the HTML value presentational hint.
-        if (span->blk && span->block()->extras().counter_set) counter_set(context, span->block()->extras().counter_set);
+        if (span->blk && span->block()->list().counter_set) counter_set(context, span->block()->list().counter_set);
         // named strings and target counters take the element's own operations
         if (lycon->paged && element) paged_element_enter(lycon, element);
     }

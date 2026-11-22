@@ -606,7 +606,7 @@ bool ruby_has_text_box_trim_ancestor(const ViewSpan* ruby, uint8_t trim) {
          node; node = node->parent) {
         if (!node->is_element()) continue;
         const DomElement* element = node->as_element();
-        if (element->blk && (element->block()->text_box_trim & trim) != 0) {
+        if (element->blk && (element->block()->rare().text_box_trim & trim) != 0) {
             return true;
         }
     }

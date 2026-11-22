@@ -329,8 +329,8 @@ static bool inline_contents_descendant_bounds(ViewSpan* span, float* min_x, floa
 static bool inline_span_has_line_clamp_overflow(ViewSpan* span) {
     if (!span) return false;
     ViewBlock* block = layout_nearest_block_ancestor(span);
-    if (!block || !block->blk || block->block()->line_clamp <= 0) return false;
-    int clamp_line = block->block()->line_clamp;
+    if (!block || !block->blk || block->block()->rare().line_clamp <= 0) return false;
+    int clamp_line = block->block()->rare().line_clamp;
     for (View* child = span->first_child; child; child = child->next()) {
         if (child->view_type != RDT_VIEW_TEXT) continue;
         ViewText* text = lam::view_require<RDT_VIEW_TEXT>(child);
@@ -355,7 +355,7 @@ static bool inline_span_has_text_overflow_ellipsis(ViewSpan* span,
     }
     ViewBlock* block = layout_nearest_block_ancestor(span);
     if (!block || !block->blk || !block->scroller ||
-        block->block()->text_overflow != CSS_VALUE_ELLIPSIS ||
+        block->block()->rare().text_overflow != CSS_VALUE_ELLIPSIS ||
         layout_block_inline_axis_is_vertical(block) ||
         layout_inline_span_has_in_flow_block_child(span, false)) {
         return false;
@@ -915,7 +915,7 @@ bool layout_inline_visit_fragments(ViewSpan* span, LayoutInlineFragmentFn visito
     if (!view_geometry_walk_dom_tree(span, inline_paint_line_collect, &collected)) return false;
     if (collected.lines.empty()) return visitor(context, {span->x, span->y, span->width, span->height}, true, true, 0.0f, span->width);
     const BoundaryProp* boundary = span->boundary();
-    bool clone = span->blk && span->block()->extras().box_decoration_break == CSS_VALUE_CLONE;
+    bool clone = span->blk && span->block()->rare().box_decoration_break == CSS_VALUE_CLONE;
     float extent = 0.0f;
     for (size_t index = 0; index < collected.lines.size(); index++) {
         bool first = index == 0, last = index + 1 == collected.lines.size();
@@ -1371,7 +1371,7 @@ static void compute_empty_span_bounding_box(ViewSpan* span, FontHandle* fallback
 static void compute_span_content_bounds(ViewSpan* span, bool is_multi_line, FontHandle* fallback_fh) {
     ViewBlock* source_flow = layout_nearest_block_ancestor(span->parent_view());
     if (!layout_block_inline_axis_is_vertical(source_flow) ||
-        (source_flow->blk && source_flow->block()->vertical_geometry_published)) {
+        (source_flow->blk && source_flow->block()->rare().flow.vertical_geometry_published)) {
         source_flow = nullptr;
     }
     if (span->has_collapsed_line_fragment_union() &&
