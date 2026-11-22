@@ -1169,6 +1169,8 @@ static bool radiant_state_validate_interaction_schema(DocState* state,
                                                       StateValidationReport* report) {
     report_init(report);
     if (!state) return true;
+    // let graph validation share a single ownership index for expired references.
+    DomNodeValidationScope owners(state->owner_store ? state->owner_store->document : nullptr);
     selection_refresh_presentation(state);
     uint8_t graphs = 0;
     for (uint32_t i = 0; i < RADIANT_INVARIANT_COUNT; ++i) {
@@ -1197,6 +1199,7 @@ bool radiant_state_validate_interaction(DocState* state,
 
 void radiant_state_assert_valid(DocState* state, const char* context) {
 #ifndef NDEBUG
+    DomNodeValidationScope owners(state && state->owner_store ? state->owner_store->document : nullptr);
     view_state_prune_orphans(state);
     StateValidationReport report;
     bool ok = radiant_state_validate_interaction(state, &report);
@@ -1467,6 +1470,7 @@ void state_end_event_cascade(DocState* state,
     if (state) {
         state_end_batch(state);
     }
+    DomNodeValidationScope owners(state && state->owner_store ? state->owner_store->document : nullptr);
 #ifndef NDEBUG
     // retain orphan pruning and the debug assertion without validating twice.
     if (state && state->state_batch_depth == 0) view_state_prune_orphans(state);
