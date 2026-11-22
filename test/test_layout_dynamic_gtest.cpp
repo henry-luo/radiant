@@ -399,6 +399,33 @@ protected:
     }
 };
 
+TEST_F(DynamicLayoutTest, ExplicitGridImagesAdmitTheirSurfaceAndReselectAfterMutation) {
+    load("<!doctype html><style>body{margin:0}#grid{display:grid;"
+         "width:160px;height:60px;grid-template-columns:80px 80px}"
+         "#image{width:80px;height:60px}</style><div id='grid'><div></div>"
+         "<img id='image' src=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' "
+         "width='4' height='3'/%3E\"></div>");
+    DomElement* image = element("image");
+    ASSERT_NE(image, nullptr);
+    ASSERT_TRUE(image->embed);
+    ASSERT_NE(image->embedp()->img, nullptr);
+    EXPECT_EQ(image->embedp()->img->format, IMAGE_FORMAT_SVG);
+    EXPECT_FLOAT_EQ(image->x, 80.0f);
+    EXPECT_FLOAT_EQ(image->width, 80.0f);
+    EXPECT_FLOAT_EQ(image->height, 60.0f);
+
+    const char* changed = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' "
+        "width='8' height='6'/%3E";
+    ASSERT_TRUE(image->set_attribute("src", changed));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, false);
+    ASSERT_NE(image->embedp()->img, nullptr);
+    ASSERT_NE(image->embedp()->selected_image_source, nullptr);
+    EXPECT_STREQ(image->embedp()->selected_image_source, changed);
+    EXPECT_FLOAT_EQ(image->width, 80.0f);
+    EXPECT_FLOAT_EQ(image->height, 60.0f);
+}
+
 TEST_F(DynamicLayoutTest, StylesheetRelKeywordsAreCaseInsensitiveHtmlTokens) {
     EXPECT_TRUE(radiant_html_has_token(" preload\tSTYLESHEET\r\n", "stylesheet"));
     EXPECT_TRUE(radiant_html_has_token("stylesheet\fpreload", "stylesheet"));

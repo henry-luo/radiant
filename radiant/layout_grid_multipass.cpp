@@ -722,6 +722,8 @@ static void layout_grid_item_final_content_multipass(LayoutContext* lycon, ViewB
         log_leave();
         return;
     } else if (layout_element_is_css_replaced(grid_item->as_element())) {
+        // definite grid sizing can skip intrinsic queries, but painting still needs the resource.
+        layout_ensure_replaced_image_surface(lycon, grid_item, grid_item->as_element());
         // replaced content has no CSS flow to finalize; grid already resolved its used box.
         grid_item->content_width = content_width;
         grid_item->content_height = content_height;

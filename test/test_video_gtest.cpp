@@ -25,6 +25,7 @@
 #include "radiant/render.hpp"
 #include "radiant/audio_bus.hpp"
 #include "test_audio_fixture.hpp"
+#include "radiant_test_fixture.hpp"
 
 // ============================================================================
 // Test media path — resolved relative to the executable's working directory
@@ -458,6 +459,34 @@ TEST_F(RdtVideoTest, SilentVideoKeepsThePlatformClockWithoutReservingPcm) {
 // ============================================================================
 // Frame Extraction Tests
 // ============================================================================
+
+TEST_F(RdtVideoTest, TransparentFrameReplacesReusedDecoderPixels) {
+    char path[512];
+    ASSERT_TRUE(radiant_test_fixture_path("transparent_video.mov", path, sizeof(path)));
+    ASSERT_EQ(rdt_video_open_file(video, path), 0);
+    ASSERT_TRUE(audio_fixture_video_wait(video, RDT_VIDEO_STATE_READY, 3000));
+    rdt_video_play(video);
+    RdtVideoFrame frame = {};
+    ASSERT_TRUE(wait_for_frame(video, &frame, 2000, submix));
+    ASSERT_EQ(frame.width, 64);
+    ASSERT_EQ(frame.height, 48);
+    // poison reused storage so transparent pixels cannot pass by receiving fresh zeroed memory.
+    double first_pts = frame.pts;
+    memset(frame.pixels, 255, (size_t)frame.stride * frame.height);
+    for (unsigned attempt = 0; attempt < 100 && frame.pts < first_pts + 1.0 / 30.0; attempt++) {
+        pump_runloop_ms(10);
+        ASSERT_EQ(rdt_video_get_frame(video, &frame), 0);
+    }
+    rdt_video_pause(video);
+    ASSERT_GE(frame.pts, first_pts + 1.0 / 30.0);
+    for (unsigned channel = 0; channel < 4; channel++) {
+        EXPECT_EQ(frame.pixels[channel], 0);
+    }
+    const uint8_t* center = frame.pixels + 24 * frame.stride + 32 * 4;
+    EXPECT_GT(center[0], center[1]);
+    EXPECT_GT(center[0], center[2]);
+    EXPECT_EQ(center[3], 255);
+}
 
 TEST_F(RdtVideoTest, GetFrameDimensions) {
     ASSERT_TRUE(open_and_wait_ready()) << "File did not reach READY state";
