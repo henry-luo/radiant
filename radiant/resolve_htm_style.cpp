@@ -952,6 +952,8 @@ MediaViewState* radiant_media_prepare(DomElement* element) {
     DomDocument* doc = element ? element->doc : nullptr;
     if (!doc || !doc->url || doc->services.svg_image_document ||
             (element->tag() != MARKUP_NAME_VIDEO && element->tag() != MARKUP_NAME_AUDIO)) return nullptr;
+    // DOM media commands can precede the first layout that normally creates document state.
+    if (!doc->state && !state_store_create(doc)) return nullptr;
     MediaViewState* retained = media_view_state_get(doc->state, static_cast<View*>(element), true);
     if (!retained) return nullptr;
     if (!retained->properties_initialized) {

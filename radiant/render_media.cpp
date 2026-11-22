@@ -1,6 +1,7 @@
 #include "render.hpp"
 #include "radiant.hpp"
 #include "layout.hpp"
+#include "event.hpp"
 #include "render_glyph_run_raster_lower.hpp"
 
 #include "tagged.hpp"
@@ -154,7 +155,13 @@ ImageSurface* render_media_image_surface(ViewBlock* view) {
     if (view->tag_id == MARKUP_NAME_VIDEO && view->embed && view->embedp()->poster) {
         RdtVideo* video = view->embedp()->video;
         RdtVideoState state = video ? rdt_video_get_state(video) : RDT_VIDEO_STATE_IDLE;
-        if (state != RDT_VIDEO_STATE_PLAYING && state != RDT_VIDEO_STATE_PAUSED)
+        DomDocument* document = view->as_element()->doc;
+        MediaViewState* media = document
+            ? media_view_state_get(document->state, view) : nullptr;
+        // an accepted play request may have a decoded frame before the async player starts.
+        bool opening_playback = media && media->native_play_requested &&
+            state != RDT_VIDEO_STATE_IDLE && state != RDT_VIDEO_STATE_ERROR;
+        if (state != RDT_VIDEO_STATE_PLAYING && state != RDT_VIDEO_STATE_PAUSED && !opening_playback)
             return view->embedp()->poster;
         RdtVideoFrame frame = {};
         if (rdt_video_get_frame(video, &frame) != 0 || !frame.pixels)
