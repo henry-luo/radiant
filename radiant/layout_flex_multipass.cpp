@@ -793,7 +793,7 @@ bool flex_height_is_parent_constrained(LayoutContext* context, ViewBlock* contai
     // natural cross-size flow precedes parent stretch; its provisional box is not a constraint.
     if (context && context->natural_flex_height_root == container) return false;
     // a normal-flow vertical block has a definite inline size before its flex algorithm runs.
-    if (container && container->blk && container->block()->vertical_auto_inline_size_constrained)
+    if (container && container->blk && container->block()->rare().flow.vertical_auto_inline_size_constrained)
         return true;
     if (!container || !container->fi || !container->parent ||
         !container->parent->is_element()) return false;
@@ -1111,9 +1111,9 @@ static bool flex_flow_subtree_is_independent(LayoutContext* context, DomNode* no
         layout_is_mathml_root(element) ||
         (!context->generated_effects_prepared && (layout_generated_pseudo(element, nullptr, nullptr) ||
          layout_is_html_list_container_tag(element->tag()))) ||
-        (block->blk && (block->block()->line_clamp || block->block()->line_clamp_inherited ||
-            (!context->generated_effects_prepared && (block->block()->extras().counter_reset ||
-             block->block()->extras().counter_increment || block->block()->extras().counter_set)) ||
+        (block->blk && (block->block()->rare().line_clamp || block->block()->rare().flow.line_clamp_inherited ||
+            (!context->generated_effects_prepared && (block->block()->list().counter_reset ||
+             block->block()->list().counter_increment || block->block()->list().counter_set)) ||
             block->block()->containment().content_visibility_skipped))) return false;
     // percentage gaps and dependent bases distinguish intrinsic and final definite sizing
     // even when both passes happen to produce the same numeric block size.
@@ -1167,8 +1167,8 @@ static bool flex_flow_key(LayoutContext* context, ViewBlock* item,
         !item->font || !item->blk ||
         !layout_css_size_is_automatic(item, false) ||
         item->fi->aspect_ratio > 0.0f || context->block.line_clamp ||
-        (item->block()->align_content != CSS_VALUE_NORMAL &&
-         item->block()->align_content != CSS_VALUE__UNDEF) || !item->first_child)
+        (item->block()->rare().align_content != CSS_VALUE_NORMAL &&
+         item->block()->rare().align_content != CSS_VALUE__UNDEF) || !item->first_child)
         return false;
     CssResolvedSize preferred = {};
     if (!css_resolved_style_size(context, item, LAYOUT_AXIS_Y, &preferred) ||
@@ -2232,7 +2232,7 @@ float measure_flex_height_at_width(LayoutContext* lycon, ViewBlock* container, f
         float css_height = layout_used_css_size_from_border_box(
             container, container->height, false);
         layout_store_given_axis(lycon, container, css_height, false, false);
-        container->block_mut()->aspect_ratio_auto_height = true;
+        container->block_mut()->set_ext(layout_prop_pool(lycon), &BlockPropExt::aspect_ratio_auto_height, true);
     }
     alloc_flex_prop(lycon, container);
     {

@@ -82,9 +82,9 @@ static void layout_view_snapshot_capture(DomNode* node, LayoutViewSnapshot* snap
             snapshot->block_given_width_type = element->block()->given_width_type;
             snapshot->block_given_height_type = element->block()->given_height_type;
             snapshot->block_aspect_ratio_auto_height =
-                element->block()->aspect_ratio_auto_height;
+                element->block()->rare().aspect_ratio_auto_height;
             snapshot->block_percentage_height_resolved_late =
-                element->block()->percentage_height_resolved_late;
+                element->block()->rare().percentage_height_resolved_late;
             snapshot->block_first_baseline = element->block()->first_line_baseline;
             snapshot->block_last_baseline = element->block()->last_line_baseline;
         }
@@ -92,7 +92,7 @@ static void layout_view_snapshot_capture(DomNode* node, LayoutViewSnapshot* snap
 
 }
 
-static void layout_view_snapshot_restore(const LayoutViewSnapshot* snapshot) {
+static void layout_view_snapshot_restore(const LayoutViewSnapshot* snapshot, Pool* pool) {
     ::DomNode* node = snapshot->node;
     node->view_type = snapshot->view_type;
     node->x = snapshot->x;
@@ -135,10 +135,8 @@ static void layout_view_snapshot_restore(const LayoutViewSnapshot* snapshot) {
             element->blk->given_height = snapshot->block_given_height;
             element->blk->given_width_type = snapshot->block_given_width_type;
             element->blk->given_height_type = snapshot->block_given_height_type;
-            element->blk->aspect_ratio_auto_height =
-                snapshot->block_aspect_ratio_auto_height;
-            element->blk->percentage_height_resolved_late =
-                snapshot->block_percentage_height_resolved_late;
+            element->blk->set_ext(pool, &BlockPropExt::aspect_ratio_auto_height, snapshot->block_aspect_ratio_auto_height);
+            element->blk->set_ext(pool, &BlockPropExt::percentage_height_resolved_late, snapshot->block_percentage_height_resolved_late);
             // scalar control sizing can publish trial baselines without touching fragments.
             element->blk->first_line_baseline = snapshot->block_first_baseline;
             element->blk->last_line_baseline = snapshot->block_last_baseline;
@@ -181,7 +179,7 @@ static void layout_measure_snapshot_restore(::LayoutContext* lycon, ArrayList* s
             continue;
         }
 
-        layout_view_snapshot_restore(snapshot);
+        layout_view_snapshot_restore(snapshot, layout_prop_pool(lycon));
     }
     arraylist_free(snapshots);
 }
@@ -221,8 +219,7 @@ struct LayoutFlowNode {
     float native_image_width, native_image_height;
     bool native_image_sized, broken_alt_fallback;
     bool has_embed;
-    uint8_t text_trim_applied;
-    float text_trim_start, text_trim_end, initial_letter_trimmed_start;
+    BlockFlowOutput rare_flow;
     float ruby_start_offset, ruby_end_offset, ruby_empty_block_size;
     bool ruby_geometry, ruby_empty, ruby_fragments;
     bool inline_strut;
@@ -302,13 +299,7 @@ static bool layout_flow_capture_nodes(LayoutContext* context, DomNode* node,
         DomElement* element = node->as_element();
         css_used_geometry_capture(context, element, &output->geometry);
         output->block_output.capture(element->block());
-        if (element->blk) {
-            const BlockProp* block = element->block();
-            output->text_trim_applied = block->text_box_trim_applied;
-            output->text_trim_start = block->text_box_trim_start_amount;
-            output->text_trim_end = block->text_box_trim_end_amount;
-            output->initial_letter_trimmed_start = block->initial_letter_trimmed_start_contribution;
-        }
+        output->rare_flow = element->block()->rare().flow;
         output->inline_strut = element->inl()->content_strut_establishes_line;
         if (element->bound) {
             output->flow_margin = element->boundary()->flow_margin;
@@ -468,12 +459,11 @@ bool layout_flow_result_apply(LayoutContext* context, const LayoutFlowResult* re
             flex_retained_forget_content(element);
             css_used_geometry_restore(context, element, output->geometry);
             output->block_output.restore(element->block_mut());
-            if (element->blk) {
-                BlockProp* block = element->block_mut();
-                block->text_box_trim_applied = output->text_trim_applied;
-                block->text_box_trim_start_amount = output->text_trim_start;
-                block->text_box_trim_end_amount = output->text_trim_end;
-                block->initial_letter_trimmed_start_contribution = output->initial_letter_trimmed_start;
+            if (BlockProp* block = element->block_mut()) {
+                if (auto* rare = block->ext ? block->ext.get() :
+                    output->rare_flow.present() ? block->ensure_ext(layout_prop_pool(context)) : nullptr) {
+                    rare->flow = output->rare_flow;
+                }
             }
             if (element->in_line && element->inl()->content_strut_establishes_line != output->inline_strut)
                 element->ensure_inline(context)->content_strut_establishes_line = output->inline_strut;
@@ -543,7 +533,7 @@ bool layout_flow_result_apply(LayoutContext* context, const LayoutFlowResult* re
             text->font = lam::view_ref(output->text_font);
             payload = payload->next;
         }
-        layout_view_snapshot_restore(&output->box);
+        layout_view_snapshot_restore(&output->box, layout_prop_pool(context));
         // only committed layout may update live scroll ranges.
         if (context->run_mode == RunMode::PerformLayout &&
             node != root && node->is_element() && node->as_element()->scroller) {

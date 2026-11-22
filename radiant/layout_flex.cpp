@@ -208,8 +208,8 @@ static bool measure_anonymous_flex_text_run(LayoutContext* lycon,
               lycon, font_box_handle(&lycon->font), lycon->font.style)}
         : layout_measure_text_intrinsic_widths(
               lycon, run.text, run.length, text_transform, CSS_VALUE_NONE,
-              item->blk->white_space, item->blk->overflow_wrap,
-              item->blk->word_break);
+              item->blk->white_space, item->blk->rare().overflow_wrap,
+              item->blk->rare().word_break);
     if (!is_whitespace && item->fi && item->fi->anonymous_text == text) {
         ViewBlock* container = layout_nearest_block_ancestor(item->parent_view());
         if (container) {
@@ -3349,7 +3349,7 @@ static CssSelfAlignment flex_cross_axis_self_alignment(
         return result;
     }
 
-    if (item_block->blk) result = item_block->block()->align_self;
+    if (item_block->blk) result = item_block->block()->rare().align_self;
     CssEnum requested = has_flex_item_prop(item)
         ? item->fi->align_self : result.value;
     result.value = requested;
@@ -3880,7 +3880,7 @@ static void determine_hypothetical_cross_sizes(LayoutContext* lycon, FlexContain
     }
     ViewBlock* container = flex_layout->container;
     if (percentage_height_basis < 0.0f && container && container->blk &&
-        container->block()->aspect_ratio_auto_height &&
+        container->block()->rare().aspect_ratio_auto_height &&
         container->block()->given_height >= 0.0f) {
         // an auto natural extent does not erase the ratio's definite percentage reference.
         percentage_height_basis = layout_css_size_to_content_box(container->bound,
@@ -4035,8 +4035,8 @@ static void determine_hypothetical_cross_sizes(LayoutContext* lycon, FlexContain
                     TextIntrinsicWidths text_widths = layout_measure_text_intrinsic_widths(
                         lycon, run.text, run.length,
                         get_text_transform_from_node(text_node->parent), CSS_VALUE_NONE,
-                        item->blk->white_space, item->blk->overflow_wrap,
-                        item->blk->word_break);
+                        item->blk->white_space, item->blk->rare().overflow_wrap,
+                        item->blk->rare().word_break);
                     if (text_widths.max_content > item_content_width &&
                         text_widths.min_content > 0.0f) {
                         float line_height = item->fi->intrinsic_height.max_content;

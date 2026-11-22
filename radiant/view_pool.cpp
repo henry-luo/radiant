@@ -279,12 +279,12 @@ static void release_element_font_prop(DomElement* elem, ViewTree*) {
 
 void release_block_prop_groups(BlockProp* block, Pool* pool) {
     if (!block || !pool) return;
-    // container names and the cold property groups have the same pool as the block.
-    if (block->containment_props) {
-        css_value_destroy_owned(block->containment_props->container_names, pool);
-        lam::free_owned(pool, block->containment_props);
+    if (block->ext && block->ext->containment_props) {
+        css_value_destroy_owned(block->ext->containment_props->container_names, pool);
+        lam::free_owned(pool, block->ext->containment_props);
     }
     lam::free_owned(pool, block->ext);
+    lam::free_owned(pool, block->list_props);
 }
 
 static void free_block_container_payload(DomElement* elem, ViewTree* tree) {
@@ -3133,7 +3133,7 @@ void print_block_json(ViewBlock* block, StrBuf* buf, int indent, bool is_root) {
         strbuf_append_char_n(buf, ' ', indent + 4);
         strbuf_append_format(buf, "\"text_align\": \"%s\",\n", css_enum_info(block->block()->text_align)->name);
         strbuf_append_char_n(buf, ' ', indent + 4);
-        strbuf_append_format(buf, "\"text_indent\": %.1f,\n", block->block()->text_indent);
+        strbuf_append_format(buf, "\"text_indent\": %.1f,\n", block->block()->rare().text_indent);
         strbuf_append_char_n(buf, ' ', indent + 4);
         strbuf_append_format(buf, "\"min_width\": %.1f,\n", block->block()->given_min_width);
         strbuf_append_char_n(buf, ' ', indent + 4);

@@ -114,7 +114,7 @@ void layout_grid_resolve_container_size(GridContainerLayout* grid) {
     }
     LayoutAxis axis = layout_grid_track_axis(grid, false);
     bool ratio_auto_block = axis == LAYOUT_AXIS_Y && container->blk &&
-        container->block()->aspect_ratio_auto_height &&
+        container->block()->rare().aspect_ratio_auto_height &&
         layout_explicit_min_axis_or(container, false, -1.0f) < 0.0f &&
         layout_intrinsic_min_size_keyword(container, false) == CSS_VALUE__UNDEF &&
         (!container->scroller ||

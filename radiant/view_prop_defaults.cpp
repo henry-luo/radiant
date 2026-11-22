@@ -16,6 +16,16 @@ static BlockContainmentProp make_block_containment_default() {
 
 extern const BlockContainmentProp BLOCK_CONTAINMENT_DEFAULT = make_block_containment_default();
 
+bool BlockFlowOutput::present() const {
+    return text_box_trim_applied || text_box_trim_start_amount || text_box_trim_end_amount ||
+        initial_letter_trimmed_start_contribution || bfc_float_avoidance_block_shift ||
+        bfc_float_avoidance_inline_start || bfc_float_avoidance_inline_reduction ||
+        bfc_clearance_resolved || initial_letter_float_clearance || vertical_geometry_published ||
+        vertical_auto_inline_size_constrained || auto_inline_fit_content_resolved ||
+        line_clamp_inherited || line_clamped || line_clamp_last_line_ascender ||
+        line_clamp_last_line_max_ascender || line_clamp_last_line_max_descender;
+}
+
 static BlockPropExt make_block_extras_default() {
     BlockPropExt value = {};
     value.break_before = CSS_VALUE_AUTO;
@@ -23,23 +33,10 @@ static BlockPropExt make_block_extras_default() {
     value.break_inside = CSS_VALUE_AUTO;
     value.orphans = 2;
     value.widows = 2;
-    value.box_decoration_break = CSS_VALUE_SLICE;
-    return value;
-}
-
-extern const BlockPropExt BLOCK_EXTRAS_DEFAULT = make_block_extras_default();
-
-static BlockProp make_block_prop_default() {
-    BlockProp value = {};
-    value.text_align = CSS_VALUE_START;
     value.align_content = CSS_VALUE__UNDEF;
     value.align_content_detail.value = CSS_VALUE__UNDEF;
     value.align_self.value = CSS_VALUE_AUTO;
     value.justify_self.value = CSS_VALUE_AUTO;
-    value.direction = CSS_VALUE_LTR;
-    value.unicode_bidi = CSS_VALUE_NORMAL;
-    value.writing_mode = WM_HORIZONTAL_TB;
-    value.zoom = 1.0f;
     value.hyphens = CSS_VALUE_MANUAL;
     value.hyphenate_limits[0] = value.hyphenate_limits[1] = value.hyphenate_limits[2] = -1;
     value.text_spacing_trim = CSS_VALUE_NORMAL;
@@ -47,22 +44,36 @@ static BlockProp make_block_prop_default() {
     value.text_autospace_is_set = false;
     value.tab_size = 8;
     value.tab_size_length = -1.0f;
+    value.baseline_source = CSS_VALUE_AUTO;
+    value.dominant_baseline = CSS_VALUE_AUTO;
+    value.aspect_ratio_auto_height = false;
+    value.percentage_height_resolved_late = false;
+    value.given_width_fit_content_limit = value.given_height_fit_content_limit = -1.0f;
+    value.given_width_fit_content_percent = value.given_height_fit_content_percent = NAN;
+    value.text_indent_percent = NAN;
+    value.box_decoration_break = CSS_VALUE_SLICE;
+    return value;
+}
+
+extern const BlockListProp BLOCK_LIST_DEFAULT = {};
+extern const BlockPropExt BLOCK_EXTRAS_DEFAULT = make_block_extras_default();
+
+static BlockProp make_block_prop_default() {
+    BlockProp value = {};
+    value.text_align = CSS_VALUE_START;
+    value.direction = CSS_VALUE_LTR;
+    value.unicode_bidi = CSS_VALUE_NORMAL;
+    value.writing_mode = WM_HORIZONTAL_TB;
+    value.zoom = 1.0f;
     value.given_min_width = value.given_max_width = -1.0f;
     value.given_min_height = value.given_max_height = -1.0f;
     value.given_min_width_type = value.given_min_height_type = CSS_VALUE_AUTO;
     value.given_max_width_type = value.given_max_height_type = CSS_VALUE_NONE;
     value.box_sizing = CSS_VALUE_CONTENT_BOX;
-    value.baseline_source = CSS_VALUE_AUTO;
-    value.dominant_baseline = CSS_VALUE_AUTO;
     value.given_width = value.given_height = -1.0f;
-    value.aspect_ratio_auto_height = false;
-    value.percentage_height_resolved_late = false;
-    value.given_width_fit_content_limit = value.given_height_fit_content_limit = -1.0f;
-    value.given_width_fit_content_percent = value.given_height_fit_content_percent = NAN;
     value.given_width_percent = value.given_height_percent = NAN;
     value.given_min_width_percent = value.given_max_width_percent = NAN;
     value.given_min_height_percent = value.given_max_height_percent = NAN;
-    value.text_indent_percent = NAN;
     return value;
 }
 

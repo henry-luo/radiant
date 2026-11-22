@@ -238,7 +238,7 @@ void render_list_view(RasterRenderContext* rdcon, ViewBlock* view) {
     ViewBlock* list = lam::view_require_block(view);
     ListBlot pa_list = rdcon->list;
     rdcon->list.item_index = 0;
-    rdcon->list.list_style_type = list->block()->extras().list_style_type;
+    rdcon->list.list_style_type = list->block()->list().list_style_type;
     render_block_view(rdcon, list);
     rdcon->list = pa_list;
 }

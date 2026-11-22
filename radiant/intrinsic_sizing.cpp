@@ -2738,8 +2738,8 @@ static LayoutTextIntrinsicLineOptions intrinsic_text_line_options(LayoutContext*
         options.text_transform = get_element_text_transform(owner);
         options.font_variant = get_element_font_variant(owner);
         if (owner->blk) {
-            if (owner->block()->tab_size >= 0.0f) options.tab_size = owner->block()->tab_size;
-            options.tab_size_length = owner->block()->tab_size_length;
+            if (owner->block()->rare().tab_size >= 0.0f) options.tab_size = owner->block()->rare().tab_size;
+            options.tab_size_length = owner->block()->rare().tab_size_length;
         }
     }
     options.white_space = get_white_space_value(source);
@@ -2747,7 +2747,7 @@ static LayoutTextIntrinsicLineOptions intrinsic_text_line_options(LayoutContext*
     DomNode* inheritance = owner ? static_cast<DomNode*>(owner) : source;
     layout_resolve_inherited_text_wrap(lycon, inheritance, &options.overflow_wrap, &options.word_break);
     options.line_break = get_inherited_text_enum(lycon, CSS_PROPERTY_LINE_BREAK,
-        &BlockProp::line_break, CSS_VALUE_AUTO, inheritance);
+        &BlockPropExt::line_break, CSS_VALUE_AUTO, inheritance);
     options.processed_forced_breaks = processed_forced_breaks;
     options.collapse_segment_breaks = !processed_forced_breaks &&
         !layout_white_space_collapses_newlines(options.white_space) && layout_ruby_annotation_content(source);
@@ -2829,7 +2829,7 @@ bool layout_intrinsic_boundary_break(LayoutContext* lycon, DomNode* previous,
     bool child_atomic = child->is_element() &&
         layout_intrinsic_element_is_atomic_inline(child->as_element());
     CssEnum line_break = get_inherited_text_enum(lycon, CSS_PROPERTY_LINE_BREAK,
-        &BlockProp::line_break, CSS_VALUE_AUTO, owner);
+        &BlockPropExt::line_break, CSS_VALUE_AUTO, owner);
     if (child_atomic) return layout_atomic_wrap_neighbor_allows(before);
     if (previous_atomic) {
         return layout_atomic_wrap_neighbor_allows(after) &&
@@ -3038,10 +3038,10 @@ static bool intrinsic_list_item_marker_is_inside(DomElement* element,
             ? view_block
             : lam::unsafe_view_block_element_storage(node_element);
         if (node_view && node_view->blk &&
-            node_view->block()->extras().list_style_position != 0) {
+            node_view->block()->list().list_style_position != 0) {
             // CSS Lists 3 §3.5: inside markers are inline content and therefore
             // belong to the list item's intrinsic inline-size contribution.
-            return node_view->block()->extras().list_style_position == 1;
+            return node_view->block()->list().list_style_position == 1;
         }
         // Intrinsic measurement can run before the cascade populates BlockProp;
         // read the inherited declaration directly instead of treating inside as outside.
@@ -3709,8 +3709,8 @@ struct IntrinsicWidthCacheScope {
             !element->shadow_root_element() && !element->pseudo_prop() && !element->display_list_item() &&
             !layout_form_control_has_native_intrinsic_size(element) &&
             (!layout_element_is_replaced(element) || layout_is_svg_viewport(element->tag())) &&
-            !(block->blk && (block->block()->extras().counter_reset || block->block()->extras().counter_increment ||
-                            block->block()->extras().counter_set)) &&
+            !(block->blk && (block->block()->list().counter_reset || block->block()->list().counter_increment ||
+                            block->block()->list().counter_set)) &&
             !custom_layout_name_for_element(element);
         active = parent;
         // a dependent descendant makes its ancestors dependent too, including on hits.
@@ -5480,17 +5480,17 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         // scope before measuring its marker and generated list-item children.
         counter_push_scope(lycon->counter_context);
         intrinsic_list_item_scope = true;
-        if (view_block->blk && view_block->block()->extras().counter_reset) {
+        if (view_block->blk && view_block->block()->list().counter_reset) {
             counter_reset(lycon->counter_context,
-                          view_block->block()->extras().counter_reset);
+                          view_block->block()->list().counter_reset);
             compute_reversed_counter_initial(lycon, element);
         }
-        if (view_block->blk && view_block->block()->extras().counter_increment) {
+        if (view_block->blk && view_block->block()->list().counter_increment) {
             counter_increment(lycon->counter_context,
-                              view_block->block()->extras().counter_increment);
+                              view_block->block()->list().counter_increment);
         }
-        if (view_block->blk && view_block->block()->extras().counter_set) {
-            counter_set(lycon->counter_context, view_block->block()->extras().counter_set);
+        if (view_block->blk && view_block->block()->list().counter_set) {
+            counter_set(lycon->counter_context, view_block->block()->list().counter_set);
         }
         layout_apply_list_item_counter(lycon, view_block, element);
         process_list_item(lycon, view_block, element, element,
@@ -5512,8 +5512,8 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     // containing block formatting context applies it to the first line.
     if (!is_inline_level_element(element) || layout_intrinsic_element_is_atomic_inline(element)) {
         ViewBlock* vb = lam::unsafe_view_block_element_storage(element);
-        if (vb->blk && vb->block_mut()->text_indent != 0.0f) {
-            text_indent = vb->block()->text_indent;
+        if (vb->blk && vb->block_mut()->rare().text_indent != 0.0f) {
+            text_indent = vb->block()->rare().text_indent;
         } else if (element->specified_style) {
             CssDeclaration* ti_decl = style_tree_get_declaration(
                 element->specified_style, CSS_PROPERTY_TEXT_INDENT);
@@ -5524,7 +5524,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     }
 
     bool has_deferred_indent = view_block->blk &&
-        (!isnan(view_block->block()->text_indent_percent) || view_block->block()->text_indent_calc);
+        (!isnan(view_block->block()->rare().text_indent_percent) || view_block->block()->rare().text_indent_calc);
     if (!replaced_intrinsic_set && element_inline_axis_is_vertical &&
         !is_inline_non_replaced && !view_block->display_list_item() &&
         text_indent == 0.0f && !has_deferred_indent) {
@@ -6265,18 +6265,18 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         bool has_marker = true;  // default list-style-type is 'disc'
 
         // Check list-style-type (if 'none', no marker) — also inherited
-        if (view_block->blk && view_block->block()->extras().list_style_type == CSS_VALUE_NONE) {
+        if (view_block->blk && view_block->block()->list().list_style_type == CSS_VALUE_NONE) {
             has_marker = false;
         } else {
             for (DomNode* anc = static_cast<DomNode*>(element); anc; anc = anc->parent) {
                 if (!anc->is_element()) continue;
                 DomElement* anc_elem = anc->as_element();
                 ViewBlock* anc_view = lam::unsafe_view_block_element_storage(anc_elem);
-                if (anc_view->blk && anc_view->block()->extras().list_style_type == CSS_VALUE_NONE) {
+                if (anc_view->blk && anc_view->block()->list().list_style_type == CSS_VALUE_NONE) {
                     has_marker = false;
                     break;
                 }
-                if (anc_view->blk && anc_view->block()->extras().list_style_type != 0) {
+                if (anc_view->blk && anc_view->block()->list().list_style_type != 0) {
                     break;  // has a non-none type, stop
                 }
                 if (anc_elem->specified_style) {
@@ -6865,7 +6865,7 @@ bool layout_measure_text_break_plan(LayoutContext* context, DomNode* source,
     size_t length = strlen(text);
     // conditional breaks need generated-mark/emergency metadata beyond a prefix-width plan.
     if (options.overflow_wrap == CSS_VALUE_BREAK_WORD || strstr(text, "\xC2\xAD") ||
-            get_inherited_text_enum(context, CSS_PROPERTY_HYPHENS, &BlockProp::hyphens,
+            get_inherited_text_enum(context, CSS_PROPERTY_HYPHENS, &BlockPropExt::hyphens,
                 CSS_VALUE_MANUAL, source) == CSS_VALUE_AUTO) return false;
     // preserved spaces can hang and tabs depend on the line origin; prefix widths do not describe those edges.
     if (!layout_white_space_collapses(options.white_space)) return false;
