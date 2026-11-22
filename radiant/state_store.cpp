@@ -2505,11 +2505,9 @@ View* view_state_entry_resolve_view(DocState* state, const ViewStateEntry* entry
         return NULL;
     }
     DomDocument* doc = state->owner_store->document;
-    if (entry->owner_id == entry->view_id && entry->owner_address) {
+    if (entry->owner.expected_id == entry->view_id && entry->owner.address) {
         // D5.5.1: a registry-valid owner can still be detached before retirement.
-        DomNodeRef owner_ref = { static_cast<DomNode*>(entry->owner_address), entry->owner_id };
-        DomNode* owner = dom_node_ref_validate(doc, owner_ref);
-        if (owner && owner->id == entry->view_id) {
+        if (DomNode* owner = dom_node_ref_refresh(doc, entry->owner)) {
             // Registered controls and media keep durable values until node retirement.
             if (entry->kind == VIEW_STATE_FORM_CONTROL && owner->is_element()) {
                 DomElement* element = lam::dom_require_element(owner);
@@ -2804,8 +2802,7 @@ static void view_state_rekey_node(DocState* state, View* old_view, View* new_vie
         if (!hashmap_delete(state->view_state_map, &old_query)) continue;
 
         moved.view_id = new_id;
-        moved.owner_address = static_cast<DomNode*>(new_view);
-        moved.owner_id = new_id;
+        moved.owner = dom_node_ref(static_cast<DomNode*>(new_view));
         moved.state->view_id = new_id;
         // constraints belong to the regenerated markup, unlike native edits.
         if (kind == VIEW_STATE_FORM_CONTROL) {
@@ -3284,6 +3281,7 @@ uint32_t view_state_prune_orphans(DocState* state) {
     if (!state || !state->view_state_map || !state->owner_store || !state->owner_store->document) return 0;
 
     DomDocument* doc = state->owner_store->document;
+    DomNodeValidationScope owners(doc);
     DomNode* root = doc->root ? static_cast<DomNode*>(doc->root) : nullptr;
     uint32_t owner_changes = doc_state_prune_stale_transient_owners(state, root);
     uint32_t removed = state_map_erase_matching<ViewStateEntry>(state->view_state_map,
@@ -3360,6 +3358,7 @@ uint32_t state_store_prune_after_reflow(DocState* state) {
     if (!state || !state->owner_store || !state->owner_store->document) return 0;
 
     DomDocument* doc = state->owner_store->document;
+    DomNodeValidationScope owners(doc);
     DomNode* root = doc->root ? static_cast<DomNode*>(doc->root) : nullptr;
     if (!root) return 0;
 
@@ -3425,7 +3424,7 @@ static ViewState* view_state_get_or_create(DocState* state, View* view, ViewStat
     }
 
     ViewStateEntry entry = { .view_id = view_id, .kind = kind, .state = created,
-        .owner_address = static_cast<DomNode*>(view), .owner_id = view_id };
+        .owner = dom_node_ref(static_cast<DomNode*>(view)) };
     hashmap_set(state->view_state_map, &entry);
     return view_state_primary_cache(view, created);
 }

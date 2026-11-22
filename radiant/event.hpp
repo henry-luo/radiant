@@ -2605,10 +2605,8 @@ typedef struct ViewStateEntry {
     uint32_t view_id;
     ViewStateKind kind;
     ViewState* state;
-    // Weak identity for document-owned nodes that are live but temporarily
-    // detached from the rendered root (for example createElement()).
-    void* owner_address;
-    uint32_t owner_id;
+    // cached lifetime proof for the weak owner, including detached controls.
+    mutable DomNodeRef owner;
 } ViewStateEntry;
 
 typedef struct StateStore {
