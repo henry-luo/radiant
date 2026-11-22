@@ -238,9 +238,13 @@ static bool scene3d_animation_initial(DomElement* node, const char* property, An
                 return true;
             }
     bool emissive = !strcmp(tag, "material") && !strcmp(property, "emissive");
-    if (emissive || (!strcmp(property, "color") && (!strcmp(tag, "material") || !strcmp(tag, "light")))) {
+    bool background = !strcmp(tag, "scene3d") && !strcmp(property, "background");
+    bool fog_color = !strcmp(tag, "fog") && !strcmp(property, "color");
+    if (emissive || background || fog_color ||
+        (!strcmp(property, "color") && (!strcmp(tag, "material") || !strcmp(tag, "light")))) {
         float color[4];
-        if (!scene3d_color(node, property, emissive ? "#000000" : "#ffffff", color))
+        const char* fallback = background ? "transparent" : fog_color ? "#d5dedb" : emissive ? "#000000" : "#ffffff";
+        if (!scene3d_color(node, property, fallback, color))
             return false;
         value->type = ANIMATION_COLOR;
         value->count = 3;
@@ -296,6 +300,7 @@ static bool scene3d_animation_initial(DomElement* node, const char* property, An
                                               {"material", "roughness", 1, true},
                                               {"light", "intensity", 1},
                                               {"light", "shadow-softness", 1.5f},
+                                              {"scene3d", "environment-intensity", 1},
                                               {"effect", "strength", 1},
                                               {"effect", "threshold", 1},
                                               {"effect", "radius", 2},

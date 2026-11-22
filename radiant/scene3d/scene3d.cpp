@@ -281,7 +281,7 @@ struct Scene3dShadows {
 };
 struct Scene3dFog {
     float params[4], height[2], color[3];
-    bool declared;
+    DomNodeRef source;
 };
 struct Scene3dProjection {
     Pool* pool;
@@ -3066,9 +3066,9 @@ static bool scene3d_project_node(Scene3dBuild* build, DomElement* node, const Sc
         auto* fog = &build->entry->projection.fog;
         const char* type = scene3d_text(node, "type");
         float color[4];
-        if (node->parent != build->root || fog->declared || node->first_child)
+        if (node->parent != build->root || fog->source.address || node->first_child)
             return scene3d_fail(build->entry, "one leaf fog belongs directly to the scene");
-        fog->declared = true;
+        fog->source = dom_node_ref(node);
         fog->params[0] = type && !strcmp(type, "linear")   ? 1
                          : type && !strcmp(type, "exp2")   ? 2
                          : type && !strcmp(type, "height") ? 3
@@ -3312,6 +3312,19 @@ static bool scene3d_refresh_uniforms(Scene3dEntry* entry, DomElement* node, Scen
 }
 static bool scene3d_refresh_pose(Scene3dEntry* entry, DomElement* root) {
     Scene3dProjection* p = &entry->projection;
+    // Atmosphere tracks update render uniforms without recompiling the scene.
+    if (!scene3d_animated_color(entry, root, p->background, "background", "transparent") ||
+        !scene3d_animated_number(entry, root, "environment-intensity", 1, &p->environment_intensity) ||
+        p->environment_intensity < 0)
+        return scene3d_fail(entry, "invalid animated background or environment intensity");
+    if (p->fog.source.address) {
+        DomNode* fog_node = dom_node_ref_validate(root->doc, p->fog.source);
+        float color[4];
+        if (!fog_node || !fog_node->is_element() ||
+            !scene3d_animated_color(entry, fog_node->as_element(), color, "color", "#d5dedb"))
+            return scene3d_fail(entry, "invalid animated fog color");
+        memcpy(p->fog.color, color, sizeof(p->fog.color));
+    }
     uint64_t pose_version = ++p->pose_version;
     for (int i = 0; i < p->lod_count; i++) {
         Scene3dLod* lod = p->lods[i];
@@ -3525,13 +3538,16 @@ void scene3d_follow_rebuild(DomDocument* document, DomNode* old_root, DomNode* n
     for (Scene3dEntry* entry = registry->entries; entry; entry = entry->next) {
         DomNode* owner = dom_node_ref_validate(document, entry->root);
         DomNode* replacement = owner ? view_state_corresponding_node(owner, old_root, new_root) : nullptr;
-        // a nested template can replace a body or asset while retaining its owning viewport.
-        if (!replacement && owner)
-            for (DomNode* node = new_root->parent; node; node = node->parent)
+        // Reconciliation hands off owners before it links the replacement.
+        // A live old branch supplies the ancestry for a retained viewport.
+        if (!replacement && owner) {
+            DomNode* parent = old_root->parent ? old_root->parent.get() : new_root->parent.get();
+            for (DomNode* node = parent; node; node = node->parent)
                 if (node == owner) {
                     replacement = owner;
                     break;
                 }
+        }
         if (!replacement || !replacement->is_element() || !scene3d_tag(replacement->as_element(), "scene3d"))
             continue;
         entry->root = dom_node_ref(replacement);
