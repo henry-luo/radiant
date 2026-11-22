@@ -915,6 +915,35 @@ TEST_F(DynamicLayoutTest, NestedStartTrimUsesTheInnermostRequest) {
     EXPECT_FLOAT_EQ(element("spacer")->y, 161.0f);
 }
 
+TEST_F(DynamicLayoutTest, ClonedTextBoxTrimFitsFourLinesInEachFullColumn) {
+    load("<!doctype html><style>@font-face{font-family:Ahem;"
+         "src:url('../test/layout/data/font/Ahem.ttf')}html,body{margin:0}"
+         ".columns{columns:3;column-fill:auto;border:1px solid;width:800px;"
+         "height:290px;font:40px/80px Ahem;orphans:1;widows:1}"
+         ".trim{text-box-trim:trim-both;text-box-edge:text;box-decoration-break:clone}"
+         ".spacer{height:100px}</style><div class='columns'><div class='trim' id='trim'>"
+         "abc abc abc abc abc abc abc abc abc abc</div>"
+         "<div class='spacer' id='spacer'></div></div>"
+         "<div class='columns'><div class='trim' id='short'>abc abc abc abc abc abc</div>"
+         "<div class='spacer' id='short-spacer'></div></div>");
+    DomElement* trim = element("trim");
+    ASSERT_NE(trim, nullptr);
+    ViewText* text = lam::view_require<RDT_VIEW_TEXT>(trim->first_child);
+    int index = 0;
+    for (TextRect* rect = text->rect; rect; rect = rect->next, index++) {
+        SCOPED_TRACE(index);
+        EXPECT_FLOAT_EQ(rect->x, (index / 4) * 280.0f);
+        EXPECT_FLOAT_EQ(rect->y, (index % 4) * 80.0f);
+    }
+    EXPECT_EQ(index, 10);
+    ASSERT_NE(element("spacer"), nullptr);
+    EXPECT_FLOAT_EQ(element("spacer")->y, 121.0f);
+    ASSERT_NE(element("short"), nullptr);
+    ASSERT_NE(element("short-spacer"), nullptr);
+    EXPECT_FLOAT_EQ(element("short")->width, 520.0f);
+    EXPECT_FLOAT_EQ(element("short-spacer")->y, 121.0f);
+}
+
 TEST_F(DynamicLayoutTest, MulticolStartTrimAppliesToContinuationColumns) {
     load("<!doctype html><style>@font-face{font-family:Ahem;"
          "src:url('../test/layout/data/font/Ahem.ttf')}html,body{margin:0}"
@@ -1630,6 +1659,22 @@ TEST_F(DynamicLayoutTest, NestedGridUsesAssignedStretchHeight) {
     EXPECT_FLOAT_EQ(element("second")->height, 50.0f);
 }
 
+TEST_F(DynamicLayoutTest, RowFlexKeepsTheWrappedHeightOfANestedRatioColumn) {
+    load("<!doctype html><style>body{margin:0;font:16px/20px monospace}"
+         "#outer{display:flex;align-items:start}.item{display:flex;aspect-ratio:2;max-width:40px}"
+         "</style><div id='outer'>"
+         "<div id='column' class='item' style='flex-direction:column'>abc def ghi</div>"
+         "<div id='row' class='item'>abc def ghi</div></div>");
+    DomElement* column = element("column");
+    DomElement* row = element("row");
+    ASSERT_NE(column, nullptr);
+    ASSERT_NE(row, nullptr);
+    EXPECT_FLOAT_EQ(column->width, 40.0f);
+    EXPECT_FLOAT_EQ(column->height, 60.0f);
+    EXPECT_FLOAT_EQ(row->width, 40.0f);
+    EXPECT_FLOAT_EQ(row->height, 20.0f);
+}
+
 TEST_F(DynamicLayoutTest, GridScrollBoundsUseFinalContentGrownRows) {
     load("<!doctype html><style>body{margin:0}#grid{display:grid;"
          "grid-template-columns:240px 1fr;grid-template-rows:1fr auto}"
@@ -1658,6 +1703,23 @@ TEST_F(DynamicLayoutTest, GridPercentagePaddingUsesAreaWidth) {
     ASSERT_NE(document, nullptr);
     EXPECT_FLOAT_EQ(element("item")->width, 100.0f);
     EXPECT_FLOAT_EQ(element("item")->height, 12.0f);
+}
+
+TEST_F(DynamicLayoutTest, GridStyleReplacementClearsRemovedPadding) {
+    load("<!doctype html><div style='display:grid;width:200px;height:100px;"
+         "grid-template-areas:\"photo\"'>"
+         "<div id='item' style='grid-area:photo;padding:5px;border:2px solid'></div></div>");
+    DomElement* item = element("item");
+    ASSERT_NE(item, nullptr);
+    ASSERT_NE(item->bound, nullptr);
+    EXPECT_FLOAT_EQ(item->bound->padding.left, 5.0f);
+    ASSERT_TRUE(item->set_attribute("style",
+        "grid-area:photo;width:calc(100% - 20px);height:50%"));
+    radiant_recascade_document(document);
+    layout_html_doc(&ui, document, true);
+    ASSERT_NE(item->bound, nullptr);
+    EXPECT_FLOAT_EQ(item->bound->padding.left, 0.0f);
+    EXPECT_FLOAT_EQ(item->width, 180.0f);
 }
 
 TEST_F(DynamicLayoutTest, GridAbsoluteChildRetainsGridLineContainingBlock) {
@@ -1701,6 +1763,41 @@ TEST_F(DynamicLayoutTest, TextBalanceLineBudgetExcludesBorder) {
          "Interconnect your build</div>");
     ASSERT_NE(document, nullptr);
     EXPECT_FLOAT_EQ(element("test")->height, 38.0f);
+}
+
+TEST_F(DynamicLayoutTest, GeneratedCountersKeepImagesAndTextInOrderAcrossReflow) {
+    load(R"HTML(<!doctype html><style>
+        #host::before { counter-increment: part; content: "[" counter(part)
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Crect width='12' height='12'/%3E%3C/svg%3E")
+          attr(data-label) "]"; }
+        </style><div id="host" data-label="label" style="counter-reset: part 7"></div>)HTML");
+    DomElement* host = element("host");
+    ASSERT_NE(host, nullptr);
+    for (const char* expected : {"[8", "[4", "[8"}) {
+        bool reset_to_seven = strcmp(expected, "[8") == 0;
+        ASSERT_TRUE(host->set_attribute("style", reset_to_seven ? "counter-reset: part 7" : "counter-reset: part 3"));
+        ASSERT_TRUE(host->set_attribute("data-label", reset_to_seven ? "label" : "updated"));
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+        ASSERT_NE(host->pseudo_prop(), nullptr);
+        DomElement* before = host->pseudo_prop()->before;
+        ASSERT_NE(before, nullptr);
+        DomNode* prefix = before->first_child;
+        ASSERT_NE(prefix, nullptr);
+        ASSERT_TRUE(prefix->is_text());
+        EXPECT_STREQ(prefix->as_text()->text, expected);
+        DomNode* image = prefix->next_sibling;
+        ASSERT_NE(image, nullptr);
+        ASSERT_TRUE(image->is_element());
+        EXPECT_EQ(image->as_element()->tag(), MARKUP_NAME_IMG);
+        EXPECT_FLOAT_EQ(image->width, 12.0f);
+        EXPECT_FLOAT_EQ(image->height, 12.0f);
+        DomNode* suffix = image->next_sibling;
+        ASSERT_NE(suffix, nullptr);
+        ASSERT_TRUE(suffix->is_text());
+        EXPECT_STREQ(suffix->as_text()->text, reset_to_seven ? "label]" : "updated]");
+        EXPECT_EQ(suffix->next_sibling, nullptr);
+    }
 }
 
 TEST_F(DynamicLayoutTest, EmptyTableCellDoesNotRaiseTextBaselineToSpecifiedHeight) {

@@ -1082,7 +1082,18 @@ static bool pseudo_materialize_content_children(LayoutContext* lycon, DomElement
     if (!text_buf) return false;
     bool appended_any = false;
     DomNode* retained = refresh ? pseudo_elem->first_child.get() : nullptr;
-    if (refresh) { pseudo_elem->first_child = nullptr; pseudo_elem->last_child = nullptr; }
+    if (refresh) {
+        DomElement* marker = pseudo_elem->pseudo_prop() ? pseudo_elem->pseudo_prop()->marker.get() : nullptr;
+        if (marker && retained == marker) {
+            // the list-item marker precedes the generated content list.
+            retained = marker->next_sibling;
+            marker->next_sibling = nullptr;
+            pseudo_elem->last_child = lam::up(static_cast<DomNode*>(marker));
+        } else {
+            pseudo_elem->first_child = nullptr;
+            pseudo_elem->last_child = nullptr;
+        }
+    }
     auto release_discarded_image = [&](DomNode* child) {
         // discarded image boxes own document-pool styles even within a single layout pass
         if (child && child->is_element() && child->as_element()->embed)
@@ -1447,9 +1458,7 @@ static void refresh_pseudo_element_style(LayoutContext* lycon, DomElement* paren
     pseudo->display = layout_resolved_display(pseudo);
 }
 
-static bool pseudo_content_has_function(StyleTree* style, const char* name) {
-    const CssDeclaration* declaration = style ? style_tree_get_declaration(style, CSS_PROPERTY_CONTENT) : nullptr;
-    const CssValue* value = declaration ? declaration->value : nullptr;
+static bool pseudo_content_has_function(const CssValue* value, const char* name) {
     int count = value && value->type == CSS_VALUE_TYPE_LIST ? value->data.list.count : 1;
     for (int i = 0; value && i < count; i++) {
         const CssValue* item = value->type == CSS_VALUE_TYPE_LIST ? value->data.list.values[i] : value;
@@ -1487,8 +1496,10 @@ static DomElement* create_pseudo_element(LayoutContext* lycon, DomElement* paren
             is_before ? PSEUDO_STYLE_BEFORE : PSEUDO_STYLE_AFTER,
             parent_font);
     }
-    bool has_counter_content = pseudo_content_has_function(pseudo_styles, "counter") ||
-        pseudo_content_has_function(pseudo_styles, "counters");
+    const CssDeclaration* declaration = pseudo_styles ? style_tree_get_declaration(pseudo_styles, CSS_PROPERTY_CONTENT) : nullptr;
+    const CssValue* value = declaration ? declaration->value : nullptr;
+    bool has_counter_content = pseudo_content_has_function(value, "counter") ||
+        pseudo_content_has_function(value, "counters");
     bool materialized_children = has_counter_content ? false :
         pseudo_materialize_content_children(lycon, parent, pseudo_elem, is_before);
     if (!materialized_children && ((content && *content) || has_counter_content)) {
@@ -1612,8 +1623,14 @@ void layout_update_pseudo_content_with_counters(LayoutContext* lycon,
     if (!origin) return;
     StyleTree* style = origin->pseudo_style(kind);
     if (apply_counters) apply_pseudo_counter_ops(lycon, style);
-    // leaders remain inline fill boxes when counter/reference values are refreshed.
-    if (pseudo_content_has_function(style, "leader")) {
+    const CssDeclaration* declaration = style ? style_tree_get_declaration(style, CSS_PROPERTY_CONTENT) : nullptr;
+    const CssValue* value = declaration ? declaration->value : nullptr;
+    bool before_or_after = pseudo == PSEUDO_ELEMENT_BEFORE || pseudo == PSEUDO_ELEMENT_AFTER;
+    CssImageChoice image = {};
+    // refresh structured content in order when text shares its list with images or leaders.
+    if (pseudo_content_has_function(value, "leader") ||
+        (before_or_after && value && value->type == CSS_VALUE_TYPE_LIST &&
+         css_content_replacement_image(value, lycon, &image))) {
         pseudo_materialize_content_children(lycon, origin, pseudo_element, pseudo == PSEUDO_ELEMENT_BEFORE, true);
         return;
     }
@@ -1621,8 +1638,6 @@ void layout_update_pseudo_content_with_counters(LayoutContext* lycon,
     if (pseudo == PSEUDO_ELEMENT_FOOTNOTE_CALL || pseudo == PSEUDO_ELEMENT_FOOTNOTE_MARKER) {
         // CSS GCPM 3 §2.3: a call or marker without content shows its note's footnote
         // counter, the marker followed by a space as the item engine set it
-        const CssDeclaration* declaration = style ? style_tree_get_declaration(style, CSS_PROPERTY_CONTENT) : nullptr;
-        const CssValue* value = declaration ? declaration->value : nullptr;
         if (!value || css_value_keyword_equals(value, CSS_VALUE_NORMAL) || css_value_is_initial(value) || css_value_is_unset(value)) {
             char number[32];
             int length = counter_format_value(counter_get_value(lycon->counter_context, "footnote"), CSS_VALUE_DECIMAL,

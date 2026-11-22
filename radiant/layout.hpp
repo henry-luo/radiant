@@ -4026,6 +4026,7 @@ void clear_grid_template_areas(Pool* pool, GridProp* grid_layout);
 void parse_grid_template_areas(Pool* pool, GridProp* grid_layout, const CssValue* value);
 bool copy_grid_template_areas(Pool* pool, GridProp* target, const GridProp* source);
 bool grid_serialize_used_tracks(StringBuf* output, const GridContainerLayout* grid, bool columns);
+bool grid_item_has_independent_preferred_size(LayoutContext* lycon, ViewBlock* item, bool horizontal);
 IntrinsicSizes calculate_grid_item_intrinsic_sizes(LayoutContext* lycon, ViewBlock* item, bool is_row_axis);
 void layout_grid_container(LayoutContext* lycon, ViewBlock* container,
     bool intrinsic_width_only = false);

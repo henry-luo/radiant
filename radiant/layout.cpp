@@ -1085,6 +1085,8 @@ static void reset_non_inherited_style_cache(LayoutContext* lycon, ViewSpan* view
         memset(boundary->border.get(), 0, offsetof(BorderProp, radius));
     }
     boundary->margin = BOUNDARY_PROP_DEFAULT.margin;
+    // an omitted padding declaration must clear the previous used edges too.
+    boundary->padding = BOUNDARY_PROP_DEFAULT.padding;
     layout_reset_boundary_flow_state(boundary);
     if (boundary->outline) {
         boundary->outline->width = 0.0f;
