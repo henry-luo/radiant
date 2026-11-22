@@ -4865,6 +4865,7 @@ typedef struct DocumentJsHostConfig {
     const struct RenderPagedOptions* paged_media;
     bool scripting_disabled;    // DomDocument::scripting_disabled for the loaded document
     bool microphone_granted;   // D11.3.2: initial document only, never inherited
+    bool embedded_document;    // optional child responses do not reject the main capture
 } DocumentJsHostConfig;
 int document_js_host_post_load_settle_ms(int fallback, bool explicitly_set);
 DocumentJsHostConfig document_js_host_config_inherit(UiContext* uicon,

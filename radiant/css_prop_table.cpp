@@ -1812,6 +1812,10 @@ static bool serialize_used_size(const CssPropAccessor* accessor, DomElement* ele
         // Load-time scripts run after cascade but before the first ViewTree;
         // the resolved CSS size is the only valid computed value at that seam.
         if (specified >= 0.0f) value = specified;
+    } else if (element->block()->box_sizing != CSS_VALUE_BORDER_BOX) {
+        // retained geometry stores the border box; CSSOM exposes the used CSS sizing box.
+        value = layout_boundary_content_size_from_border_box(
+            element->bound ? element->boundary() : nullptr, value, accessor->id == CSS_PROPERTY_WIDTH);
     }
     return format_number(out, value, "px");
 }

@@ -304,6 +304,16 @@ static void discover_img_callback(DomElement* img, void* user_data) {
         radiant_html_fetch_priority(img->get_attribute("fetchpriority"), PRIORITY_NORMAL), img);
 }
 
+static void prefetch_eager_img_callback(DomElement* img, void* user_data) {
+    const char* loading = img->get_attribute("loading");
+    if (!loading || !str_ieq_cstr(loading, "lazy")) discover_img_callback(img, user_data);
+}
+
+void radiant_prefetch_document_eager_images(DomDocument* doc) {
+    if (doc && doc->root && doc->resource_manager)
+        find_elements_by_selector(doc->root, "img", prefetch_eager_img_callback, doc);
+}
+
 // Callback for <svg><use> discovery
 static void discover_use_callback(DomElement* use, void* user_data) {
     DomDocument* doc = (DomDocument*)user_data;
@@ -444,6 +454,8 @@ struct CssResourcePrefetchContext {
     StyleTree* selected_style = nullptr;
     DomElement* element = nullptr;
     int queued = 0;
+    bool check_load_blockers = false;
+    bool pending = false;
 
     ~CssResourcePrefetchContext() {
         if (document_base) url_destroy(document_base);
@@ -457,6 +469,14 @@ struct CssResourceUrlContext {
     Url* stylesheet_base = nullptr;
     const Url* base_url = nullptr;
 };
+
+static bool pending_document_resource(DomDocument* doc, const char* href) {
+    NetworkResource* resource = doc && doc->resource_manager
+        ? resource_manager_find(doc->resource_manager, href) : nullptr;
+    // worker completion must reach its main-thread consumer before window.load.
+    return resource && (!resource->processed || resource->state == STATE_PENDING ||
+        resource->state == STATE_DOWNLOADING);
+}
 
 static void prefetch_css_resource_url(const CssValue* value, void* context) {
     const char* href = value->data.url;
@@ -474,7 +494,10 @@ static void prefetch_css_resource_url(const CssValue* value, void* context) {
     // resolve the request without rewriting custom tokens, whose base belongs to their consumer.
     Url* url = url_parse_with_base(href, source->base_url);
     // selected CSS URLs can initialize the document before any element resource exists.
-    if (radiant_url_is_http(url) && queue_resolved_http_resource(
+    if (prefetch.check_load_blockers) {
+        prefetch.pending = prefetch.pending || (url &&
+            pending_document_resource(prefetch.doc, url_get_href(url)));
+    } else if (radiant_url_is_http(url) && queue_resolved_http_resource(
             prefetch.doc, url_get_href(url), RESOURCE_PREFETCH, PRIORITY_LOW, nullptr)) {
         prefetch.queued++;
     }
@@ -490,9 +513,19 @@ static void prefetch_css_urls(CssResourcePrefetchContext& prefetch,
 
 static bool prefetch_selected_css_property(StyleNode* node, void* context) {
     CssResourcePrefetchContext* prefetch = (CssResourcePrefetchContext*)context;
+    if (prefetch->check_load_blockers && (prefetch->pending ||
+        (node->property_code != CSS_PROPERTY_BACKGROUND &&
+         node->property_code != CSS_PROPERTY_BACKGROUND_IMAGE))) return !prefetch->pending;
     CssDeclaration* declaration = style_tree_get_declaration(
         prefetch->selected_style, node->property_code);
     if (!declaration || !declaration->value) return true;
+    if (prefetch->check_load_blockers) {
+        CssDeclaration* other = style_tree_get_declaration(prefetch->selected_style,
+            node->property_code == CSS_PROPERTY_BACKGROUND
+                ? CSS_PROPERTY_BACKGROUND_IMAGE : CSS_PROPERTY_BACKGROUND);
+        // an overriding longhand or shorthand can leave an unused speculative URL behind.
+        if (other && css_declaration_cascade_compare(other, declaration) > 0) return true;
+    }
     const CssValue* value = declaration->value;
     if (css_value_contains_pending_substitution(value)) {
         if (!prefetch->inline_parse_pool) prefetch->inline_parse_pool = pool_create();
@@ -508,13 +541,44 @@ static bool prefetch_selected_css_resources(DomNode* node, void* context) {
     if (!node || !node->is_element() || !radiant_document_resource_is_active(node)) return true;
     CssResourcePrefetchContext* prefetch = (CssResourcePrefetchContext*)context;
     prefetch->element = node->as_element();
+    if (prefetch->check_load_blockers) {
+        if (prefetch->pending) return false;
+        if (prefetch->element->tag() == MARKUP_NAME_LINK &&
+            radiant_html_has_token(prefetch->element->get_attribute("rel"), "stylesheet")) {
+            const char* href = prefetch->element->get_attribute("href");
+            char* absolute = href ? resolve_url(href, prefetch->doc) : nullptr;
+            prefetch->pending = absolute && pending_document_resource(prefetch->doc, absolute);
+            mem_free(absolute);
+            if (prefetch->pending) return false;
+        }
+        // display:none subtrees and display:contents boxes do not request backgrounds.
+        for (DomNode* ancestor = node; ancestor; ancestor = ancestor->parent) {
+            if (!ancestor->is_element()) continue;
+            DisplayValue display = resolve_display_value(ancestor);
+            if (display.outer == CSS_VALUE_NONE ||
+                (ancestor == node && display.outer == CSS_VALUE_CONTENTS)) return true;
+        }
+    }
     prefetch->selected_style = prefetch->element->specified_style;
     style_tree_foreach(prefetch->selected_style, prefetch_selected_css_property, context);
     for (unsigned kind = 0; kind < PSEUDO_STYLE_COUNT; kind++) {
+        if (prefetch->check_load_blockers &&
+            ((kind == PSEUDO_STYLE_BEFORE && !dom_element_has_before_content(prefetch->element)) ||
+             (kind == PSEUDO_STYLE_AFTER && !dom_element_has_after_content(prefetch->element)))) continue;
         prefetch->selected_style = prefetch->element->pseudo_style((PseudoStyleKind)kind);
         style_tree_foreach(prefetch->selected_style, prefetch_selected_css_property, context);
     }
     return true;
+}
+
+bool radiant_document_has_pending_load_resources(DomDocument* doc) {
+    if (!doc || !doc->resource_manager) return false;
+    if (radiant_document_has_pending_image_load_blockers(doc)) return true;
+    // reuse selected-value resolution, including var() and stylesheet-relative URLs.
+    CssResourcePrefetchContext context = {doc};
+    context.check_load_blockers = true;
+    view_geometry_walk_dom_tree(doc->root, prefetch_selected_css_resources, &context);
+    return context.pending;
 }
 
 void radiant_prefetch_stylesheet_resources(DomDocument* doc, DomNode* root) {

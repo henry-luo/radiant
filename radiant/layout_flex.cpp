@@ -1967,13 +1967,14 @@ static bool flex_item_intrinsic_border_bounds(ViewElement* item,
                                               FlexContainerLayout* flex_layout,
                                               bool horizontal,
                                               float* minimum,
-                                              float* maximum) {
+                                              float* maximum,
+                                              bool use_flexed_inline_size = true) {
     if (!item || !flex_layout || !has_flex_item_prop(item) || !minimum || !maximum) {
         return false;
     }
     ViewBlock* block = lam::view_as_block(item);
     float content_width = layout_content_size_from_border_box(block, item->width, true);
-    if (!horizontal && is_main_axis_horizontal(flex_layout) && content_width > 0.0f &&
+    if (use_flexed_inline_size && !horizontal && is_main_axis_horizontal(flex_layout) && content_width > 0.0f &&
         !layout_block_inline_axis_is_vertical(block)) {
         // block-axis intrinsic sizes depend on the flexed inline size, not the old basis.
         *minimum = *maximum = calculate_max_content_height(
@@ -2005,10 +2006,27 @@ static float flex_item_fit_content_border_size(ViewElement* item,
         flex_item_available_outer_size(item, flex_layout, horizontal));
 }
 
+float flex_item_intrinsic_ratio_height_floor(ViewElement* item,
+                                              FlexContainerLayout* flex_layout) {
+    ViewBlock* block = lam::view_as_block(item);
+    if (!block || !item->fi || item->fi->aspect_ratio <= 0.0f || !flex_layout ||
+        is_main_axis_horizontal(flex_layout) || layout_block_inline_axis_is_vertical(block) ||
+        !layout_block_has_automatic_size(block, true) ||
+        layout_element_is_replaced(item->as_element())) return 0.0f;
+
+    // flexbox §9.2 uses a fit-content auto cross size before the ratio's block contribution.
+    float cross = flex_item_fit_content_border_size(item, flex_layout, true);
+    cross = layout_apply_min_max_axis(block, cross, true, true);
+    float height = flex_item_main_border_size_from_cross_border_size(
+        item, cross, false, item->fi->aspect_ratio);
+    return layout_content_size_from_border_box(block, height, false);
+}
+
 static float flex_item_intrinsic_border_size(ViewElement* item,
                                              FlexContainerLayout* flex_layout,
                                              bool horizontal,
-                                             CssEnum keyword) {
+                                             CssEnum keyword,
+                                             bool use_flexed_inline_size = true) {
     if (!item || !flex_layout || !flex_layout->lycon || !has_flex_item_prop(item) ||
         keyword == CSS_VALUE__UNDEF) {
         return -1.0f;
@@ -2016,7 +2034,7 @@ static float flex_item_intrinsic_border_size(ViewElement* item,
     float min_size = 0.0f;
     float max_size = 0.0f;
     if (!flex_item_intrinsic_border_bounds(
-            item, flex_layout, horizontal, &min_size, &max_size)) return -1.0f;
+            item, flex_layout, horizontal, &min_size, &max_size, use_flexed_inline_size)) return -1.0f;
     float available_outer_size = flex_item_available_outer_size(item, flex_layout, horizontal);
     // Intrinsic CSS sizes are stored without a numeric used value; resolve the
     // keyword here so flex-basis and min/max clamps do not mistake it for auto.
@@ -3846,8 +3864,12 @@ static float flex_finalize_hypothetical_cross(ViewElement* item,
                 !layout_is_scrollable_overflow(overflow) &&
                 flex_item_minimum_is_auto(item, cross_is_horizontal)) {
                 // sizing 4 §4.3: a non-scrolling ratio-dependent auto minimum retains content.
+                bool single_flex_line = !cross_is_horizontal &&
+                    item->display.inner == CSS_VALUE_FLEX &&
+                    layout_flex_direction_is_row(item) && !layout_flex_wraps(item);
+                // flexbox §9.9.2 cross contributions precede width-dependent text reflow.
                 float content_minimum = flex_item_intrinsic_border_size(
-                    item, flex_layout, cross_is_horizontal, CSS_VALUE_MIN_CONTENT);
+                    item, flex_layout, cross_is_horizontal, CSS_VALUE_MIN_CONTENT, !single_flex_line);
                 hypothetical_cross = max(hypothetical_cross, content_minimum);
             }
             cross.set_size(hypothetical_cross);

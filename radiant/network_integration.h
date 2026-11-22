@@ -53,6 +53,13 @@ void radiant_network_wake_platform(void* user_data);
  */
 void radiant_discover_document_resources(DomDocument* doc);
 
+// overlap parsed eager image requests with blocking CSS using the normal source selector.
+void radiant_prefetch_document_eager_images(DomDocument* doc);
+
+// load waits for admitted eager images and used CSS backgrounds, not speculative resources.
+bool radiant_document_has_pending_load_resources(DomDocument* doc);
+bool radiant_document_has_pending_image_load_blockers(DomDocument* doc);
+
 // Queue finite image dependencies and deliver ready resources before headless layout.
 // This shares the layout CLI's bounded network wait without running script timers.
 void radiant_prepare_snapshot_resources(struct UiContext* ui, DomDocument* doc);

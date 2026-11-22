@@ -2941,6 +2941,8 @@ float flex_measure_intrinsic_max_height(LayoutContext* lycon, DomNode* node, flo
 float measure_flex_height_at_width(LayoutContext* lycon, ViewBlock* container, float width,
                                   float ratio_block_basis);
 float flex_item_explicit_ratio_basis(ViewElement* item, bool main_is_horizontal);
+float flex_item_intrinsic_ratio_height_floor(ViewElement* item,
+                                              FlexContainerLayout* flex_layout);
 bool flex_height_is_parent_constrained(LayoutContext* context, ViewBlock* container,
                                        bool include_column_main_size,
                                       bool include_row_cross_stretch,

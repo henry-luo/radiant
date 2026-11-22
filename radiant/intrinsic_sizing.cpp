@@ -3610,6 +3610,21 @@ bool layout_flow_is_context_independent(DomElement* element, bool include_height
         layout_box_is_context_independent(element, include_height, contract);
 }
 
+static bool intrinsic_query_can_retain_context(LayoutContext* context) {
+    return layout_can_retain_geometry(context, true) && !context->paged &&
+        !context->css_query_probe && !context->selected_style && !context->doc->view_tree->model;
+}
+
+static bool intrinsic_query_can_retain_element(LayoutContext* context, DomElement* element) {
+    ViewBlock* block = lam::unsafe_view_block_element_storage(element);
+    // native resources and ordered effects need inputs beyond the subtree's DOM versions.
+    return !context->paged && !element->shadow_root_element() && !element->pseudo_prop() &&
+        !element->display_list_item() && !layout_form_control_has_native_intrinsic_size(element) &&
+        (!layout_element_is_replaced(element) || layout_is_svg_viewport(element->tag())) &&
+        !(block->blk && (block->block()->extras().counter_reset || block->block()->extras().counter_increment ||
+                        block->block()->extras().counter_set)) && !custom_layout_name_for_element(element);
+}
+
 namespace radiant {
 
 struct IntrinsicWidthHistory {
@@ -3626,8 +3641,9 @@ void intrinsic_width_history_release(LayoutCache* cache, Pool* pool) {
     }
 }
 
+static constexpr unsigned INTRINSIC_QUERY_HISTORY_LIMIT = 9;
+
 static IntrinsicWidthHistory* intrinsic_width_history_slot(LayoutCache* cache, Pool* pool) {
-    constexpr unsigned INTRINSIC_WIDTH_HISTORY_LIMIT = 9;
     IntrinsicWidthHistory* oldest = cache->intrinsic_width_history;
     IntrinsicWidthHistory* previous = nullptr;
     unsigned count = oldest ? 1 : 0;
@@ -3636,7 +3652,7 @@ static IntrinsicWidthHistory* intrinsic_width_history_slot(LayoutCache* cache, P
         oldest = oldest->next;
         count++;
     }
-    if (count < INTRINSIC_WIDTH_HISTORY_LIMIT)
+    if (count < INTRINSIC_QUERY_HISTORY_LIMIT)
         return (IntrinsicWidthHistory*)pool_calloc(pool, sizeof(IntrinsicWidthHistory));
     // keep alternating constraint queries across passes without unbounded retained history.
     if (previous) previous->next = nullptr;
@@ -3644,8 +3660,8 @@ static IntrinsicWidthHistory* intrinsic_width_history_slot(LayoutCache* cache, P
     return oldest;
 }
 
-static bool intrinsic_width_version_equal(const IntrinsicWidthCacheEntry& a,
-                                         const IntrinsicWidthCacheEntry& b) {
+template <typename Version>
+static bool intrinsic_query_version_equal(const Version& a, const Version& b) {
     bool same_pass = a.generation == b.generation;
     // retained queries track subtree/style inputs and native presentation writes;
     // another subtree's style-query epoch must not expire their next-pass result.
@@ -3658,7 +3674,7 @@ static bool intrinsic_width_version_equal(const IntrinsicWidthCacheEntry& a,
 
 static bool intrinsic_width_inputs_equal(const IntrinsicWidthCacheEntry& a,
                                         const IntrinsicWidthCacheEntry& b) {
-    return intrinsic_width_version_equal(a, b) && a.root_font_size == b.root_font_size &&
+    return intrinsic_query_version_equal(a, b) && a.root_font_size == b.root_font_size &&
         a.raster_scale == b.raster_scale && css_font_keys_equal(a.input_font, b.input_font);
 }
 
@@ -3703,15 +3719,8 @@ struct IntrinsicWidthCacheScope {
     ~IntrinsicWidthCacheScope() {
         entry.context_independent = cacheable && children_independent &&
             layout_flow_is_context_independent(element);
-        // resource sizes, native values and ordered effects can change outside this subtree's DOM versions.
-        ViewBlock* block = lam::unsafe_view_block_element_storage(element);
-        entry.retain_across_passes = cacheable && children_retained && !lycon->paged &&
-            !element->shadow_root_element() && !element->pseudo_prop() && !element->display_list_item() &&
-            !layout_form_control_has_native_intrinsic_size(element) &&
-            (!layout_element_is_replaced(element) || layout_is_svg_viewport(element->tag())) &&
-            !(block->blk && (block->block()->extras().counter_reset || block->block()->extras().counter_increment ||
-                            block->block()->extras().counter_set)) &&
-            !custom_layout_name_for_element(element);
+        entry.retain_across_passes = cacheable && children_retained &&
+            intrinsic_query_can_retain_element(lycon, element);
         active = parent;
         // a dependent descendant makes its ancestors dependent too, including on hits.
         note_dependency(entry.context_independent, entry.retain_across_passes);
@@ -3723,7 +3732,7 @@ struct IntrinsicWidthCacheScope {
         entry.sizes = sizes;
         entry.generation = generation;
         radiant::IntrinsicWidthCacheEntry& previous = cache->intrinsic_widths[basis];
-        if (previous.context.is_valid() && radiant::intrinsic_width_version_equal(previous, entry) &&
+        if (previous.context.is_valid() && radiant::intrinsic_query_version_equal(previous, entry) &&
             !radiant::intrinsic_width_query_matches(previous, entry) && lycon->pool) {
             // alternating flex constraints must not evict a completed subtree query.
             auto* history = radiant::intrinsic_width_history_slot(cache, lycon->pool);
@@ -3769,8 +3778,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     query.input_revision = element->intrinsic_input_revision;
     query.presentation_revision = element->layer_generation;
     query.parent_revision = radiant::css_resolved_style_inherited_revision(element->parent_element());
-    query.retain_across_passes = layout_can_retain_geometry(lycon, true) && !lycon->paged &&
-        !lycon->css_query_probe && !lycon->selected_style && !lycon->doc->view_tree->model;
+    query.retain_across_passes = intrinsic_query_can_retain_context(lycon);
     query.context.known_dimensions = {lycon->width, lycon->height};
     query.context.available_space = lycon->available_space;
     query.block_size = {lycon->block.content_width, lycon->block.content_height};
@@ -3797,7 +3805,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         ? element->layout_cache->intrinsic_width_history.get() : nullptr;
     // discard borrowed font keys before comparing across style/resource lifetimes.
     if (history && (!element->has_cached_intrinsic_widths() ||
-        !radiant::intrinsic_width_version_equal(history->entry, query))) {
+        !radiant::intrinsic_query_version_equal(history->entry, query))) {
         radiant::intrinsic_width_history_release(element->layout_cache, lycon->pool);
         history = nullptr;
     }
@@ -8326,18 +8334,20 @@ struct IntrinsicHeightVersion {
     uint32_t style_epoch, mutation_epoch;
     uint64_t font_generation;
     uint32_t generation, style_revision, input_revision;
+    uint32_t layout_generation, style_version, parent_revision, presentation_revision;
+    bool retain_across_passes;
 };
 
 // tier-2: immutable query results owned by the selected view's property pool.
 struct IntrinsicHeightEntry {
     IntrinsicHeightEntry* next;
     IntrinsicHeightKey key;
+    IntrinsicHeightVersion version;
     float height;
     bool context_independent;
 };
 
 struct IntrinsicHeightCache {
-    IntrinsicHeightVersion version;
     IntrinsicHeightEntry* entries;
 };
 
@@ -8355,20 +8365,20 @@ void intrinsic_height_cache_release(LayoutCache* cache, Pool* pool) {
     lam::free_owned(pool, cache->intrinsic_heights);
 }
 
-static IntrinsicHeightVersion intrinsic_height_version(LayoutContext* context, DomElement* element) {
+static IntrinsicHeightVersion intrinsic_height_version(LayoutContext* context, DomElement* element, bool retained) {
     DomDocument* doc = context->doc;
     return {doc->style_query_epoch, doc->mutation_epoch,
         context->ui_context && context->ui_context->font_ctx
             ? font_context_resource_generation(context->ui_context->font_ctx) : 0,
         doc->view_tree->measurement_cache_generation, css_resolved_style_input_revision(context, element),
-        element->intrinsic_input_revision};
+        element->intrinsic_input_revision, doc->view_tree->layout_generation, element->style_version,
+        css_resolved_style_inherited_revision(element->parent_element()), element->layer_generation, retained};
 }
 
 static bool intrinsic_height_version_equal(const IntrinsicHeightVersion& a,
                                            const IntrinsicHeightVersion& b) {
-    return a.style_epoch == b.style_epoch && a.mutation_epoch == b.mutation_epoch &&
-        a.input_revision == b.input_revision && a.font_generation == b.font_generation &&
-        a.generation == b.generation && a.style_revision == b.style_revision;
+    return intrinsic_query_version_equal(a, b) && (a.generation != b.generation ||
+        (a.mutation_epoch == b.mutation_epoch && a.style_revision == b.style_revision));
 }
 
 static uint8_t intrinsic_height_key_changes(const IntrinsicHeightKey& a, const IntrinsicHeightKey& b,
@@ -8414,14 +8424,16 @@ struct IntrinsicHeightScope {
     IntrinsicHeightScope* parent;
     bool cacheable;
     bool context_independent;
+    bool retain_across_passes;
     static thread_local IntrinsicHeightScope* active;
-    IntrinsicHeightScope(bool allowed, bool independent)
-        : parent(active), cacheable(allowed), context_independent(independent) { active = this; }
+    IntrinsicHeightScope(bool allowed, bool independent, bool retained)
+        : parent(active), cacheable(allowed), context_independent(independent), retain_across_passes(retained) { active = this; }
     ~IntrinsicHeightScope() {
         active = parent;
         // a parent result must not conceal a descendant whose resource/used inputs are unkeyed.
         if (parent && !cacheable) parent->cacheable = false;
         if (parent && !context_independent) parent->context_independent = false;
+        if (parent && !retain_across_passes) parent->retain_across_passes = false;
     }
 };
 thread_local IntrinsicHeightScope* IntrinsicHeightScope::active = nullptr;
@@ -8447,7 +8459,8 @@ float calculate_max_content_height(LayoutContext* lycon, DomNode* node, float wi
     }
     bool allowed = element && radiant::intrinsic_height_cacheable(lycon, element);
     radiant::IntrinsicHeightScope scope(!element || allowed,
-        !element || layout_flow_is_context_independent(element, true));
+        !element || layout_flow_is_context_independent(element, true),
+        !element || (intrinsic_query_can_retain_context(lycon) && intrinsic_query_can_retain_element(lycon, element)));
     radiant::IntrinsicHeightCache* cache = nullptr;
     radiant::IntrinsicHeightKey key = {};
     radiant::IntrinsicHeightVersion version = {};
@@ -8467,17 +8480,26 @@ float calculate_max_content_height(LayoutContext* lycon, DomNode* node, float wi
             lycon->block.text_wrap_style, element->view_type,
             element->elmt_flags & (ELMT_FLAG_PARENT_ITEM_KIND_MASK | ELMT_FLAG_ROLE_KIND_MASK),
             ignore_definite_block_size, width_is_used_size};
-        version = radiant::intrinsic_height_version(lycon, element);
+        version = radiant::intrinsic_height_version(lycon, element, scope.retain_across_passes);
         radiant::LayoutCache* owner = radiant::layout_pass_ensure_cache(lycon, element);
         if (owner && !owner->intrinsic_heights) owner->intrinsic_heights = lam::own(
             (radiant::IntrinsicHeightCache*)pool_calloc(lycon->pool, sizeof(radiant::IntrinsicHeightCache)));
         cache = owner ? owner->intrinsic_heights.get() : nullptr;
         if (cache) {
-            if (!radiant::intrinsic_height_version_equal(cache->version, version)) {
-                if (cache->entries) lycon->profiler.height_version_misses++;
-                radiant::intrinsic_height_entries_clear(cache, lycon->pool);
-                cache->version = version;
+            bool version_miss = false;
+            unsigned retained_queries = 0;
+            for (radiant::IntrinsicHeightEntry** link = &cache->entries; *link;) {
+                auto* entry = *link;
+                bool current = radiant::intrinsic_height_version_equal(entry->version, version);
+                bool expired = current && entry->version.generation != version.generation &&
+                    ++retained_queries > radiant::INTRINSIC_QUERY_HISTORY_LIMIT;
+                if (!current || expired) {
+                    version_miss |= !current;
+                    *link = entry->next;
+                    pool_free(lycon->pool, entry);
+                } else link = &entry->next;
             }
+            if (version_miss) lycon->profiler.height_version_misses++;
             uint8_t common_changes = 63;
             for (radiant::IntrinsicHeightEntry* entry = cache->entries; entry; entry = entry->next) {
                 uint8_t changes = radiant::intrinsic_height_key_changes(
@@ -8485,6 +8507,9 @@ float calculate_max_content_height(LayoutContext* lycon, DomNode* node, float wi
                 common_changes &= changes;
                 if (!changes) {
                     scope.context_independent = entry->context_independent;
+                    scope.retain_across_passes &= entry->version.retain_across_passes;
+                    entry->version = version;
+                    entry->version.retain_across_passes = scope.retain_across_passes;
                     lycon->profiler.height_cache_hits++;
                     return entry->height;
                 }
@@ -8498,12 +8523,14 @@ float calculate_max_content_height(LayoutContext* lycon, DomNode* node, float wi
     lycon->profiler.height_computations++;
     float height = calculate_max_content_height_uncached(
         lycon, node, width, ignore_definite_block_size, width_is_used_size);
+    version.retain_across_passes &= scope.retain_across_passes;
     if (element && !scope.cacheable) lycon->profiler.height_uncacheable++;
     if (cache && scope.cacheable && isfinite(height) &&
-        radiant::intrinsic_height_version_equal(version, radiant::intrinsic_height_version(lycon, element))) {
+        radiant::intrinsic_height_version_equal(version,
+            radiant::intrinsic_height_version(lycon, element, scope.retain_across_passes))) {
         auto* entry = (radiant::IntrinsicHeightEntry*)pool_calloc(lycon->pool, sizeof(radiant::IntrinsicHeightEntry));
         if (entry) {
-            *entry = {cache->entries, key, height, scope.context_independent};
+            *entry = {cache->entries, key, version, height, scope.context_independent};
             cache->entries = entry;
             lycon->profiler.height_stores++;
         }
