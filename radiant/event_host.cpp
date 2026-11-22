@@ -15,7 +15,8 @@ bool radiant_event_host_register(const RadiantEventHostOps* operations) {
         &RadiantEventHostOps::allow_frame_reflow, &RadiantEventHostOps::frame_tick,
         &RadiantEventHostOps::pending_frames, &RadiantEventHostOps::focus_element,
         &RadiantEventHostOps::collect_dom, &RadiantEventHostOps::editing_animation_active,
-        &RadiantEventHostOps::editing_animation_tick, &RadiantEventHostOps::input_capabilities);
+        &RadiantEventHostOps::editing_animation_tick, &RadiantEventHostOps::input_capabilities,
+        &RadiantEventHostOps::change_focus);
 }
 
 bool radiant_event_host_dispatch(UiContext* ui, DomDocument* document, RdtEvent* event) {
@@ -127,4 +128,11 @@ bool radiant_event_host_editing_animation_tick(UiContext* ui, double timestamp) 
 
 bool radiant_event_host_input_capabilities(UiContext* ui, const CssInputCapabilities* capabilities) {
     return lambda_provider_call(lambda_provider_load(&event_host_ops), &RadiantEventHostOps::input_capabilities, ui, capabilities);
+}
+
+bool radiant_event_host_change_focus(DomDocument* document, DomElement* target) {
+    const RadiantEventHostOps* operations = lambda_provider_load(&event_host_ops);
+    if (!operations) return false;
+    operations->change_focus(document, target);
+    return true;
 }

@@ -152,9 +152,12 @@ void radiant_dom_mutation_finish(DomDocument* doc, DomJsMutationKind kind) {
     DocState* state = doc ? doc->state : nullptr;
     if (!state) return;
     view_state_prune_orphans(state);
-    // a connected focus owner can lose eligibility through the new cascade or attributes.
+    // publish blur before reflow validates the formerly focused area.
     View* focused = focus_get(state);
-    if (focused && !radiant_event_host_focusable(focused, true)) focus_clear(state);
+    if (focused && !radiant_event_host_focusable(focused, true) &&
+        !radiant_event_host_change_focus(doc, nullptr)) {
+        focus_clear(state);
+    }
     // Paint-only mutations still need a style turn in a transient CLI document.
     if (kind != DOM_JS_MUTATION_STYLE_REPAINT ||
         (doc->js.host_ui_context && !doc->js.host_driven_loop)) {
