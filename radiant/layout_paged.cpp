@@ -104,7 +104,7 @@ struct PagedReferenceSession {
     PagedFloatReservation* float_reservations;
     size_t float_reservation_count, float_reservation_capacity;
     PagedFlowWidth* widths;
-    size_t width_count, width_capacity;
+    size_t width_count, width_capacity, last_width_index;
     struct PagedFolioPage { const DomElement* folio; uint32_t page; }* folios; // body folios' pages in the previous pass
     size_t folio_count, folio_capacity;
     ~PagedReferenceSession() {
@@ -982,6 +982,7 @@ struct PagedFlowParagraph {    // one block container's uninterrupted inline run
     PagedFlowParagraph* next;
     ViewBlock* fit_item;
     bool principal_lines;
+    bool inline_flow_admitted;
     PagedFlowParagraph* parallel; // physical-Y flex lanes retain independent breaks
     PagedFlowParagraph* parallel_owner;
     float growth;
@@ -4472,17 +4473,25 @@ static PagedWidthChain paged_flow_width_chain(PagedFlowState* state, ViewBlock* 
 static PagedFlowWidth* paged_flow_width(PagedFlowState* state, ViewBlock* block, bool create, bool formatting = false) {
     PagedReferenceSession* session = state->composition->references;
     if (!session) return nullptr;
-    for (size_t i = 0; i < session->width_count; i++)
-        if (session->widths[i].source == block) return &session->widths[i];
+    // consecutive lines look up the same box; keep an index because the array can grow.
+    size_t last = session->last_width_index;
+    if (last < session->width_count && session->widths[last].source == block)
+        return &session->widths[last];
+    for (size_t i = 0; i < session->width_count; i++) {
+        if (session->widths[i].source != block) continue;
+        session->last_width_index = i;
+        return &session->widths[i];
+    }
+    if (!create) return nullptr;
     bool detached = state->outside && state->detached_note;
     if (!formatting && paged_flow_width_chain(state, block) != PAGED_WIDTH_AUTO) return nullptr;
-    if (!create) return nullptr;
     if (session->width_count >= state->composition->options.max_nodes ||
         !lam::pool_grow_array(session->pool, &session->widths, &session->width_capacity,
             session->width_count + 1, 16)) {
         paged_flow_fail(state, TYPESET_OUT_OF_MEMORY, block, nullptr); return nullptr;
     }
-    PagedFlowWidth* width = &session->widths[session->width_count++];
+    session->last_width_index = session->width_count++;
+    PagedFlowWidth* width = &session->widths[session->last_width_index];
     *width = {block, detached ? state->detached_width : state->run_width};
     width->detached = detached; width->formatting = formatting;
     return width;
@@ -4555,11 +4564,12 @@ void paged_line_start(LayoutContext* lycon, ViewBlock* block) {
     PagedFlowState* state = lycon->paged;
     if (state->status != TYPESET_OK || !block || state->row_probe || layout_context_is_measuring(lycon)) return;
     PagedFlowWidth* width = paged_flow_width(state, block, false);
-    if (!(width && width->formatting) &&
-        (state->outside ? !state->detached_note : !paged_flow_fragmentable(lycon, block))) return;
     size_t line = lycon->block.line_number;
+    // ordinary lines have no width override and need no fragment ancestry query.
     if (!width || line >= width->count || !width->lines[line] ||
         (!width->formatting && block->blk && block->block()->given_width >= 0.0f)) return;
+    if (!width->formatting &&
+        (state->outside ? !state->detached_note : !paged_flow_fragmentable(lycon, block))) return;
     // the live context retains the original measure while each continuation line receives its own allocation.
     float content = fmaxf(0.0f, lycon->block.content_width + width->lines[line] - width->containing_width);
     lycon->line.right = lycon->line.align_right = lycon->line.left + content;
@@ -5051,6 +5061,7 @@ static void paged_commit_line(LayoutContext* lycon, ViewBlock* block, float used
     PagedFlowParagraph* paragraph = paged_paragraph_open(state, block);
     if (!paragraph || !lam::pool_grow_array(state->composition->pool, &paragraph->lines, &paragraph->capacity,
         paragraph->count + 1, 16)) { paged_flow_fail(state, TYPESET_OUT_OF_MEMORY, block, nullptr); return; }
+    if (!native) paragraph->inline_flow_admitted = true;
     if (state->vertical_root && !state->outside) {
         // preserve full committed line allocations before normal layout maps their physical ink rectangles.
         paragraph->principal_lines = true;
@@ -5094,8 +5105,14 @@ void paged_line_commit(LayoutContext* lycon, float used_line_height) {
     PagedFlowState* state = lycon->paged;
     if (state->outside || state->status != TYPESET_OK || !lycon->line.start_view) return;
     ViewBlock* block = paged_flow_parent_block(lycon->line.start_view);
-    if (!block || !paged_flow_block(block) || paged_flow_closed(state, block) ||
-        (state->vertical_root ? layout_context_is_measuring(lycon) : !paged_flow_fragmentable(lycon, block))) return;
+    if (!block) return;
+    if (state->vertical_root ? layout_context_is_measuring(lycon) :
+        (lycon->run_mode != radiant::RunMode::PerformLayout || lycon->measurement_root)) return;
+    // an open run already passed the box and ancestor checks on its first line.
+    bool admitted = state->paragraph && state->paragraph->block == block &&
+        state->paragraph->inline_flow_admitted;
+    if (!admitted && (!paged_flow_block(block) || paged_flow_closed(state, block) ||
+        (!state->vertical_root && !paged_flow_fragmentable(lycon, block)))) return;
     paged_commit_line(lycon, block, used_line_height);
 }
 

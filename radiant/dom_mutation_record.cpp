@@ -1,6 +1,7 @@
 #include "dom_mutation_record.hpp"
 #include "css_mutation_queries.hpp"
 #include "event.hpp"
+#include "event_host.hpp"
 #include "view.hpp"
 #include "lambda/input/css/dom_lifecycle.hpp"
 #include "lib/str.h"
@@ -151,6 +152,9 @@ void radiant_dom_mutation_finish(DomDocument* doc, DomJsMutationKind kind) {
     DocState* state = doc ? doc->state : nullptr;
     if (!state) return;
     view_state_prune_orphans(state);
+    // a connected focus owner can lose eligibility through the new cascade or attributes.
+    View* focused = focus_get(state);
+    if (focused && !radiant_event_host_focusable(focused, true)) focus_clear(state);
     // Paint-only mutations still need a style turn in a transient CLI document.
     if (kind != DOM_JS_MUTATION_STYLE_REPAINT ||
         (doc->js.host_ui_context && !doc->js.host_driven_loop)) {

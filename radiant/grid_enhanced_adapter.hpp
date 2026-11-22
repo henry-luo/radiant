@@ -504,10 +504,17 @@ inline ContribArray collect_item_contributions(
         contrib.max_content_contribution += margins;
         contrib.is_scroll_container = item->scroller &&
             (horizontal ? item->scroll()->overflow_x : item->scroll()->overflow_y) != CSS_VALUE_VISIBLE;
-        contrib.minimum_contribution = grid_item_minimum_contribution(item, horizontal,
-            contrib.min_content_contribution - margins, contrib.max_content_contribution - margins,
-            contrib.is_scroll_container, contrib.track_span > 1 &&
-                item_crosses_flexible_track(tracks, contrib.track_start, contrib.track_span, true)) + margins;
+        bool spans_flex = contrib.track_span > 1 &&
+            item_crosses_flexible_track(tracks, contrib.track_start, contrib.track_span, true);
+        // a definite preferred size supplies the item's minimum contribution
+        // even when its used automatic minimum is zero across flexible tracks.
+        if (spans_flex && grid_item_has_independent_preferred_size(grid_layout->lycon, item, horizontal)) {
+            contrib.minimum_contribution = contrib.min_content_contribution;
+        } else {
+            contrib.minimum_contribution = grid_item_minimum_contribution(item, horizontal,
+                contrib.min_content_contribution - margins, contrib.max_content_contribution - margins,
+                contrib.is_scroll_container, spans_flex) + margins;
+        }
         if (contrib.track_span > 0 && !contributions.push_back(contrib)) {
             grid_layout->storage_failed = true;
             return contributions;

@@ -3586,6 +3586,39 @@ static float multicol_fragment_content_extent(ViewBlock* child, float fragment_e
     return max(fragment_extent - decoration, 0.0f);
 }
 
+static bool multicol_uses_cloned_inline_trim(ViewBlock* child) {
+    return child && child->blk && !multicol_has_vertical_inline_axis(child) &&
+        child->block()->rare().box_decoration_break == CSS_VALUE_CLONE &&
+        child->block()->rare().flow.text_box_trim_applied &&
+        !layout_axis_has_given_size(child, false) && !is_multicol_container(child) &&
+        !multicol_has_in_flow_block_child(child);
+}
+
+static float multicol_cloned_line_extent(ViewBlock* child, float line_advance) {
+    const auto& flow = child->block()->rare().flow;
+    return line_advance - flow.text_box_trim_start_amount - flow.text_box_trim_end_amount;
+}
+
+static float multicol_cloned_inline_flow_extent(ViewBlock* child, float item_height,
+    float fragment_height, float initial_fragment_offset) {
+    if (fragment_height <= 0.0f || !multicol_uses_cloned_inline_trim(child)) return -1.0f;
+    int lines = 0;
+    float advance = 0.0f;
+    if (!multicol_inline_line_metrics(child, &lines, &advance, nullptr) || lines < 2) return -1.0f;
+    float content_height = multicol_fragment_content_extent(child, fragment_height);
+    float trimmed_line = multicol_cloned_line_extent(child, advance);
+    int first = multicol_lines_that_fit_fragment(
+        content_height - initial_fragment_offset, advance, trimmed_line);
+    int continuation = multicol_lines_that_fit_fragment(content_height, advance, trimmed_line);
+    int fragment = 0;
+    int slot = 0;
+    multicol_map_line_to_fragment(lines - 1, first, continuation, &fragment, &slot);
+    if (fragment == 0) return item_height;
+    // only unused space before the final fragment contributes a full column.
+    float consumed = fragment * fragment_height - initial_fragment_offset;
+    return consumed + item_height - (lines - slot - 1) * advance;
+}
+
 static MulticolFragmentPlacement multicol_place_fragment(
     float original_offset,
     float fragment_height,
@@ -4058,7 +4091,14 @@ static bool multicol_project_fragmented_inline_descendants(
     float content_fragment_height = multicol_fragment_content_extent(child, fragment_height);
     int first_fragment_lines = 0;
     int continuation_fragment_lines = 0;
-    if (slice_start_trim) {
+    if (multicol_uses_cloned_inline_trim(child)) {
+        // each clone trims the edges again, leaving more room for complete lines.
+        float trimmed_line_extent = multicol_cloned_line_extent(child, line_advance);
+        first_fragment_lines = multicol_lines_that_fit_fragment(
+            content_fragment_height - initial_fragment_offset, line_advance, trimmed_line_extent);
+        continuation_fragment_lines = multicol_lines_that_fit_fragment(
+            content_fragment_height, line_advance, trimmed_line_extent);
+    } else if (slice_start_trim) {
         first_fragment_lines = multicol_lines_that_fit_fragment(
             content_fragment_height, line_advance, visual_height, first_fragment_line_offset);
         continuation_fragment_lines = multicol_lines_that_fit_fragment(
@@ -7061,6 +7101,10 @@ static float multicol_fragmented_child_union(
         initial_fragment_offset = fmodf(initial_fragment_offset, fragment_capacity);
     }
 
+    float cloned_flow = multicol_cloned_inline_flow_extent(
+        child, item_height, fragment_height, initial_fragment_offset);
+    if (cloned_flow >= 0.0f) item_height = cloned_flow;
+
     if (negative_initial_offset <= 0.0f) {
         int grid_used_columns = 0;
         float grid_union_height = 0.0f;
@@ -7282,6 +7326,7 @@ static float multicol_fragmented_child_union(
 
     if (!preserve_authored_block_size) {
         if (monolithic_flow_extent >= 0.0f) child->height = monolithic_flow_extent;
+        else if (cloned_flow >= 0.0f) child->height = cloned_flow;
         multicol_store_layout_fragments(child, fragment_count, layout_column_count,
             fragment_height, column_width, column_gap, row_gap, fragment_visual_width,
             initial_fragment_offset, zero_height_fragmentainer, group,
@@ -7427,6 +7472,7 @@ static float multicol_fragmented_child_union(
         }
         if (out_fragment_flow_height) *out_fragment_flow_height = monolithic_flow_extent;
     }
+    if (out_fragment_flow_height && cloned_flow >= 0.0f) *out_fragment_flow_height = cloned_flow;
     if (out_used_columns) *out_used_columns = used_columns;
     return union_height;
 }
@@ -7897,10 +7943,10 @@ static void multicol_distribute_flow_group(
                 child, flow_height, target_height, fragment_count,
                 cursor->block_offset);
             float fragmented_flow_height = flow_height;
-            // css-break: only descendant forced breaks create new flow beyond
-            // the caller's logical extent; trim-aware fragmentation owns its
-            // continuation height and must not be replaced by visible unions.
-            float* generated_flow_height = multicol_has_forced_break_descendant(child)
+            // forced breaks and cloned trim consume flow according to the
+            // fragment sequence instead of the continuous box's height.
+            float* generated_flow_height = (multicol_has_forced_break_descendant(child) ||
+                multicol_uses_cloned_inline_trim(child))
                 ? &fragmented_flow_height : nullptr;
             float projected_flow_shift = 0.0f;
             placed_height = multicol_fragmented_child_union(

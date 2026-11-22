@@ -1820,6 +1820,24 @@ int collect_and_prepare_flex_items(LayoutContext* lycon,
 
     flex_layout->item_count = item_count;
 
+    // a column uses the wrapped anonymous block's height as its main-size
+    // contribution when its inline space is already known.
+    if (!is_main_axis_horizontal(flex_layout) && !layout_block_inline_axis_is_vertical(container) &&
+        (flex_layout->has_definite_cross_size || lycon->available_space.width.is_definite()) &&
+        container_content_width > 0.0f) {
+        for (int i = 0; i < item_count; i++) {
+            ViewElement* item = lam::view_as_element(flex_layout->flex_items[i]);
+            if (!flex_item_is_anonymous_text(item)) continue;
+            FlexItemProp* prop = item->fi;
+            if (container_content_width >= prop->intrinsic_width.max_content ||
+                prop->intrinsic_width.min_content == prop->intrinsic_width.max_content) continue;
+            radiant::SizeF measured = layout_measure_anonymous_text(
+                lycon, item, prop->anonymous_text_runs, container_content_width);
+            if (measured.height <= 0.0f) continue;
+            prop->intrinsic_height.min_content = prop->intrinsic_height.max_content = measured.height;
+        }
+    }
+
     log_leave();
 
     return item_count;
