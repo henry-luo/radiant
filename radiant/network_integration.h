@@ -54,6 +54,7 @@ void radiant_network_wake_platform(void* user_data);
 void radiant_discover_document_resources(DomDocument* doc);
 
 // overlap parsed eager image requests with blocking CSS using the normal source selector.
+bool radiant_image_is_eager(DomElement* image);
 void radiant_prefetch_document_eager_images(DomDocument* doc);
 
 // load waits for admitted eager images and used CSS backgrounds, not speculative resources.

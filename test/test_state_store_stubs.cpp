@@ -5,6 +5,7 @@
 
 #include "lambda/core/data.hpp"
 #include "radiant/event.hpp"
+#include "radiant/event_host.hpp"
 #include "radiant/render.hpp"
 #include "radiant/view.hpp"
 
@@ -51,6 +52,12 @@ bool is_view_programmatically_focusable(View* view) {
 
 bool radiant_event_host_focusable(View* view, bool programmatic) {
     return programmatic && is_view_programmatically_focusable(view);
+}
+
+bool radiant_event_host_change_focus(DomDocument* document, DomElement* target) {
+    (void)document;
+    (void)target;
+    return false;
 }
 
 void view_pool_release_detached_subtree(DomNode* root) {

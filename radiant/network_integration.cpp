@@ -278,13 +278,16 @@ static void discover_link_callback(DomElement* link, void* user_data) {
     }
 }
 
+static char* selected_image_source(DomDocument* doc, DomElement* img) {
+    CssEngine* engine = (CssEngine*)doc->services.cached_css_engine;
+    if (!engine && doc->resource_manager) engine = (CssEngine*)doc->resource_manager->css_engine;
+    return layout_resolve_replaced_image_source(img, engine);
+}
+
 // Callback for <img> discovery
 static void discover_img_callback(DomElement* img, void* user_data) {
     DomDocument* doc = (DomDocument*)user_data;
-
-    CssEngine* engine = (CssEngine*)doc->services.cached_css_engine;
-    if (!engine && doc->resource_manager) engine = (CssEngine*)doc->resource_manager->css_engine;
-    lam::Temp<char> selected(layout_resolve_replaced_image_source(img, engine));
+    lam::Temp<char> selected(selected_image_source(doc, img));
     const char* src = selected.get();
     if (!src) {
         log_debug("network: <img> without src attribute");
@@ -304,14 +307,17 @@ static void discover_img_callback(DomElement* img, void* user_data) {
         radiant_html_fetch_priority(img->get_attribute("fetchpriority"), PRIORITY_NORMAL), img);
 }
 
-static void prefetch_eager_img_callback(DomElement* img, void* user_data) {
+bool radiant_image_is_eager(DomElement* img) {
     const char* loading = img->get_attribute("loading");
-    if (!loading || !str_ieq_cstr(loading, "lazy")) discover_img_callback(img, user_data);
+    return !loading || !str_ieq_cstr(loading, "lazy");
+}
+
+static void prefetch_eager_img_callback(DomElement* img, void* user_data) {
+    if (radiant_image_is_eager(img)) discover_img_callback(img, user_data);
 }
 
 void radiant_prefetch_document_eager_images(DomDocument* doc) {
-    if (doc && doc->root && doc->resource_manager)
-        find_elements_by_selector(doc->root, "img", prefetch_eager_img_callback, doc);
+    if (doc) find_elements_by_selector(doc->root, "img", prefetch_eager_img_callback, doc);
 }
 
 // Callback for <svg><use> discovery
@@ -537,19 +543,30 @@ static bool prefetch_selected_css_property(StyleNode* node, void* context) {
     return true;
 }
 
+static bool element_has_pending_load_resource(DomDocument* doc, DomElement* element) {
+    lam::Temp<char> selected;
+    const char* source = nullptr;
+    if (element->tag() == MARKUP_NAME_LINK &&
+        radiant_html_has_token(element->get_attribute("rel"), "stylesheet")) {
+        source = element->get_attribute("href");
+    } else if (element->tag() == MARKUP_NAME_IMG && radiant_image_is_eager(element)) {
+        // parsed markup can have queued bytes without a scripted image request record.
+        selected.reset(selected_image_source(doc, element));
+        source = selected.get();
+    }
+    if (!source || !*source) return false;
+    lam::Temp<char> absolute(resolve_url(source, doc));
+    return absolute && pending_document_resource(doc, absolute.get());
+}
+
 static bool prefetch_selected_css_resources(DomNode* node, void* context) {
     if (!node || !node->is_element() || !radiant_document_resource_is_active(node)) return true;
     CssResourcePrefetchContext* prefetch = (CssResourcePrefetchContext*)context;
     prefetch->element = node->as_element();
     if (prefetch->check_load_blockers) {
-        if (prefetch->pending) return false;
-        if (prefetch->element->tag() == MARKUP_NAME_LINK &&
-            radiant_html_has_token(prefetch->element->get_attribute("rel"), "stylesheet")) {
-            const char* href = prefetch->element->get_attribute("href");
-            char* absolute = href ? resolve_url(href, prefetch->doc) : nullptr;
-            prefetch->pending = absolute && pending_document_resource(prefetch->doc, absolute);
-            mem_free(absolute);
-            if (prefetch->pending) return false;
+        if (prefetch->pending || element_has_pending_load_resource(prefetch->doc, prefetch->element)) {
+            prefetch->pending = true;
+            return false;
         }
         // display:none subtrees and display:contents boxes do not request backgrounds.
         for (DomNode* ancestor = node; ancestor; ancestor = ancestor->parent) {

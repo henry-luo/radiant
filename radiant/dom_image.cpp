@@ -84,9 +84,8 @@ bool radiant_document_has_pending_image_load_blockers(DomDocument* doc) {
         if (source->document != doc || !source->pending) continue;
         DomNode* node = dom_node_ref_validate(doc, source->node);
         DomElement* element = node ? node->as_element() : nullptr;
-        const char* loading = element ? element->get_attribute("loading") : nullptr;
         // detached Image requests also block load; an explicit lazy request does not.
-        if (element && (!loading || !str_ieq_cstr(loading, "lazy"))) return true;
+        if (element && radiant_image_is_eager(element)) return true;
     }
     return false;
 }
