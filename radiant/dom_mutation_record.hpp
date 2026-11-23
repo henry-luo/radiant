@@ -13,6 +13,9 @@ void radiant_dom_record_inline_stylesheet_owner(DomDocument* document, DomElemen
 void radiant_dom_mutation_begin(DomDocument* document, DomJsMutationKind kind,
                                 DomNode* target, DomNode* parent, const char* attribute_name,
                                 CssPropertyCode presentation_property);
+void radiant_dom_mutation_begin(DomDocument* document, DomJsMutationKind kind,
+                                DomNode* target, DomNode* parent, const char* attribute_name,
+                                CssPropertyCode presentation_property, const char* old_value);
 void radiant_dom_mutation_finish(DomDocument* document, DomJsMutationKind kind);
 void radiant_dom_notify_native(DomDocument* document, DomJsMutationKind kind,
                                DomNode* target, DomNode* parent,
