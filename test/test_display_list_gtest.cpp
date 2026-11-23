@@ -640,6 +640,38 @@ TEST_F(DisplayListTest, ReplayedGlyphCoverageKeepsTransparentEdges) {
     EXPECT_EQ((pixel >> 24) & 0xFFu, 64u);
 }
 
+TEST_F(DisplayListTest, ReplayedGlyphsClipToDestinationRows) {
+    uint8_t ink[64];
+    memset(ink, 255, sizeof(ink));
+    for (GlyphPixelMode mode : {GLYPH_PIXEL_GRAY, GLYPH_PIXEL_BGRA}) {
+        for (int origin : {0, 5}) {
+            SCOPED_TRACE(origin);
+            SCOPED_TRACE(mode);
+            uint32_t rows[] = {0xaabbccdd, 0xaabbccdd, 0, 0, 0, 0, 0xaabbccdd, 0xaabbccdd};
+            ImageSurface surface = {};
+            surface.width = surface.height = 2;
+            surface.pitch = 8;
+            surface.pixels = rows + 2;
+            surface.tile_offset_y = origin;
+            DlDrawGlyph glyph = {};
+            glyph.bitmap.buffer = ink;
+            glyph.bitmap.width = glyph.bitmap.height = 4;
+            glyph.bitmap.pitch = mode == GLYPH_PIXEL_BGRA ? 16 : 4;
+            glyph.bitmap.pixel_mode = mode;
+            glyph.is_color_emoji = mode == GLYPH_PIXEL_BGRA;
+            glyph.x = -1;
+            glyph.y = origin - 1;
+            glyph.color = test_color(0xffffffff);
+            glyph.clip = {-1.0f, (float)origin - 1.0f, 3.0f, (float)origin + 3.0f};
+
+            dl_replay_draw_glyph(&surface, &glyph);
+
+            for (unsigned pixel = 0; pixel < 8; pixel++)
+                EXPECT_EQ(rows[pixel], pixel >= 2 && pixel < 6 ? 0xffffffff : 0xaabbccdd) << pixel;
+        }
+    }
+}
+
 TEST_F(DisplayListTest, MinifiedGlyphPreservesThinStrokesAtEverySourcePhase) {
     const float scales[] = {0.125f, 0.25f, 0.5f};
     for (float scale : scales) for (int column = 0; column < 8; column++) {

@@ -72,17 +72,29 @@ static inline void glyph_blend_coverage_pixel(uint8_t* p, Color color, uint32_t 
     render_pixel_source_over_coverage(p, color, coverage);
 }
 
+static inline IRect glyph_bitmap_region(const ImageSurface* surface, const Bound& clip,
+                                        int x, int y, int width, int height) {
+    // recorded clips describe paint in device coordinates. The replay target can cover fewer rows.
+    float surface_top = (float)surface->tile_offset_y;
+    float left = fmaxf(0.0f, fmaxf(clip.left, (float)x));
+    float top = fmaxf(surface_top, fmaxf(clip.top, (float)y));
+    float right = fminf((float)surface->width, fminf(clip.right, (float)x + width));
+    float bottom = fminf(surface_top + surface->height, fminf(clip.bottom, (float)y + height));
+    if (left >= right || top >= bottom) return {};
+    int pixel_left = (int)left, pixel_top = (int)top; // INT_CAST_OK: destination pixel bounds
+    return {pixel_left, pixel_top, (int)right - pixel_left, (int)bottom - pixel_top}; // INT_CAST_OK: pixel extents
+}
+
 // Clip-path shapes narrow each destination row, as they do for direct fills (raster_fill_rect).
 static inline void glyph_draw_coverage_bitmap(ImageSurface* surface, const GlyphBitmap* bitmap,
                                               int x, int y, const Bound* clip, Color color,
                                               ClipShape** clip_shapes = nullptr, int clip_depth = 0) {
     if (!surface || !bitmap || !clip || color.a == 0) return;
 
-    int left = (int)clip->left > x ? (int)clip->left : x;
-    int right = (int)clip->right < x + (int)bitmap->width ? (int)clip->right : x + (int)bitmap->width;
-    int top = (int)clip->top > y ? (int)clip->top : y;
-    int bottom = (int)clip->bottom < y + (int)bitmap->height ? (int)clip->bottom : y + (int)bitmap->height;
-    if (left >= right || top >= bottom) return;
+    IRect region = glyph_bitmap_region(surface, *clip, x, y, bitmap->width, bitmap->height);
+    if (!region.w || !region.h) return;
+    int left = region.x, right = left + region.w;
+    int top = region.y, bottom = top + region.h;
     bool shaped = !clip_shapes_pixel_box_inside(clip_shapes, clip_depth, left, top, right, bottom);
 
     for (int i = top - y; i < bottom - y; i++) {
@@ -91,8 +103,6 @@ static inline void glyph_draw_coverage_bitmap(ImageSurface* surface, const Glyph
                                                 left, right, &row_left, &row_right);
         uint8_t* row_pixels = (uint8_t*)surface->pixels + (y + i - surface->tile_offset_y) * surface->pitch;
         for (int j = row_left - x; j < row_right - x; j++) {
-            if (x + j < 0 || x + j >= surface->width) continue;
-
             uint32_t intensity = glyph_sample_coverage_pixel(bitmap, i, j);
             if (intensity > 0) {
                 uint8_t* p = (uint8_t*)(row_pixels + (x + j) * 4);
@@ -195,11 +205,10 @@ static inline void glyph_draw_color_bgra_bitmap(ImageSurface* surface, const Gly
     int target_h = (int)(bitmap->height * bscale + 0.5f);
     if (target_w <= 0 || target_h <= 0) return;
 
-    int left = (int)clip->left > x ? (int)clip->left : x;
-    int right = (int)clip->right < x + target_w ? (int)clip->right : x + target_w;
-    int top = (int)clip->top > y ? (int)clip->top : y;
-    int bottom = (int)clip->bottom < y + target_h ? (int)clip->bottom : y + target_h;
-    if (left >= right || top >= bottom) return;
+    IRect region = glyph_bitmap_region(surface, *clip, x, y, target_w, target_h);
+    if (!region.w || !region.h) return;
+    int left = region.x, right = left + region.w;
+    int top = region.y, bottom = top + region.h;
     bool shaped = !clip_shapes_pixel_box_inside(clip_shapes, clip_depth, left, top, right, bottom);
 
     float inv_scale = 1.0f / bscale;
@@ -211,7 +220,6 @@ static inline void glyph_draw_color_bgra_bitmap(ImageSurface* surface, const Gly
         float src_y = dy * inv_scale;
 
         for (int dx = row_left - x; dx < row_right - x; dx++) {
-            if (x + dx < 0 || x + dx >= surface->width) continue;
             float src_x = dx * inv_scale;
             GlyphColorSample sample = glyph_sample_bgra_bilinear(bitmap, src_x, src_y);
 

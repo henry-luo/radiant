@@ -33,6 +33,7 @@ struct NativeGlBinding {
     NativeGlBindingKind kind;
 };
 static constexpr unsigned NATIVE_GL_BINDING_LIMIT = 24;
+enum NativeGlDrawMode { NATIVE_GL_DRAW_FILL, NATIVE_GL_DRAW_WIREFRAME, NATIVE_GL_DRAW_LINES };
 struct NativeGlDraw {
     NativeGlResource program, vertices;
     unsigned count, instances;
@@ -47,6 +48,7 @@ struct NativeGlDraw {
     NativeGlBinding bindings[NATIVE_GL_BINDING_LIMIT] = {};
     unsigned binding_count = 0;
     bool depth_test = true;
+    NativeGlDrawMode mode = NATIVE_GL_DRAW_FILL;
 };
 struct NativeGlUniform { NativeGlResource program; int location; uint64_t generation; };
 // Holds the context current across a run of calls (one scene frame): each call then skips
