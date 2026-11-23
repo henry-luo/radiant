@@ -2162,8 +2162,10 @@ static int view_doc_in_window_with_events_internal(const char* doc_file,
                     window_cleanup_view_runtime(thread_pool, file_cache, false, nullptr, cwd);
                     return 1;
                 }
-            } else {
-                layout_update_document(&ui_context, doc);
+            } else if (!layout_update_document(&ui_context, doc) && preview) {
+                if (sim_ctx) event_sim_free(sim_ctx);
+                window_cleanup_view_runtime(thread_pool, file_cache, false, nullptr, cwd);
+                return 1;
             }
             phase_timing.layout_ms = view_phase_elapsed_ms(layout_start, time_now_ns());
             log_mem_stage("after-layout");

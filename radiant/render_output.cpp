@@ -629,7 +629,11 @@ static bool render_export_session_begin_internal(
         css_engine_set_viewport(engine, page_style.content_rect.width,
             page_style.content_rect.height);
     }
-    layout_update_document(session->ui_context, session->document);
+    if (!layout_update_document(session->ui_context, session->document) &&
+            session->ui_context->preview_first_viewport) {
+        render_export_session_finish(session);
+        return false;
+    }
     DomDocument* document = session->document;
     if (document->js.virtual_clock_enabled && document->js.post_load_settle_ms > 0.0 &&
         !document->js.runtime) {

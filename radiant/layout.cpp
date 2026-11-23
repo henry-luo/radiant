@@ -6370,6 +6370,9 @@ bool layout_update_document(UiContext* ui, DomDocument* doc) {
         // invalidation is a retained reflow, not a new view-pool epoch.
         bool reflow = doc->view_tree && doc->view_tree->root;
         layout_html_doc(ui, doc, reflow);
+        // A section found at the input frontier can change earlier line widths.
+        if (ui->preview_first_viewport && layout_preview_apply_paper(doc))
+            layout_html_doc(ui, doc, true);
     } else if (doc->pending_scroll_into_view_target.address) {
         // current flow is sufficient for scrolling; retain viewport/font/style validation above.
         if (!layout_scroll_into_view_without_relayout(ui, doc))
@@ -6378,7 +6381,8 @@ bool layout_update_document(UiContext* ui, DomDocument* doc) {
     // scroll writes change sticky placement without invalidating box flow.
     layout_resolve_scrolled_sticky(doc->view_tree);
     // observer writes belong to the next update, never to the snapshot just published.
-    return doc->view_tree && doc->view_tree->root;
+    return doc->view_tree && doc->view_tree->root &&
+        (!ui->preview_first_viewport || layout_preview_ok(doc));
 }
 
 struct LayoutScriptBudgetScope {
@@ -6483,6 +6487,9 @@ void layout_html_doc(UiContext* uicon, DomDocument *doc, bool is_reflow, PagedFl
     LayoutAnchorPass anchor_pass;
     LayoutPassScope layout_scope(&lycon, doc, uicon);
     lycon.paged = lam::up(paged);
+    LayoutFlowRefill refill = {};
+    if (!paged && uicon->preview_first_viewport && layout_preview_refill(doc, &refill))
+        lycon.flow_refill = lam::up(&refill);
     bool visibility_dependencies = false;
     view_geometry_walk_dom_tree(root_node, content_visibility_has_declaration, &visibility_dependencies);
     // relevance measurement must settle before styles can create motion timelines.

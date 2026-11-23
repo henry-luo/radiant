@@ -984,3 +984,17 @@ bool layout_prepare_generated_effects(LayoutContext* context, DomNode* root) {
     context->generated_effects_prepared = true;
     return true;
 }
+
+bool layout_prepare_appended_effects(LayoutContext* context, DomNode* first) {
+    if (!context->generated_effects_prepared || !first) return true;
+    // prepare the new source range without replaying generated effects on the prefix.
+    context->generated_effects_prepared = false;
+    context->preparing_generated_effects = true;
+    int remaining = context->node_limit - context->node_count;
+    bool complete = true;
+    for (DomNode* node = first; node && complete; node = node->next_sibling)
+        complete = prepare_generated_subtree(context, node, 0, &remaining);
+    context->preparing_generated_effects = false;
+    context->generated_effects_prepared = true;
+    return complete;
+}

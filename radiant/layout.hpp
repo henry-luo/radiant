@@ -1536,6 +1536,7 @@ struct LayoutCounterScope {
     ~LayoutCounterScope() { close(); }
 };
 bool layout_prepare_generated_effects(LayoutContext* context, DomNode* root);
+bool layout_prepare_appended_effects(LayoutContext* context, DomNode* first);
 struct CounterCheckpointState;
 // measurement temporarily owns cloned active maps; rollback restores values, frames and quote depth.
 struct CounterCheckpoint {
@@ -4042,11 +4043,22 @@ void layout_apply_grid_item_min_content_floor(
 
 void layout_final_grid_content(LayoutContext* lycon, GridContainerLayout* grid_layout);
 void layout_grid_absolute_children(LayoutContext* lycon, ViewBlock* container);
+struct LayoutFlowRefill {
+    DomElement* container;
+    DomNode* (*advance)(void* data, LayoutContext* layout);
+    void* data;
+    bool page_full;
+};
+bool layout_preview_refill(DomDocument* doc, LayoutFlowRefill* refill);
+bool layout_preview_ok(DomDocument* doc);
+bool layout_preview_apply_paper(DomDocument* doc);
+
 // tier-3: layout-transient, valid within pass
 typedef struct LayoutContext {
     lam::Up<View> view;  // current view
     lam::Up<DomNode> elmt;  // current dom element, used before the view is created
     lam::Up<ViewTree> selected_view_tree; // explicit secondary environment for shared value resolution
+    lam::Up<LayoutFlowRefill> flow_refill; // borrowed by the active preview pass
     lam::Up<struct ViewCssStyle> selected_style;
     bool css_query_probe; // resolve geometry without committing new motion timelines/snapshots
     lam::Up<radiant::CssResolvedStyle> css_style_recording;

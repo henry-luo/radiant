@@ -6108,6 +6108,30 @@ static void layout_shift_clean_block(LayoutContext* lycon, DomNode* child) {
     g_layout_shifted_reuse_count++;
 }
 
+static DomNode* layout_refill_flow(LayoutContext* lycon, ViewBlock* block) {
+    LayoutFlowRefill* refill = lycon->flow_refill;
+    if (!refill || refill->page_full || lycon->paged || lycon->css_query_probe ||
+            lycon->run_mode != radiant::RunMode::PerformLayout ||
+            refill->container != block->as_element()) return nullptr;
+
+    // keep the pending line open while checking whether another node can fit.
+    float used = lycon->block.advance_y + view_geometry_ancestor_offset(block, nullptr, true).y;
+    if (!lycon->line.is_line_start) {
+        float line_height = 0.0f;
+        line_baseline_position(lycon, &line_height);
+        used += line_height;
+    }
+    if (used >= lycon->height) {
+        refill->page_full = true;
+        if (lycon->profiler.enabled)
+            log_notice("PREVIEW_FLOW: page full at %.1f / %.1f", used, lycon->height);
+        return nullptr;
+    }
+    DomNode* first = refill->advance(refill->data, lycon);
+    if (first && lycon->line.is_line_start) prescan_and_layout_floats(lycon, first, block);
+    return first;
+}
+
 void layout_block_inner_content(LayoutContext* lycon, ViewBlock* block,
                                  float* fieldset_body_origin) {
     if (lycon->paged && paged_native_layout(lycon, block)) {
@@ -6241,6 +6265,9 @@ void layout_block_inner_content(LayoutContext* lycon, ViewBlock* block,
                 layout_resolved_display(block).inner == CSS_VALUE_MATH)) {
             child = layout_render_child_list(block->as_element());
         }
+        if (!child && lycon->flow_refill &&
+            (block->display.inner == CSS_VALUE_FLOW || block->display.inner == CSS_VALUE_FLOW_ROOT))
+            child = layout_refill_flow(lycon, block);
         if (child) {
             // CSS 2.1 §17.2.1: Orphaned table-internal elements (table-row, table-cell, etc.)
             bool is_orphaned_table_internal =
@@ -6335,6 +6362,8 @@ void layout_block_inner_content(LayoutContext* lycon, ViewBlock* block,
                         child = rendered_legend
                             ? fieldset_next_flow_child(block, child, rendered_legend)
                             : child->next_sibling;
+                        if (!child && lycon->flow_refill)
+                            child = layout_refill_flow(lycon, block);
                     } while (child);
                     if (!lycon->line.is_line_start) {
                         lycon->line.is_last_line = true;

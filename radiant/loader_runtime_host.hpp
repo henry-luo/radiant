@@ -16,6 +16,13 @@ struct LambdaDocumentTransformConfig;
 struct LambdaDocumentTransformOption;
 struct DocumentScriptPhaseTiming;
 
+struct RadiantPreviewSource {
+    void* state;
+    Element* (*advance)(void* state, bool* done);
+    void (*close)(void* state);
+    bool finished;
+};
+
 struct RadiantScriptDocumentLoad {
     Runtime* runtime;
     Pool* result_pool;
@@ -23,6 +30,7 @@ struct RadiantScriptDocumentLoad {
     Input* script_output;
     bool shared;
     bool stateless;
+    RadiantPreviewSource preview;
 };
 
 // Native timing data carries no script runtime objects across the host boundary.
