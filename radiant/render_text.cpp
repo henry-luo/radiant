@@ -924,9 +924,65 @@ static bool render_native_paint_cluster(RenderNativeTextCluster* cluster,
     return true;
 }
 
+static unsigned preview_text_units(const unsigned char* p, const unsigned char* end) {
+    unsigned units = 0;
+    for (; p < end; ++p) units += (*p & 0xC0) != 0x80;
+    return units;
+}
+
+static bool render_coarse_thumbnail_text(RasterRenderContext* rdcon, ViewText* view) {
+    if (!rdcon->coarse_text || !view->rect || !view->text_data()) return false;
+    const FontProp* style = view->font ? view->font.get() : rdcon->font.style.get();
+    if (!style) return false;
+    float em = style->font_size * rdcon->raster_scale;
+    const RdtMatrix* transform = render_state_current_transform(rdcon);
+    // use full glyph paint for transformed runs until their projected extent is known.
+    if (transform || !(em > 0.0f && em <= 3.0f)) return false;
+    const unsigned char* text = view->text_data();
+    RenderTextPaintIterator lines(rdcon, view);
+    bool vertical = text_orientation_is_vertical(layout_text_orientation_policy(view));
+    float scale = rdcon->raster_scale;
+    DomElement* parent = view->parent ? view->parent->as_element() : nullptr;
+    while (TextRect* line = lines.next(vertical)) {
+        float x = rdcon->block.x + line->x * scale;
+        float y = rdcon->block.y + line->y * scale;
+        if (render_text_bounds_miss_clip(rdcon,
+                {x, y, x + line->width * scale, y + line->height * scale})) continue;
+        render_text_inline_background(rdcon, view, line, parent, x, y);
+        const unsigned char* start = text + line->start_index;
+        int length = line->length - line->trailing_whitespace_bytes;
+        if (length <= 0) continue;
+        const unsigned char* end = start + length;
+        unsigned units = preview_text_units(start, end);
+        if (!units) continue;
+        float advance = text_rect_inline_extent(line) * scale / units;
+        float thickness = fmaxf(0.5f, em * 0.3f);
+        unsigned offset = 0;
+        for (auto* word = start; word < end;) {
+            auto* stop = word;
+            bool gap = str_char_is_ascii_space(*word);
+            do { ++stop; } while (stop < end && str_char_is_ascii_space(*stop) == gap);
+            unsigned count = preview_text_units(word, stop);
+            if (!gap && count) {
+                bool reverse = vertical ? line->inline_reversed : lines.reverses_clusters();
+                float at = (reverse ? units - offset - count : offset) * advance;
+                float span = count * advance;
+                Rect mark = vertical
+                    ? Rect{x + (line->width * scale - thickness) * 0.5f, y + at, thickness, span}
+                    : Rect{x + at, y + (line->height * scale - thickness) * 0.5f, span, thickness};
+                render_painter_fill_context_rect(rdcon, &mark, rdcon->color.c);
+            }
+            offset += count;
+            word = stop;
+        }
+    }
+    return true;
+}
+
 void render_text_view(RasterRenderContext* rdcon, ViewText* text_view) {
 
     if (view_visibility_is_hidden(text_view)) return;
+    if (render_coarse_thumbnail_text(rdcon, text_view)) return;
 
     if (!font_box_handle(&rdcon->font)) {
         return;

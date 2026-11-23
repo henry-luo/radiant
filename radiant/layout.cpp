@@ -5883,8 +5883,12 @@ void layout_html_root(LayoutContext* lycon, DomNode* elmt) {
             viewport_fits = true;
         }
     }
-    if (viewport_fits) layout_root_viewport_fits(lycon, html);
-    layout_root_horizontal_viewport_range(lycon, html, physical_width, physical_height);
+    bool preview_first_viewport = lycon->ui_context && lycon->ui_context->preview_first_viewport &&
+        lycon->ui_context->document.get() == lycon->doc.get();
+    if (viewport_fits || preview_first_viewport) layout_root_viewport_fits(lycon, html);
+    // the preview retains parser lookahead for layout, while the root stays on page one.
+    if (!preview_first_viewport)
+        layout_root_horizontal_viewport_range(lycon, html, physical_width, physical_height);
 
     uint64_t t_finalize = time_now_ns();
     log_info("%s [TIMING] layout: finalize_block_flow: %.1fms", elmt->source_loc(), time_elapsed_ms_f(t_layout_block, t_finalize));

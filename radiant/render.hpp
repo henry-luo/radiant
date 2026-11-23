@@ -2268,6 +2268,7 @@ struct UiCompositorState {
 void compositor_damage_add(CompositorDamage* damage, Bound rect);
 
 typedef struct RasterRenderContext : RenderContext {
+    bool coarse_text;
     ListBlot list;
     RdtVector vec;      // platform-agnostic vector renderer
 
@@ -4732,6 +4733,7 @@ typedef struct RenderOutputTarget {
     float output_scale;
     float device_scale;
     bool paged;
+    bool coarse_text;
     bool transparent_background;
     lam::Up<const RenderPagedOptions> paged_options;
 } RenderOutputTarget;
@@ -4761,6 +4763,10 @@ typedef struct RenderExportSession {
     bool ui_closed;
     bool closing;
 } RenderExportSession;
+
+bool preview_paged_options(const char* path, RenderPagedOptions* options);
+bool render_document_thumbnail(const char* path, const char* output, int width, int height);
+int view_document_preview(const char* path);
 
 void render_output_target_init(RenderOutputTarget* target, RenderOutputKind kind,
                                const char* output_file);

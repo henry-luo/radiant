@@ -1221,22 +1221,32 @@ NativeGlResource native_gl_target(NativeGlContext* context, unsigned width, unsi
 #endif
     return {};
 }
+unsigned native_gl_target_samples(NativeGlContext* context, NativeGlResource target) {
+#ifdef NATIVE_GL_ENABLED
+    NativeGlSlot* slot = native_gl_slot(context, target, NATIVE_GL_TARGET);
+    return slot ? slot->samples : 0;
+#else
+    return 0;
+#endif
+}
+
 bool native_gl_begin(NativeGlContext* context, NativeGlResource target, const float background[4]) {
 #ifdef NATIVE_GL_ENABLED
     NativeGlScope scope(context); NativeGlSlot* slot = native_gl_slot(context, target, NATIVE_GL_TARGET);
-    if (!scope.valid || !slot || slot->layered || (!background&&!slot->initialized)) return false;
+    if (!scope.valid || !slot || slot->layered || slot->top_down || (!background&&!slot->initialized)) return false;
     for (unsigned c = 0; background && c < 4; c++)
         if (!isfinite(background[c]) || background[c] < 0 || ((!slot->hdr || c==3) && background[c] > 1)) return false;
     NativeGlFunctions& gl = context->gl;
-    gl.BindFramebuffer(GL_FRAMEBUFFER, slot->name); gl.Viewport(0, 0, slot->width, slot->height);
-    if (slot->hdr) gl.Disable(GL_FRAMEBUFFER_SRGB);else gl.Enable(GL_FRAMEBUFFER_SRGB);
+    gl.BindFramebuffer(GL_FRAMEBUFFER, slot->name ? slot->name : slot->resolve);
+    gl.Viewport(0, 0, slot->width, slot->height);
+    if (slot->hdr || !slot->name) gl.Disable(GL_FRAMEBUFFER_SRGB);else gl.Enable(GL_FRAMEBUFFER_SRGB);
     gl.Enable(GL_DEPTH_TEST); gl.Disable(GL_SCISSOR_TEST); gl.DepthMask(GL_TRUE);
     gl.ColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
     if(background) {
         gl.ClearColor(background[0] * background[3], background[1] * background[3], background[2] * background[3], background[3]);
         gl.Clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     }
-    context->drawing = slot->id;slot->resolve_dirty=true;
+    context->drawing = slot->id;slot->resolve_dirty=slot->name != 0;
     slot->initialized=native_gl_check(context, background?"drawing buffer clear":"drawing buffer resume");return slot->initialized;
 #else
     return false;
@@ -1602,7 +1612,7 @@ bool native_gl_draw(NativeGlContext* context, const NativeGlDraw* draw) {
     else gl.DrawArraysInstanced(GL_TRIANGLES, 0, draw->count, draw->instances);
     gl.ColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);gl.Disable(GL_POLYGON_OFFSET_FILL);gl.Disable(GL_SAMPLE_ALPHA_TO_COVERAGE);
     NativeGlSlot* target=native_gl_slot(context,{context->drawing},NATIVE_GL_TARGET);
-    if (target) target->resolve_dirty=true;
+    if (target) target->resolve_dirty=target->name != 0;
     context->stats.draws++; return native_gl_check(context, "draw submission");
 #else
     return false;
@@ -1637,7 +1647,8 @@ static void native_gl_resolve_current(NativeGlContext* context, NativeGlSlot* sl
 #endif
 // A top-down copy of a drawing buffer that snapshots and the presenter read: a scene's sRGB-encoded linear
 // light, or a WebGL buffer's display bytes (`webgl`), stored as they are.
-static NativeGlResource native_gl_copy_target(NativeGlContext* context, unsigned width, unsigned height, bool webgl) {
+static NativeGlResource native_gl_copy_target(NativeGlContext* context, unsigned width, unsigned height,
+                                               bool webgl, bool top_down = true) {
 #ifdef NATIVE_GL_ENABLED
     NativeGlScope scope(context);
     if (!scope.valid || !width || !height || width > GL_DIMENSION_LIMIT || height > GL_DIMENSION_LIMIT) {
@@ -1646,7 +1657,7 @@ static NativeGlResource native_gl_copy_target(NativeGlContext* context, unsigned
     NativeGlSlot* slot = native_gl_allocate(context, NATIVE_GL_TARGET, (size_t)width * height * 4);
     if (!slot) return {};
     NativeGlFunctions& gl = context->gl;
-    slot->width = width; slot->height = height; slot->samples = 1; slot->top_down = true; slot->webgl = webgl;
+    slot->width = width; slot->height = height; slot->samples = 1; slot->top_down = top_down; slot->webgl = webgl;
     // a WebGL application's bindings survive a copy target made between its calls
     GLint texture, read, draw;
     gl.GetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
@@ -1665,6 +1676,9 @@ static NativeGlResource native_gl_copy_target(NativeGlContext* context, unsigned
     native_gl_error(context, "copy target framebuffer incomplete"); native_gl_release(context, {slot->id});
 #endif
     return {};
+}
+NativeGlResource native_gl_color_target(NativeGlContext* context, unsigned width, unsigned height) {
+    return native_gl_copy_target(context, width, height, false, false);
 }
 NativeGlResource native_gl_upscale_target(NativeGlContext* context, unsigned width, unsigned height) {
     return native_gl_copy_target(context, width, height, false);

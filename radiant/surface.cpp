@@ -202,19 +202,38 @@ static ImageSurface* image_surface_from_decoded(ImageDecoded* decoded) {
     decoded->pixels = nullptr; return surface;
 }
 
-ImageSurface* image_surface_decode_file(const char* path) {
+static ImageDecodeOptions image_surface_decode_options(unsigned max_side) {
     ImageDecodeOptions options; image_decode_options_init(&options); options.normalize_orientation = false;
+    if (max_side) {
+        options.mode = IMAGE_DECODE_THUMBNAIL;
+        options.target_width = options.target_height = max_side;
+        options.allow_full_decode = true;
+    }
+    return options;
+}
+
+static ImageSurface* image_surface_decode_file_limited(const char* path, unsigned max_side) {
+    ImageDecodeOptions options = image_surface_decode_options(max_side);
     ImageDecoded decoded = {};
     if (image_io_decode_path(nullptr, path, &options, &decoded, nullptr) != IMAGE_OK) return nullptr;
     return image_surface_from_decoded(&decoded);
 }
 
-ImageSurface* image_surface_decode_data(const unsigned char* data, size_t length) {
+ImageSurface* image_surface_decode_file(const char* path) {
+    return image_surface_decode_file_limited(path, 0);
+}
+
+static ImageSurface* image_surface_decode_data_limited(const unsigned char* data, size_t length,
+        unsigned max_side) {
     ImageSource source = image_source_memory(data, length);
-    ImageDecodeOptions options; image_decode_options_init(&options); options.normalize_orientation = false;
+    ImageDecodeOptions options = image_surface_decode_options(max_side);
     ImageDecoded decoded = {};
     if (image_decode(nullptr, &source, &options, &decoded, nullptr) != IMAGE_OK) return nullptr;
     return image_surface_from_decoded(&decoded);
+}
+
+ImageSurface* image_surface_decode_data(const unsigned char* data, size_t length) {
+    return image_surface_decode_data_limited(data, length, 0);
 }
 
 static bool image_path_has_declared_non_svg_extension(const char* file_path) {
@@ -291,8 +310,10 @@ bool document_dependency_admits(const DomDocument* document, const char* source)
 }
 
 static ImageSurface* load_image_resource(DomDocument* document, lam::Own<hashmap>* cache,
-        UiContext* animation_ui, const char* img_url, bool live_request) {
+        UiContext* animation_ui, const char* img_url, bool live_request, unsigned raster_limit = 0) {
     if (!document || !cache || !img_url) return nullptr;
+    // thumbnail paint uses the lazy first-frame decoder without retaining an animation.
+    bool animate_gif = animation_ui && !animation_ui->preview_still_images;
     if (strncmp(img_url, "blob:", 5) == 0) {
         img_url = dom_blob_url_data_uri(document, img_url);
         if (!img_url) return nullptr;
@@ -380,8 +401,9 @@ static ImageSurface* load_image_resource(DomDocument* document, lam::Own<hashmap
             if (image_probe(nullptr, &source, &info, nullptr) != IMAGE_OK) {
                 log_warn("IMAGE_IO: unsupported inline image, using placeholder"); return NULL;
             }
-            surface = image_surface_decode_data(decoded.get(), decoded_len);
-            if (surface) inline_frames = gif_detect_animated_from_memory(decoded.get(), decoded_len);
+            surface = image_surface_decode_data_limited(decoded.get(), decoded_len, raster_limit);
+            if (surface && animate_gif && info.format == IMAGE_CODEC_GIF)
+                inline_frames = gif_detect_animated_from_memory(decoded.get(), decoded_len);
             decoded.reset();
             if (!surface) {
                 log_warn("image: unsupported data URI image, using placeholder");
@@ -621,7 +643,13 @@ static ImageSurface* load_image_resource(DomDocument* document, lam::Own<hashmap
         }
         image_surface_apply_orientation_metadata(surface, 1);
     }
-    else {
+    else if (raster_limit && !is_http) {
+        surface = image_surface_decode_file_limited(file_path.get(), raster_limit);
+        if (!surface) {
+            load_image_cleanup_failed(*cache, abs_url, file_path);
+            return nullptr;
+        }
+    } else {
         ImageInfo info = {}; ImageError error = {}; ImageStatus status;
         if (is_http && downloaded_data) {
             ImageSource source = image_source_memory(downloaded_data.get(), downloaded_size);
@@ -650,7 +678,7 @@ static ImageSurface* load_image_resource(DomDocument* document, lam::Own<hashmap
     surface->url = abs_url;
 
     // Detect animated GIF and register with animation scheduler
-    if (surface->format == IMAGE_FORMAT_GIF && animation_ui && document->state) {
+    if (surface->format == IMAGE_FORMAT_GIF && animate_gif && document->state) {
         GifFrames* gif_frames = NULL;
         if (surface->source_path) {
             gif_frames = gif_detect_animated(surface->source_path);
@@ -670,13 +698,15 @@ ImageSurface* load_image(UiContext* uicon, const char* source) {
     return uicon ? load_image_resource(uicon->document, &uicon->image_cache, uicon, source, true) : nullptr;
 }
 
-ImageSurface* load_document_image(DomDocument* document, UiContext* uicon, const char* source) {
+ImageSurface* load_document_image(DomDocument* document, UiContext* uicon, const char* source,
+                                  unsigned raster_limit) {
     if (!uicon || !document_dependency_admits(document, source)) return nullptr;
     // embedded and secondary layouts load against their document, even when the host shows another
     bool live_request = uicon->document == document;
     DomDocument* previous = uicon->document;
     uicon->document = lam::up(document);
-    ImageSurface* image = load_image_resource(document, &uicon->image_cache, uicon, source, live_request);
+    ImageSurface* image = load_image_resource(document, &uicon->image_cache, uicon, source, live_request,
+        raster_limit);
     uicon->document = lam::up(previous);
     return image;
 }

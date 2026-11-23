@@ -4831,6 +4831,8 @@ typedef struct UiContext {
     struct StateDumpLog* state_dump_log;  // view-mode per-document Mark state dump owner
     bool event_log_enabled; // true when --event-log is active for view mode
     bool state_dump_enabled; // true when --state-dump is active for view mode
+    bool preview_first_viewport; // first-page previews have a fixed top-level scroll position
+    bool preview_still_images;  // thumbnail sessions need only the initial GIF frame
     bool headless;          // true if running headless (no visible window). When true, clipboard
                             // operations use the in-process ClipboardStore only and do NOT touch
                             // the OS pasteboard via GLFW (avoids cross-process races in tests).
@@ -4933,7 +4935,8 @@ extern void* load_styled_font(UiContext* uicon, const char* font_name, FontProp*
 extern void setup_font(UiContext* uicon, FontBox *fbox, FontProp *fprop);
 extern ImageSurface* load_image(UiContext* uicon, const char *file_path);
 bool document_dependency_admits(const DomDocument* document, const char* source);
-ImageSurface* load_document_image(DomDocument* document, UiContext* uicon, const char* source);
+ImageSurface* load_document_image(DomDocument* document, UiContext* uicon, const char* source,
+                                  unsigned raster_limit = 0);
 ImageSurface* image_element_surface(DomElement* element);
 ImageSurface* load_document_image_resource(DomDocument* document, lam::Own<struct hashmap>* cache,
     const char* source);
@@ -4977,6 +4980,8 @@ DomDocument* load_lambda_html_doc(Url* html_url, const char* css_filename,
     bool track_source_lines = false, bool execute_scripts = true,
     const DocumentJsHostConfig* host_config = nullptr, bool print_media = false);
 // in-memory documents transfer their URL and loader pool to the returned owner.
+DomDocument* load_preview_document(Url* base, const char* path, int width, int height,
+    const DocumentJsHostConfig* host, bool thumbnail);
 DomDocument* load_html_source_doc(const char* html_source, int viewport_width, int viewport_height,
     const DocumentJsHostConfig* host_config = nullptr, bool print_media = false, Url* base_url = nullptr, bool xhtml = false);
 DomDocument* load_html_doc(Url *base, char* doc_filename, int viewport_width, int viewport_height,

@@ -28,6 +28,7 @@
 #include "render.hpp"
 #include "radiant.hpp"
 #include "window_host.hpp"
+#include "scene3d/scene3d.hpp"
 #include "devtools_adapter.hpp"
 #include "rdt_video.h"
 #include "speech.hpp"
@@ -1799,7 +1800,7 @@ static int view_doc_in_window_with_events_internal(const char* doc_file,
                                                    const RenderPagedOptions* paged_options = nullptr,
                                                    bool fullscreen = false,
                                                    int inspector_fd = -1,
-                                                   bool microphone_granted = false) {
+                                                   bool microphone_granted = false, bool preview = false) {
     // Baseline runners must not create a visible window, including child processes.
     if (getenv("LAMBDA_TEST_HEADLESS")) headless = true;
     if (!radiant_window_host_begin(paged_options)) {
@@ -1834,6 +1835,7 @@ static int view_doc_in_window_with_events_internal(const char* doc_file,
         window_host_abandon_startup();
         return -1;
     }
+    ui_context.preview_first_viewport = preview && !paged_options;
     ui_context.event_log_enabled = enable_event_log;
     ui_context.state_dump_enabled = enable_state_dump;
     ui_context.app_mode = app_mode;
@@ -2027,9 +2029,11 @@ static int view_doc_in_window_with_events_internal(const char* doc_file,
                 // the loader creates and hands over its own pool
                 pool_destroy(pool);
                 pool = nullptr;
-                doc = load_doc_by_format(file_to_load, cwd, css_width, css_height,
-                    &js_host_config, session_cookie_jar(ui_context.browsing_session),
-                    &phase_timing.html, &phase_timing.script, paged_options != nullptr);
+                doc = preview
+                    ? load_preview_document(cwd, file_to_load, css_width, css_height, &js_host_config, false)
+                    : load_doc_by_format(file_to_load, cwd, css_width, css_height,
+                        &js_host_config, session_cookie_jar(ui_context.browsing_session),
+                        &phase_timing.html, &phase_timing.script, paged_options != nullptr);
             }
         }
         phase_timing.document_load_ms = view_phase_elapsed_ms(
@@ -2166,6 +2170,7 @@ static int view_doc_in_window_with_events_internal(const char* doc_file,
             if (!paged_options) radiant_event_host_body_load(&ui_context, doc);
         }
         log_notice("view: layout complete, rendering...");
+        bool model_preview = preview && doc->root && doc->root->tag_id == MARKUP_NAME_SCENE3D;
         // Render document
         uint64_t behavior_init_start = time_now_ns();
         if (!paged_options) radiant_event_host_initialize_behavior(doc, &phase_timing.behavior);   // ES19: layout -> init -> render
@@ -2180,6 +2185,10 @@ static int view_doc_in_window_with_events_internal(const char* doc_file,
             render_html_doc(&ui_context, doc->view_tree, NULL);
             phase_timing.render_ms = view_phase_elapsed_ms(render_start, time_now_ns());
             log_mem_stage("after-render");
+        }
+        if (model_preview && !scene3d_external_image(doc->root, nullptr, nullptr, nullptr, nullptr)) {
+            log_error("GLB preview: %s", scene3d_diagnostic(doc->root));
+            ui_context.render_failed = true;
         }
         window_write_memory_profile(doc, file_to_load);
         log_notice("view: render complete");
@@ -2357,6 +2366,14 @@ int view_doc_in_window_with_events(const char* doc_file, const char* event_file,
                                                    event_file, headless,
                                                    font_dirs, font_dir_count, enable_event_log,
                                                    enable_state_dump, UI_APP_MODE_VIEW, paged_options, fullscreen, -1, microphone_granted);
+}
+
+int view_document_preview(const char* path) {
+    RenderPagedOptions pages;
+    const RenderPagedOptions* paged = preview_paged_options(path, &pages) ? &pages : nullptr;
+    return view_doc_in_window_with_events_internal(path, nullptr, nullptr, 0,
+        nullptr, false, nullptr, 0, false, false, UI_APP_MODE_VIEW,
+        paged, false, -1, false, true);
 }
 
 int view_lambda_document_transform_with_events(const char* document_file,

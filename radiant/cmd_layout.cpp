@@ -81,6 +81,7 @@ void log_mem_stage(const char* stage);  // defined in radiant/window.cpp
 #include "radiant.hpp"
 #include "lambda/network/network_resource_manager.h"
 #include "lambda/io/mark_builder.hpp"
+#include "lambda/input/markup/markup_parser.hpp"
 #include "../radiant/view.hpp"
 #include "render.hpp"
 #include "../radiant/layout.hpp"
@@ -2314,7 +2315,8 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
     int viewport_width, int viewport_height, Pool* pool, const char* html_source,
     bool track_source_lines, bool execute_scripts, HtmlLoadPhaseTiming* timing,
     DocumentScriptPhaseTiming* script_timing, const DocumentJsHostConfig* js_host_config,
-    CookieJar* top_level_cookie_jar, bool print_media, bool xhtml_source = false) {
+    CookieJar* top_level_cookie_jar, bool print_media, bool xhtml_source = false,
+    Element* parsed_source = nullptr) {
     auto t_start = time_now_ns();
 
     log_mem_stage("load_html: enter");
@@ -2346,7 +2348,9 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
     size_t html_length = 0;
     bool html_content_owned = false;
     lam::Temp<char> protocol_language;
-    if (html_source) {
+    if (parsed_source) {
+        // the preview parser retains its tree while layout owns a separate edition.
+    } else if (html_source) {
         html_content = const_cast<char*>(html_source);
         html_length = strlen(html_source);
     } else if (html_url->scheme == URL_SCHEME_DATA) {
@@ -2447,9 +2451,14 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
         Html5ParseOptions parse_opts = { .track_source_lines = track_source_lines,
                                          .scripting_disabled = scripting_disabled,
                                          .allow_declarative_shadow_roots = true };
-        parsed_document = xhtml
-            ? parse_xhtml_document(input, html_content, html_length, track_source_lines)
-            : html5_parse_n(input, html_content, html_length, &parse_opts);
+        if (parsed_source) {
+            Item root = MarkBuilder(input).deep_copy_for_dom(Item{.element = parsed_source});
+            if (get_type_id(root) == LMD_TYPE_ELEMENT) parsed_document = root.element;
+        } else {
+            parsed_document = xhtml
+                ? parse_xhtml_document(input, html_content, html_length, track_source_lines)
+                : html5_parse_n(input, html_content, html_length, &parse_opts);
+        }
         if (parsed_document) input->root = (Item){.element = parsed_document};
     }
     if (html_content_owned) mem_free(html_content);  // only free what we allocated
@@ -3546,6 +3555,56 @@ static DomDocument* create_layout_css_document(
     return document;
 }
 
+static DomDocument* load_glb_preview_doc(Url* url, const char* path,
+        int width, int height, Pool* pool, bool thumbnail) {
+    Input* input = Input::create(pool, url);
+    if (!input) return nullptr;
+    input->ui_mode = true;
+    if (!input_scene3d_glb_preview(input, path, !thumbnail)) return nullptr;
+
+    // consume the imported Mark values in place. A standalone model does not need a script realm.
+    MarkBuilder builder(input);
+    Item camera = builder.element("camera").attr("id", "preview-camera").attr("type", "perspective").final();
+    Item ambient = builder.element("light").attr("type", "ambient").attr("intensity", 1.1).final();
+    Item light = builder.element("light").attr("type", "directional")
+        .attr("position", "3 4 5").attr("intensity", 2.5).final();
+    Item scene = builder.element("scene3d")
+        .attr("style", "display:block;width:100vw;height:100vh")
+        .attr("background", "#30343a").attr("tone-mapping", "neutral")
+        .attr("camera", "preview-camera").attr("max-pixel-ratio", 1.0)
+        .attr("__lambda_fit_model", true)
+        .child(camera).child(ambient).child(light).child(input->root).final();
+    input->root = scene;
+
+    DomElement* root = nullptr;
+    DomDocument* doc = create_layout_css_document(input, scene.element, "GLB preview",
+        DOM_PAGE_KIND_GENERATED, nullptr, width, height, pool, &root, nullptr);
+    if (!doc) return nullptr;
+    apply_inline_styles_to_tree(root, pool);
+    populate_layout_document(doc, root, scene.element, HTML5, url);
+    return doc;
+}
+
+static DomDocument* build_home_styled_source_doc(Input* input, Element* source_root,
+        Url* url, int viewport_width, int viewport_height, Pool* pool,
+        const char* type_name, const char* log_prefix, const char* stylesheet_path,
+        const char* stylesheet_label) {
+    DomElement* dom_root = nullptr;
+    CssEngine* css_engine = nullptr;
+    DomDocument* document = create_layout_css_document(
+        input, source_root, type_name, DOM_PAGE_KIND_GENERATED, nullptr,
+        viewport_width, viewport_height, pool, &dom_root, &css_engine);
+    if (!document) return nullptr;
+
+    CssStylesheet* stylesheet = load_home_stylesheet(
+        css_engine, pool, stylesheet_path, log_prefix, stylesheet_label, true);
+    CssStylesheet* stylesheets[1] = {stylesheet};
+    layout_apply_css_stylesheets(document, dom_root, stylesheets, 1, pool, css_engine);
+    populate_layout_document(document, dom_root, source_root, HTML5, url);
+    log_info("[%s] loaded source document", log_prefix);
+    return document;
+}
+
 static DomDocument* load_home_styled_source_doc(
         Url* url, int viewport_width, int viewport_height, Pool* pool,
         const char* type_name, const char* log_prefix, const char* stylesheet_path,
@@ -3564,58 +3623,12 @@ static DomDocument* load_home_styled_source_doc(
         return nullptr;
     }
 
-    DomElement* dom_root = nullptr;
-    CssEngine* css_engine = nullptr;
-    DomDocument* document = create_layout_css_document(
-        input, source_root, type_name, DOM_PAGE_KIND_GENERATED, nullptr,
-        viewport_width, viewport_height, pool, &dom_root, &css_engine);
-    if (!document) return nullptr;
-
-    CssStylesheet* stylesheet = load_home_stylesheet(
-        css_engine, pool, stylesheet_path, log_prefix, stylesheet_label, true);
-    CssStylesheet* stylesheets[1] = {stylesheet};
-    layout_apply_css_stylesheets(document, dom_root, stylesheets, 1, pool, css_engine);
-    populate_layout_document(document, dom_root, source_root, HTML5, url);
-    log_info("[%s] loaded source document", log_prefix);
-    return document;
+    return build_home_styled_source_doc(input, source_root, url, viewport_width, viewport_height,
+        pool, type_name, log_prefix, stylesheet_path, stylesheet_label);
 }
 
-static DomDocument* load_markdown_doc(Url* markdown_url, int viewport_width,
-                                      int viewport_height, Pool* pool) {
-    auto total_start = time_now_ns();
-
-    if (!markdown_url || !pool) {
-        log_error("load_markdown_doc: invalid parameters");
-        return nullptr;
-    }
-
-    LayoutTempPathGuard markdown_path_guard = { url_to_local_path(markdown_url) };
-    char* markdown_filepath = markdown_path_guard.path;
-    log_info("[TIMING] Loading markdown document: %s", markdown_filepath);
-
-    auto step1_start = time_now_ns();
-    // the parser attaches each formula's math AST and lists the <math> elements,
-    // so rendering below needs neither a tree walk nor a second parse
-    InputParseOptions parse_options = {};
-    parse_options.embedded_math = true;
-    Input* input = read_layout_input_file(markdown_url, markdown_filepath,
-                                          "markdown", "load_markdown_doc", "markdown",
-                                          &parse_options);
-    if (!input) {
-        return nullptr;
-    }
-
-    Element* markdown_root = input_first_element_root(input);
-
-    if (!markdown_root) {
-        log_error("Failed to get markdown root element");
-        return nullptr;
-    }
-
-    auto step1_end = time_now_ns();
-    log_info("[TIMING] Step 1 - Parse markdown: %.1fms",
-        time_elapsed_ms_f(step1_start, step1_end));
-
+static DomDocument* build_markdown_doc(Input* input, Element* markdown_root, Url* markdown_url,
+        int viewport_width, int viewport_height, Pool* pool) {
     Runtime* markdown_runtime = nullptr;  // document-owned, outside a window
     Runtime* shared_runtime = nullptr;
     Array* embedded_nodes[] = {input->embedded_math, input->embedded_diagrams};
@@ -3680,11 +3693,264 @@ static DomDocument* load_markdown_doc(Url* markdown_url, int viewport_width,
     // retain exactly the sheets applied above; removed math sheets no longer occupy this array.
     store_document_stylesheets(dom_doc, markdown_stylesheets, 1, nullptr, 0, pool);
 
-    auto total_end = time_now_ns();
-    log_info("[TIMING] load_markdown_doc total: %.1fms",
-        time_elapsed_ms_f(total_start, total_end));
-
     return dom_doc;
+}
+
+static DomDocument* load_markdown_doc(Url* markdown_url, int viewport_width,
+                                      int viewport_height, Pool* pool) {
+    auto total_start = time_now_ns();
+
+    if (!markdown_url || !pool) {
+        log_error("load_markdown_doc: invalid parameters");
+        return nullptr;
+    }
+
+    LayoutTempPathGuard markdown_path_guard = { url_to_local_path(markdown_url) };
+    char* markdown_filepath = markdown_path_guard.path;
+    log_info("[TIMING] Loading markdown document: %s", markdown_filepath);
+
+    auto step1_start = time_now_ns();
+    // the parser attaches each formula's math AST and lists the <math> elements,
+    // so rendering below needs neither a tree walk nor a second parse
+    InputParseOptions parse_options = {};
+    parse_options.embedded_math = true;
+    Input* input = read_layout_input_file(markdown_url, markdown_filepath,
+                                          "markdown", "load_markdown_doc", "markdown",
+                                          &parse_options);
+    if (!input) {
+        return nullptr;
+    }
+
+    Element* markdown_root = input_first_element_root(input);
+
+    if (!markdown_root) {
+        log_error("Failed to get markdown root element");
+        return nullptr;
+    }
+
+    auto step1_end = time_now_ns();
+    log_info("[TIMING] Step 1 - Parse markdown: %.1fms",
+        time_elapsed_ms_f(step1_start, step1_end));
+
+    DomDocument* doc = build_markdown_doc(input, markdown_root, markdown_url,
+        viewport_width, viewport_height, pool);
+    log_info("[TIMING] load_markdown_doc total: %.1fms",
+        time_elapsed_ms_f(total_start, time_now_ns()));
+    return doc;
+}
+
+struct PreviewMarkupRoute {
+    const char* extension;
+    lambda::markup::Format format;
+    lambda::markup::Flavor flavor;
+};
+
+static const PreviewMarkupRoute* preview_markup_route(const char* extension) {
+    using lambda::markup::Format;
+    using lambda::markup::Flavor;
+    static const PreviewMarkupRoute routes[] = {
+        {".md", Format::MARKDOWN, Flavor::DEFAULT}, {".markdown", Format::MARKDOWN, Flavor::DEFAULT},
+        {".mdown", Format::MARKDOWN, Flavor::DEFAULT}, {".mkdn", Format::MARKDOWN, Flavor::DEFAULT},
+        {".wiki", Format::WIKI, Flavor::MEDIAWIKI}, {".mediawiki", Format::WIKI, Flavor::MEDIAWIKI},
+        {".rst", Format::RST, Flavor::DEFAULT}, {".rest", Format::RST, Flavor::DEFAULT},
+        {".org", Format::ORG, Flavor::DEFAULT}, {".adoc", Format::ASCIIDOC, Flavor::DEFAULT},
+        {".asciidoc", Format::ASCIIDOC, Flavor::DEFAULT}, {".asc", Format::ASCIIDOC, Flavor::DEFAULT},
+        {".textile", Format::TEXTILE, Flavor::DEFAULT}, {".txtl", Format::TEXTILE, Flavor::DEFAULT},
+    };
+    for (const PreviewMarkupRoute& route : routes)
+        if (str_ieq_cstr(route.extension, extension)) return &route;
+    return nullptr;
+}
+
+struct PreviewFlowLayout {
+    const Url* source;
+    UiContext* ui;
+    const DocumentJsHostConfig* config;
+    int width, height; // integral viewport dimensions at the loader boundary
+    DomDocument* result;
+    bool failed;
+    Input* markup;
+    const PreviewMarkupRoute* markup_route;
+};
+
+static bool layout_preview_flow_batch(void* ptr, Element* source, size_t consumed, bool eof) {
+    PreviewFlowLayout* request = (PreviewFlowLayout*)ptr;
+    Input* markup = request->markup;
+    if (markup && ((markup->embedded_math && markup->embedded_math->length) ||
+                   (markup->embedded_diagrams && markup->embedded_diagrams->length))) {
+        log_info("PREVIEW_MARKUP: embedded content requires a transform");
+        request->failed = true;
+        return true;
+    }
+
+    Url* url = url_parse(url_get_href(request->source));
+    Pool* pool = mem_pool_create(nullptr, MEM_ROLE_LAYOUT, "preview.flow");
+    DomDocument* doc = nullptr;
+    if (url && pool) {
+        if (markup) {
+            Input* input = Input::create(pool, url);
+            if (input) {
+                input->ui_mode = true;
+                input->root = MarkBuilder(input).deep_copy_for_dom(Item{.element = source});
+                if (get_type_id(input->root) == LMD_TYPE_ELEMENT) {
+                    using lambda::markup::Format;
+                    Format format = request->markup_route->format;
+                    if (format == Format::MARKDOWN)
+                        doc = build_markdown_doc(input, input->root.element, url,
+                            request->width, request->height, pool);
+                    else
+                        doc = build_home_styled_source_doc(input, input->root.element, url,
+                            request->width, request->height, pool, "markup", "PREVIEW_MARKUP",
+                            format == Format::WIKI ? "package/doc/wiki.css" : "package/doc/markdown.css",
+                            "markup stylesheet");
+                }
+            }
+            document_apply_js_host_config(doc, request->config);
+        } else {
+            doc = load_lambda_html_doc_profiled(url, nullptr, false,
+                request->width, request->height, pool, nullptr, false, false, nullptr, nullptr,
+                request->config, nullptr, false, false, source);
+        }
+    }
+    if (!doc) {
+        if (url) url_destroy(url);
+        if (pool) pool_destroy(pool);
+    } else if (!dom_document_finalize_loader_pool(doc, pool)) {
+        free_document(doc);
+        doc = nullptr;
+    }
+    if (!doc) {
+        request->failed = true;
+        return true;
+    }
+
+    UiContext* ui = request->ui;
+    auto previous = ui->document;
+    ui->document = lam::up(doc);
+    ui_context_sync_document_raster_scale(ui, doc);
+    process_document_font_faces(ui, doc);
+    layout_update_document(ui, doc);
+    ui->document = previous;
+    if (!doc->view_tree || !doc->view_tree->root) {
+        free_document(doc);
+        request->failed = true;
+        return true;
+    }
+
+    // root geometry retains the flow extent before the viewport scroller clips it.
+    ViewBlock* root = lam::view_as_block(doc->view_tree->root);
+    float bottom = root ? root->y + fmaxf(root->height, root->content_height) : 0.0f;
+    bool ready = eof || bottom > (float)ui->viewport_height;
+    log_info("PREVIEW_FLOW: consumed=%zu bottom=%.1f viewport=%.1f eof=%d ready=%d",
+        consumed, bottom, (float)ui->viewport_height, eof, ready);
+    if (ready) request->result = doc;
+    else free_document(doc);
+    return ready;
+}
+
+DomDocument* load_preview_document(Url* base, const char* path, int width, int height,
+        const DocumentJsHostConfig* host, bool thumbnail) {
+    Url* url = url_parse_path_or_url(path, base);
+    if (!url || url->scheme != URL_SCHEME_FILE) {
+        if (url) url_destroy(url);
+        return nullptr;
+    }
+
+    DocumentJsHostConfig config = *host;
+    config.scripting_disabled = true;
+    config.virtual_clock_enabled = thumbnail;
+    config.post_load_settle_ms = 0.0;
+    config.resource_policy = INPUT_RESOURCE_LOCAL_ONLY;
+    CssSourceScope policy(nullptr, config.resource_policy);
+    LayoutTempPathGuard local_path = {url_to_local_path(url)};
+    const char* ext = local_path.path ? file_path_ext(local_path.path) : nullptr;
+    FILE* file = ext ? file_open_regular_read(local_path.path) : nullptr;
+    if (!file) {
+        url_destroy(url);
+        return nullptr;
+    }
+
+    bool ebook = input_path_is_ebook(local_path.path);
+    const char* preview_transform = ebook ? "ebook" : str_ieq_cstr(ext, ".docx") ? "docx"
+        : str_ieq_cstr(ext, ".pptx") ? "pptx"
+        : str_ieq_cstr(ext, ".tex") || str_ieq_cstr(ext, ".latex") ? "latex" : nullptr;
+    bool pdf = str_ieq_cstr(ext, ".pdf");
+    bool script_source = str_ieq_cstr(ext, ".ls");
+    bool glb = str_ieq_cstr(ext, ".glb");
+    if (pdf || preview_transform || script_source || glb) {
+        fclose(file);
+        Pool* pool = mem_pool_create(nullptr, MEM_ROLE_LAYOUT, "preview.document");
+        LoadScriptingScope scripting_scope(script_source);
+        // The package stops conversion at the first format-defined boundary.
+        // Ebook previews start at the first chapter without touching reading state.
+        const LambdaDocumentTransformOption preview_option = {
+            ebook ? "persist" : "snapshot", LAMBDA_DOCUMENT_TRANSFORM_OPTION_BOOL, nullptr, !ebook
+        };
+        DomDocument* doc = nullptr;
+        if (pool) {
+            // preview shows author code through the same escaped source view as plain text.
+            if (script_source) doc = load_text_doc(url, width, height, pool);
+            else if (pdf) doc = load_pdf_transform_doc(url, width, height, pool, config.paged_media);
+            else if (glb) doc = load_glb_preview_doc(url, local_path.path, width, height, pool, thumbnail);
+            else doc = load_input_type_transform_doc(preview_transform, url, &preview_option, 1, width, height, pool);
+        }
+        if (!doc) {
+            if (pool) pool_destroy(pool);
+            url_destroy(url);
+            return nullptr;
+        }
+        if (!dom_document_finalize_loader_pool(doc, pool)) {
+            free_document(doc);
+            return nullptr;
+        }
+        document_apply_js_host_config(doc, &config);
+        return doc;
+    }
+
+    DomDocument* doc = nullptr;
+    bool html = str_ieq_cstr(ext, ".html") || str_ieq_cstr(ext, ".htm");
+    const PreviewMarkupRoute* route = preview_markup_route(ext);
+    if (!html && !route) {
+        fclose(file);
+        url_destroy(url);
+        // Other supported viewer formats use the same loader with previews' local resource policy.
+        if (layout_path_has_known_extension(path))
+            return load_html_doc(base, const_cast<char*>(path), width, height, &config, nullptr,
+                true, config.paged_media != nullptr);
+        return nullptr;
+    }
+    {
+        Pool* pool = mem_pool_create(nullptr, MEM_ROLE_INPUT, "preview.flow.source");
+        Input* input = pool ? Input::create(pool, url) : nullptr;
+        if (input) {
+            PreviewFlowLayout layout = {url, (UiContext*)config.ui_context, &config, width, height};
+            constexpr size_t batch_bytes = 4096;
+            constexpr size_t preview_byte_limit = 8 * 1024 * 1024;
+            bool parsed;
+            if (route) {
+                layout.markup = input;
+                layout.markup_route = route;
+                input->parse_embedded_math = true;
+                Item root = lambda::markup::parse_markup_file_batches(input, file,
+                    route->format, route->flavor, batch_bytes, preview_byte_limit,
+                    layout_preview_flow_batch, &layout);
+                parsed = get_type_id(root) == LMD_TYPE_ELEMENT;
+            } else {
+                input->ui_mode = true;
+                Html5ParseOptions options = {};
+                options.scripting_disabled = true;
+                options.allow_declarative_shadow_roots = true;
+                parsed = html5_parse_file_batches(input, file, &options, batch_bytes,
+                    preview_byte_limit, layout_preview_flow_batch, &layout) != nullptr;
+            }
+            if (parsed && !layout.failed) doc = layout.result;
+            else if (layout.result) free_document(layout.result);
+        }
+        if (pool) pool_destroy(pool);
+    }
+    fclose(file);
+    url_destroy(url);
+    return doc;
 }
 
 // load MediaWiki markup and its bundled stylesheet.

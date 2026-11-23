@@ -6,6 +6,7 @@
 #include "lambda/input/css/dom_element.hpp"
 #include "lambda/input/css/dom_lifecycle.hpp"
 #include "lib/color.h"
+#include "lib/arraylist.hpp"
 #include "lib/file.h"
 #include "lib/hash.h"
 #include "lib/hashmap_typed.hpp"
@@ -21,6 +22,7 @@
 #include "lib/strbuf.h"
 #include "lib/url.h"
 #include "../layout.hpp"
+#include "../platform.hpp"
 #include "../radiant.hpp"
 #include "../render.hpp"
 #include "../audio.hpp"
@@ -37,6 +39,7 @@
 #include <float.h>
 
 static constexpr unsigned SCENE_EFFECT_LIMIT = 8;
+static constexpr float SCENE_DEFAULT_CAMERA_FOV = 50.0f;
 static constexpr unsigned SCENE_TRANSMISSION_FEATURE = 1u << (SCENE_MAP_COUNT - SCENE_MAP_CLEARCOAT);
 static constexpr unsigned SCENE_DRAWABLE_SHIFT = SCENE_MAP_COUNT - SCENE_MAP_CLEARCOAT + 1;
 static constexpr unsigned SCENE_GPU_PARTICLE_FEATURE = 1u << (SCENE_DRAWABLE_SHIFT + 3);
@@ -308,6 +311,9 @@ struct Scene3dProjection {
     bool camera_found;
     float fov, near_plane, far_plane, aspect, view_height;
     bool orthographic;
+    bool fit_model;
+    float model_radius;
+    Scene3dVec model_center;
     float background[4];
     Scene3dFog fog;
     // the scene's tone-mapping curve (0 none, 1 neutral, 2 ACES) and the exposure it applies
@@ -349,7 +355,7 @@ struct Scene3dEntry {
     Scene3dParticleGpu *particle_owners;
     // one shader variant per material model (basic/Lambert, standard) and tone-mapping curve,
     // compiled on first use; each variant tracks which inputs are already bound
-    NativeGlResource programs[SCENE_PROGRAM_VARIANTS], target, hdr_target, output_programs[SCENE_TONE_CURVES][2], white,
+    NativeGlResource programs[SCENE_PROGRAM_VARIANTS], target, hdr_target, output_programs[SCENE_TONE_CURVES][3], white,
         dfg, upscale;
     Scene3dProgramState program_state[SCENE_PROGRAM_VARIANTS];
     uint64_t frame;
@@ -357,6 +363,7 @@ struct Scene3dEntry {
     size_t mapped_count, mapped_capacity;
     NativeGlResource post_linear[2], post_blur[2], post_display[2], post_programs[4];
     unsigned post_width, post_height, post_needs;
+    bool direct_color_target;
     NativeGlResource transmission_target, transmission_copy;
     unsigned transmission_width, transmission_height;
 
@@ -421,6 +428,7 @@ struct Scene3dDefinition {
     NativeGlResource texture, linear_texture;
     uint64_t texture_hash;
     bool texture_alpha;
+    bool thumbnail_skip;
 };
 struct Scene3dDefinitionRef {
     const char* id;
@@ -441,6 +449,7 @@ struct Scene3dBuild {
     DomElement* mesh_source;
     Scene3dLodBranch* lod;
     int pose_index;
+    bool model_thumbnail;
 
     ~Scene3dBuild() {
         by_node.destroy();
@@ -1385,7 +1394,14 @@ static NativeGlResource scene3d_texture(Scene3dBuild* build, Scene3dDefinition* 
     }
     sampler.max_size = (unsigned)max_size;
     sampler.srgb = srgb;
-    ImageSurface* image = load_document_image(build->root->doc, build->ui, source);
+    unsigned raster_limit = 0;
+    if (build->entry->projection.fit_model && build->ui->preview_still_images && build->ui->surface) {
+        unsigned width = build->ui->surface->width, height = build->ui->surface->height;
+        unsigned edge = width > height ? width : height;
+        raster_limit = edge < sampler.max_size ? edge : sampler.max_size;
+        sampler.max_size = raster_limit;
+    }
+    ImageSurface* image = load_document_image(build->root->doc, build->ui, source, raster_limit);
     if (!image || image->width <= 0 || image->height <= 0) {
         scene3d_fail(build->entry, "texture acquisition or format failed");
         return {};
@@ -1980,9 +1996,15 @@ static NativeGlResource scene3d_fullscreen_program(Scene3dEntry* entry, const ch
     strbuf_free(vertex);
     return program;
 }
-static bool scene3d_graphics_prepare(Scene3dEntry *entry, UiContext *ui) {
+static bool scene3d_graphics_prepare(Scene3dEntry *entry, UiContext *ui, bool standalone = false) {
     if (entry->graphics)
         return true;
+    if (standalone && !ui->window) {
+        // an offscreen model has no page compositor and needs only the scene's own context.
+        if (!radiant_platform_init(true)) return scene3d_fail(entry, "native graphics host unavailable");
+        entry->graphics = native_gl_create(true, entry->diagnostic, sizeof(entry->diagnostic));
+        return entry->graphics != nullptr;
+    }
     if (ui && ui->export_native_graphics && !ui_context_enable_native_graphics(ui)) {
         ui->render_failed = true;
         return scene3d_fail(entry, "native graphics host unavailable for export");
@@ -2738,6 +2760,7 @@ static bool scene3d_mesh(Scene3dBuild* build, DomElement* node, const Scene3dMat
             }
         }
     int kind = particles ? SCENE_TRIANGLES : scene3d_drawable_kind(node->local_name());
+    if (gd && gd->thumbnail_skip) return true;
     Scene3dGeometry* geometry = scene3d_geometry(build, gd, (Scene3dTopology)kind);
     Scene3dMaterial* material = scene3d_material(build, md);
     if (!geometry || !material)
@@ -2912,7 +2935,7 @@ static bool scene3d_project_dynamic(Scene3dBuild* build, DomElement* node, const
         float fov, near_plane, far_plane, aspect, view_height;
         bool orthographic = type && !strcmp(type, "orthographic"), infinite_far;
         if (!type || (!orthographic && strcmp(type, "perspective")) ||
-            !scene3d_animated_number(build->entry, node, "fov", 50, &fov) ||
+            !scene3d_animated_number(build->entry, node, "fov", SCENE_DEFAULT_CAMERA_FOV, &fov) ||
             !scene3d_animated_number(build->entry, node, "near", .1f, &near_plane) ||
             !scene3d_animated_number(build->entry, node, "far", 1000, &far_plane) ||
             !scene3d_animated_number(build->entry, node, "aspect", 0, &aspect) ||
@@ -3345,9 +3368,12 @@ static bool scene3d_project_node(Scene3dBuild* build, DomElement* node, int pare
                     return scene3d_fail(build->entry, "resources accept geometry, collision-geometry, material, "
                                                       "texture, environment and navigation definitions");
                 if (scene3d_tag(element, "geometry")) {
-                    if (!scene3d_geometry_source(build, scene3d_definition(build, element, nullptr, "geometry")))
+                    auto* definition = scene3d_definition(build, element, nullptr, "geometry");
+                    if (!definition || (!definition->thumbnail_skip && !scene3d_geometry_source(build, definition)))
                         return false;
                 } else if (scene3d_tag(element, "material")) {
+                    // thumbnail meshes acquire referenced resources after size rejection.
+                    if (build->model_thumbnail && scene3d_tag(node, "resources")) continue;
                     if (!scene3d_material(build, scene3d_definition(build, element, nullptr, "material")))
                         return false;
                 } else if (scene3d_tag(element, "texture"))
@@ -4682,9 +4708,7 @@ uniform vec4 background;
 uniform sampler2D resolved_input, processed_input;
 #endif
 out vec4 fragment;
-void main() {
-    ivec2 pixel=ivec2(gl_FragCoord.xy);
-    vec4 scene = texelFetch(color_input, pixel, gl_SampleID);
+vec4 shade_sample(ivec2 pixel, vec4 scene) {
     vec3 color = scene.a > 0.0 ? scene.rgb / scene.a : vec3(0.0);
     vec3 addition=vec3(0.0);
 #if POSTPROCESSING
@@ -4698,8 +4722,32 @@ void main() {
     addition=tone_map(addition);
 #endif
 #endif
-    fragment = vec4(color * scene.a + (background.rgb+addition) * background.a * (1.0-scene.a),
+    return vec4(color * scene.a + (background.rgb+addition) * background.a * (1.0-scene.a),
         scene.a + background.a * (1.0-scene.a));
+}
+#if RESOLVE_SAMPLES
+vec4 display_sample(vec4 color) {
+    color = clamp(color, 0.0, 1.0);
+    vec3 encoded = mix(1.055 * pow(color.rgb, vec3(1.0 / 2.4)) - 0.055, 12.92 * color.rgb,
+                       lessThanEqual(color.rgb, vec3(0.0031308)));
+    // the multisampled display buffer quantizes every sample before averaging the stored bytes.
+    return roundEven(vec4(encoded, color.a) * 255.0);
+}
+#endif
+void main() {
+    ivec2 pixel=ivec2(gl_FragCoord.xy);
+#if RESOLVE_SAMPLES
+    vec4 first_sample = texelFetch(color_input, pixel, 0);
+    vec4 first_color = display_sample(shade_sample(pixel, first_sample));
+    vec4 total = first_color;
+    for (int sample_id = 1; sample_id < RESOLVE_SAMPLES; ++sample_id) {
+        vec4 sample_color = texelFetch(color_input, pixel, sample_id);
+        total += all(equal(sample_color, first_sample)) ? first_color : display_sample(shade_sample(pixel, sample_color));
+    }
+    fragment = total / (float(RESOLVE_SAMPLES) * 255.0);
+#else
+    fragment = shade_sample(pixel, texelFetch(color_input, pixel, gl_SampleID));
+#endif
 }
 )GLSL";
 
@@ -4986,7 +5034,10 @@ static bool scene3d_read_appearance(Scene3dEntry* entry, DomElement* root) {
     return true;
 }
 
-static bool scene3d_compile(Scene3dEntry* entry, DomElement* root, UiContext* ui) {
+static void scene3d_plan_thumbnail(Scene3dBuild* build, float aspect, float width, float height);
+
+static bool scene3d_compile(Scene3dEntry* entry, DomElement* root, UiContext* ui,
+                            float aspect, float pixel_width, float pixel_height) {
     scene3d_projection_destroy(entry);
     entry->diagnostic[0] = 0;
     // failed attempts must not mark unused programs as members of the next committed projection.
@@ -5012,6 +5063,9 @@ static bool scene3d_compile(Scene3dEntry* entry, DomElement* root, UiContext* ui
     const char* tone = scene3d_text(root, "tone-mapping");
     if (!scene3d_flag(root, "frustum-culling", true, &p->frustum_culling))
         return scene3d_fail(entry, "invalid frustum-culling flag");
+    if (!scene3d_flag(root, "__lambda_fit_model", false, &p->fit_model))
+        return scene3d_fail(entry, "invalid model framing flag");
+    build.model_thumbnail = p->fit_model && ui->preview_still_images;
     p->tone_mapping = !tone || !strcmp(tone, "none") ? 0
                       : !strcmp(tone, "neutral")     ? 1
                       : !strcmp(tone, "aces")        ? 2
@@ -5021,10 +5075,12 @@ static bool scene3d_compile(Scene3dEntry* entry, DomElement* root, UiContext* ui
     build.environment = scene3d_text(root, "environment");
     bool valid = scene3d_read_appearance(entry, root) &&
                  scene3d_collect_definitions(&build, root, 0) && scene3d_build_simulations(&build) &&
-                 scene3d_build_effects(&build) && scene3d_project_node(&build, root);
+                 scene3d_build_effects(&build);
+    if (valid && build.model_thumbnail) scene3d_plan_thumbnail(&build, aspect, pixel_width, pixel_height);
+    if (valid) valid = scene3d_project_node(&build, root);
     // consumers choose the color space first; validate unused declarations without uploading an unused sRGB copy of
     // data maps.
-    for (unsigned i = 0; valid && i < build.definition_count; i++) {
+    for (unsigned i = 0; valid && !build.model_thumbnail && i < build.definition_count; i++) {
         Scene3dDefinition* definition = &build.definitions[i];
         if (scene3d_tag(definition->source, "texture") && !definition->texture.id && !definition->linear_texture.id)
             valid = scene3d_texture(&build, definition).id != 0;
@@ -5801,6 +5857,114 @@ static bool scene3d_mesh_bounds(const Scene3dMesh* mesh, const Scene3dMatrix& vi
     }
     return valid;
 }
+
+static bool scene3d_set_model_bounds(Scene3dProjection* p, Scene3dVec lo, Scene3dVec hi) {
+    if (lo.x > hi.x || lo.y > hi.y || lo.z > hi.z) return false;
+    p->model_center = scene3d_add(scene3d_scale(lo, .5f), scene3d_scale(hi, .5f));
+    Scene3dVec extent = scene3d_sub(hi, p->model_center);
+    float radius = hypotf(hypotf(extent.x, extent.y), extent.z);
+    if (!isfinite(radius)) return false;
+    p->model_radius = radius > 0 ? radius : 1.0f;
+    return true;
+}
+
+static bool scene3d_fit_model(Scene3dProjection* p, float fov, float aspect,
+        Scene3dVec* eye, Scene3dVec* target, float* near_plane, float* far_plane) {
+    if (p->model_radius == 0) {
+        // Cache the initial posed bounds so playback cannot cause the camera to zoom each frame.
+        Scene3dVec lo = {FLT_MAX, FLT_MAX, FLT_MAX}, hi = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+        const Scene3dMatrix world = scene3d_identity();
+        for (int i = 0; i < p->mesh_count; i++) {
+            const Scene3dMesh* mesh = p->meshes[i];
+            if (mesh->visible && !scene3d_mesh_bounds(mesh, world, &lo, &hi)) return false;
+        }
+        if (!scene3d_set_model_bounds(p, lo, hi)) return false;
+    }
+    float half_angle = atanf(tanf(fov * (float)M_PI / 360.0f) * fminf(1.0f, aspect));
+    float distance = 1.12f * p->model_radius / sinf(half_angle);
+    Scene3dVec direction = {.46f, .28f, 1.0f};
+    scene3d_normalize(&direction);
+    *target = p->model_center;
+    *eye = scene3d_add(*target, scene3d_scale(direction, distance));
+    *near_plane = distance - p->model_radius;
+    *far_plane = distance + p->model_radius * 2.0f;
+    return isfinite(*far_plane) && *near_plane > 0 && *far_plane > *near_plane;
+}
+
+struct Scene3dThumbnailPart {
+    Scene3dDefinition* definition;
+    Scene3dVec corners[8];
+    bool skip;
+};
+
+static bool scene3d_thumbnail_subpixel(const Scene3dThumbnailPart& part,
+        const Scene3dMatrix& clip, float width, float height) {
+    Scene3dVec lo = {FLT_MAX, FLT_MAX, 0}, hi = {-FLT_MAX, -FLT_MAX, 0};
+    for (const Scene3dVec& corner : part.corners) {
+        float w = scene3d_point_component(clip.v + 3, corner, 1);
+        Scene3dVec point = scene3d_point(clip, corner);
+        // a box crossing a depth plane cannot provide a reliable screen-space estimate.
+        if (!isfinite(w) || w <= 0 || point.z <= -w || point.z >= w) return false;
+        point = {point.x / w, point.y / w, 0};
+        if (!isfinite(point.x) || !isfinite(point.y)) return false;
+        scene3d_include(point, &lo, &hi);
+    }
+    // normalized device coordinates span two units. Keep even half-pixel details.
+    return (hi.x - lo.x) * width < 1.0f && (hi.y - lo.y) * height < 1.0f;
+}
+
+static void scene3d_plan_thumbnail(Scene3dBuild* build, float aspect, float width, float height) {
+    lam::ArrayList<Scene3dThumbnailPart> parts;
+    Scene3dVec lo = {FLT_MAX, FLT_MAX, FLT_MAX}, hi = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+    for (unsigned i = 0; i < build->definition_count; i++) {
+        auto* definition = &build->definitions[i];
+        DomElement* geometry = definition->source;
+        if (!scene3d_tag(geometry, "geometry")) continue;
+        DomElement* mesh = geometry->parent && geometry->parent->is_element() ? geometry->parent->as_element() : nullptr;
+        float bounds[6];
+        bool present, visible;
+        Scene3dMatrix world;
+        // fit using every part. If any part is deformed or screen-sized, use the regular path.
+        if (!mesh || !scene3d_tag(mesh, "mesh") || scene3d_present(mesh, "skeleton") ||
+            scene3d_present(mesh, "morph-weights") ||
+            !scene3d_components(geometry, "__lambda_thumbnail_bounds", bounds, 6, &present) || !present ||
+            !scene3d_world(build->entry, mesh, &world, &visible, true)) return;
+        if (!visible) continue;
+        Scene3dThumbnailPart part = {definition, {}, false};
+        for (unsigned corner = 0; corner < 8; corner++) {
+            auto& point = part.corners[corner];
+            point = scene3d_point(world, {bounds[corner & 1 ? 3 : 0], bounds[corner & 2 ? 4 : 1],
+                                         bounds[corner & 4 ? 5 : 2]});
+            if (!isfinite(point.x) || !isfinite(point.y) || !isfinite(point.z)) return;
+            scene3d_include(point, &lo, &hi);
+        }
+        if (!parts.append(part)) return;
+    }
+    auto* p = &build->entry->projection;
+    if (parts.size() < 2 || !scene3d_set_model_bounds(p, lo, hi)) return;
+    Scene3dVec eye, target;
+    Scene3dMatrix view;
+    float near_plane, far_plane;
+    if (!scene3d_fit_model(p, SCENE_DEFAULT_CAMERA_FOV, aspect, &eye, &target, &near_plane, &far_plane) ||
+        !scene3d_camera(eye, target, {0, 1, 0}, &view)) {
+        p->model_radius = 0;
+        return;
+    }
+    auto clip = scene3d_multiply(scene3d_perspective(SCENE_DEFAULT_CAMERA_FOV, aspect, near_plane, far_plane), view);
+    size_t omitted = 0;
+    for (auto& part : parts) {
+        part.skip = scene3d_thumbnail_subpixel(part, clip, width, height);
+        omitted += part.skip;
+    }
+    // retain the full framing for an optimized thumbnail and keep the regular path for an all-tiny scene.
+    if (!omitted || omitted == parts.size()) {
+        p->model_radius = 0;
+        return;
+    }
+    for (const auto& part : parts) part.definition->thumbnail_skip = part.skip;
+    log_info("GLB thumbnail LOD: omitted %zu of %zu triangle draws", omitted, parts.size());
+}
+
 static bool scene3d_mesh_in_view(Scene3dEntry* entry, const Scene3dMesh* mesh, const Scene3dMatrix& lens,
                                  const Scene3dMatrix& view, const float viewport[2]) {
     if (!entry->projection.frustum_culling || !mesh->frustum_culling)
@@ -6339,11 +6503,12 @@ static bool scene3d_post_display(Scene3dEntry* entry, NativeGlResource* result) 
 static bool scene3d_output(Scene3dEntry* entry, Scene3dProjection* projection, NativeGlResource processed) {
     unsigned tone = (unsigned)projection->tone_mapping;
     bool effects = projection->linear_effects != 0;
-    NativeGlResource& program = entry->output_programs[tone][effects ? 1 : 0];
+    NativeGlResource& program = entry->output_programs[tone][entry->direct_color_target ? 2 : effects ? 1 : 0];
     if (!program.id) {
+        unsigned samples = entry->direct_color_target ? native_gl_target_samples(entry->graphics, entry->hdr_target) : 0;
         StrBuf* source = strbuf_new();
-        strbuf_append_format(source, "#version 400 core\n#define TONE_MAPPING %u\n#define POSTPROCESSING %u\n", tone,
-                             effects ? 1u : 0u);
+        strbuf_append_format(source, "#version 400 core\n#define TONE_MAPPING %u\n#define POSTPROCESSING %u\n"
+                             "#define RESOLVE_SAMPLES %u\n", tone, effects ? 1u : 0u, samples);
         strbuf_append_str(source, scene3d_tone_body);
         strbuf_append_str(source, scene3d_output_fragment);
         program = scene3d_fullscreen_program(entry, source->str, "#version 400 core\n");
@@ -6406,11 +6571,11 @@ bool scene3d_external_image(DomElement* root, NativeGlContext** producer, Native
     Scene3dEntry* entry = root ? scene3d_entry(root, false) : nullptr;
     if (!entry || !entry->graphics || !entry->snapshot || !entry->published.id)
         return false;
-    *producer = entry->graphics;
-    *image = entry->published;
+    if (producer) *producer = entry->graphics;
+    if (image) *image = entry->published;
     // an opaque background leaves every pixel opaque; bloom already requires one
-    *opaque = entry->projection.background[3] >= 1.0f;
-    *upsampled = entry->stats.raster_width != (unsigned)entry->snapshot->width ||
+    if (opaque) *opaque = entry->projection.background[3] >= 1.0f;
+    if (upsampled) *upsampled = entry->stats.raster_width != (unsigned)entry->snapshot->width ||
         entry->stats.raster_height != (unsigned)entry->snapshot->height;
     return true;
 }
@@ -6468,7 +6633,8 @@ ImageSurface* scene3d_frame(DomElement* root, UiContext* ui, float width, float 
             return nullptr;
         return entry->snapshot;
     }
-    if (!scene3d_graphics_prepare(entry, ui))
+    bool standalone = ui->headless && root->has_attribute("__lambda_fit_model");
+    if (!scene3d_graphics_prepare(entry, ui, standalone))
         return nullptr;
     // a frame makes thousands of graphics calls; switch to the scene's context once for all of them
     NativeGlCurrent current(entry->graphics);
@@ -6498,7 +6664,7 @@ ImageSurface* scene3d_frame(DomElement* root, UiContext* ui, float width, float 
                     entry->mutation_epoch == DOM_MUTATION_EPOCH_UNSTAMPED || source_key != entry->source_key ||
                     (entry->projection.binds_authored_pose && keys.transforms != entry->transform_key);
     }
-    if (reproject && !scene3d_compile(entry, root, ui)) {
+    if (reproject && !scene3d_compile(entry, root, ui, width / height, pixel_width, pixel_height)) {
         scene3d_projection_destroy(entry);
         scene3d_retire_snapshot(entry);
         return nullptr;
@@ -6532,14 +6698,21 @@ ImageSurface* scene3d_frame(DomElement* root, UiContext* ui, float width, float 
         scene3d_retire_snapshot(entry);
         return nullptr;
     }
-    if (!entry->target.id || entry->stats.raster_width != (unsigned)pixel_width ||
+    // model previews with no forward blending can resolve directly to the displayed texture.
+    bool direct_color = p->fit_model && !p->effect_count;
+    for (int i = 0; direct_color && i < p->mesh_count; i++)
+        direct_color = !scene3d_transparent(p->meshes[i]);
+    if (!entry->target.id || entry->direct_color_target != direct_color ||
+        entry->stats.raster_width != (unsigned)pixel_width ||
         entry->stats.raster_height != (unsigned)pixel_height) {
         // stage both buffers before retiring the previous size, including their peak live bytes.
         NativeGlResource hdr =
             native_gl_target(entry->graphics, (unsigned)pixel_width, (unsigned)pixel_height, 4, true);
-        NativeGlResource output =
-            hdr.id ? native_gl_target(entry->graphics, (unsigned)pixel_width, (unsigned)pixel_height, 4)
-                   : NativeGlResource{};
+        NativeGlResource output = {};
+        if (hdr.id) {
+            output = direct_color ? native_gl_color_target(entry->graphics, (unsigned)pixel_width, (unsigned)pixel_height)
+                                  : native_gl_target(entry->graphics, (unsigned)pixel_width, (unsigned)pixel_height, 4);
+        }
         if (!output.id) {
             native_gl_release(entry->graphics, hdr);
             scene3d_fail(entry, native_gl_diagnostic(entry->graphics));
@@ -6550,6 +6723,7 @@ ImageSurface* scene3d_frame(DomElement* root, UiContext* ui, float width, float 
         native_gl_release(entry->graphics, entry->hdr_target);
         entry->target = output;
         entry->hdr_target = hdr;
+        entry->direct_color_target = direct_color;
     }
     // the upscale target, which a materialization allocates, follows the output size
     bool upscaled = output_width != pixel_width || output_height != pixel_height;
@@ -6574,14 +6748,20 @@ ImageSurface* scene3d_frame(DomElement* root, UiContext* ui, float width, float 
     float aspect = p->aspect > 0 ? p->aspect : vb.has_viewbox ? vb.width / vb.height : width / height;
     Scene3dVec eye = scene3d_point(p->camera_world, {});
     Scene3dVec target = p->camera_target, up = p->camera_up;
+    float near_plane = p->near_plane, far_plane = p->far_plane;
+    if (p->fit_model && !scene3d_fit_model(p, p->fov, aspect, &eye, &target, &near_plane, &far_plane)) {
+        scene3d_fail(entry, "model has no frameable geometry");
+        scene3d_retire_snapshot(entry);
+        return nullptr;
+    }
     Scene3dMatrix view;
     if (!scene3d_camera(eye, target, up, &view)) {
         scene3d_fail(entry, "camera orientation is degenerate");
         scene3d_retire_snapshot(entry);
         return nullptr;
     }
-    Scene3dMatrix lens = p->orthographic ? scene3d_orthographic(p->view_height, aspect, p->near_plane, p->far_plane)
-                                         : scene3d_perspective(p->fov, aspect, p->near_plane, p->far_plane);
+    Scene3dMatrix lens = p->orthographic ? scene3d_orthographic(p->view_height, aspect, near_plane, far_plane)
+                                         : scene3d_perspective(p->fov, aspect, near_plane, far_plane);
     if (vb.has_viewbox) {
         RdtMatrix fit = svg_viewbox_transform(&vb, width, height, scene3d_text(root, "preserveAspectRatio"));
         if (!scene3d_text(root, "preserveAspectRatio"))

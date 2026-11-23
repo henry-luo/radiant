@@ -161,6 +161,9 @@ bool native_gl_uniform_set(NativeGlContext* context, NativeGlUniform uniform,
     const float* values, unsigned components, unsigned count = 1);
 NativeGlResource native_gl_target(NativeGlContext* context, unsigned width, unsigned height,
     unsigned samples = 4, bool hdr = false);
+// draw display-encoded color directly into the sRGB texture that consumers sample.
+NativeGlResource native_gl_color_target(NativeGlContext* context, unsigned width, unsigned height);
+unsigned native_gl_target_samples(NativeGlContext* context, NativeGlResource target);
 // a null background resumes an initialized buffer while preserving its color/depth samples.
 bool native_gl_begin(NativeGlContext* context, NativeGlResource target, const float background[4]);
 // transfer opaque visibility to the display target before forward transparent draws.

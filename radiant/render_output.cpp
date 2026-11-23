@@ -241,6 +241,21 @@ static DomDocument* render_export_load_transform_document(RenderExportSession* s
         transform->resource_policy) : nullptr;
 }
 
+struct RenderExportPreviewRequest {
+    const char* path;
+    const RenderPagedOptions* paged;
+};
+
+static DomDocument* render_export_load_preview(RenderExportSession* session,
+        int width, int height, void* request) {
+    DocumentJsHostConfig config = render_export_js_host_config(session, INPUT_RESOURCE_LOCAL_ONLY);
+    auto* preview = (RenderExportPreviewRequest*)request;
+    config.paged_media = preview->paged;
+    session->ui_context->preview_first_viewport = !preview->paged;
+    session->ui_context->preview_still_images = true;
+    return load_preview_document(session->base_url, preview->path, width, height, &config, true);
+}
+
 static void init_render_pool(int threads) {
     g_render_pool = (RenderPool*)mem_calloc(1, sizeof(RenderPool), MEM_CAT_RENDER); // OBJ_HEAP_OK: process render worker pool singleton.
     if (g_render_pool) render_pool_init(g_render_pool, threads);
@@ -1968,7 +1983,7 @@ static bool render_output_replay_region(RasterRenderContext* rdcon, DisplayList*
 }
 
 static bool render_output_save_surface(ImageSurface* surface, const char* output_file,
-        RenderOutputKind kind, int quality) {
+        RenderOutputKind kind, int quality, bool new_file = false) {
     if (!surface || !output_file) {
         return false;
     }
@@ -1977,7 +1992,9 @@ static bool render_output_save_surface(ImageSurface* surface, const char* output
         return save_surface_to_jpeg(surface, output_file, quality > 0 ? quality : 85);
     } else {
         StrBuf* encoded = render_encode_surface_png(surface);
-        bool ok = encoded && write_binary_file(output_file, encoded->str, encoded->length) == 0;
+        bool ok = encoded && (new_file
+            ? write_binary_file_atomic_new(output_file, encoded->str, encoded->length)
+            : write_binary_file(output_file, encoded->str, encoded->length)) == 0;
         if (encoded) strbuf_free(encoded);
         return ok;
     }
@@ -1997,6 +2014,7 @@ static int render_output_render_raster_target(UiContext* uicon, ViewTree* view_t
     render_profiler_reset(&profiler);
     RasterRenderContext rdcon;
     RenderFrameScope frame(&rdcon, uicon, view_tree, &profiler, true);
+    rdcon.coarse_text = target->coarse_text;
     DisplayList& display_list = *frame.list();
 
     // image compositions request alpha explicitly; document exports retain their opaque default.
@@ -2024,7 +2042,7 @@ static int render_output_render_raster_target(UiContext* uicon, ViewTree* view_t
     RenderFrameCache* cache = frame.storage_owner ? view_tree->render_frame_cache.get() : nullptr;
     // Documents with native producers never retain (render_frame_can_retain); a frame that cuts a viewport
     // anyway keeps its recording to itself below, since the recording omits that viewport's pixels.
-    bool can_retain = cache && !selective && !presentation && render_frame_can_retain(uicon);
+    bool can_retain = cache && !target->coarse_text && !selective && !presentation && render_frame_can_retain(uicon);
     RenderFrameKey key = render_frame_key(uicon, view_tree, canvas_bg, target->transparent_background);
     bool reused = can_retain && cache->valid && cache->recording.get() == &display_list &&
         render_frame_key_equal(cache->key, key) &&
@@ -2321,6 +2339,87 @@ int render_output_render_view_tree_to_target(UiContext* uicon, ViewTree* view_tr
 
     log_error("render_output_render_view_tree_to_target: unknown output target kind %d", target->kind);
     return 1;
+}
+
+bool preview_paged_options(const char* path, RenderPagedOptions* options) {
+    const char* ext = file_path_ext(path);
+    bool pdf = str_ieq_cstr(ext, ".pdf");
+    if (!pdf && !str_ieq_cstr(ext, ".fo") && !str_ieq_cstr(ext, ".xslfo") &&
+        !str_ieq_cstr(ext, ".rpd")) return false;
+    *options = render_paged_options_default();
+    options->preview_pages = lam::up("1");
+    if (pdf) {
+        options->import_pages = lam::up("1");
+        options->import_page_limit = 1;
+    }
+    options->block_remote_resources = true;
+    return true;
+}
+
+static bool save_fitted_thumbnail(ImageSurface* source, const char* output, int width, int height) {
+    if (!source || source->width > width || source->height > height) return false;
+    if (source->width == width && source->height == height)
+        return render_output_save_surface(source, output, RENDER_OUTPUT_PNG, 0, true);
+    ImageSurface* canvas = image_surface_create(width, height);
+    if (!canvas) return false;
+    memset(canvas->pixels, 0xFF, (size_t)canvas->pitch * height);
+    int x = (width - source->width) / 2, y = (height - source->height) / 2;
+    for (int row = 0; row < source->height; row++) {
+        auto* dst = (uint8_t*)canvas->pixels + (size_t)(row + y) * canvas->pitch + x * 4;
+        auto* src = (const uint8_t*)source->pixels + (size_t)row * source->pitch;
+        memcpy(dst, src, (size_t)source->width * 4);
+    }
+    bool ok = render_output_save_surface(canvas, output, RENDER_OUTPUT_PNG, 0, true);
+    image_surface_destroy(canvas);
+    return ok;
+}
+
+bool render_document_thumbnail(const char* path, const char* output, int width, int height) {
+    // layout flowing content at a reading width, then fit its viewport into the output box.
+    constexpr int layout_width = 1200, layout_height = 800;
+    constexpr int64_t pixel_limit = 32 * 1024 * 1024;
+    if (!path || !output || width <= 0 || height <= 0 || (int64_t)width * height > pixel_limit)
+        return false;
+    RenderPagedOptions pages;
+    bool paged = preview_paged_options(path, &pages);
+    RenderExportPreviewRequest request = {path, paged ? &pages : nullptr};
+    float scale = fminf((float)width / layout_width, (float)height / layout_height);
+    RenderExportSession session = {};
+    if (!render_export_session_begin_internal(&session, layout_width, layout_height,
+            layout_width, layout_height, scale, 1.0f, false, paged, paged,
+            render_export_load_preview, &request)) return false;
+
+    bool ok = false;
+    if (paged) {
+        ViewPageBox* page = render_secondary_page(session.paged_view, 1);
+        if (page && page->node.rect.width > 0 && page->node.rect.height > 0) {
+            float density = fminf(width / page->node.rect.width, height / page->node.rect.height);
+            // keep ceil-rounded page rasterization inside the caller's pixel box.
+            ImageSurface* surface = render_secondary_page_snapshot(session.paged_view, 1,
+                nextafterf(density, 0.0f));
+            ok = save_fitted_thumbnail(surface, output, width, height);
+            if (surface) image_surface_destroy(surface);
+        }
+    } else {
+        UiContext* ui = session.ui_context;
+        int fitted_width = (int)fmaxf(1.0f, floorf(layout_width * scale)); // INT_CAST_OK: raster pixel count.
+        int fitted_height = (int)fmaxf(1.0f, floorf(layout_height * scale)); // INT_CAST_OK: raster pixel count.
+        ui_context_create_surface(ui, fitted_width, fitted_height);
+        RenderOutputTarget target;
+        render_output_target_init(&target, RENDER_OUTPUT_PNG, nullptr);
+        render_output_target_apply_session(&target, &session);
+        target.surface = lam::up(ui->surface);
+        target.coarse_text = true;
+        ok = ui->surface && session.document->view_tree &&
+            render_output_render_view_tree_to_target(ui, session.document->view_tree, &target) == 0 && !ui->render_failed;
+        DomElement* root = session.document->root;
+        // a failed native projection can leave a usable page surface without a model frame.
+        if (ok && root && root->tag_id == MARKUP_NAME_SCENE3D)
+            ok = scene3d_external_image(root, nullptr, nullptr, nullptr, nullptr);
+        if (ok) ok = save_fitted_thumbnail(ui->surface, output, width, height);
+    }
+    bool closed = render_export_session_finish(&session);
+    return ok && closed;
 }
 
 static int render_output_paged_file(RenderOutputTarget* target,
