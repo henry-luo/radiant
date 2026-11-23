@@ -4976,60 +4976,84 @@ static bool render_attributes_patchable(ElementReader before, ElementReader afte
 
 struct RenderRetainedBranch { Item previous; Item current; bool equal; };
 
-static bool render_source_is_current(DomDocument* doc, Item source,
+static bool render_viewport_needs_complete_source(DomElement* node) {
+    // Scene3D projects native descendants and can rebind a replaced branch.
+    return layout_is_svg_viewport(node->tag()) && node->tag() != MARKUP_NAME_SCENE3D;
+}
+
+static DomElement* render_source_occurrence(DomDocument* doc, Item before, Item after,
+        DomElement* parent) {
+    DomElement* native = element_dom_map_lookup(doc->element_dom_map, before.element);
+    if (native && dom_element_render_source(native) == before.element &&
+            (!parent || dom_source_parent(native) == parent)) return native;
+
+    // A shared source has one reverse-map key and multiple native occurrences.
+    // Locate an unchanged alias under its own parent without rebinding that key.
+    if (!parent || get_type_id(after) != LMD_TYPE_ELEMENT || before.element != after.element)
+        return nullptr;
+    DomElement* match = nullptr;
+    for (DomNode* child = dom_source_child(parent, true); child; child = dom_source_sibling(child, true)) {
+        DomElement* element = child->as_element();
+        if (!element || dom_element_render_source(element) != before.element) continue;
+        if (match) return nullptr;
+        match = element;
+    }
+    return match;
+}
+
+static bool render_source_is_current(DomDocument* doc, Item source, Item current,
         DomElement* parent = nullptr, unsigned depth = 0) {
     TypeId kind = get_type_id(source);
     if (kind != LMD_TYPE_ELEMENT && kind != LMD_TYPE_ARRAY) return true;
-    if (depth >= 128) return false;
+    if (depth >= 128 || get_type_id(current) != kind) return false;
     if (kind == LMD_TYPE_ELEMENT) {
-        DomElement* native = element_dom_map_lookup(doc->element_dom_map, source.element);
-        if (!native || dom_element_render_source(native) != source.element ||
-                (parent && dom_source_parent(native) != parent)) {
+        DomElement* native = render_source_occurrence(doc, source, current, parent);
+        if (!native) {
             if (shell_getenv("RADIANT_TEMPLATE_PROFILE")) log_notice(
-                "[TEMPLATE_PROFILE] source_mismatch tag=%s native=%p expected_parent=%p actual_parent=%p",
-                ((TypeElmt*)source.element->type)->name.str, native, parent, native ? native->parent.get() : nullptr);
+                "[TEMPLATE_PROFILE] source_mismatch tag=%s expected_parent=%p",
+                ((TypeElmt*)source.element->type)->name.str, parent);
             return false;
         }
-        if (layout_is_svg_viewport(native->tag())) return true;
+        if (render_viewport_needs_complete_source(native)) return true;
         parent = native;
     }
     List* children = (List*)source.array;
+    List* next = (List*)current.array;
+    if (!children || !next || children->length != next->length) return false;
     for (int64_t i = 0; i < children->length; i++)
-        if (!render_source_is_current(doc, children->items[i], parent, depth + 1)) return false;
+        if (!render_source_is_current(doc, children->items[i], next->items[i], parent, depth + 1)) return false;
     return true;
 }
 
 static bool collect_render_frontier(DomDocument* doc, const RetransformResult& change,
         lam::ArrayList<RetransformResult>& frontier,
-        lam::ArrayList<RenderRetainedBranch>& retained, unsigned depth = 0) {
+        lam::ArrayList<RenderRetainedBranch>& retained, unsigned depth = 0,
+        DomElement* parent = nullptr) {
     Item previous = change.old_result, current = change.new_result;
     if (radiant_reactive_render_equal(previous, current)) {
         // nested updates and layout fixups can change the correspondence below an equal source root.
-        if (!render_source_is_current(doc, previous)) return frontier.push_back(change);
+        if (!render_source_is_current(doc, previous, current, parent)) return frontier.push_back(change);
         return retained.push_back({previous, current, true});
     }
     bool descend = depth < 128 && get_type_id(previous) == LMD_TYPE_ELEMENT &&
         get_type_id(current) == LMD_TYPE_ELEMENT && previous.element->type && current.element->type;
     ElementReader before(previous), after(current);
+    DomElement* native = nullptr;
     if (descend) {
         auto* a = (TypeElmt*)previous.element->type;
         auto* b = (TypeElmt*)current.element->type;
-        DomElement* native = element_dom_map_lookup(doc->element_dom_map, previous.element);
-        // native viewports consume complete source trees.
+        native = element_dom_map_lookup(doc->element_dom_map, previous.element);
         descend = a->ns == b->ns && strview_equal(&a->name, b->name.str) &&
             before.childCount() == after.childCount() &&
-            native && !layout_is_svg_viewport(native->tag()) &&
+            native && !render_viewport_needs_complete_source(native) &&
             render_attributes_patchable(before, after);
     }
     if (descend) {
         // text or fragment changes keep their enclosing element as the replacement unit.
         for (int64_t i = 0; i < before.childCount(); i++) {
             Item a = before.childAt(i).item(), b = after.childAt(i).item();
-            DomElement* child = get_type_id(a) == LMD_TYPE_ELEMENT
-                ? element_dom_map_lookup(doc->element_dom_map, a.element) : nullptr;
-            DomElement* native = element_dom_map_lookup(doc->element_dom_map, previous.element);
             // layout-only table wrappers do not change authored source ancestry.
-            if (get_type_id(a) == LMD_TYPE_ELEMENT && (!child || dom_source_parent(child) != native)) {
+            if (get_type_id(a) == LMD_TYPE_ELEMENT && !render_source_occurrence(doc, a, b, native)) {
                 descend = false;
                 break;
             }
@@ -5046,7 +5070,7 @@ static bool collect_render_frontier(DomDocument* doc, const RetransformResult& c
         RetransformResult child = change;
         child.old_result = before.childAt(i).item();
         child.new_result = after.childAt(i).item();
-        if (!collect_render_frontier(doc, child, frontier, retained, depth + 1)) return false;
+        if (!collect_render_frontier(doc, child, frontier, retained, depth + 1, native)) return false;
     }
     return true;
 }

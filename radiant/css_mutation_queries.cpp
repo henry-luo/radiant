@@ -1,20 +1,27 @@
 #include "css_mutation_queries.hpp"
 #include "lambda/input/css/dom_element.hpp"
 #include "lambda/input/css/css_parser.hpp"
+#include "lambda/input/css/selector_matcher.hpp"
 #include "lib/str.h"
 
-static bool dom_js_simple_selector_mentions_mutation_attribute(
-        CssSimpleSelector* simple, const char* attribute);
+struct AttributeMatchChange {
+    const char* before;
+    const char* after;
+    SelectorMatcher matcher;
+};
 
-bool radiant_css_selector_mentions_mutation_attribute(
-        CssSelector* selector, const char* attribute) {
+static bool dom_js_simple_selector_mentions_mutation_attribute(
+        CssSimpleSelector* simple, const char* attribute, AttributeMatchChange* change);
+
+static bool selector_mentions_mutation_attribute(
+        CssSelector* selector, const char* attribute, AttributeMatchChange* change) {
     if (!selector) return false;
     for (size_t i = 0; i < selector->compound_selector_count; i++) {
         CssCompoundSelector* compound = selector->compound_selectors[i];
         if (!compound) continue;
         for (size_t s = 0; s < compound->simple_selector_count; s++) {
             if (dom_js_simple_selector_mentions_mutation_attribute(
-                    compound->simple_selectors[s], attribute)) {
+                    compound->simple_selectors[s], attribute, change)) {
                 return true;
             }
         }
@@ -22,17 +29,59 @@ bool radiant_css_selector_mentions_mutation_attribute(
     return false;
 }
 
+bool radiant_css_selector_mentions_mutation_attribute(CssSelector* selector, const char* attribute) {
+    return selector_mentions_mutation_attribute(selector, attribute, nullptr);
+}
+
+bool radiant_css_selector_attribute_match_changes(CssSelector* selector, const char* attribute,
+        const char* before, const char* after, bool case_sensitive) {
+    // absent/unknown old values retain the broad path, including empty boolean attributes.
+    if (!before || !after) return radiant_css_selector_mentions_mutation_attribute(selector, attribute);
+    AttributeMatchChange change = {};
+    change.before = before;
+    change.after = after;
+    change.matcher.case_sensitive_attrs = case_sensitive;
+    return selector_mentions_mutation_attribute(selector, attribute, &change);
+}
+
 static bool dom_js_simple_selector_mentions_mutation_attribute(
-        CssSimpleSelector* simple, const char* attribute) {
+        CssSimpleSelector* simple, const char* attribute, AttributeMatchChange* change) {
     if (!simple) return false;
     const char* selected_attribute = simple->type == CSS_SELECTOR_TYPE_CLASS ? "class" :
         simple->type == CSS_SELECTOR_TYPE_ID ? "id" :
         (simple->type >= CSS_SELECTOR_ATTR_EXACT && simple->type <= CSS_SELECTOR_ATTR_CASE_SENSITIVE)
             ? simple->attribute.name : nullptr;
-    if (attribute && selected_attribute && str_icmp_cstr(selected_attribute, attribute) == 0) return true;
+    if (attribute && selected_attribute && str_icmp_cstr(selected_attribute, attribute) == 0) {
+        if (!change || simple->type == CSS_SELECTOR_TYPE_ID)
+            return true;
+        // project class selectors with the DOM cache's actual tokenization policy.
+        const bool is_class = simple->type == CSS_SELECTOR_TYPE_CLASS;
+        // query and cascade matchers can have different quirks policies. A
+        // projection is safe only when both policies preserve the leaf result.
+        const bool sensitive = change->matcher.case_sensitive_attrs;
+        for (unsigned mode = 0; mode < 2; mode++) {
+            change->matcher.case_sensitive_attrs = mode ? !sensitive : sensitive;
+            bool before = is_class ? dom_class_attribute_has_token(change->before, simple->value,
+                change->matcher.case_sensitive_attrs) :
+                selector_matcher_matches_attribute_value(&change->matcher, change->before, true,
+                    simple->attribute.value, simple->type, simple->attribute.case_insensitive,
+                    simple->attribute.case_sensitive);
+            bool after = is_class ? dom_class_attribute_has_token(change->after, simple->value,
+                change->matcher.case_sensitive_attrs) :
+                selector_matcher_matches_attribute_value(&change->matcher, change->after, true,
+                    simple->attribute.value, simple->type, simple->attribute.case_insensitive,
+                    simple->attribute.case_sensitive);
+            if (before != after) {
+                change->matcher.case_sensitive_attrs = sensitive;
+                return true;
+            }
+        }
+        change->matcher.case_sensitive_attrs = sensitive;
+        return false;
+    }
     for (size_t i = 0; i < simple->function_selector_count; i++) {
-        if (radiant_css_selector_mentions_mutation_attribute(
-                simple->function_selectors[i], attribute)) {
+        if (selector_mentions_mutation_attribute(
+                simple->function_selectors[i], attribute, change)) {
             return true;
         }
     }
@@ -40,22 +89,22 @@ static bool dom_js_simple_selector_mentions_mutation_attribute(
 }
 
 static bool dom_js_selector_has_relational_mutation_attribute_dependency(
-        CssSelector* selector, const char* attribute);
+        CssSelector* selector, const char* attribute, AttributeMatchChange* change);
 
 static bool dom_js_simple_selector_has_relational_mutation_attribute_dependency(
-        CssSimpleSelector* simple, const char* attribute) {
+        CssSimpleSelector* simple, const char* attribute, AttributeMatchChange* change) {
     if (!simple) return false;
     if (simple->type == CSS_SELECTOR_PSEUDO_HAS) {
         for (size_t i = 0; i < simple->function_selector_count; i++) {
-            if (radiant_css_selector_mentions_mutation_attribute(
-                    simple->function_selectors[i], attribute)) {
+            if (selector_mentions_mutation_attribute(
+                    simple->function_selectors[i], attribute, change)) {
                 return true;
             }
         }
     }
     for (size_t i = 0; i < simple->function_selector_count; i++) {
         if (dom_js_selector_has_relational_mutation_attribute_dependency(
-                simple->function_selectors[i], attribute)) {
+                simple->function_selectors[i], attribute, change)) {
             return true;
         }
     }
@@ -63,14 +112,14 @@ static bool dom_js_simple_selector_has_relational_mutation_attribute_dependency(
 }
 
 static bool dom_js_selector_has_relational_mutation_attribute_dependency(
-        CssSelector* selector, const char* attribute) {
+        CssSelector* selector, const char* attribute, AttributeMatchChange* change) {
     if (!selector) return false;
     for (size_t i = 0; i < selector->compound_selector_count; i++) {
         CssCompoundSelector* compound = selector->compound_selectors[i];
         if (!compound) continue;
         for (size_t s = 0; s < compound->simple_selector_count; s++) {
             if (dom_js_simple_selector_has_relational_mutation_attribute_dependency(
-                    compound->simple_selectors[s], attribute)) {
+                    compound->simple_selectors[s], attribute, change)) {
                 return true;
             }
         }
@@ -148,9 +197,15 @@ bool radiant_css_document_rule_tree_has_match(DomDocument* doc,
     return false;
 }
 
+struct RelationalAttributeDependency {
+    const char* attribute;
+    AttributeMatchChange* change;
+};
+
 static bool dom_js_selector_has_attribute_dependency(CssSelector* selector, void* context) {
+    auto* dependency = (RelationalAttributeDependency*)context;
     return dom_js_selector_has_relational_mutation_attribute_dependency(
-        selector, *(const char**)context);
+        selector, dependency->attribute, dependency->change);
 }
 
 static bool dom_js_rule_has_relational_mutation_attribute_dependency(
@@ -160,8 +215,23 @@ static bool dom_js_rule_has_relational_mutation_attribute_dependency(
 
 bool radiant_css_document_has_relational_mutation_attribute_dependency(
         DomDocument* doc, const char* attribute) {
+    RelationalAttributeDependency dependency = {attribute, nullptr};
     return radiant_css_document_rule_tree_has_match(doc,
-        dom_js_rule_has_relational_mutation_attribute_dependency, &attribute);
+        dom_js_rule_has_relational_mutation_attribute_dependency, &dependency);
+}
+
+bool radiant_css_document_relational_attribute_match_changes(DomDocument* doc, const char* attribute,
+        const char* before, const char* after) {
+    if (!doc || !attribute) return true;
+    if (!before || !after)
+        return radiant_css_document_has_relational_mutation_attribute_dependency(doc, attribute);
+    AttributeMatchChange change = {};
+    change.before = before;
+    change.after = after;
+    change.matcher.case_sensitive_attrs = true;
+    RelationalAttributeDependency dependency = {attribute, &change};
+    return radiant_css_document_rule_tree_has_match(doc,
+        dom_js_rule_has_relational_mutation_attribute_dependency, &dependency);
 }
 
 extern "C" bool dom_engine_attribute_has_relational_css_dependency(DomDocument* doc, const char* name) {

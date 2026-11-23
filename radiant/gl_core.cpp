@@ -135,6 +135,7 @@ static uint64_t native_gl_id() { return __atomic_fetch_add(&native_gl_next_id, 1
     X(void, DepthFunc, (GLenum)) \
     X(void, LineWidth, (GLfloat)) \
     X(void, PolygonOffset, (GLfloat, GLfloat)) \
+    X(void, PolygonMode, (GLenum, GLenum)) \
     X(void, BlendColor, (GLfloat, GLfloat, GLfloat, GLfloat)) \
     X(void, BlendEquation, (GLenum)) \
     X(void, BlendEquationSeparate, (GLenum, GLenum)) \
@@ -1608,8 +1609,13 @@ bool native_gl_draw(NativeGlContext* context, const NativeGlDraw* draw) {
     else { gl.Enable(GL_CULL_FACE); gl.CullFace(draw->side == 1 ? GL_FRONT : GL_BACK); }
     gl.FrontFace(draw->clockwise ? GL_CW : GL_CCW);
     if (draw->alpha_to_coverage) gl.Enable(GL_SAMPLE_ALPHA_TO_COVERAGE);
-    if (draw->indexed) gl.DrawElementsInstanced(GL_TRIANGLES, draw->count, GL_UNSIGNED_INT, nullptr, draw->instances);
-    else gl.DrawArraysInstanced(GL_TRIANGLES, 0, draw->count, draw->instances);
+    // draw edges from the same transformed vertices, including skinning and morphs.
+    bool wireframe = draw->mode == NATIVE_GL_DRAW_WIREFRAME;
+    if (wireframe) gl.PolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+    GLenum primitive = draw->mode == NATIVE_GL_DRAW_LINES ? GL_LINES : GL_TRIANGLES;
+    if (draw->indexed) gl.DrawElementsInstanced(primitive, draw->count, GL_UNSIGNED_INT, nullptr, draw->instances);
+    else gl.DrawArraysInstanced(primitive, 0, draw->count, draw->instances);
+    if (wireframe) gl.PolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     gl.ColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);gl.Disable(GL_POLYGON_OFFSET_FILL);gl.Disable(GL_SAMPLE_ALPHA_TO_COVERAGE);
     NativeGlSlot* target=native_gl_slot(context,{context->drawing},NATIVE_GL_TARGET);
     if (target) target->resolve_dirty=target->name != 0;

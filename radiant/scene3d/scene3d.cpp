@@ -387,6 +387,7 @@ struct Scene3dEntry {
     Scene3dSimulation* simulations[SCENE_SIMULATION_LIMIT];
     unsigned simulation_count;
     NativeGlResource fullscreen_buffer, fullscreen_triangle; // one full-screen triangle for every pass
+    NativeGlResource skeleton_program, skeleton_buffer, skeleton_vertices;
     Scene3dProjection projection;
     Scene3dRuntime* runtime;
     Scene3dAnimationState* animation;
@@ -489,12 +490,17 @@ static bool scene3d_camera_lens_attribute(const char* name) {
         !strcmp(name, "far") || !strcmp(name, "aspect") || !strcmp(name, "view_height");
 }
 
+static bool scene3d_inspection_attribute(const char* name) {
+    return !strcmp(name, "wireframe") || !strcmp(name, "show-skeleton");
+}
+
 bool scene3d_is_inner_paint_attribute(DomElement* element, const char* name) {
     // A replaced scene's inner native nodes have no layout boxes. CSS selector
     // and attr() dependencies still take the ordinary mutation path.
     bool pose = scene3d_pose_attribute(name);
     bool camera = pose || scene3d_camera_lens_attribute(name);
     bool color = !strcmp(name, "color");
+    if (scene3d_inspection_attribute(name) && element->tag() == MARKUP_NAME_SCENE3D) return true;
     if (!camera && !color) return false;
     const char* tag = element->local_name();
     if (!tag || !((pose && (!strcmp(tag, "group") || !strcmp(tag, "mesh"))) ||
@@ -609,6 +615,7 @@ static bool scene3d_hash_source(DomNode* node, uint64_t* hash, unsigned* count, 
         for (int i = 0; i < attributes; i++) {
             const char* key = names[i];
             if (projection && !strncmp(key, "audio_", 6)) continue;
+            if (projection && depth == 0 && scene3d_inspection_attribute(key)) continue;
             if (camera && (scene3d_pose_attribute(key) || scene3d_camera_lens_attribute(key))) continue;
             uint64_t* destination = hash;
             if (keys && scene3d_appearance_attribute(element, tag, key, !depth)) {
@@ -3503,6 +3510,19 @@ static bool scene3d_refresh_uniforms(Scene3dEntry* entry, DomElement* node, Scen
 }
 static bool scene3d_refresh_pose(Scene3dEntry* entry, DomElement* root, bool projected) {
     Scene3dProjection* p = &entry->projection;
+    // Atmosphere tracks update render uniforms without recompiling the scene.
+    if (!scene3d_animated_color(entry, root, p->background, "background", "transparent") ||
+        !scene3d_animated_number(entry, root, "environment-intensity", 1, &p->environment_intensity) ||
+        p->environment_intensity < 0)
+        return scene3d_fail(entry, "invalid animated background or environment intensity");
+    if (p->fog.source.address) {
+        DomNode* fog_node = dom_node_ref_validate(root->doc, p->fog.source);
+        float color[4];
+        if (!fog_node || !fog_node->is_element() ||
+            !scene3d_animated_color(entry, fog_node->as_element(), color, "color", "#d5dedb"))
+            return scene3d_fail(entry, "invalid animated fog color");
+        memcpy(p->fog.color, color, sizeof(p->fog.color));
+    }
     uint64_t pose_version = ++p->pose_version;
     // projected objects are in parent-first order. All of a parent's draws share its sampled pose.
     for (int i = 0; !projected && i < p->pose_count; i++) {
@@ -3723,13 +3743,16 @@ void scene3d_follow_rebuild(DomDocument* document, DomNode* old_root, DomNode* n
     for (Scene3dEntry* entry = registry->entries; entry; entry = entry->next) {
         DomNode* owner = dom_node_ref_validate(document, entry->root);
         DomNode* replacement = owner ? view_state_corresponding_node(owner, old_root, new_root) : nullptr;
-        // a nested template can replace a body or asset while retaining its owning viewport.
-        if (!replacement && owner)
-            for (DomNode* node = new_root->parent; node; node = node->parent)
+        // Reconciliation hands off owners before it links the replacement.
+        // A live old branch supplies the ancestry for a retained viewport.
+        if (!replacement && owner) {
+            DomNode* parent = old_root->parent ? old_root->parent.get() : new_root->parent.get();
+            for (DomNode* node = parent; node; node = node->parent)
                 if (node == owner) {
                     replacement = owner;
                     break;
                 }
+        }
         if (!replacement || !replacement->is_element() || !scene3d_tag(replacement->as_element(), "scene3d"))
             continue;
         entry->root = dom_node_ref(replacement);
@@ -4043,6 +4066,7 @@ void scene3d_context_lost(DomElement* root) {
     e->simulation_count = 0;
     e->fullscreen_buffer = {};
     e->fullscreen_triangle = {};
+    e->skeleton_program = e->skeleton_buffer = e->skeleton_vertices = {};
     for (NativeGlResource& plane : e->environment_planes)
         plane = {};
 }
@@ -5214,6 +5238,7 @@ struct Scene3dPass {
     NativeGlResource transmission = {};
     float background[3] = {}, viewport[2] = {};
     const Scene3dFog* fog = nullptr;
+    bool wireframe = false;
 };
 static bool scene3d_mesh_in_view(Scene3dEntry* entry, const Scene3dMesh* mesh, const Scene3dMatrix& lens,
                                  const Scene3dMatrix& view, const float viewport[2]);
@@ -5452,6 +5477,8 @@ static bool scene3d_draw_mesh(Scene3dEntry* entry, const Scene3dPass& pass, Scen
                          material->side,
                          mesh->clockwise};
     draw.depth_only = material->depth_only;
+    if (pass.wireframe && mesh->geometry->topology == SCENE_TRIANGLES && !mesh->particle_trail && !draw.depth_only)
+        draw.mode = NATIVE_GL_DRAW_WIREFRAME;
     if (!scene3d_bind_particles(entry, mesh, &draw, true)) return false;
     if (material->transmission)
         draw.bindings[draw.binding_count++] = {"opaque_color", pass.transmission.id ? pass.transmission : entry->white,
@@ -6533,6 +6560,63 @@ static bool scene3d_output(Scene3dEntry* entry, Scene3dProjection* projection, N
     return native_gl_draw(entry->graphics, &draw);
 }
 
+struct Scene3dSkeletonOverlay {
+    Scene3dEntry* entry;
+    const Scene3dMatrix& projection;
+    Scene3dVec vertices[512];
+    unsigned count;
+
+    bool draw() {
+        if (!count) return true;
+        if (!entry->skeleton_program.id) {
+            entry->skeleton_program = native_gl_program(entry->graphics,
+                "#version 330 core\nlayout(location=0) in vec3 position; uniform mat4 projection;"
+                "void main(){gl_Position=projection*vec4(position,1);}",
+                "#version 330 core\nout vec4 color; void main(){color=vec4(0.95,0.12,0.025,1);}");
+        }
+        if (!entry->skeleton_buffer.id)
+            entry->skeleton_buffer = native_gl_buffer(entry->graphics, vertices, sizeof(vertices), false);
+        if (!entry->skeleton_vertices.id && entry->skeleton_buffer.id) {
+            NativeGlAttribute position = {entry->skeleton_buffer, 0, 3, sizeof(Scene3dVec), 0, 0};
+            entry->skeleton_vertices = native_gl_vertices(entry->graphics, &position, 1, {});
+        }
+        if (!entry->skeleton_program.id || !entry->skeleton_vertices.id ||
+            !native_gl_buffer_update(entry->graphics, entry->skeleton_buffer, vertices, count * sizeof(vertices[0])) ||
+            !scene3d_uniform(entry, entry->skeleton_program, "projection", projection.v, 16))
+            return false;
+        NativeGlDraw draw = {entry->skeleton_program, entry->skeleton_vertices, count, 1, false, false, 2, false};
+        draw.mode = NATIVE_GL_DRAW_LINES;
+        draw.depth_test = false;
+        count = 0;
+        return native_gl_draw(entry->graphics, &draw);
+    }
+};
+
+static bool scene3d_draw_skeleton(Scene3dEntry* entry, DomElement* root, const Scene3dMatrix& projection) {
+    // Sample the live bone pose used by skinning. Draw each joint link once, even when several meshes share the rig.
+    Scene3dSkeletonOverlay overlay = {entry, projection, {}, 0};
+    return scene3d_visit(root, [](DomElement* node, void* owner) {
+        if (scene3d_tag(node, "environment") || scene3d_tag(node, "resources"))
+            return SCENE3D_VISIT_SKIP;
+        DomElement* parent = dom_parent_element(node);
+        if (!scene3d_tag(node, "bone") || !parent || !scene3d_tag(parent, "bone"))
+            return SCENE3D_VISIT_CHILDREN;
+        auto* overlay = (Scene3dSkeletonOverlay*)owner;
+        Scene3dMatrix from, to;
+        bool parent_visible, node_visible;
+        if (!scene3d_world(overlay->entry, parent, &from, &parent_visible) ||
+            !scene3d_world(overlay->entry, node, &to, &node_visible))
+            return SCENE3D_VISIT_ERROR;
+        if (parent_visible && node_visible) {
+            overlay->vertices[overlay->count++] = scene3d_point(from, {});
+            overlay->vertices[overlay->count++] = scene3d_point(to, {});
+            if (overlay->count == sizeof(overlay->vertices) / sizeof(overlay->vertices[0]) && !overlay->draw())
+                return SCENE3D_VISIT_ERROR;
+        }
+        return SCENE3D_VISIT_CHILDREN;
+    }, &overlay) && overlay.draw();
+}
+
 // Fills a deferred snapshot from the target the frame published. A frame rendered at a capped density
 // (max-pixel-ratio) is published at that density for the compositor; only a CPU consumer needs it
 // upsampled to the snapshot's size, so the upscale target exists only once one has asked
@@ -6805,6 +6889,13 @@ ImageSurface* scene3d_frame(DomElement* root, UiContext* ui, float width, float 
                         ++entry->frame,
                         lens};
     pass.fog = &p->fog;
+    bool show_skeleton;
+    if (!scene3d_flag(root, "wireframe", false, &pass.wireframe) ||
+        !scene3d_flag(root, "show-skeleton", false, &show_skeleton)) {
+        scene3d_fail(entry, "invalid inspection flag");
+        scene3d_retire_snapshot(entry);
+        return nullptr;
+    }
     pass.viewport[0] = width;
     pass.viewport[1] = height;
     for (int i = 0; i < p->lod_count; i++) {
@@ -6877,6 +6968,8 @@ ImageSurface* scene3d_frame(DomElement* root, UiContext* ui, float width, float 
     for (int i = 0; rendered && i < p->mesh_count; i++)
         if (p->meshes[i]->view_visible && scene3d_transparent(p->meshes[i]))
             rendered = scene3d_draw_mesh(entry, pass, p->meshes[i]);
+    if (rendered && show_skeleton)
+        rendered = scene3d_draw_skeleton(entry, root, projection);
     NativeGlResource published = {};
     if (rendered)
         rendered = scene3d_post_display(entry, &published);

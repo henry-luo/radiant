@@ -1377,7 +1377,8 @@ void render_select_dropdown(RasterRenderContext* rdcon, ViewBlock* select, DocSt
 
     // clip partial rows and long labels before the scrollbar gutter.
     float options_right = x + w - max(bw, geometry.scrollbar_width * s);
-    Bound options_clip = {x + bw, y + bw, options_right, y + h - bw};
+    Bound options_clip = view_geometry_intersect_bound_rect(rdcon->block.clip,
+        {x + bw, y + bw, options_right - x - bw, h - 2 * bw});
     RenderClipScope options_scope = render_clip_push_rect_scope(rdcon, &options_clip, nullptr);
     rdcon->block.clip = options_clip;
     StrBuf* label = strbuf_new_cap(32);
