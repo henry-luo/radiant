@@ -786,7 +786,7 @@ struct TextWrapBalanceProbe {
             TextIntrinsicWidths sizes = layout_measure_text_intrinsic_widths(
                 lycon, paragraph, length, get_element_text_transform(block),
                 get_element_font_variant(block), block->block()->white_space,
-                block->block()->overflow_wrap, block->block()->word_break);
+                block->block()->rare().overflow_wrap, block->block()->rare().word_break);
             return {sizes.min_content, sizes.max_content};
         }
         IntrinsicSizes sizes = measure_element_intrinsic_widths(lycon, block, true);
@@ -1009,6 +1009,7 @@ bool layout_apply_object_view_box_intrinsic_size(LayoutContext* lycon,
 
 static void pseudo_append_child(DomElement* parent, DomNode* child) {
     if (!parent || !child) return;
+    if (child->detached_root_slot) dom_node_cancel_detached(parent->doc, child);
     child->parent = lam::up(parent);
     child->next_sibling = nullptr;
     if (!parent->first_child) {
@@ -1081,7 +1082,18 @@ static bool pseudo_materialize_content_children(LayoutContext* lycon, DomElement
     if (!text_buf) return false;
     bool appended_any = false;
     DomNode* retained = refresh ? pseudo_elem->first_child.get() : nullptr;
-    if (refresh) { pseudo_elem->first_child = nullptr; pseudo_elem->last_child = nullptr; }
+    if (refresh) {
+        DomElement* marker = pseudo_elem->pseudo_prop() ? pseudo_elem->pseudo_prop()->marker.get() : nullptr;
+        if (marker && retained == marker) {
+            // the list-item marker precedes the generated content list.
+            retained = marker->next_sibling;
+            marker->next_sibling = nullptr;
+            pseudo_elem->last_child = lam::up(static_cast<DomNode*>(marker));
+        } else {
+            pseudo_elem->first_child = nullptr;
+            pseudo_elem->last_child = nullptr;
+        }
+    }
     auto release_discarded_image = [&](DomNode* child) {
         // discarded image boxes own document-pool styles even within a single layout pass
         if (child && child->is_element() && child->as_element()->embed)
@@ -1446,9 +1458,7 @@ static void refresh_pseudo_element_style(LayoutContext* lycon, DomElement* paren
     pseudo->display = layout_resolved_display(pseudo);
 }
 
-static bool pseudo_content_has_function(StyleTree* style, const char* name) {
-    const CssDeclaration* declaration = style ? style_tree_get_declaration(style, CSS_PROPERTY_CONTENT) : nullptr;
-    const CssValue* value = declaration ? declaration->value : nullptr;
+static bool pseudo_content_has_function(const CssValue* value, const char* name) {
     int count = value && value->type == CSS_VALUE_TYPE_LIST ? value->data.list.count : 1;
     for (int i = 0; value && i < count; i++) {
         const CssValue* item = value->type == CSS_VALUE_TYPE_LIST ? value->data.list.values[i] : value;
@@ -1486,8 +1496,10 @@ static DomElement* create_pseudo_element(LayoutContext* lycon, DomElement* paren
             is_before ? PSEUDO_STYLE_BEFORE : PSEUDO_STYLE_AFTER,
             parent_font);
     }
-    bool has_counter_content = pseudo_content_has_function(pseudo_styles, "counter") ||
-        pseudo_content_has_function(pseudo_styles, "counters");
+    const CssDeclaration* declaration = pseudo_styles ? style_tree_get_declaration(pseudo_styles, CSS_PROPERTY_CONTENT) : nullptr;
+    const CssValue* value = declaration ? declaration->value : nullptr;
+    bool has_counter_content = pseudo_content_has_function(value, "counter") ||
+        pseudo_content_has_function(value, "counters");
     bool materialized_children = has_counter_content ? false :
         pseudo_materialize_content_children(lycon, parent, pseudo_elem, is_before);
     if (!materialized_children && ((content && *content) || has_counter_content)) {
@@ -1516,14 +1528,6 @@ bool layout_generated_pseudo(const DomElement* element, uint8_t* pseudo, PseudoS
         return true;
     }
     return false;
-}
-
-DomElement* layout_top_layer_backdrop(DomElement* owner) {
-    for (DomNode* node = owner ? owner->last_child.get() : nullptr; node; node = node->prev_sibling) {
-        DomElement* element = node->as_element();
-        if (layout_is_backdrop(element)) return element;
-    }
-    return nullptr;
 }
 
 void layout_top_layer_backdrops(LayoutContext* lycon) {
@@ -1581,6 +1585,7 @@ DomElement* layout_footnote_pseudo(LayoutContext* lycon, DomElement* note, bool 
             else parent->first_child = lam::own((DomNode*)pseudo);
             note->prev_sibling = lam::up((DomNode*)pseudo);
             pseudo->parent = lam::up((DomNode*)note);
+            dom_node_cancel_detached(note->doc, pseudo);
         } else {
             insert_pseudo_into_dom(note, pseudo, true);
         }
@@ -1618,8 +1623,14 @@ void layout_update_pseudo_content_with_counters(LayoutContext* lycon,
     if (!origin) return;
     StyleTree* style = origin->pseudo_style(kind);
     if (apply_counters) apply_pseudo_counter_ops(lycon, style);
-    // leaders remain inline fill boxes when counter/reference values are refreshed.
-    if (pseudo_content_has_function(style, "leader")) {
+    const CssDeclaration* declaration = style ? style_tree_get_declaration(style, CSS_PROPERTY_CONTENT) : nullptr;
+    const CssValue* value = declaration ? declaration->value : nullptr;
+    bool before_or_after = pseudo == PSEUDO_ELEMENT_BEFORE || pseudo == PSEUDO_ELEMENT_AFTER;
+    CssImageChoice image = {};
+    // refresh structured content in order when text shares its list with images or leaders.
+    if (pseudo_content_has_function(value, "leader") ||
+        (before_or_after && value && value->type == CSS_VALUE_TYPE_LIST &&
+         css_content_replacement_image(value, lycon, &image))) {
         pseudo_materialize_content_children(lycon, origin, pseudo_element, pseudo == PSEUDO_ELEMENT_BEFORE, true);
         return;
     }
@@ -1627,8 +1638,6 @@ void layout_update_pseudo_content_with_counters(LayoutContext* lycon,
     if (pseudo == PSEUDO_ELEMENT_FOOTNOTE_CALL || pseudo == PSEUDO_ELEMENT_FOOTNOTE_MARKER) {
         // CSS GCPM 3 §2.3: a call or marker without content shows its note's footnote
         // counter, the marker followed by a space as the item engine set it
-        const CssDeclaration* declaration = style ? style_tree_get_declaration(style, CSS_PROPERTY_CONTENT) : nullptr;
-        const CssValue* value = declaration ? declaration->value : nullptr;
         if (!value || css_value_keyword_equals(value, CSS_VALUE_NORMAL) || css_value_is_initial(value) || css_value_is_unset(value)) {
             char number[32];
             int length = counter_format_value(counter_get_value(lycon->counter_context, "footnote"), CSS_VALUE_DECIMAL,
@@ -1943,7 +1952,7 @@ static float compute_collapsible_bottom_margin(ViewBlock* block) {
     // CSS 2.1 §8.3.1: Root element margins do not collapse.
     if (!block->parent || !block->parent->is_block()) return 0;
     // CSS Box 4 §3.1: When margin-trim:block-end is set, the last child's
-    if (block->blk && (block->block()->margin_trim & MARGIN_TRIM_BLOCK_END)) return 0;
+    if (block->blk && (block->block()->rare().margin_trim & MARGIN_TRIM_BLOCK_END)) return 0;
     bool has_border_bottom = block->bound && block->boundary_mut()->border && block->boundary_mut()->border->width.bottom > 0;
     bool has_padding_bottom = block->bound && block->boundary_mut()->padding.bottom > 0;
     if (has_border_bottom || has_padding_bottom) return 0;
@@ -2134,7 +2143,7 @@ static ViewBlock* find_line_clamped_descendant_in_view(View* view) {
         if (layout_block_is_out_of_flow(vb) || is_inline_level_atomic_block(view, vb)) {
             return nullptr;
         }
-        if (vb->blk && vb->block_mut()->line_clamped && vb->block_mut()->line_clamp_inherited) {
+        if (vb->blk && vb->block_mut()->rare().flow.line_clamped && vb->block_mut()->rare().flow.line_clamp_inherited) {
             ViewBlock* nested = find_line_clamped_descendant_block(vb);
             return nested ? nested : vb;
         }
@@ -2181,7 +2190,7 @@ static FormattedLineContent classify_formatted_line_content(ViewBlock* container
 // Find the block containing an edge formatted line, following CSS Inline 3 §5.
 static ViewBlock* find_formatted_line_block(ViewBlock* container, bool find_last) {
     if (!container) return nullptr;
-    if (find_last && container->blk && container->block_mut()->line_clamped) {
+    if (find_last && container->blk && container->block_mut()->rare().flow.line_clamped) {
         ViewBlock* clamped_descendant = find_line_clamped_descendant_block(container);
         if (clamped_descendant) {
             return find_formatted_line_block(clamped_descendant, true);
@@ -2201,17 +2210,17 @@ static ViewBlock* find_formatted_line_block(ViewBlock* container, bool find_last
 }
 // text-box-edge is an inherited property (CSS Inline 3 §5.1).
 static void get_text_box_edge(ViewBlock* block, CssEnum* over_edge, CssEnum* under_edge) {
-    if (block->blk && block->block_mut()->text_box_over_edge != CSS_VALUE__UNDEF) {
-        *over_edge = block->block()->text_box_over_edge;
-        *under_edge = block->block()->text_box_under_edge;
+    if (block->blk && block->block_mut()->rare().text_box_over_edge != CSS_VALUE__UNDEF) {
+        *over_edge = block->block()->rare().text_box_over_edge;
+        *under_edge = block->block()->rare().text_box_under_edge;
         return;
     }
     ViewElement* parent = block->parent_view();
     while (parent) {
         ViewBlock* pb = lam::view_as_block(parent);
-        if (pb && pb->blk && pb->block_mut()->text_box_over_edge != CSS_VALUE__UNDEF) {
-            *over_edge = pb->block()->text_box_over_edge;
-            *under_edge = pb->block()->text_box_under_edge;
+        if (pb && pb->blk && pb->block_mut()->rare().text_box_over_edge != CSS_VALUE__UNDEF) {
+            *over_edge = pb->block()->rare().text_box_over_edge;
+            *under_edge = pb->block()->rare().text_box_under_edge;
             return;
         }
         parent = parent->parent_view();
@@ -2346,7 +2355,7 @@ void layout_center_button_text(LayoutContext* lycon, ViewBlock* block) {
     if (!lycon || !layout_form_control_is_button(block) ||
         block->display.inner == CSS_VALUE_FLEX || block->display.inner == CSS_VALUE_GRID ||
         layout_block_inline_axis_is_vertical(block) || !block->first_child ||
-        (block->blk && block->block()->text_box_trim) || block->height <= 0.0f) return;
+        (block->blk && block->block()->rare().text_box_trim) || block->height <= 0.0f) return;
     bool has_flow_blocks = false;
     float flow_top = INFINITY, flow_bottom = -INFINITY;
     for (View* child = block->first_placed_child(); child; child = child->next()) {
@@ -2410,7 +2419,7 @@ static void shift_block_axis_content_for_alignment(ViewBlock* block, float delta
 static void apply_block_axis_content_alignment(LayoutContext* lycon, ViewBlock* block,
                                                float flow_height) {
     if (!block || !block->blk) return;
-    CssSelfAlignment alignment = block->block()->align_content_detail;
+    CssSelfAlignment alignment = block->block()->rare().align_content_detail;
     CssEnum align = alignment.value;
     if (align == CSS_VALUE__UNDEF || align == CSS_VALUE_NORMAL || align == CSS_VALUE_STRETCH) return;
     if (block->display.inner != CSS_VALUE_FLOW && block->display.inner != CSS_VALUE_FLOW_ROOT) return;
@@ -2482,7 +2491,7 @@ static void apply_start_trim_recursive(ViewBlock* container, ViewBlock* target, 
                     ViewBlock* vb = lam::view_require_block(child);
                     if (is_inline_level_atomic_block(child, vb)) {
                         if (!(vb->blk &&
-                              (vb->block()->text_box_trim_applied & TEXT_BOX_TRIM_START))) {
+                              (vb->block()->rare().flow.text_box_trim_applied & TEXT_BOX_TRIM_START))) {
                             child->y -= trim;
                         }
                         child = child->next();
@@ -2601,13 +2610,13 @@ static bool has_padding_or_border_between(ViewBlock* container, ViewBlock* targe
 }
 // CSS Inline 3 §5: trims half-leading from first/last formatted lines.
 // CSS Inline Level 3 §5: Compute text-box-trim amounts and adjust child
-static float apply_text_box_trim(ViewBlock* block, float end_trim_limit) {
+static float apply_text_box_trim(LayoutContext* lycon, ViewBlock* block, float end_trim_limit) {
     if (!block->blk) return 0;
-    block->blk->text_box_trim_applied = 0;
-    block->blk->text_box_trim_start_amount = 0.0f;
-    block->blk->text_box_trim_end_amount = 0.0f;
-    if (!block->block()->text_box_trim) return 0;
-    uint8_t trim = block->block()->text_box_trim;
+    block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::text_box_trim_applied, 0);
+    block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::text_box_trim_start_amount, 0.0f);
+    block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::text_box_trim_end_amount, 0.0f);
+    if (!block->block()->rare().text_box_trim) return 0;
+    uint8_t trim = block->block()->rare().text_box_trim;
     float start_trim = 0, end_trim = 0;
     ViewBlock* first_line_block = nullptr;
     ViewBlock* last_line_block = nullptr;
@@ -2616,7 +2625,7 @@ static float apply_text_box_trim(ViewBlock* block, float end_trim_limit) {
         if (first_line_block && !has_padding_or_border_between(block, first_line_block, true) &&
             // the innermost request already trimmed this formatted line.
             !(first_line_block != block && first_line_block->blk &&
-              (first_line_block->block()->text_box_trim_applied & TEXT_BOX_TRIM_START))) {
+              (first_line_block->block()->rare().flow.text_box_trim_applied & TEXT_BOX_TRIM_START))) {
             // CSS Inline 3 §5: text-box-edge is inherited; use the value from
             CssEnum over_edge, under_edge;
             get_text_box_edge(first_line_block, &over_edge, &under_edge);
@@ -2636,13 +2645,13 @@ static float apply_text_box_trim(ViewBlock* block, float end_trim_limit) {
     }
     if (start_trim <= 0 && end_trim <= 0) return 0;
     if (start_trim > 0) {
-        block->blk->text_box_trim_applied |= TEXT_BOX_TRIM_START;
-        block->blk->text_box_trim_start_amount = start_trim;
+        block->blk->ensure_ext(layout_prop_pool(lycon))->flow.text_box_trim_applied |= TEXT_BOX_TRIM_START;
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::text_box_trim_start_amount, start_trim);
         apply_start_trim_recursive(block, first_line_block, start_trim);
     }
     if (end_trim > 0) {
-        block->blk->text_box_trim_applied |= TEXT_BOX_TRIM_END;
-        block->blk->text_box_trim_end_amount = end_trim;
+        block->blk->ensure_ext(layout_prop_pool(lycon))->flow.text_box_trim_applied |= TEXT_BOX_TRIM_END;
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::text_box_trim_end_amount, end_trim);
         apply_end_trim_recursive(block, last_line_block, end_trim);
     }
     float total_trim = start_trim + end_trim;
@@ -3087,7 +3096,7 @@ static float vertical_inline_prefix_before_block(ViewBlock* parent) {
                 // CSS 2.1 §9.4.1: collapsed whitespace does not establish a
                 // line box advance before the following block in normal flow.
                 if (!layout_text_rect_has_painted_codepoint(text, rect)) continue;
-                float rect_extent = parent->blk && parent->blk->vertical_geometry_published
+                float rect_extent = parent->blk && parent->blk->rare().flow.vertical_geometry_published
                     ? rect->width : rect->height;
                 prefix = max(prefix, rect_extent);
             }
@@ -3291,8 +3300,8 @@ static float layout_vertical_flow_inline_offset(ViewBlock* parent, ViewBlock* ch
     float available_inline = layout_content_size_from_border_box(parent, parent->height, false);
     float excluded_start = 0.0f;
     if (child->blk) {
-        float reduction = child->block()->bfc_float_avoidance_inline_reduction;
-        float line_start = child->block()->bfc_float_avoidance_inline_start;
+        float reduction = child->block()->rare().flow.bfc_float_avoidance_inline_reduction;
+        float line_start = child->block()->rare().flow.bfc_float_avoidance_inline_start;
         excluded_start = layout_line_left_is_physical_start(parent) ? line_start : reduction - line_start;
         available_inline = max(available_inline - reduction, 0.0f);
     }
@@ -3367,9 +3376,9 @@ static float layout_vertical_flow_block_offset(ViewBlock* parent, ViewBlock* pre
                                                 bool geometry_published) {
     WritingMode mode = layout_block_writing_mode(parent);
     float offset = cursor + layout_vertical_flow_block_gap(parent, previous, child, mode);
-    if (child->blk) offset += child->block()->bfc_float_avoidance_block_shift;
+    if (child->blk) offset += child->block()->rare().flow.bfc_float_avoidance_block_shift;
     if (child->bound && child->boundary()->has_clearance &&
-        !(child->blk && child->block()->bfc_clearance_resolved)) {
+        !(child->blk && child->block()->rare().flow.bfc_clearance_resolved)) {
         BoxMetrics box = layout_box_metrics(parent);
         float cleared_start = geometry_published
             ? (mode == WM_VERTICAL_RL
@@ -3397,8 +3406,8 @@ static float layout_vertical_flow_extent(ViewBlock* parent, bool margin_box_mode
     bool has_atomic_inline_child = false;
     bool has_block_flow_child = layout_vertical_parent_has_block_flow_child(parent);
     bool children_are_axis_mapped = parent->blk &&
-        parent->blk->vertical_geometry_published;
-    bool has_line_clamp = parent->blk && parent->block()->line_clamp > 0;
+        parent->blk->rare().flow.vertical_geometry_published;
+    bool has_line_clamp = parent->blk && parent->block()->rare().line_clamp > 0;
     ViewBlock* previous_block_flow = nullptr;
     float inline_prefix = has_block_flow_child
         ? vertical_inline_prefix_before_block(parent) : 0.0f;
@@ -3816,8 +3825,8 @@ static void layout_publish_vertical_child_baselines(LayoutContext* lycon, ViewBl
 void layout_publish_vertical_children(LayoutContext* lycon, ViewBlock* block, WritingMode mode,
                                       bool swap_dimensions) {
     if (!block || !block->is_element() || !block->blk) return;
-    if (block->blk->vertical_geometry_published) return;
-    block->blk->vertical_geometry_published = true;
+    if (block->blk->rare().flow.vertical_geometry_published) return;
+    block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::vertical_geometry_published, true);
     BoxMetrics box = layout_box_metrics(block);
     float content_left = box.border.left + box.padding.left;
     float content_top = box.border.top + box.padding.top;
@@ -4148,7 +4157,7 @@ static bool layout_list_item_has_visible_marker(ViewBlock* block) {
     // list-style field at its default sentinel.
     if (block->pseudo_prop() && block->pseudo_prop()->marker && block->pseudo_prop()->marker->marker_prop() &&
             !block->pseudo_prop()->marker->marker_prop()->suppressed) return true;
-    if (block->blk && block->block()->extras().list_style_type == CSS_VALUE_NONE) {
+    if (block->blk && block->block()->list().list_style_type == CSS_VALUE_NONE) {
         return false;
     }
     return true;
@@ -4348,7 +4357,7 @@ void finalize_block_flow(LayoutContext* lycon, ViewBlock* block, CssEnum display
     if (lycon->block.saved_clear_y >= 0.0f) {
         end_trim_limit = max(lycon->block.advance_y - lycon->block.saved_clear_y, 0.0f);
     }
-    float text_box_trim_amount = apply_text_box_trim(block, end_trim_limit);
+    float text_box_trim_amount = apply_text_box_trim(lycon, block, end_trim_limit);
     if (text_box_trim_amount > 0) {
         flow_height -= text_box_trim_amount;
         block->content_height -= text_box_trim_amount;
@@ -4404,8 +4413,8 @@ void finalize_block_flow(LayoutContext* lycon, ViewBlock* block, CssEnum display
         if (lycon->block.given_height >= 0.0f &&
             (lycon->block.used_size_owner.get() == block ||
              !block_axis_has_automatic_css_size(block, false) ||
-             (block->blk && (block->block()->auto_inline_fit_content_resolved ||
-                block->block()->vertical_auto_inline_size_constrained)))) {
+             (block->blk && (block->block()->rare().flow.auto_inline_fit_content_resolved ||
+                block->block()->rare().flow.vertical_auto_inline_size_constrained)))) {
             // parent-assigned used sizes survive flow; provisional ratio sizes do not.
             logical_inline_flow = block->height;
         }
@@ -4474,8 +4483,9 @@ void finalize_block_flow(LayoutContext* lycon, ViewBlock* block, CssEnum display
             lycon->block.initial_letter_trimmed_start_candidate;
     }
     if (lycon->block.initial_letter_trimmed_start_contribution > 0.0f) {
-        block->ensure_block(lycon)->initial_letter_trimmed_start_contribution =
-            lycon->block.initial_letter_trimmed_start_contribution;
+        block->ensure_block(lycon)->set_flow(layout_prop_pool(lycon),
+            &BlockFlowOutput::initial_letter_trimmed_start_contribution,
+            lycon->block.initial_letter_trimmed_start_contribution);
     }
     bool is_button_auto_width = block->tag_id == MARKUP_NAME_BUTTON &&
         block->display.inner == CSS_VALUE_FLOW_ROOT &&
@@ -4578,7 +4588,7 @@ void finalize_block_flow(LayoutContext* lycon, ViewBlock* block, CssEnum display
         ? layout_axis_given_size(block->block(), LAYOUT_AXIS_Y) : -1.0f;
     if (block_given_height < 0.0f && lycon->block.used_size_owner.get() == block)
         block_given_height = lycon->block.given_height;
-    bool ratio_auto_height = block->blk && block->block()->aspect_ratio_auto_height;
+    bool ratio_auto_height = block->blk && block->block()->rare().aspect_ratio_auto_height;
     if (block_given_height >= 0 && !ratio_auto_height) { // got specified height
         if (block->height <= 0) {
             block->height = block_given_height;
@@ -4722,7 +4732,7 @@ void finalize_block_flow(LayoutContext* lycon, ViewBlock* block, CssEnum display
     layout_center_button_text(lycon,block);
     // CSS 2.1 §10.6.7: Finalize an auto-height BFC before CSS Align computes
     // its free space, so contained floats cannot create artificial overflow.
-    bool has_text_box_trim = block->blk && block->block_mut()->text_box_trim;
+    bool has_text_box_trim = block->blk && block->block_mut()->rare().text_box_trim;
     if (!layout_block_inline_axis_is_vertical(block) &&
         lycon->block.establishing_element == block && block_given_height < 0 && !has_text_box_trim) {
         float max_float_bottom = block_context_float_bottom(&lycon->block, false);
@@ -5381,6 +5391,7 @@ void layout_inline_svg(LayoutContext* lycon, ViewBlock* block) {
 
 void insert_pseudo_into_dom(DomElement* parent, DomElement* pseudo, bool is_before) {
     if (!parent || !pseudo) return;
+    if (pseudo->detached_root_slot) dom_node_cancel_detached(parent->doc, pseudo);
     for (DomNode* c = parent->first_child; c; c = c->next_sibling) {
         if (c == static_cast<DomNode*>(pseudo)) {
             // A DOM child replacement can unlink a generated node, then retain
@@ -5978,10 +5989,10 @@ static bool layout_retained_subtree_walk(DomNode* node, int depth,
             (position->clear != CSS_VALUE_NONE && position->clear != CSS_VALUE__UNDEF)) return false;
     }
     if (element->display_list_item() ||
-        (element->blk && (element->block()->extras().counter_reset ||
-                          element->block()->extras().counter_increment ||
-                          element->block()->extras().counter_set ||
-                          element->block()->line_clamp_inherited)) ||
+        (element->blk && (element->block()->list().counter_reset ||
+                          element->block()->list().counter_increment ||
+                          element->block()->list().counter_set ||
+                          element->block()->rare().flow.line_clamp_inherited)) ||
         (element->pseudo_prop() && (element->pseudo_prop()->before || element->pseudo_prop()->after ||
                              element->pseudo_prop()->marker))) return false;
     // A positioned or floated descendant can depend on the old Y even when
@@ -6049,9 +6060,9 @@ static bool layout_can_shift_clean_block(LayoutContext* lycon, ViewBlock* parent
         lycon->block.saved_clear_y >= 0.0f ||
         layout_block_inline_axis_is_vertical(parent) ||
         (parent->blk &&
-         (parent->block()->text_box_trim ||
-          (parent->block()->align_content != CSS_VALUE_NORMAL &&
-           parent->block()->align_content != CSS_VALUE__UNDEF)))) return false;
+         (parent->block()->rare().text_box_trim ||
+          (parent->block()->rare().align_content != CSS_VALUE_NORMAL &&
+           parent->block()->rare().align_content != CSS_VALUE__UNDEF)))) return false;
     BlockContext* bfc = block_context_find_bfc(&lycon->block);
     if (!bfc || bfc->left_float_count || bfc->right_float_count) return false;
     ViewBlock* view = child->is_element()
@@ -6461,7 +6472,7 @@ void layout_block_inner_content(LayoutContext* lycon, ViewBlock* block,
             layout_finalize_phantom_inline_line(lycon);
         }
         // CSS Box 4 §3.1 margin-trim: block-end — trim the last in-flow child's
-        if (block->blk && (block->block()->margin_trim & MARGIN_TRIM_BLOCK_END)) {
+        if (block->blk && (block->block()->rare().margin_trim & MARGIN_TRIM_BLOCK_END)) {
             View* last = block->last_placed_child();
             while (last && last->is_block()) {
                 ViewBlock* lvb = lam::view_require_block(last);
@@ -6650,7 +6661,7 @@ static void layout_propagate_line_clamp(LayoutContext* lycon, ViewBlock* block,
         block_context_establishes_bfc(block)) return;
     lycon->block.line_clamp = parent->line_clamp;
     lycon->block.line_number = parent->line_number;
-    block->blk->line_clamp_inherited = true;
+    block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::line_clamp_inherited, true);
 }
 
 void layout_finalize_line_clamp(LayoutContext* lycon, ViewBlock* block) {
@@ -6660,15 +6671,15 @@ void layout_finalize_line_clamp(LayoutContext* lycon, ViewBlock* block) {
         lycon->block.last_line_max_ascender = lycon->block.line_clamp_last_line_max_ascender;
         lycon->block.last_line_max_descender = lycon->block.line_clamp_last_line_max_descender;
     }
-    block->blk->line_clamped = lycon->block.line_clamped;
+    block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::line_clamped, lycon->block.line_clamped);
     block->blk->line_clamp_advance_y = lycon->block.line_clamp_advance_y;
-    block->blk->line_clamp_last_line_ascender = lycon->block.line_clamp_last_line_ascender;
-    block->blk->line_clamp_last_line_max_ascender = lycon->block.line_clamp_last_line_max_ascender;
-    block->blk->line_clamp_last_line_max_descender = lycon->block.line_clamp_last_line_max_descender;
+    block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::line_clamp_last_line_ascender, lycon->block.line_clamp_last_line_ascender);
+    block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::line_clamp_last_line_max_ascender, lycon->block.line_clamp_last_line_max_ascender);
+    block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::line_clamp_last_line_max_descender, lycon->block.line_clamp_last_line_max_descender);
 }
 
 int layout_line_clamp_count(const ViewBlock* block) {
-    return block && block->blk ? block->block()->line_clamp : 0;
+    return block && block->blk ? block->block()->rare().line_clamp : 0;
 }
 
 float layout_line_clamp_intrinsic_height(ViewBlock* block, float height, float line_height) {
@@ -6688,12 +6699,12 @@ void layout_setup_line_clamp(LayoutContext* lycon, ViewBlock* block,
     lycon->block.line_clamp_last_line_max_ascender = 0.0f;
     lycon->block.line_clamp_last_line_max_descender = 0.0f;
     if (block->blk) {
-        block->blk->line_clamp_inherited = false;
-        block->blk->line_clamped = false;
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::line_clamp_inherited, false);
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::line_clamped, false);
         block->blk->line_clamp_advance_y = -1.0f;
-        block->blk->line_clamp_last_line_ascender = 0.0f;
-        block->blk->line_clamp_last_line_max_ascender = 0.0f;
-        block->blk->line_clamp_last_line_max_descender = 0.0f;
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::line_clamp_last_line_ascender, 0.0f);
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::line_clamp_last_line_max_ascender, 0.0f);
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::line_clamp_last_line_max_descender, 0.0f);
     }
     layout_propagate_line_clamp(lycon, block, parent);
 }
@@ -6704,7 +6715,7 @@ void layout_setup_text_indent(LayoutContext* lycon, ViewBlock* block, float cont
     lycon->block.is_first_line = true;
     float resolved_text_indent = 0.0f;
     if (block->blk) {
-        if (block->block()->text_indent_calc) {
+        if (block->block()->rare().text_indent_calc) {
             // CSS Text 3: text-indent percentage resolves against the block's own content width
             float saved_parent_width = 0;
             bool has_parent = lycon->block.parent != nullptr;
@@ -6712,19 +6723,19 @@ void layout_setup_text_indent(LayoutContext* lycon, ViewBlock* block, float cont
                 saved_parent_width = lycon->block.parent->content_width;
                 lycon->block.parent->content_width = content_width;
             }
-            resolved_text_indent = resolve_length_value(lycon, CSS_PROPERTY_TEXT_INDENT, block->block()->text_indent_calc);
+            resolved_text_indent = resolve_length_value(lycon, CSS_PROPERTY_TEXT_INDENT, block->block()->rare().text_indent_calc);
             if (has_parent) {
                 lycon->block.parent->content_width = saved_parent_width;
             }
-        } else if (!isnan(block->block()->text_indent_percent)) {
-            resolved_text_indent = content_width * block->block()->text_indent_percent / 100.0f;
-        } else if (block->block()->text_indent != 0.0f) {
-            resolved_text_indent = block->block()->text_indent;
+        } else if (!isnan(block->block()->rare().text_indent_percent)) {
+            resolved_text_indent = content_width * block->block()->rare().text_indent_percent / 100.0f;
+        } else if (block->block()->rare().text_indent != 0.0f) {
+            resolved_text_indent = block->block()->rare().text_indent;
         }
     }
     lycon->block.text_indent = resolved_text_indent;
-    lycon->block.text_indent_hanging = block->blk && block->block()->text_indent_hanging;
-    lycon->block.text_indent_each_line = block->blk && block->block()->text_indent_each_line;
+    lycon->block.text_indent_hanging = block->blk && block->block()->rare().text_indent_hanging;
+    lycon->block.text_indent_each_line = block->blk && block->block()->rare().text_indent_each_line;
     lycon->block.is_line_after_forced_break = false;
 }
 
@@ -6765,7 +6776,7 @@ static float layout_inline_content_measure(LayoutContext* lycon, ViewBlock* bloc
     // a transferred ratio is also a resolved inline constraint; wrapping must
     // use it before the automatic content-based minimum is applied.
     bool resolved_auto_inline_size = block->blk &&
-        (block->block()->auto_inline_fit_content_resolved || block->block()->aspect_ratio_auto_height);
+        (block->block()->rare().flow.auto_inline_fit_content_resolved || block->block()->rare().aspect_ratio_auto_height);
     ViewBlock* justify_self_containing_block = layout_nearest_block_ancestor(
         block->parent_view());
     bool vertical_auto_inline_fit_content =
@@ -6803,7 +6814,7 @@ static float layout_inline_content_measure(LayoutContext* lycon, ViewBlock* bloc
         line_content_width = layout_content_size_from_border_box(
             block, block->height, false);
     }
-    if (block->blk && block->block()->vertical_auto_inline_size_constrained &&
+    if (block->blk && block->block()->rare().flow.vertical_auto_inline_size_constrained &&
         lycon->block.parent && lycon->block.parent->content_height >= 0.0f) {
         line_content_width = layout_stretch_fit_content_box_size(
             block, lycon->block.parent->content_height, false);
@@ -6870,8 +6881,8 @@ void setup_inline(LayoutContext* lycon, ViewBlock* block) {
     CssEnum inherited_text_wrap_style = lycon->block.parent ?
         lycon->block.parent->text_wrap_style : CSS_VALUE_AUTO;
     if (!inherited_text_wrap_style) inherited_text_wrap_style = CSS_VALUE_AUTO;
-    lycon->block.text_wrap_style = (block->blk && block->block_mut()->text_wrap_style) ?
-        block->block()->text_wrap_style : inherited_text_wrap_style;
+    lycon->block.text_wrap_style = (block->blk && block->block_mut()->rare().text_wrap_style) ?
+        block->block()->rare().text_wrap_style : inherited_text_wrap_style;
     lycon->block.balance_wrap_active = false;
     lycon->block.balance_wrap_width = 0.0f;
     lycon->block.balance_wrap_owner = nullptr;
@@ -7738,7 +7749,7 @@ static bool layout_block_justify_self_applies(ViewBlock* block,
 
 static CssSelfAlignment layout_effective_block_justify_self(ViewBlock* block) {
     CssSelfAlignment alignment = block && block->blk
-        ? block->block()->justify_self : CssSelfAlignment{};
+        ? block->block()->rare().justify_self : CssSelfAlignment{};
     if (alignment.value != CSS_VALUE_AUTO && alignment.value != CSS_VALUE__UNDEF) {
         return alignment;
     }
@@ -7837,12 +7848,12 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
         log_notice("layout_block_content: count=%d", layout_block_content_count);
     }
     if (block->blk) {
-        block->blk->bfc_float_avoidance_block_shift = 0.0f;
-        block->blk->bfc_float_avoidance_inline_start = 0.0f;
-        block->blk->bfc_float_avoidance_inline_reduction = 0.0f;
-        block->blk->bfc_clearance_resolved = false;
-        block->blk->initial_letter_float_clearance = false;
-        block->blk->vertical_geometry_published = false;
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::bfc_float_avoidance_block_shift, 0.0f);
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::bfc_float_avoidance_inline_start, 0.0f);
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::bfc_float_avoidance_inline_reduction, 0.0f);
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::bfc_clearance_resolved, false);
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::initial_letter_float_clearance, false);
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::vertical_geometry_published, false);
     }
     block->x = pa_line->left;  block->y = pa_block->advance_y;
     // a page flow consumes forced breaks and a full fragmentainer before the box is placed
@@ -7966,16 +7977,16 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
                 }
             }
             block->ensure_block(lycon);
-            block->blk->bfc_clearance_resolved = resolve_clearance;
-            block->blk->bfc_float_avoidance_inline_start = fit.offset_x;
-            block->blk->bfc_float_avoidance_inline_reduction = fit.width_reduction;
+            block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::bfc_clearance_resolved, resolve_clearance);
+            block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::bfc_float_avoidance_inline_start, fit.offset_x);
+            block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::bfc_float_avoidance_inline_reduction, fit.width_reduction);
             // physical-width consumers run before vertical publication; only horizontal flows use these slots.
             if (!vertical_float_flow) {
                 bfc_float_offset_x = fit.offset_x;
                 bfc_available_width_reduction = fit.width_reduction;
             }
             bfc_shift_down = fit.y - y_in_bfc;
-            block->blk->bfc_float_avoidance_block_shift = bfc_shift_down;
+            block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::bfc_float_avoidance_block_shift, bfc_shift_down);
             if (bfc_shift_down > 0.0f ||
                 (bfc_shift_down < 0.0f && pa_block->saved_clear_y >= 0.0f)) {
                 block->y += bfc_shift_down;
@@ -8139,7 +8150,7 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
             layout_clear_auto_axis_type(block, false);
         }
         bool containing_height_resolved_late = containing_view && containing_view->blk &&
-            containing_view->block()->percentage_height_resolved_late;
+            containing_view->block()->rare().percentage_height_resolved_late;
         if (containing_height_resolved_late && pa_block &&
             pa_block->content_height >= 0.0f) {
             // CSS 2.1 §10.5: a normal-flow percentage height uses the completed
@@ -8587,8 +8598,8 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
     }
     layout_block_resolve_intrinsic_axis_constraints(
         lycon, block, LAYOUT_AXIS_X, 0.0f);
-    if (block->blk && (block->block()->auto_inline_fit_content_resolved ||
-        block->block()->vertical_auto_inline_size_constrained) &&
+    if (block->blk && (block->block()->rare().flow.auto_inline_fit_content_resolved ||
+        block->block()->rare().flow.vertical_auto_inline_size_constrained) &&
         layout_css_size_is_automatic(block, false)) {
         // a retained auto result must be remeasured when containing space changes.
         layout_clear_given_axis(lycon, block, false);
@@ -8602,8 +8613,8 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
          (block->block()->given_height_type == CSS_VALUE_AUTO ||
           block->block()->given_height_type == CSS_VALUE__UNDEF));
     if (block->blk) {
-        block->blk->auto_inline_fit_content_resolved = false;
-        block->blk->vertical_auto_inline_size_constrained = false;
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::auto_inline_fit_content_resolved, false);
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::vertical_auto_inline_size_constrained, false);
     }
     layout_block_prepare_canvas_auto_size(lycon, block, contain_intrinsic_used_axes);
     bool orthogonal_auto_inline_size = lycon->block.given_width < 0.0f &&
@@ -8642,7 +8653,7 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
     float vertical_inline_basis = pa_block ? pa_block->content_height : 0.0f;
     if (vertical_float_flow && block->blk) {
         vertical_inline_basis = max(vertical_inline_basis -
-            block->block()->bfc_float_avoidance_inline_reduction, 0.0f);
+            block->block()->rare().flow.bfc_float_avoidance_inline_reduction, 0.0f);
     }
     bool is_stretch_height = layout_axis_uses_stretch_size(
         block->blk, LAYOUT_AXIS_Y) ||
@@ -8772,7 +8783,7 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
             // establish logical wrapping space before measuring physical columns (CSS Writing Modes 3 §7.3).
             block->ensure_block(lycon);
             layout_store_given_axis(lycon, block, preferred, false);
-            block->blk->auto_inline_fit_content_resolved = true;
+            block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::auto_inline_fit_content_resolved, true);
         }
     }
     float content_width = -1;
@@ -9014,7 +9025,7 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
         lycon->block.content_height = content_height;
         block->ensure_block(lycon);
         layout_store_given_axis(lycon, block, used_css_height, false, false);
-        block->blk->vertical_auto_inline_size_constrained = true;
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::vertical_auto_inline_size_constrained, true);
     }
     else { // auto height - will be determined by content
         bool parent_has_definite_height = pa_block && pa_block->given_height >= 0.0f;
@@ -9041,7 +9052,7 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
                     ? layout_border_size_from_content_box(block, ratio_height, false) : ratio_height;
                 block->ensure_block(lycon);
                 layout_store_given_axis(lycon, block, content_height, false, false);
-                block->blk->aspect_ratio_auto_height = block->first_child != nullptr;
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::aspect_ratio_auto_height, block->first_child != nullptr);
             }
         }
         if (content_height < 0.0f) content_height = 0.0f;
@@ -9073,12 +9084,12 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
                 break;
             }
             if (ancestor_block && ancestor_block->blk) {
-                if (ancestor_block->block()->legacy_block_align == CSS_VALUE_CENTER ||
-                    ancestor_block->block()->legacy_block_align == CSS_VALUE_RIGHT) {
-                    parent_legacy_block_align = ancestor_block->block()->legacy_block_align;
+                if (ancestor_block->block()->rare().legacy_block_align == CSS_VALUE_CENTER ||
+                    ancestor_block->block()->rare().legacy_block_align == CSS_VALUE_RIGHT) {
+                    parent_legacy_block_align = ancestor_block->block()->rare().legacy_block_align;
                     break;
                 }
-                if (ancestor_block->block()->legacy_align_center_blocks) {
+                if (ancestor_block->block()->rare().legacy_align_center_blocks) {
                     parent_legacy_block_align = CSS_VALUE_CENTER;
                     break;
                 }
@@ -9133,9 +9144,9 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
                     block->boundary_mut()->margin.top = 0;
                 }
             }
-            if (mt_pa->blk && mt_pa->block_mut()->margin_trim) {
+            if (mt_pa->blk && mt_pa->block_mut()->rare().margin_trim) {
                 // CSS Box 4 §3.1: margin-trim:inline on a block container only
-                if ((mt_pa->block()->margin_trim & MARGIN_TRIM_BLOCK_START) && block->boundary_mut()->margin.top != 0) {
+                if ((mt_pa->block()->rare().margin_trim & MARGIN_TRIM_BLOCK_START) && block->boundary_mut()->margin.top != 0) {
                     View* first = mt_pa->first_placed_child();
                     while (first && first->is_block()) {
                         ViewBlock* fvb = lam::view_require_block(first);
@@ -9172,7 +9183,7 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
     // IMPORTANT: Apply clear BEFORE setting up inline context and laying out children
     // CSS 2.1 §9.5.2: 'clear' applies only to block-level elements, not inline-level
     if (is_block_level_for_clear && layout_position_has_clear(block->position) &&
-        !(block->blk && block->block()->bfc_clearance_resolved)) {
+        !(block->blk && block->block()->rare().flow.bfc_clearance_resolved)) {
         bool is_float = block->position && element_has_float(block);
         // float placement resolves clearance in the same logical BFC frame as packing.
         if (!is_float) {
@@ -9338,15 +9349,15 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
             bool parent_is_max_content = intrinsic_parent_block && intrinsic_parent_block->blk &&
                 intrinsic_parent_block->block()->given_width_type == CSS_VALUE_MAX_CONTENT;
             if (!parent_is_intrinsic_sizing && !parent_is_max_content &&
-                block->block()->given_width_fit_content_limit >= 0.0f) {
+                block->block()->rare().given_width_fit_content_limit >= 0.0f) {
                 fit_content_available = min(
                     fit_content_available,
-                    block->block()->given_width_fit_content_limit);
+                    block->block()->rare().given_width_fit_content_limit);
             } else if (!parent_is_intrinsic_sizing && !parent_is_max_content &&
-                       !isnan(block->block()->given_width_fit_content_percent)) {
+                       !isnan(block->block()->rare().given_width_fit_content_percent)) {
                 fit_content_available = min(
                     fit_content_available,
-                    available * block->block()->given_width_fit_content_percent / 100.0f);
+                    available * block->block()->rare().given_width_fit_content_percent / 100.0f);
             }
         }
         float fit_content = is_max_content_width
@@ -9863,7 +9874,7 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
         layout_view_type_for_display(display, true), elmt));
     block->display = display;
     dom_node_resolve_style(elmt, lycon);
-    if (block->blk) block->block_mut()->percentage_height_resolved_late = false;
+    if (block->blk) block->block_mut()->set_ext(layout_prop_pool(lycon), &BlockPropExt::percentage_height_resolved_late, false);
     bool preserve_routed_display = is_float || is_out_of_flow_positioned;
     if (elmt->is_element()) {
         DomElement* element = elmt->as_element();
@@ -9919,9 +9930,9 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
             layout_store_given_axis(lycon, block, lycon->ui_context->viewport_height, false, true);
         }
     }
-    if (block->blk && block->block_mut()->aspect_ratio_auto_height) {
+    if (block->blk && block->block_mut()->rare().aspect_ratio_auto_height) {
         block->block_mut()->given_height = -1.0f;
-        block->block_mut()->aspect_ratio_auto_height = false;
+        block->block_mut()->set_ext(layout_prop_pool(lycon), &BlockPropExt::aspect_ratio_auto_height, false);
     }
     DomElement* dom_elem = elmt->is_element() ? elmt->as_element() : nullptr;
     layout_clear_cyclic_percentage_height(lycon, block);
@@ -9988,13 +9999,13 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
             if (package_mathml) layout_apply_mathml(lycon, block);
             else layout_custom_apply(lycon, block, custom_layout_name);
         }
-        bool child_line_clamp_inherited = block->blk && block->block_mut()->line_clamp_inherited;
-        bool child_line_clamped = block->blk && block->block_mut()->line_clamped;
+        bool child_line_clamp_inherited = block->blk && block->block_mut()->rare().flow.line_clamp_inherited;
+        bool child_line_clamped = block->blk && block->block_mut()->rare().flow.line_clamped;
         int child_line_number = lycon->block.line_number;
         float child_line_clamp_advance_y = block->blk ? block->block()->line_clamp_advance_y : -1.0f;
-        float child_line_clamp_last_line_ascender = block->blk ? block->block()->line_clamp_last_line_ascender : 0.0f;
-        float child_line_clamp_last_line_max_ascender = block->blk ? block->block()->line_clamp_last_line_max_ascender : 0.0f;
-        float child_line_clamp_last_line_max_descender = block->blk ? block->block()->line_clamp_last_line_max_descender : 0.0f;
+        float child_line_clamp_last_line_ascender = block->blk ? block->block()->rare().flow.line_clamp_last_line_ascender : 0.0f;
+        float child_line_clamp_last_line_max_ascender = block->blk ? block->block()->rare().flow.line_clamp_last_line_max_ascender : 0.0f;
+        float child_line_clamp_last_line_max_descender = block->blk ? block->block()->rare().flow.line_clamp_last_line_max_descender : 0.0f;
         // CSS 2.1 Section 10.8.1: For non-replaced inline-blocks with in-flow line boxes
         bool is_broken_alt_image = radiant::layout_image_uses_alt_text_baseline(block);
         float content_last_line_ascender;
@@ -10010,7 +10021,7 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
         bool used_descendant_last_baseline = false;
         if (content_last_line_ascender <= 0.0f && block->blk &&
             layout_block_inline_axis_is_vertical(block) &&
-            block->block()->baseline_source == CSS_VALUE_LAST) {
+            block->block()->rare().baseline_source == CSS_VALUE_LAST) {
             float descendant_last_baseline = find_last_baseline_recursive(
                 lycon, static_cast<View*>(block), 0.0f, true);
             if (descendant_last_baseline >= 0.0f) {
@@ -10108,7 +10119,7 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
         if (!is_float_element && !layout_block_is_out_of_flow_positioned(block) &&
             block->blk) {
             lycon->block.initial_letter_trimmed_start_contribution +=
-                block->block()->initial_letter_trimmed_start_contribution;
+                block->block()->rare().flow.initial_letter_trimmed_start_contribution;
         }
         // CSS 2.1 §9.7: Floats are blockified — a floated element that was
         if (is_inline_atomic && !is_float_element) {
@@ -10146,7 +10157,7 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
                 : block->width + (block->bound
                     ? block->boundary()->margin.left + block->boundary()->margin.right : 0.0f);
             bool has_prior_flow_content = line_has_prior_flow_content(&lycon->line);
-            if (block->blk && block->block_mut()->bfc_float_avoidance_block_shift > 0.0f &&
+            if (block->blk && block->block_mut()->rare().flow.bfc_float_avoidance_block_shift > 0.0f &&
                 !lycon->line.has_float_intrusion &&
                 !has_prior_flow_content &&
                 lycon->line.advance_x > effective_left &&
@@ -10665,7 +10676,7 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
                     bool stretch_margin_after_float_avoidance =
                         layout_axis_uses_stretch_size(block->blk, LAYOUT_AXIS_Y) &&
                         !layout_block_inline_axis_is_vertical(block) &&
-                        block->block()->bfc_float_avoidance_block_shift > 0.0f;
+                        block->block()->rare().flow.bfc_float_avoidance_block_shift > 0.0f;
                     if (!has_clearance && parent_margin_collapse_uses_physical_y(block) &&
                         (block->boundary()->margin.top != 0 || has_self_collapsing_margins ||
                          has_preceding_self_collapsing || flow_adjoining_child(block, true))) {
@@ -10738,7 +10749,7 @@ void layout_block(LayoutContext* lycon, DomNode *elmt, DisplayValue display) {
                                 parent->boundary_mut()->margin.top = margin_top;
                             }
                             block->y = stretch_margin_after_float_avoidance
-                                ? block->block()->bfc_float_avoidance_block_shift : 0.0f;
+                                ? block->block()->rare().flow.bfc_float_avoidance_block_shift : 0.0f;
                             block->boundary_mut()->margin.top = 0;
                             parent_child_collapsed = true;
                             // CSS 2.1 §8.3.1: Track chain components (max positive, most negative)

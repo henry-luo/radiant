@@ -28,7 +28,7 @@ void layout_table_caption_content_setup(LayoutContext* lycon, ViewBlock* caption
         lycon->block.used_size_owner = lam::up(caption);
     }
     if (caption->blk) {
-        caption->block_mut()->vertical_geometry_published = false;
+        caption->block_mut()->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::vertical_geometry_published, false);
     }
     lycon->elmt = lam::up(static_cast<DomNode*>(caption));
     lycon->view = lam::up(static_cast<View*>(caption));

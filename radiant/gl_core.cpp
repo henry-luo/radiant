@@ -257,6 +257,8 @@ struct NativeGlContext {
     NativeGlFunctions gl;
     unsigned texture_units;
     NativeGlSlot slots[GL_RESOURCE_LIMIT];
+    unsigned next_free_slot;
+    uint64_t active_program;
     // slot index by id modulo the table: a draw looks up a dozen resources, and ids never move or
     // repeat, so a verified hint replaces the table scan
     uint16_t slot_hints[GL_RESOURCE_LIMIT];
@@ -285,14 +287,23 @@ struct NativeGlScope {
     ~NativeGlScope() { if (valid && switched) glfwMakeContextCurrent(previous); }
 };
 
-static NativeGlSlot* native_gl_slot(NativeGlContext* context, NativeGlResource resource, NativeGlKind kind) {
+static NativeGlSlot* native_gl_find_slot(NativeGlContext* context, NativeGlResource resource) {
     if (!context || context->lost || !resource.id) return nullptr;
     uint16_t& hint = context->slot_hints[resource.id % GL_RESOURCE_LIMIT];
     // ids are unique, so a slot holding this id is the only candidate
-    if (context->slots[hint].id == resource.id) return context->slots[hint].kind == kind ? &context->slots[hint] : nullptr;
-    for (unsigned i = 0; i < GL_RESOURCE_LIMIT; i++)
-        if (context->slots[i].id == resource.id && context->slots[i].kind == kind) { hint = (uint16_t)i; return &context->slots[i]; }
+    if (context->slots[hint].id == resource.id) return &context->slots[hint];
+    for (unsigned i = 0; i < GL_RESOURCE_LIMIT; i++) {
+        if (context->slots[i].id == resource.id) {
+            hint = (uint16_t)i;
+            return &context->slots[i];
+        }
+    }
     return nullptr;
+}
+
+static NativeGlSlot* native_gl_slot(NativeGlContext* context, NativeGlResource resource, NativeGlKind kind) {
+    NativeGlSlot* slot = native_gl_find_slot(context, resource);
+    return slot && slot->kind == kind ? slot : nullptr;
 }
 
 static GLint native_gl_uniform_location(NativeGlContext* context, const NativeGlSlot* program, const char* name) {
@@ -310,9 +321,14 @@ static NativeGlSlot* native_gl_allocate(NativeGlContext* context, NativeGlKind k
         log_error("scene3d graphics budget: requested %zu bytes with %zu of %zu already allocated",bytes,context?context->stats.allocated_bytes:0,GL_BYTE_LIMIT);
         native_gl_error(context, "resource byte quota exceeded"); return nullptr;
     }
-    for (NativeGlSlot& slot : context->slots) if (!slot.id) {
+    // sequential scene uploads already fill the preceding slots; releases reopen the first gap.
+    while (context->next_free_slot < GL_RESOURCE_LIMIT && context->slots[context->next_free_slot].id)
+        context->next_free_slot++;
+    if (context->next_free_slot < GL_RESOURCE_LIMIT) {
+        unsigned index = context->next_free_slot++;
+        NativeGlSlot& slot = context->slots[index];
         slot = {}; slot.id = native_gl_id(); slot.kind = kind; slot.bytes = bytes;
-        context->slot_hints[slot.id % GL_RESOURCE_LIMIT] = (uint16_t)(&slot - context->slots);
+        context->slot_hints[slot.id % GL_RESOURCE_LIMIT] = (uint16_t)index;
         context->stats.resources++; context->stats.allocated_bytes += bytes;
         return &slot;
     }
@@ -322,8 +338,17 @@ static NativeGlSlot* native_gl_allocate(NativeGlContext* context, NativeGlKind k
 static bool native_gl_check(NativeGlContext* context, const char* operation) {
     GLenum error = context->gl.GetError();
     if (error == GL_NO_ERROR) return true;
+    context->active_program = 0;
     char message[256]; snprintf(message, sizeof(message), "%s failed (OpenGL 0x%x)", operation, error);
     native_gl_error(context, message); return false;
+}
+
+static void native_gl_use_program(NativeGlContext* context, const NativeGlSlot* program) {
+    // uniform updates and consecutive native draws often select the same linked program.
+    if (context->active_program != program->id) {
+        context->gl.UseProgram(program->name);
+        context->active_program = program->id;
+    }
 }
 
 static GLuint native_gl_compile(NativeGlContext* context, GLenum stage, const char* source) {
@@ -638,7 +663,7 @@ static void native_gl_present_quad(NativeGlContext* presenter, NativeGlSlot* pro
     float rect[4] = {left / page->width * 2.0f - 1.0f, 1.0f - top / page->height * 2.0f,
                      right / page->width * 2.0f - 1.0f, 1.0f - bottom / page->height * 2.0f};
     float flip_value = flip ? 1.0f : 0.0f;
-    gl.UseProgram(program->name);
+    native_gl_use_program(presenter, program);
     gl.Uniform1i(native_gl_uniform_location(presenter, program, "page"), 0);
     gl.Uniform4fv(native_gl_uniform_location(presenter, program, "rect"), 1, rect);
     gl.Uniform1fv(native_gl_uniform_location(presenter, program, "flip"), 1, &flip_value);
@@ -699,7 +724,7 @@ bool native_gl_present(NativeGlContext* presenter, const NativeGlPresentFrame* f
             // texel fetches filter in the shader; the sampler only keeps the shared texture complete
             gl.BindSampler(0, presenter->present.samplers[0]);
             gl.BindTexture(GL_TEXTURE_2D, image->texture);
-            gl.UseProgram(layer_program->name);
+            native_gl_use_program(presenter, layer_program);
             const float device[3] = {(float)frame->framebuffer_height, scale_x, scale_y};
             const float dst[4] = {layer.dst_x, layer.dst_y, layer.dst_width, layer.dst_height};
             gl.Uniform3fv(native_gl_uniform_location(presenter, layer_program, "inverse_x"), 1, layer.inverse);
@@ -764,22 +789,24 @@ bool native_gl_present(NativeGlContext* presenter, const NativeGlPresentFrame* f
 #ifdef NATIVE_GL_ENABLED
 static void native_gl_resolve_current(NativeGlContext* context, NativeGlSlot* slot);
 #endif
-bool native_gl_publish(NativeGlContext* context, NativeGlResource target) {
+bool native_gl_publish(NativeGlContext* context, NativeGlResource target, bool for_presenter) {
 #ifdef NATIVE_GL_ENABLED
     NativeGlScope scope(context);
     NativeGlSlot* slot = scope.valid ? native_gl_slot(context, target, NATIVE_GL_TARGET) : nullptr;
     if (!slot || !slot->initialized || slot->layered || slot->hdr) return false;
     NativeGlFunctions& gl = context->gl;
+    if (slot->produced) gl.DeleteSync(slot->produced);
+    slot->produced = nullptr;
+    slot->publication = native_gl_id();
+    if (!for_presenter) return true;
     // the presenter samples the single-sample copy
     native_gl_resolve_current(context, slot);
-    if (slot->produced) gl.DeleteSync(slot->produced);
     slot->produced = gl.FenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-    slot->publication = native_gl_id();
     // flushing submits the fence, so the presenter's context can wait on it
     gl.Flush();
     return slot->produced && native_gl_check(context, "target publication");
 #else
-    (void)context; (void)target;
+    (void)context; (void)target; (void)for_presenter;
     return false;
 #endif
 }
@@ -794,10 +821,16 @@ uint64_t native_gl_publication(NativeGlContext* context, NativeGlResource target
 }
 
 bool native_gl_present_layer_current(const NativeGlPresentLayer* layer) {
+#ifdef NATIVE_GL_ENABLED
     // a producer destroyed or rebuilt since the cut has nothing to show
-    return layer && native_gl_alive(layer->producer) &&
-        layer->producer->stats.generation == layer->producer_generation && layer->publication &&
-        native_gl_publication(layer->producer, layer->image) == layer->publication;
+    if (!layer || !native_gl_alive(layer->producer) ||
+        layer->producer->stats.generation != layer->producer_generation || !layer->publication)
+        return false;
+    NativeGlSlot* slot = native_gl_slot(layer->producer, layer->image, NATIVE_GL_TARGET);
+    return slot && slot->produced && slot->publication == layer->publication;
+#else
+    return false;
+#endif
 }
 
 void native_gl_await_presenter(NativeGlContext* context, NativeGlResource target) {
@@ -838,8 +871,10 @@ bool native_gl_valid(NativeGlContext* context, NativeGlResource resource, Native
 
 void native_gl_release(NativeGlContext* context, NativeGlResource resource) {
 #ifdef NATIVE_GL_ENABLED
+    if (!resource.id) return;
     NativeGlScope scope(context); if (!scope.valid) return;
-    for (NativeGlSlot& slot : context->slots) if (slot.id && slot.id == resource.id) {
+    if (NativeGlSlot* found = native_gl_find_slot(context, resource)) {
+        NativeGlSlot& slot = *found;
         NativeGlFunctions& gl = context->gl;
         switch (slot.kind) {
             case NATIVE_GL_BUFFER: gl.DeleteBuffers(1, &slot.name); mem_free(slot.data); break;
@@ -858,7 +893,10 @@ void native_gl_release(NativeGlContext* context, NativeGlResource resource) {
                 if (slot.consumed) gl.DeleteSync(slot.consumed);
                 break;
         }
-        context->stats.resources--; context->stats.allocated_bytes -= slot.bytes; slot = {}; return;
+        context->stats.resources--; context->stats.allocated_bytes -= slot.bytes;
+        unsigned index = (unsigned)(found - context->slots);
+        if (index < context->next_free_slot) context->next_free_slot = index;
+        slot = {};
     }
 #endif
 }
@@ -1038,7 +1076,8 @@ bool native_gl_uniform_set(NativeGlContext* context, NativeGlUniform uniform,
         { native_gl_error(context,"invalid uniform update or stale program");return false; }
     for (unsigned i = 0; i < components * count; i++) if (!isfinite(values[i]))
         { native_gl_error(context,"uniform value is not finite");return false; }
-    NativeGlFunctions& gl = context->gl; gl.UseProgram(slot->name);
+    NativeGlFunctions& gl = context->gl;
+    native_gl_use_program(context, slot);
     switch (components) {
         case 1: gl.Uniform1fv(uniform.location, count, values); break;
         case 2: gl.Uniform2fv(uniform.location, count, values); break;
@@ -1543,7 +1582,8 @@ bool native_gl_draw(NativeGlContext* context, const NativeGlDraw* draw) {
         }
         units[i]=unit;
     }
-    gl.UseProgram(program->name);gl.BindVertexArray(vertices->name);
+    native_gl_use_program(context, program);
+    gl.BindVertexArray(vertices->name);
     for(unsigned unit=0;unit<used;unit++) {gl.ActiveTexture(GL_TEXTURE0+unit);gl.BindTexture(unit_targets[unit],unit_names[unit]);}
     for(unsigned i=0;i<draw->binding_count;i++) if(locations[i]>=0) gl.Uniform1i(locations[i],units[i]);
     gl.ActiveTexture(GL_TEXTURE0);
@@ -2178,7 +2218,9 @@ bool native_gl_webgl_call(NativeGlContext* context, const WebGlCommand* command,
         }
         case WEBGL_useProgram: {
             NativeGlSlot* slot=command->resource[0]?resource(0,NATIVE_GL_PROGRAM):nullptr;
-            if(command->resource[0]&&!slot) break;gl.UseProgram(slot?slot->name:0);break;
+            if(command->resource[0]&&!slot) break;
+            context->active_program = 0;
+            gl.UseProgram(slot?slot->name:0);break;
         }
         case WEBGL_bufferData: case WEBGL_bufferSubData: {
             GLenum binding=webgl_buffer_binding(n[0]);if(!binding) return fail(GL_INVALID_ENUM);

@@ -9,6 +9,7 @@
 #include "lambda/network/network_resource_manager.h"
 #include "lib/url.h"
 #include "lib/mem.h"
+#include "lib/str.h"
 #include <limits.h>
 
 struct DomImageSource : DomDocumentResourceData {
@@ -75,6 +76,18 @@ static bool image_source_pending(DomDocumentResourceData* data) {
     if (element->embed) element->embed->img = lam::up(image);
     mem_free(source->pending_url); source->pending_url = nullptr;
     image_source_complete(element, image != nullptr);
+    return false;
+}
+
+bool radiant_document_has_pending_image_load_blockers(DomDocument* doc) {
+    for (DomImageSource* source = image_sources; source; source = source->next) {
+        if (source->document != doc || !source->pending) continue;
+        DomNode* node = dom_node_ref_validate(doc, source->node);
+        DomElement* element = node ? node->as_element() : nullptr;
+        const char* loading = element ? element->get_attribute("loading") : nullptr;
+        // detached Image requests also block load; an explicit lazy request does not.
+        if (element && (!loading || !str_ieq_cstr(loading, "lazy"))) return true;
+    }
     return false;
 }
 

@@ -20,6 +20,8 @@ struct CssValue;
 typedef void (*RadiantCssUrlVisitor)(const struct CssValue* value, void* context);
 
 // Resource processing functions
+// Shared file reader for stylesheet, SVG and document resource handlers.
+char* radiant_read_resource_file(const char* path, size_t* out_size);
 void process_css_resource(NetworkResource* res, struct DomDocument* doc);
 void process_image_resource(NetworkResource* res, struct DomElement* img_element);
 void process_font_resource(NetworkResource* res, const struct CssFontFaceDescriptor* font_face);

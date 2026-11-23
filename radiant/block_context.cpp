@@ -161,7 +161,7 @@ void layout_setup_assigned_block_context(LayoutContext* lycon, ViewBlock* block,
     lycon->block.content_width = lycon->block.given_width = content_width;
     lycon->block.content_height = lycon->block.given_height = content_height;
     lycon->block.used_size_owner = lam::up(block);
-    if (block->blk) block->block_mut()->vertical_geometry_published = false;
+    if (block->blk) block->block_mut()->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::vertical_geometry_published, false);
 }
 
 void block_context_reset_floats(BlockContext* ctx) {
@@ -300,8 +300,8 @@ bool block_context_establishes_bfc(ViewBlock* block) {
 
     // 8. CSS Align §5.1.1: non-normal align-content makes a block container
     // establish an independent formatting context.
-    if (block->blk && block->block()->align_content != CSS_VALUE__UNDEF &&
-        block->block()->align_content != CSS_VALUE_NORMAL) {
+    if (block->blk && block->block()->rare().align_content != CSS_VALUE__UNDEF &&
+        block->block()->rare().align_content != CSS_VALUE_NORMAL) {
         return true;
     }
 
@@ -371,7 +371,7 @@ BlockContextOffset block_context_offset_to_bfc(ViewElement* view, BlockContext* 
         ViewBlock* parent = layout_nearest_block_ancestor(current->parent_view());
         float inline_position = current->x;
         float block_position = current->y;
-        if (parent && parent->blk && parent->block()->vertical_geometry_published) {
+        if (parent && parent->blk && parent->block()->rare().flow.vertical_geometry_published) {
             BoxMetrics box = layout_box_metrics(parent);
             float inline_start = box.border.top + box.padding.top;
             float block_start = box.border.left + box.padding.left;
@@ -463,7 +463,7 @@ void block_context_add_float(BlockContext* ctx, ViewBlock* float_elem, LayoutCon
     box->element = lam::up(float_elem);
     box->float_side = side;
     box->initial_letter_clearance = float_elem->blk &&
-        float_elem->block()->initial_letter_float_clearance;
+        float_elem->block()->rare().flow.initial_letter_float_clearance;
     box->next = nullptr;
 
     block_context_update_float_geometry(ctx, box);

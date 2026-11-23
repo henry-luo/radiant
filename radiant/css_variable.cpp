@@ -430,7 +430,7 @@ static const CssValue* css_compute_custom_property_uncached(Pool* pool, DomEleme
             StrView computed_text = {};
             bool valid_text = true;
             if (entry && entry->value_text) {
-                if (css_value_contains_var_reference(value)) {
+                if (css_value_contains_pending_substitution(value)) {
                     // bound authored expansion before the typed resolver allocates flattened value arrays.
                     computed_text = css_substitute_custom_text(pool, element,
                         {entry->value_text, entry->value_text_len}, &current);
@@ -570,7 +570,22 @@ static bool css_append_custom_token(Pool* pool, CssCustomTextOutput* output, con
     return true;
 }
 
-static const char* css_var_name_from_text(StrView source) {
+static const CssValue* css_environment_value(const char* name) {
+    if (!name) return nullptr;
+    const char* insets[] = {"safe-area-inset-top", "safe-area-inset-right",
+        "safe-area-inset-bottom", "safe-area-inset-left"};
+    // rectangular viewports have zero safe-area insets (CSS Environment Variables §2.1).
+    static const CssValue zero = [] {
+        CssValue value = {};
+        value.type = CSS_VALUE_TYPE_LENGTH;
+        value.data.length.unit = CSS_UNIT_PX;
+        return value;
+    }();
+    for (const char* inset : insets) if (strcmp(name, inset) == 0) return &zero;
+    return nullptr;
+}
+
+static const char* css_var_name_from_text(StrView source, bool environment) {
     if (!source.str) return nullptr;
     Pool* pool = css_active_var_context->temporary_pool();
     if (!pool) return nullptr;
@@ -581,9 +596,10 @@ static const char* css_var_name_from_text(StrView source) {
     for (size_t index = 0; index < count && tokens[index].type != CSS_TOKEN_EOF; index++) {
         const CssToken& token = tokens[index];
         if (token.type == CSS_TOKEN_WHITESPACE || token.type == CSS_TOKEN_COMMENT) continue;
-        // a computed name is one identifier token, including decoded CSS escapes.
-        if (name || token.type != CSS_TOKEN_CUSTOM_PROPERTY || !token.value ||
-            strlen(token.value) <= 2) return nullptr;
+        // scalar environment names and custom-property names retain decoded, case-sensitive identifiers.
+        if (name || !token.value || (environment
+                ? token.type != CSS_TOKEN_IDENT && token.type != CSS_TOKEN_CUSTOM_PROPERTY
+                : token.type != CSS_TOKEN_CUSTOM_PROPERTY || strlen(token.value) <= 2)) return nullptr;
         name = token.value;
     }
     return name;
@@ -620,8 +636,9 @@ static bool css_append_custom_text(Pool* pool, DomElement* element, StrView sour
     size_t fragment = 0;
     for (size_t index = 0; index < count && tokens[index].type != CSS_TOKEN_EOF; index++) {
         const CssToken& token = tokens[index];
-        if (token.type != CSS_TOKEN_FUNCTION || !token.value ||
-            !str_ieq_const(token.value, strlen(token.value), "var(")) continue;
+        if (token.type != CSS_TOKEN_FUNCTION || !token.value) continue;
+        bool environment = str_ieq_const(token.value, strlen(token.value), "env(");
+        if (!environment && !str_ieq_const(token.value, strlen(token.value), "var(")) continue;
         if (!append_fragment(fragment, index)) return false;
         size_t end = index + 1, comma = count;
         int depth = 1;
@@ -638,9 +655,10 @@ static bool css_append_custom_text(Pool* pool, DomElement* element, StrView sour
         // CSS Variables 1 §3 substitutes the complete first argument before parsing its name.
         StrView computed_name = css_substitute_custom_text(pool, element,
             {begin, (size_t)(finish - begin)}, stack, trim_boundary_comments);
-        const char* name = css_var_name_from_text(computed_name);
+        const char* name = css_var_name_from_text(computed_name, environment);
         StrView replacement = {};
-        const CssValue* value = name ? css_lookup_custom_value(pool, element, name, stack, &replacement) : nullptr;
+        const CssValue* value = environment ? css_environment_value(name)
+            : name ? css_lookup_custom_value(pool, element, name, stack, &replacement) : nullptr;
         if (value) {
             if (!replacement.str) {
                 CssFormatter* formatter = css_formatter_create(temporary_pool, CSS_FORMAT_COMPACT);
@@ -688,7 +706,7 @@ static const CssValue* css_resolve_token_text(Pool* pool, const CssValue* value,
     DomElement* element, const CssVarStack* stack) {
     const String* text = value->data.tokens.text;
     if (!text) return nullptr;
-    if (!css_value_contains_var_reference(value->data.tokens.value))
+    if (!css_value_contains_pending_substitution(value->data.tokens.value))
         return css_var_value_fits(value) ? value : nullptr;
     // owned token values share bounded expansion, memoization and boundary serialization with CSSOM.
     StrView resolved = css_substitute_custom_text(pool, element, {text->chars, text->len}, stack, true);
@@ -696,15 +714,15 @@ static const CssValue* css_resolve_token_text(Pool* pool, const CssValue* value,
     return css_var_value_fits(result) ? result : nullptr;
 }
 
-static const char* css_var_value_name(const CssValue* value) {
+static const char* css_var_value_name(const CssValue* value, bool environment) {
     value = css_value_unwrap(value);
     while (value && value->type == CSS_VALUE_TYPE_LIST &&
         !value->data.list.comma_separated && value->data.list.count == 1 && value->data.list.values)
         value = css_value_unwrap(value->data.list.values[0]);
     if (!value || value->type != CSS_VALUE_TYPE_CUSTOM) return nullptr;
     const char* name = value->data.custom_property.name;
-    // strings and multiple component values cannot name a custom property.
-    return name && name[0] == '-' && name[1] == '-' && name[2] ? name : nullptr;
+    // strings and multiple component values cannot name a scalar substitution.
+    return name && (environment || (name[0] == '-' && name[1] == '-' && name[2])) ? name : nullptr;
 }
 
 struct CssSubstitutedTokens {
@@ -807,10 +825,13 @@ static const CssValue* resolve_var_function_inner(Pool* pool, const CssValue* va
         ? value->data.function : nullptr;
     const CSSVarRef* var_ref = value->type == CSS_VALUE_TYPE_VAR
         ? value->data.var_ref : nullptr;
-    if (!func && !var_ref) return value;
+    const CSSEnvRef* env_ref = value->type == CSS_VALUE_TYPE_ENV
+        ? value->data.env_ref : nullptr;
+    if (!func && !var_ref && !env_ref) return value;
     if (func && !func->name) return value;
     if (func && func->arg_count > 0 && !func->args) return nullptr;
-    if (func && strcmp(func->name, "var") != 0) {
+    bool environment = env_ref || (func && strcmp(func->name, "env") == 0);
+    if (func && !environment && strcmp(func->name, "var") != 0) {
         CssValue arguments = {};
         arguments.type = CSS_VALUE_TYPE_LIST;
         arguments.data.list.values = func->args;
@@ -849,6 +870,7 @@ static const CssValue* resolve_var_function_inner(Pool* pool, const CssValue* va
     }
     const CssValue* fallback_value = var_ref
         ? (var_ref->has_fallback ? var_ref->fallback : nullptr)
+        : env_ref ? (env_ref->has_fallback ? env_ref->fallback : nullptr)
         : (func->arg_count >= 2 ? (func->arg_count == 2 ? func->args[1] : &fallback_tokens)
             : nullptr);
     auto resolve_fallback = [&]() -> const CssValue* {
@@ -863,11 +885,13 @@ static const CssValue* resolve_var_function_inner(Pool* pool, const CssValue* va
     const CssValue* first_arg = func && func->arg_count > 0
         ? resolve_var_function_inner(pool, func->args[0], context_element, lookup, lookup_context, stack)
         : nullptr;
-    const char* var_name = var_ref ? var_ref->name : css_var_value_name(first_arg);
+    const char* var_name = var_ref ? var_ref->name
+        : env_ref ? env_ref->name : css_var_value_name(first_arg, environment);
     if (!var_name) {
         return resolve_fallback();
     }
-    const CssValue* computed = css_lookup_custom_value(pool, context_element, var_name, stack);
+    const CssValue* computed = environment ? css_environment_value(var_name)
+        : css_lookup_custom_value(pool, context_element, var_name, stack);
     return computed ? computed : resolve_fallback();
 }
 

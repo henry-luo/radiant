@@ -447,12 +447,13 @@ bool layout_resolve_anchor_query(LayoutContext* lycon, uintptr_t property,
     return isfinite(*result);
 }
 
-void layout_apply_anchor_alignment(LayoutAnchorFrame& frame) {
+void layout_apply_anchor_alignment(LayoutContext* lycon, LayoutAnchorFrame& frame) {
     if (!frame.has_default || !frame.block->blk) return;
     ViewBlock* block = frame.block;
     for (LayoutAxis axis : layout_axes()) {
-        CssSelfAlignment& alignment = layout_axis_is_inline_for_block(frame.containing, axis)
-            ? block->block_mut()->justify_self : block->block_mut()->align_self;
+        auto member = layout_axis_is_inline_for_block(frame.containing, axis)
+            ? &BlockPropExt::justify_self : &BlockPropExt::align_self;
+        CssSelfAlignment alignment = block->block()->rare().*member;
         LayoutAxisRefs refs(block, axis);
         if (frame.area && (alignment.value == CSS_VALUE_AUTO || alignment.value == CSS_VALUE_NORMAL ||
                            alignment.value == CSS_VALUE__UNDEF)) {
@@ -465,6 +466,7 @@ void layout_apply_anchor_alignment(LayoutAnchorFrame& frame) {
                 !single_inset && track == CSS_ANCHOR_TRACK_CENTER ? CSS_VALUE_CENTER :
                 logical_end ? CSS_VALUE_END : CSS_VALUE_START;
             if (single_inset) alignment.overflow_explicit = true;
+            block->block_mut()->set_ext(layout_prop_pool(lycon), member, alignment);
         }
         if (!frame.area && alignment.value != CSS_VALUE_ANCHOR_CENTER) continue;
         frame.scroll_axes |= 1u << axis;
@@ -481,7 +483,7 @@ bool layout_anchor_center_position(LayoutContext* lycon, ViewBlock* box,
     LayoutAnchorFrame* frame = lycon ? lycon->anchor_frame.get() : nullptr;
     if (!frame || frame->block != box || !frame->has_default || !box->blk) return false;
     const CssSelfAlignment& alignment = layout_axis_is_inline_for_block(frame->containing, axis)
-        ? box->block()->justify_self : box->block()->align_self;
+        ? box->block()->rare().justify_self : box->block()->rare().align_self;
     if (alignment.value != CSS_VALUE_ANCHOR_CENTER) return false;
     float center = axis == LAYOUT_AXIS_X ? frame->center.x - frame->origin.x : frame->center.y - frame->origin.y;
     float start = center - margin_box_size / 2.0f;

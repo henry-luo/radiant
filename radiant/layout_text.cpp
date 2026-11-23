@@ -66,7 +66,7 @@ bool layout_inline_text_boundary_break(LayoutContext* lycon, DomNode* owner,
                                         uint32_t before, uint32_t after, bool used_breaks) {
     if (!owner || !before || !after) return false;
     CssEnum line_break = get_inherited_text_enum(lycon, CSS_PROPERTY_LINE_BREAK,
-        &BlockProp::line_break, CSS_VALUE_AUTO, owner);
+        &BlockPropExt::line_break, CSS_VALUE_AUTO, owner);
     CssEnum overflow_wrap = CSS_VALUE_NORMAL;
     CssEnum word_break = CSS_VALUE_NORMAL;
     layout_resolve_inherited_text_wrap(lycon, owner, &overflow_wrap, &word_break);
@@ -553,8 +553,8 @@ static inline CssEnum get_text_spacing_trim(LayoutContext* lycon, DomNode* text_
                 }
             }
             // css text 4: the inherited default must not hide an ancestor's explicit value.
-            if (elem->blk && elem->block_mut()->text_spacing_trim != 0) {
-                CssEnum computed = elem->block()->text_spacing_trim;
+            if (elem->blk && elem->block_mut()->rare().text_spacing_trim != 0) {
+                CssEnum computed = elem->block()->rare().text_spacing_trim;
                 if (computed == CSS_VALUE_INITIAL) return CSS_VALUE_NORMAL;
                 if (computed != CSS_VALUE_NORMAL) return computed;
             }
@@ -584,7 +584,7 @@ static float text_spacing_trim_halt_advance(FontHandle* handle, uint32_t codepoi
 
 CssEnum get_inherited_text_enum(
         LayoutContext* lycon, CssPropertyCode property,
-        CssEnum BlockProp::*member, CssEnum fallback, DomNode* node) {
+        CssEnum BlockPropExt::*member, CssEnum fallback, DomNode* node) {
     if (!node) node = lycon->elmt ? lycon->elmt : lycon->view;
     while (node) {
         if (node->is_element()) {
@@ -608,10 +608,10 @@ CssEnum get_inherited_text_enum(
                 if (keyword > 0 && css_property_validate_value(property, value)) return keyword;
             }
             if (elem->blk) {
-                CssEnum value = elem->block()->*member;
+                CssEnum value = elem->block()->rare().*member;
                 // allocating a block record for an unrelated property must
                 // not turn its default field into an authored inheritance boundary.
-                if (value != 0 && (value != BLOCK_PROP_DEFAULT.*member || declaration)) {
+                if (value != 0 && (value != BLOCK_EXTRAS_DEFAULT.*member || declaration)) {
                     return value;
                 }
             }
@@ -624,13 +624,13 @@ CssEnum get_inherited_text_enum(
 // Field is the BlockProp string field's type: a raw char* or a kind
 template <typename Field>
 static const char* get_inherited_text_string(
-        LayoutContext* lycon, Field BlockProp::*member) {
+        LayoutContext* lycon, Field BlockPropExt::*member) {
     DomNode* node = lycon->elmt ? lycon->elmt : lycon->view;
     while (node) {
         if (node->is_element()) {
             DomElement* elem = lam::dom_require<DOM_NODE_ELEMENT>(node);
-            if (elem->blk && elem->block()->*member) {
-                return elem->block()->*member;
+            if (elem->blk && elem->block()->rare().*member) {
+                return elem->block()->rare().*member;
             }
         }
         node = node->parent;
@@ -670,7 +670,7 @@ static const char* resolve_lang(DomNode* node) {
 
 static CssEnum text_hyphenation_mode(LayoutContext* lycon) {
     return get_inherited_text_enum(
-        lycon, CSS_PROPERTY_HYPHENS, &BlockProp::hyphens, CSS_VALUE_MANUAL);
+        lycon, CSS_PROPERTY_HYPHENS, &BlockPropExt::hyphens, CSS_VALUE_MANUAL);
 }
 
 static bool text_auto_hyphenation_enabled(LayoutContext* lycon, DomNode* text_node) {
@@ -680,7 +680,7 @@ static bool text_auto_hyphenation_enabled(LayoutContext* lycon, DomNode* text_no
 
 static const char* text_hyphenate_character(LayoutContext* lycon) {
     const char* character = get_inherited_text_string(
-        lycon, &BlockProp::hyphenate_character);
+        lycon, &BlockPropExt::hyphenate_character);
     if (character) return character;
     // use the font's hyphen glyph when covered; subset faces can omit
     // hyphen-minus while intentionally supplying U+2010 for hyphenation.
@@ -1282,8 +1282,8 @@ uint8_t layout_text_autospace_flags(LayoutContext* lycon,
                     element->specified_style, CSS_PROPERTY_TEXT_AUTOSPACE)
                 : nullptr;
             if (element->blk &&
-                (element->block()->text_autospace_is_set || declaration)) {
-                return element->block()->text_autospace;
+                (element->block()->rare().text_autospace_is_set || declaration)) {
+                return element->block()->rare().text_autospace;
             }
         }
         node = node->parent;
@@ -1921,8 +1921,8 @@ CssEnum get_text_wrap_mode_value(DomNode* node, LayoutContext* lycon) {
             if (declaration->property_code == CSS_PROPERTY_TEXT_WRAP &&
                 layout_resolve_text_wrap_value(value, &mode, &style)) return mode;
         }
-        if (element->blk && element->block()->text_wrap_mode != 0) {
-            return element->block()->text_wrap_mode;
+        if (element->blk && element->block()->rare().text_wrap_mode != 0) {
+            return element->block()->rare().text_wrap_mode;
         }
         if (element->blk && element->block()->white_space != 0) {
             return white_space_wrap_mode(element->block()->white_space);
@@ -2108,9 +2108,9 @@ static bool inline_node_is_unbreakable_text(LayoutContext* lycon, DomNode* node)
     if (!node) return false;
     if (node->is_text()) {
         CssEnum word_break = get_inherited_text_enum(lycon, CSS_PROPERTY_WORD_BREAK,
-            &BlockProp::word_break, CSS_VALUE_NORMAL, node);
+            &BlockPropExt::word_break, CSS_VALUE_NORMAL, node);
         CssEnum line_break = get_inherited_text_enum(lycon, CSS_PROPERTY_LINE_BREAK,
-            &BlockProp::line_break, CSS_VALUE_AUTO, node);
+            &BlockPropExt::line_break, CSS_VALUE_AUTO, node);
         // ASCII has no customary word boundaries, but break-all changes its
         // letter units; the whole-run lookahead must not make them atomic.
         bool wrap_lines = layout_inline_allows_soft_wrap(lycon, node);
@@ -3157,8 +3157,8 @@ static float measure_preserved_tab_advance(LayoutContext* lycon, float current_x
         if (ancestor->is_element()) {
             DomElement* elem = lam::dom_require_element(ancestor);
             if (elem->blk) {
-                tab_size = elem->block()->tab_size;
-                tab_size_length = elem->block()->tab_size_length;
+                tab_size = elem->block()->rare().tab_size;
+                tab_size_length = elem->block()->rare().tab_size_length;
                 break;
             }
         }
@@ -3213,9 +3213,9 @@ LineFillStatus text_has_line_filled(LayoutContext* lycon, DomNode* text_node,
     bool is_word_start = true;  // First character is always word start
     bool has_break_opportunity = false;  // track if hyphen/break found before overflow
     CssEnum word_break = get_inherited_text_enum(lycon, CSS_PROPERTY_WORD_BREAK,
-        &BlockProp::word_break, CSS_VALUE_NORMAL, text_node);
+        &BlockPropExt::word_break, CSS_VALUE_NORMAL, text_node);
     CssEnum line_break = get_inherited_text_enum(lycon, CSS_PROPERTY_LINE_BREAK,
-        &BlockProp::line_break, CSS_VALUE_AUTO, text_node);
+        &BlockPropExt::line_break, CSS_VALUE_AUTO, text_node);
     bool wrap_lines = layout_inline_allows_soft_wrap(lycon, text_node);
     bool break_all = wrap_lines &&
         (word_break == CSS_VALUE_BREAK_ALL || line_break == CSS_VALUE_ANYWHERE);
@@ -3509,13 +3509,13 @@ static bool initial_letter_block_trims_start_edge(const DomNode* text_node,
         if (pseudo && pseudo->parent && pseudo->parent->is_element()) {
             DomElement* owner = pseudo->parent->as_element();
             if (owner && owner->blk) {
-                return (owner->block()->text_box_trim & TEXT_BOX_TRIM_START) != 0;
+                return (owner->block()->rare().text_box_trim & TEXT_BOX_TRIM_START) != 0;
             }
         }
     }
     return lycon && lycon->block.establishing_element &&
         lycon->block.establishing_element->blk &&
-        (lycon->block.establishing_element->block()->text_box_trim &
+        (lycon->block.establishing_element->block()->rare().text_box_trim &
          TEXT_BOX_TRIM_START) != 0;
 }
 
@@ -4384,15 +4384,15 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
         !lycon->available_space.width.is_max_content();
 
     CssEnum word_break = get_inherited_text_enum(
-        lycon, CSS_PROPERTY_WORD_BREAK, &BlockProp::word_break, CSS_VALUE_NORMAL);
+        lycon, CSS_PROPERTY_WORD_BREAK, &BlockPropExt::word_break, CSS_VALUE_NORMAL);
     CssEnum line_break_val = get_inherited_text_enum(
-        lycon, CSS_PROPERTY_LINE_BREAK, &BlockProp::line_break, CSS_VALUE_AUTO);
+        lycon, CSS_PROPERTY_LINE_BREAK, &BlockPropExt::line_break, CSS_VALUE_AUTO);
     // line-break: anywhere allows break at any typographic letter unit (CSS Text 3 §5.2)
     bool break_all = (word_break == CSS_VALUE_BREAK_ALL || line_break_val == CSS_VALUE_ANYWHERE);
     bool keep_all = (word_break == CSS_VALUE_KEEP_ALL && line_break_val != CSS_VALUE_ANYWHERE);
     // CSS Text 3 §5.2: word-break: break-word behaves as overflow-wrap: anywhere
     CssEnum overflow_wrap = get_inherited_text_enum(
-        lycon, CSS_PROPERTY_OVERFLOW_WRAP, &BlockProp::overflow_wrap, CSS_VALUE_NORMAL);
+        lycon, CSS_PROPERTY_OVERFLOW_WRAP, &BlockPropExt::overflow_wrap, CSS_VALUE_NORMAL);
     bool break_word = (overflow_wrap == CSS_VALUE_BREAK_WORD || overflow_wrap == CSS_VALUE_ANYWHERE
                        || line_break_val == CSS_VALUE_ANYWHERE
                        || word_break == CSS_VALUE_BREAK_WORD);
@@ -4419,10 +4419,10 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
     int auto_hyphen_limits[3] = {5, 2, 2};
     for (DomNode* owner = text_node->parent; owner; owner = owner->parent) {
         DomElement* element = owner->as_element();
-        if (!element || !element->blk || !element->block()->hyphenate_limits_is_set) continue;
+        if (!element || !element->blk || !element->block()->rare().hyphenate_limits_is_set) continue;
         for (size_t i = 0; i < 3; i++) {
-            if (element->block()->hyphenate_limits[i] >= 0)
-                auto_hyphen_limits[i] = element->block()->hyphenate_limits[i];
+            if (element->block()->rare().hyphenate_limits[i] >= 0)
+                auto_hyphen_limits[i] = element->block()->rare().hyphenate_limits[i];
         }
         break;
     }
@@ -4563,7 +4563,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
     if (wrap_lines && !break_word && !lycon->line.is_line_start && preceding_text &&
         preceding_text != text_node &&
         get_inherited_text_enum(lycon, CSS_PROPERTY_OVERFLOW_WRAP,
-            &BlockProp::overflow_wrap, CSS_VALUE_NORMAL, preceding_text) == CSS_VALUE_ANYWHERE &&
+            &BlockPropExt::overflow_wrap, CSS_VALUE_NORMAL, preceding_text) == CSS_VALUE_ANYWHERE &&
         !text_codepoint_has_zero_advance(peek_codepoint(str))) {
         float line_right = lycon->line.has_float_intrusion
             ? lycon->line.effective_right : lycon->line.right;

@@ -250,15 +250,28 @@ BlockProp* DomElement::ensure_block(LayoutContext* lycon) {
     return value;
 }
 
+BlockListProp* BlockProp::ensure_list(Pool* pool) {
+    return ensure_view_prop(nullptr, pool, list_props, BLOCK_LIST_DEFAULT);
+}
+
+BlockPropExt* BlockProp::ensure_ext(Pool* pool) {
+    return ensure_view_prop(nullptr, pool, ext, BLOCK_EXTRAS_DEFAULT);
+}
+
+BlockListProp* ensure_block_list(DomElement* element, LayoutContext* lycon) {
+    BlockProp* block = element->ensure_block(lycon);
+    return block ? block->ensure_list(prop_pool(lycon)) : nullptr;
+}
+
 BlockPropExt* DomElement::ensure_block_extras(LayoutContext* lycon) {
     BlockProp* block = ensure_block(lycon);
-    return block ? ensure_view_prop(this, prop_pool(lycon), block->ext, BLOCK_EXTRAS_DEFAULT) : nullptr;
+    return block ? block->ensure_ext(prop_pool(lycon)) : nullptr;
 }
 
 BlockContainmentProp* DomElement::ensure_block_containment(LayoutContext* lycon) {
-    BlockProp* block = ensure_block(lycon);
-    return block ? ensure_view_prop(this, prop_pool(lycon), block->containment_props,
-                                    BLOCK_CONTAINMENT_DEFAULT) : nullptr;
+    BlockPropExt* extras = ensure_block_extras(lycon);
+    return extras ? ensure_view_prop(this, prop_pool(lycon), extras->containment_props,
+                                     BLOCK_CONTAINMENT_DEFAULT) : nullptr;
 }
 
 FontProp* DomElement::ensure_font(LayoutContext* lycon) {

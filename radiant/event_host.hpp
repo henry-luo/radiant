@@ -37,6 +37,8 @@ struct RadiantEventHostOps {
     bool (*editing_animation_active)(DocState*);
     bool (*editing_animation_tick)(UiContext*, double);
     bool (*input_capabilities)(UiContext*, const CssInputCapabilities*);
+    // A null target clears focus through the host's event transition.
+    void (*change_focus)(DomDocument*, DomElement*);
 };
 
 bool radiant_event_host_register(const RadiantEventHostOps* operations);
@@ -63,3 +65,4 @@ bool radiant_event_host_collect_dom(UiContext* ui, DomDocument* document);
 bool radiant_event_host_editing_animation_active(DocState* state);
 bool radiant_event_host_editing_animation_tick(UiContext* ui, double timestamp);
 bool radiant_event_host_input_capabilities(UiContext* ui, const CssInputCapabilities* capabilities);
+bool radiant_event_host_change_focus(DomDocument* document, DomElement* target);

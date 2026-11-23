@@ -31,12 +31,17 @@ static TextIntrinsicWidths flex_measure_text_widths(LayoutContext* lycon,
         get_white_space_value(node), overflow_wrap, word_break);
 }
 
-static void flex_store_intrinsic_sizes(ViewElement* item, float min_width, float max_width,
+static void flex_store_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex_layout,
+                                       float min_width, float max_width,
                                        float min_height, float max_height, bool width_only = false) {
     item->fi->intrinsic_width.min_content = min_width;
     item->fi->intrinsic_width.max_content = max_width;
     item->fi->has_intrinsic_width = true;
     if (width_only) return;
+    // publish width inputs first so the shared fit-content query cannot recurse into this measurement.
+    float ratio_floor = flex_item_intrinsic_ratio_height_floor(item, flex_layout);
+    min_height = max(min_height, ratio_floor);
+    max_height = max(max_height, ratio_floor);
     item->fi->intrinsic_height.min_content = min_height;
     item->fi->intrinsic_height.max_content = max_height;
     item->fi->has_intrinsic_height = true;
@@ -965,7 +970,7 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
     // Use float to preserve precision from text measurement (avoids truncation)
     float min_width = 0, max_width = 0, min_height = 0, max_height = 0;
     if (lycon && layout_measure_mathml(lycon, item->as_element(), &min_width, &min_height)) {
-        flex_store_intrinsic_sizes(item, min_width, min_width, min_height, min_height);
+        flex_store_intrinsic_sizes(item, flex_layout, min_width, min_width, min_height, min_height);
         return;
     }
     // Check if this is a replaced element (img, video, or SVG) - needs special handling
@@ -978,7 +983,7 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
         IntrinsicSize replaced_size = {};
         if (layout_measure_replaced_flex_intrinsic(
                 lycon, item, flex_layout, &replaced_size)) {
-            flex_store_intrinsic_sizes(item, replaced_size.min_width,
+            flex_store_intrinsic_sizes(item, flex_layout, replaced_size.min_width,
                 replaced_size.max_width, replaced_size.min_height,
                 replaced_size.max_height);
             return;
@@ -988,7 +993,7 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
     if (lycon && layout_measure_direct_text_intrinsic_size(
             lycon, lam::view_as_block(item), &direct_text_size)) {
         // the shared line producer already projects physical axes and sums forced-line block advances.
-        flex_store_intrinsic_sizes(item, direct_text_size.min_width, direct_text_size.max_width,
+        flex_store_intrinsic_sizes(item, flex_layout, direct_text_size.min_width, direct_text_size.max_width,
             direct_text_size.min_height, direct_text_size.max_height, width_only);
         return;
     }
@@ -1126,6 +1131,12 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
         bool is_flex_container = layout_is_flex_container(item);
         bool is_row_flex_container = is_flex_container ?
             layout_flex_direction_is_row(item) : false;
+        ViewBlock* item_block = lam::view_as_block(item);
+        float ratio_query_width = !width_only && is_row_flex_container && !has_explicit_height &&
+            layout_used_preferred_aspect_ratio(item_block) > 0.0f &&
+            !layout_axis_size_is_percentage(item_block, true)
+            ? layout_block_given_content_size(item_block, true) : -1.0f;
+        bool measure_ratio_height = ratio_query_width >= 0.0f;
         // CRITICAL FIX: For non-flex containers (regular block elements with inline content),
         // use measure_element_intrinsic_widths which correctly sums inline children's widths.
         // The manual child iteration below doesn't handle inline content properly - it takes
@@ -1166,8 +1177,8 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
         {
             // content-based minima cannot resolve descendants from the item's auto/percentage preferred width.
             LayoutContainingBlockScope width_scope(lycon, LAYOUT_AXIS_X, -1.0f,
-                layout_block_has_automatic_size(lam::view_as_block(item), true) ||
-                layout_axis_size_is_percentage(lam::view_as_block(item), true));
+                layout_block_has_automatic_size(item_block, true) ||
+                layout_axis_size_is_percentage(item_block, true));
             ScratchScope child_scope(lycon ? &lycon->scratch : nullptr);
             int node_count = 0;
             DomNode** nodes = nullptr;
@@ -1263,7 +1274,7 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
                         } else if (layout_form_control_has_native_intrinsic_size(child_view)) {
                             child_min_width = child_max_width = child_view->form_storage()->intrinsic_width;
                         }
-                        if (!width_only) {
+                        if (!width_only && !measure_ratio_height) {
                             // Get child height - explicit (from View or DOM) or intrinsic
                             if (child_explicit.has_height) {
                                 child_height = child_explicit.height;
@@ -1361,7 +1372,11 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
         // let a column flex hand the item too little space (CSS Flexbox §9.2 step 3).
         bool wrapped_height = is_wrapping_flex && !width_only && lycon && !has_explicit_height &&
             flex_layout && !is_main_axis_horizontal(flex_layout) && flex_layout->cross_axis_size > 0;
-        if (wrapped_height) {
+        if (measure_ratio_height) {
+            // row sizing keeps the transferred height as the percentage basis while measuring natural content.
+            float height = calculate_max_content_height(lycon, item, ratio_query_width, true, true);
+            min_height = max_height = layout_content_size_from_border_box(item_block, height, false);
+        } else if (wrapped_height) {
             flex_measure_item_height_at_cross_width(lycon, item, flex_layout,
                 layout_content_size_from_border_box(lam::view_as_block(item), min_width, true),
                 layout_content_size_from_border_box(lam::view_as_block(item), max_width, true),
@@ -1396,5 +1411,5 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
     }
 
 store_physical_results:
-    flex_store_intrinsic_sizes(item, min_width, max_width, min_height, max_height, width_only);
+    flex_store_intrinsic_sizes(item, flex_layout, min_width, max_width, min_height, max_height, width_only);
 }

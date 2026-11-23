@@ -1215,14 +1215,18 @@ static int prefetch_document_subresources(DomDocument* doc, Element* html_root,
                                        &script_capacity, EXTERNAL_PREFETCH_SCRIPT, 0);
     }
 
+    uint64_t stylesheet_start = time_now_ns();
     if (stylesheet_count > 0) {
-        uint64_t stylesheet_start = time_now_ns();
-        int loaded = 0;
         log_info("[PREFETCH] queuing %d render-blocking stylesheets", stylesheet_count);
         for (int i = 0; i < stylesheet_count; i++) {
             resource_manager_prefetch(doc->resource_manager, stylesheet_urls[i].url,
                                       stylesheet_urls[i].priority);
         }
+    }
+    // eager markup must not wait for CSS or script execution to enter the shared scheduler.
+    radiant_prefetch_document_eager_images(doc);
+    if (stylesheet_count > 0) {
+        int loaded = 0;
         for (int i = 0; i < stylesheet_count; i++) {
             NetworkResource* res = resource_manager_prefetch(
                 doc->resource_manager, stylesheet_urls[i].url,
@@ -2140,6 +2144,7 @@ DocumentJsHostConfig document_js_host_config_inherit(UiContext* uicon,
     config.disable_css_animations = source->disable_css_animations;
     config.resource_policy = source->resource_policy;
     config.scripting_disabled = source->scripting_disabled;
+    config.embedded_document = source->embedding_document.get() != nullptr;
     return config;
 }
 
@@ -2147,6 +2152,8 @@ DocumentJsHostConfig document_js_host_config_for_frame(UiContext* uicon,
                                                        const DomDocument* source,
                                                        DomElement* frame) {
     DocumentJsHostConfig config = document_js_host_config_inherit(uicon, source);
+    // the initial request precedes publication of the child's DOM embedding edge.
+    config.embedded_document = true;
     const char* sandbox = frame ? frame->get_attribute("sandbox") : nullptr;
     if (sandbox) {
         // MQ11: a sandboxed frame loads script-free until Lambda implements
@@ -2366,7 +2373,10 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
         html_content = download_http_document_with_cookie_jar(url_str, &html_length,
             top_level_cookie_jar, &eff_url, &response_language, &response_type, &response_status);
         if (html_content && response_status >= 400) {
-            log_info("document-response: rendering HTTP %ld body for %s", response_status, url_str);
+            // capture classification needs this status even when release builds strip info logs.
+            log_warn("%s: rendering HTTP %ld body for %s",
+                js_host_config && js_host_config->embedded_document ? "embedded-response" : "document-response",
+                response_status, url_str);
         }
         protocol_language = lam::Temp<char>(response_language);
         // response MIME selects XML syntax even when a URL ends in .html or has no extension.
@@ -4613,11 +4623,11 @@ void rebuild_lambda_doc(UiContext* uicon) {
                 log_error("rebuild_lambda_doc: failed to replace the document root");
                 return;
             }
-        } else {
-            dom_node_schedule_detached(doc, old_root);
         }
     }
     doc->root = lam::up(new_root);
+    // the current document root is protected until its replacement is published.
+    if (old_root && old_root != new_root) dom_node_schedule_detached(doc, old_root);
     if (state && old_root && old_root != new_root)
         dom_reconcile_post_replace(state, old_root, new_root);
 
@@ -4962,6 +4972,7 @@ void rebuild_lambda_doc_incremental(UiContext* uicon, RetransformResult* results
         layout_preserve_rebuilt_owners(doc, old_dom, new_dom);
 
         if (new_dom == old_dom) {
+            dom_node_cancel_detached(doc, new_dom);
             new_dom->parent = lam::up(parent_dom);
             new_dom->prev_sibling = lam::up(old_previous);
             new_dom->next_sibling = lam::own(old_next);
@@ -4985,6 +4996,7 @@ void rebuild_lambda_doc_incremental(UiContext* uicon, RetransformResult* results
         if (replaces_document_root) {
             // the retained #document links and layout must publish the same root.
             doc->root = lam::up(new_dom);
+            if (old_dom != new_dom) dom_node_schedule_detached(doc, old_dom);
             doc->input->root = {.element = html_elem};
         }
         if (state && old_dom != new_dom) dom_reconcile_post_replace(state, old_dom, new_dom);

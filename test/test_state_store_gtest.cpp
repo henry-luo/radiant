@@ -82,6 +82,7 @@ TEST(NativeEditingWithoutScriptHost, TextEditPublishesMutationAndReflow) {
     Input* input = fixture.input;
     DomDocument* document = fixture.document;
     ASSERT_NE(document, nullptr);
+    dom_observe_native_pins(document);
     DomElement* parent = dom_create_backed_element_identity(document, "div", nullptr, false);
     ASSERT_NE(parent, nullptr);
     ASSERT_TRUE(parent->set_attribute("contenteditable", "true"));
@@ -440,6 +441,7 @@ TEST_F(StateStoreDomMutationTest, ScrollRequestReplacesAndReleasesPinnedTargets)
     ASSERT_TRUE(dom_lifecycle_init(&doc));
     ASSERT_TRUE(dom_node_registry_register(&doc, live, sizeof(DomElement), false));
     ASSERT_TRUE(dom_node_registry_register(&doc, orphan, sizeof(DomElement), false));
+    dom_observe_native_pins(&doc);
     DomNodeRef first = dom_node_ref(live), second = dom_node_ref(orphan);
     radiant_queue_scroll_into_view(&doc, live, true, false, DOM_SCROLL_ALIGN_END,
                                    DOM_SCROLL_ALIGN_CENTER, DOM_SCROLL_BEHAVIOR_SMOOTH);
@@ -750,6 +752,20 @@ TEST(StateStoreDomLifetimeTest, DetachedControlValueSurvivesLayoutReleaseUntilRe
     original.control_type = rebuilt.control_type = FORM_CONTROL_TEXT;
     ASSERT_TRUE(control->set_form_storage(&original));  // test-owned prop
     ASSERT_TRUE(form_control_store_text_value(doc.state, static_cast<View*>(control), "svg", 3, 3));
+    ViewStateEntry query = {.view_id = static_cast<DomNode*>(control)->id, .kind = VIEW_STATE_FORM_CONTROL};
+    const auto* entry = static_cast<const ViewStateEntry*>(hashmap_get(doc.state->view_state_map, &query));
+    ASSERT_NE(entry, nullptr);
+    // an unrelated retirement invalidates the document stamp of a surviving control.
+    DomElement* sibling = DomElement::create(&doc, "div", backing);
+    ASSERT_NE(sibling, nullptr);
+    ASSERT_TRUE(static_cast<DomNode*>(root)->append_child(sibling));
+    ASSERT_TRUE(root->remove_child(sibling));
+    ASSERT_EQ(dom_retire_sweep(&doc), 1u);
+    uint32_t current_stamp = dom_node_ref(control).lifetime_stamp;
+    ASSERT_NE(entry->owner.lifetime_stamp, current_stamp);
+    EXPECT_EQ(view_state_entry_resolve_view(doc.state, entry), static_cast<View*>(control));
+    EXPECT_EQ(entry->owner.lifetime_stamp, current_stamp);
+
     ASSERT_TRUE(root->remove_child(control));
     // D5.5.1: layout properties are temporary; the registered DOM control owns its value.
     control->set_form_storage(nullptr); control->view_type = RDT_VIEW_NONE;
@@ -766,7 +782,6 @@ TEST(StateStoreDomLifetimeTest, DetachedControlValueSurvivesLayoutReleaseUntilRe
     ASSERT_TRUE(root->remove_child(control));
     ASSERT_EQ(dom_retire_sweep(&doc), 1u);
     EXPECT_EQ(dom_node_ref_validate(&doc, detached_ref), nullptr);
-    ViewStateEntry query = {.view_id = detached_ref.expected_id, .kind = VIEW_STATE_FORM_CONTROL};
     // retirement must release durable state even without a layout tree or another reflow.
     EXPECT_EQ(hashmap_get(doc.state->view_state_map, &query), nullptr);
     EXPECT_TRUE(radiant_state_validate_interaction(doc.state, nullptr));
@@ -1048,6 +1063,7 @@ TEST_F(StateStoreDomMutationTest, RebuiltEventOwnerTransfersLeaseOnlyForSameIden
     ASSERT_TRUE(dom_lifecycle_init(&doc));
     ASSERT_TRUE(dom_node_registry_register(&doc, live, sizeof(DomElement), false));
     ASSERT_TRUE(dom_node_registry_register(&doc, orphan, sizeof(DomElement), false));
+    dom_observe_native_pins(&doc);
     DomNodeRef owner = dom_node_ref(live);
     ASSERT_TRUE(dom_node_pin(&doc, owner, DOM_NODE_PIN_EVENT_QUEUE));
     ASSERT_TRUE(view_state_ref_follow_rebuild(&doc, &owner, live, orphan, DOM_NODE_PIN_EVENT_QUEUE));

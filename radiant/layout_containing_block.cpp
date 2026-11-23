@@ -294,8 +294,11 @@ ViewElement* layout_create_anonymous_text_item(LayoutContext* lycon,
     item->mark_scratch_lived();
     BlockProp* blk = (BlockProp*)scratch_item_calloc(sizeof(BlockProp));
     BoundaryProp* bound = (BoundaryProp*)scratch_item_calloc(sizeof(BoundaryProp));
-    if (!blk || !bound) return nullptr;
+    auto* rare = (BlockPropExt*)scratch_item_calloc(sizeof(BlockPropExt));
+    if (!blk || !bound || !rare) return nullptr;
     memcpy(blk, &BLOCK_PROP_DEFAULT, sizeof(BlockProp));
+    *rare = BLOCK_EXTRAS_DEFAULT;
+    blk->ext = lam::own(rare);
     blk->text_align = lycon->block.text_align;
     blk->direction = lycon->block.direction;
     blk->white_space = container->blk

@@ -140,23 +140,7 @@ ImageSurface* compositor_clip_coverage(const CompositorClip* clips, unsigned cou
     return nullptr;
 }
 
-const char* render_clip_css_value(ViewElement* view) {
-    if (!view) return nullptr;
-    for (DomElement* element = lam::dom_require_element(lam::view_dom_node(view));
-            element; element = dom_parent_element(element)) {
-        CssDeclaration* declaration = dom_element_get_specified_value(element, CSS_PROPERTY_CLIP_PATH);
-        if (!declaration || !declaration->value) return nullptr;
-        if (declaration->value->type == CSS_VALUE_TYPE_KEYWORD) {
-            CssEnum keyword = declaration->value->data.keyword;
-            if (keyword == CSS_VALUE_INHERIT) continue;
-            // CSS-wide defaults compute to none, not an unknown shape with empty coverage.
-            if (keyword == CSS_VALUE_NONE || keyword == CSS_VALUE_INITIAL ||
-                    keyword == CSS_VALUE_UNSET) return nullptr;
-        }
-        return declaration->value_text_len > 0 ? declaration->value_text : nullptr;
-    }
-    return nullptr;
-}
+
 
 // Owned clip shapes (and polygon vertices) live in the clip scope's scratch
 // scope, which render_clip_pop_scope ends.

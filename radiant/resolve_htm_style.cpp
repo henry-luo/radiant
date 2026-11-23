@@ -191,8 +191,8 @@ static void apply_html_align_attribute(LayoutContext* lycon, DomNode* element,
     BlockProp* prop = block->ensure_block(lycon);
     prop->text_align = value;
     if (legacy_block_alignment && value != CSS_VALUE_JUSTIFY) {
-        prop->legacy_block_align = value;
-        prop->legacy_align_center_blocks = value == CSS_VALUE_CENTER;
+        prop->set_ext(layout_prop_pool(lycon), &BlockPropExt::legacy_block_align, value);
+        prop->set_ext(layout_prop_pool(lycon), &BlockPropExt::legacy_align_center_blocks, value == CSS_VALUE_CENTER);
     }
 }
 
@@ -952,6 +952,8 @@ MediaViewState* radiant_media_prepare(DomElement* element) {
     DomDocument* doc = element ? element->doc : nullptr;
     if (!doc || !doc->url || doc->services.svg_image_document ||
             (element->tag() != MARKUP_NAME_VIDEO && element->tag() != MARKUP_NAME_AUDIO)) return nullptr;
+    // DOM media commands can precede the first layout that normally creates document state.
+    if (!doc->state && !state_store_create(doc)) return nullptr;
     MediaViewState* retained = media_view_state_get(doc->state, static_cast<View*>(element), true);
     if (!retained) return nullptr;
     if (!retained->properties_initialized) {
@@ -1233,14 +1235,14 @@ static void apply_html_table_cell_defaults(LayoutContext* lycon, DomNode* cell_n
         size_t align_len = strlen(align_attr);
         if (str_ieq_const(align_attr, align_len, "left")) {
             block_prop->text_align = CSS_VALUE_LEFT;
-            block_prop->legacy_block_align = CSS_VALUE_LEFT;
+            block_prop->set_ext(layout_prop_pool(lycon), &BlockPropExt::legacy_block_align, CSS_VALUE_LEFT);
         } else if (str_ieq_const(align_attr, align_len, "right")) {
             block_prop->text_align = CSS_VALUE_RIGHT;
-            block_prop->legacy_block_align = CSS_VALUE_RIGHT;
+            block_prop->set_ext(layout_prop_pool(lycon), &BlockPropExt::legacy_block_align, CSS_VALUE_RIGHT);
         } else if (str_ieq_const(align_attr, align_len, "center")) {
             block_prop->text_align = CSS_VALUE_CENTER;
-            block_prop->legacy_align_center_blocks = true;
-            block_prop->legacy_block_align = CSS_VALUE_CENTER;
+            block_prop->set_ext(layout_prop_pool(lycon), &BlockPropExt::legacy_align_center_blocks, true);
+            block_prop->set_ext(layout_prop_pool(lycon), &BlockPropExt::legacy_block_align, CSS_VALUE_CENTER);
         }
     }
 
@@ -1536,13 +1538,13 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         }
         CssEnum marker = layout_html_ua_list_marker(
             elmt_name, html_ua_list_ancestors(elmt->as_element()).unordered);
-        block->ensure_block_extras(lycon)->list_style_type = layout_specified_keyword(
+        ensure_block_list(block, lycon)->list_style_type = layout_specified_keyword(
             elmt->as_element(), CSS_PROPERTY_LIST_STYLE_TYPE, marker);
         break;
     }
     case MARKUP_NAME_LI: {
         CssEnum marker = layout_specified_keyword(elmt->as_element(), CSS_PROPERTY_LIST_STYLE_TYPE);
-        if (marker != CSS_VALUE__UNDEF) block->ensure_block_extras(lycon)->list_style_type = marker;
+        if (marker != CSS_VALUE__UNDEF) ensure_block_list(block, lycon)->list_style_type = marker;
         break;
     }
     case MARKUP_NAME_CENTER:
@@ -1730,7 +1732,7 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         // UA default: list-style: inside disclosure-closed/-open.
         // summary elements use inside marker position (disclosure triangle before text)
         block->ensure_block(lycon);
-        block->ensure_block_extras(lycon)->list_style_position = (CssEnum)1;  // 1 = inside
+        ensure_block_list(block, lycon)->list_style_position = (CssEnum)1;  // 1 = inside
         // The marker direction is the parent details' `open` attribute, which
         // is the entire open/close state (HTML 4.11.1 defines no separate
         // internal openness). Pinning it to `closed` left the triangle facing
@@ -1742,7 +1744,7 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         bool details_open = summary_details &&
             summary_details->tag() == MARKUP_NAME_DETAILS &&
             summary_details->has_attribute(MARKUP_NAME_OPEN);
-        block->ensure_block_extras(lycon)->list_style_type = details_open
+        ensure_block_list(block, lycon)->list_style_type = details_open
             ? CSS_VALUE_DISCLOSURE_OPEN : CSS_VALUE_DISCLOSURE_CLOSED;
         break;
     }
@@ -1832,8 +1834,8 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         // descendants as well as inline content; preserve that semantic here.
         block->ensure_block(lycon);
         block->blk->text_align = ua.text_align;
-        block->blk->legacy_align_center_blocks = true;
-        block->blk->legacy_block_align = CSS_VALUE_CENTER;
+        block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::legacy_align_center_blocks, true);
+        block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::legacy_block_align, CSS_VALUE_CENTER);
         break;
     // ========== Form elements ==========
     case MARKUP_NAME_FIELDSET: {

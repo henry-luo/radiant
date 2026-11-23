@@ -3,6 +3,7 @@
 #include "lib/arraylist.hpp"
 #include <stddef.h>
 struct DomElement;
+struct DomNodeRef;
 struct Scene3dAnimationState;
 struct Scene3dRuntime;
 struct Scene3dPhysics;
@@ -35,6 +36,7 @@ uint64_t scene3d_animation_generation(Scene3dAnimationState* state);
 // a template re-render rebuilt the scene's DOM: retarget playback to the corresponding nodes
 void scene3d_animation_follow_rebuild(Scene3dAnimationState* state, struct DomNode* old_root, struct DomNode* new_root);
 // feature presence is stable even before a declared track starts playing.
+bool scene3d_animation_targets(Scene3dAnimationState* state, DomNodeRef node);
 bool scene3d_animation_bound(Scene3dAnimationState* state, DomElement* node, const char* property);
 bool scene3d_animation_value(Scene3dAnimationState* state, DomElement* node, const char* property,
                              AnimationValue* value);

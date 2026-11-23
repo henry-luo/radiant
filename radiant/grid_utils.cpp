@@ -467,6 +467,16 @@ static float grid_item_column_span_size(GridContainerLayout* grid, GridItemProp*
 }
 
 // grid tracks select the physical query axis; cached width/height slots are columns/rows.
+bool grid_item_has_independent_preferred_size(LayoutContext* lycon, ViewBlock* item, bool horizontal) {
+    if (!layout_axis_has_given_size(item, horizontal) ||
+        layout_axis_size_is_percentage(item, horizontal)) return false;
+    // substituted lengths can retain a percentage dependency after provisional resolution.
+    DomElement* element = item->as_element();
+    LayoutCssSizeFacts facts = layout_css_size_facts(lycon, element,
+        layout_specified_physical_size_declaration(element, horizontal));
+    return !facts.automatic && !facts.percentage;
+}
+
 IntrinsicSizes calculate_grid_item_intrinsic_sizes(LayoutContext* lycon, ViewBlock* item, bool is_row_axis) {
     IntrinsicSizes sizes = {};
     if (!item) return sizes;
@@ -493,12 +503,7 @@ IntrinsicSizes calculate_grid_item_intrinsic_sizes(LayoutContext* lycon, ViewBlo
 
     // intrinsic column contributions depend on the unsolved grid area, not the whole grid.
     LayoutContainingBlockScope track_scope(lycon, axis, -1.0f, !is_row_axis);
-    // math and substituted values retain percentage dependencies after provisional pixel resolution.
-    bool percentage_size = layout_axis_size_is_percentage(item, horizontal) ||
-        layout_css_size_facts(lycon, item->as_element(),
-            layout_specified_physical_size_declaration(item->as_element(), horizontal)).percentage;
-    bool explicit_size = layout_axis_has_given_size(item, horizontal) &&
-        !percentage_size && !layout_css_size_is_automatic(item, horizontal);
+    bool explicit_size = grid_item_has_independent_preferred_size(lycon, item, horizontal);
     bool intrinsic_constraint = layout_intrinsic_min_size_keyword(item, horizontal) != CSS_VALUE__UNDEF ||
         layout_intrinsic_max_size_keyword(item, horizontal) != CSS_VALUE__UNDEF;
     if (explicit_size && !intrinsic_constraint) {

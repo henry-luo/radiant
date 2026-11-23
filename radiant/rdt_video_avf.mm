@@ -847,6 +847,8 @@ int rdt_video_get_frame(RdtVideo* video, RdtVideoFrame* frame) {
             return -1;
         }
 
+        // each decoded frame replaces reused storage, including fully transparent pixels.
+        CGContextSetBlendMode(context, kCGBlendModeCopy);
         CGContextDrawImage(context, CGRectMake(0, 0, out_w, out_h), image);
         CGContextRelease(context);
         CGImageRelease(image);

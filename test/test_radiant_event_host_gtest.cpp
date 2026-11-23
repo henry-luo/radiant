@@ -33,6 +33,7 @@ static bool collect_dom(UiContext*, DomDocument*) { return true; }
 static bool editing_animation_active(DocState*) { return true; }
 static bool editing_animation_tick(UiContext*, double) { return true; }
 static bool input_capabilities(UiContext*, const CssInputCapabilities*) { return true; }
+static void change_focus(DomDocument* document, DomElement*) { observed_document = document; }
 
 TEST(RadiantEventHostTest, DeliversBorrowedEventsOnlyToRegisteredController) {
     int marker = 0;
@@ -40,12 +41,17 @@ TEST(RadiantEventHostTest, DeliversBorrowedEventsOnlyToRegisteredController) {
     auto* document = reinterpret_cast<DomDocument*>(&marker);
     auto* event = reinterpret_cast<RdtEvent*>(&marker);
     EXPECT_FALSE(radiant_event_host_dispatch(ui, document, event));
+    EXPECT_FALSE(radiant_event_host_change_focus(document, nullptr));
     float x = 1, y = 1, width = 1, height = 1;
     EXPECT_FALSE(radiant_event_host_focused_caret_rect(ui, &x, &y, &width, &height));
     EXPECT_FLOAT_EQ(x + y + width + height, 0.0f);
-    static const RadiantEventHostOps incomplete = {nullptr, focusable, sync_pseudo_state, sync_focus_style, composition, focused_caret_rect, initialize_behavior, autofocus, window_event, body_load, content_visibility, css_event, svg_time_event, scene_animation, scene_state, allow_frame_reflow, frame_tick, pending_frames, focus_element, collect_dom, editing_animation_active, editing_animation_tick, input_capabilities};
-    static const RadiantEventHostOps host = {dispatch, focusable, sync_pseudo_state, sync_focus_style, composition, focused_caret_rect, initialize_behavior, autofocus, window_event, body_load, content_visibility, css_event, svg_time_event, scene_animation, scene_state, allow_frame_reflow, frame_tick, pending_frames, focus_element, collect_dom, editing_animation_active, editing_animation_tick, input_capabilities};
-    static const RadiantEventHostOps conflict = {dispatch, focusable, sync_pseudo_state, sync_focus_style, composition, focused_caret_rect, initialize_behavior, autofocus, window_event, body_load, content_visibility, css_event, svg_time_event, scene_animation, scene_state, allow_frame_reflow, frame_tick, pending_frames, focus_element, collect_dom, editing_animation_active, editing_animation_tick, input_capabilities};
+    static const RadiantEventHostOps host = {dispatch, focusable, sync_pseudo_state, sync_focus_style, composition, focused_caret_rect, initialize_behavior, autofocus, window_event, body_load, content_visibility, css_event, svg_time_event, scene_animation, scene_state, allow_frame_reflow, frame_tick, pending_frames, focus_element, collect_dom, editing_animation_active, editing_animation_tick, input_capabilities, change_focus};
+    static const RadiantEventHostOps incomplete = [] {
+        RadiantEventHostOps operations = host;
+        operations.change_focus = nullptr;
+        return operations;
+    }();
+    static const RadiantEventHostOps conflict = host;
     ASSERT_TRUE(expect_native_provider_registration(radiant_event_host_register,
                                                      &incomplete, &host, &conflict));
     EXPECT_FALSE(radiant_event_host_dispatch(ui, document, nullptr));
@@ -57,4 +63,7 @@ TEST(RadiantEventHostTest, DeliversBorrowedEventsOnlyToRegisteredController) {
     EXPECT_EQ(observed_ui, ui);
     EXPECT_EQ(observed_document, document);
     EXPECT_EQ(observed_event, event);
+    observed_document = nullptr;
+    EXPECT_TRUE(radiant_event_host_change_focus(document, nullptr));
+    EXPECT_EQ(observed_document, document);
 }

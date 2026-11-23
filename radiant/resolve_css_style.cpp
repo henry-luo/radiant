@@ -4834,13 +4834,13 @@ static bool preserve_html_ua_font_size(LayoutContext* lycon, DomElement* element
     return false;
 }
 
-static void copy_computed_text_indent(BlockProp* target, const BlockProp* source) {
+static void copy_computed_text_indent(LayoutContext* lycon, BlockProp* target, const BlockProp* source) {
     if (!target || !source) return;
-    target->text_indent = source->text_indent;
-    target->text_indent_percent = source->text_indent_percent;
-    target->text_indent_calc = source->text_indent_calc;
-    target->text_indent_hanging = source->text_indent_hanging;
-    target->text_indent_each_line = source->text_indent_each_line;
+    target->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent, source->rare().text_indent);
+    target->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_percent, source->rare().text_indent_percent);
+    target->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_calc, source->rare().text_indent_calc);
+    target->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_hanging, source->rare().text_indent_hanging);
+    target->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_each_line, source->rare().text_indent_each_line);
 }
 
 static CssDeclaration* text_align_own_declaration(StyleTree* style,
@@ -5545,15 +5545,15 @@ static void resolve_css_inherited_properties(DomElement* dom_elem,
             if (prop_id == CSS_PROPERTY_TAB_SIZE && parent) {
                 // tab-size lengths inherit as computed px even if a parent used em.
                 inheritance_span->ensure_block(lycon);
-                inheritance_span->blk->tab_size = parent->block()->tab_size;
-                inheritance_span->blk->tab_size_length = parent->block()->tab_size_length;
+                inheritance_span->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::tab_size, parent->block()->rare().tab_size);
+                inheritance_span->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::tab_size_length, parent->block()->rare().tab_size_length);
                 continue;
             }
             if (prop_id == CSS_PROPERTY_TEXT_INDENT && parent) {
                 // An inherited em indent keeps the parent's computed length;
                 // percentage indents keep their percentage reference.
                 inheritance_span->ensure_block(lycon);
-                copy_computed_text_indent(inheritance_span->blk, parent->block());
+                copy_computed_text_indent(lycon, inheritance_span->blk, parent->block());
                 continue;
             }
             if (prop_id == CSS_PROPERTY_WHITE_SPACE) {
@@ -5802,7 +5802,7 @@ void resolve_css_styles(DomElement* dom_elem, LayoutContext* lycon) {
     assert(dom_elem);
     RubyBidiStyleFixup ruby_bidi = {dom_elem, lycon};
     if (dom_elem->blk) {
-        if (BlockContainmentProp* containment = dom_elem->blk->containment_props) {
+        if (BlockContainmentProp* containment = dom_elem->blk->rare().containment_props) {
             css_value_destroy_owned(containment->container_names, layout_prop_pool(lycon));
             *containment = BLOCK_CONTAINMENT_DEFAULT;
         }
@@ -5977,7 +5977,7 @@ void resolve_css_styles(DomElement* dom_elem, LayoutContext* lycon) {
     if (dom_elem->blk) {
         // visibility containment persists while auto contents are relevant; skipping adds size containment.
         bool visibility_applies = view_size_containment_applies(dom_elem->display);
-        if (BlockContainmentProp* containment = dom_elem->blk->containment_props) {
+        if (BlockContainmentProp* containment = dom_elem->blk->rare().containment_props) {
             if (!visibility_applies) containment->content_visibility_skipped = false;
             if (visibility_applies && containment->content_visibility != CSS_VALUE_VISIBLE) {
                 containment->contain_positioning = true;
@@ -6319,25 +6319,25 @@ static void css_apply_list_style_keyword(LayoutContext* lycon, ViewSpan* span,
     const CssEnumInfo* info = css_enum_info(keyword);
     if (info && info->name &&
         (strcmp(info->name, "inside") == 0 || strcmp(info->name, "outside") == 0)) {
-        span->ensure_block_extras(lycon)->list_style_position = keyword;
+        ensure_block_list(span, lycon)->list_style_position = keyword;
         return;
     }
     if (keyword >= CSS_VALUE_DISC && keyword <= 0x0190) {
-        span->ensure_block_extras(lycon)->list_style_type = keyword;
+        ensure_block_list(span, lycon)->list_style_type = keyword;
         return;
     }
     if (keyword != CSS_VALUE_NONE) {
         return;
     }
-    bool type_already_set = list_member && span->block()->extras().list_style_type != 0 &&
-        span->block()->extras().list_style_type != CSS_VALUE_NONE;
+    bool type_already_set = list_member && span->block()->list().list_style_type != 0 &&
+        span->block()->list().list_style_type != CSS_VALUE_NONE;
     if (!type_already_set) {
-        span->ensure_block_extras(lycon)->list_style_type = CSS_VALUE_NONE;
+        ensure_block_list(span, lycon)->list_style_type = CSS_VALUE_NONE;
     }
     if (!list_member || type_already_set) {
-        span->ensure_block_extras(lycon)->list_style_image = {};
-        span->ensure_block_extras(lycon)->list_style_image.url = lam::shared((char*)alloc_prop(lycon, 5));
-        str_copy(span->block()->extras().list_style_image.url, 5, "none", 4);
+        ensure_block_list(span, lycon)->list_style_image = {};
+        ensure_block_list(span, lycon)->list_style_image.url = lam::shared((char*)alloc_prop(lycon, 5));
+        str_copy(span->block()->list().list_style_image.url, 5, "none", 4);
     }
 }
 
@@ -6353,17 +6353,17 @@ static void css_store_list_style_type_string(LayoutContext* lycon, ViewSpan* spa
                                              const char* marker) {
     if (!marker) return;
     size_t length = strlen(marker);
-    span->ensure_block_extras(lycon)->list_style_type_string = lam::own((char*)alloc_prop(lycon, length + 1));
-    str_copy(span->block()->extras().list_style_type_string, length + 1, marker, length);
-    span->ensure_block_extras(lycon)->list_style_type = CSS_VALUE_NONE;
+    ensure_block_list(span, lycon)->list_style_type_string = lam::own((char*)alloc_prop(lycon, length + 1));
+    str_copy(span->block()->list().list_style_type_string, length + 1, marker, length);
+    ensure_block_list(span, lycon)->list_style_type = CSS_VALUE_NONE;
 }
 
 static void css_store_hyphenate_character(LayoutContext* lycon, ViewSpan* span,
                                           const char* character) {
     if (!lycon || !span || !character) return;
     size_t length = strlen(character);
-    span->blk->hyphenate_character = lam::shared((char*)alloc_prop(lycon, length + 1));
-    str_copy(span->blk->hyphenate_character, length + 1, character, length);
+    span->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::hyphenate_character, lam::shared((char*)alloc_prop(lycon, length + 1)));
+    str_copy(span->blk->rare().hyphenate_character, length + 1, character, length);
 }
 
 const CssValue* layout_list_style_longhand(const CssValue* value, CssPropertyCode property, Pool* pool) {
@@ -6412,23 +6412,23 @@ static bool css_store_list_style_image(LayoutContext* lycon, ViewSpan* span,
     if (!layout_select_css_image(value, layout_image_device_scale(lycon), &choice)) {
         if (!css_value_is_image_set(value)) return false;
         // a valid set with no supported candidate has no marker image.
-        span->ensure_block_extras(lycon)->list_style_image = {};
-        span->ensure_block_extras(lycon)->list_style_image.url = lam::shared((char*)view_tree_canonical_string(
+        ensure_block_list(span, lycon)->list_style_image = {};
+        ensure_block_list(span, lycon)->list_style_image.url = lam::shared((char*)view_tree_canonical_string(
             layout_context_view_tree(lycon), "none", 4));
         return true;
     }
     value = choice.image;
     const char* url = choice.url;
     if (url) {
-        span->ensure_block_extras(lycon)->list_style_image = {};
-        span->ensure_block_extras(lycon)->list_style_image.url = lam::shared(resolve_css_resource_url(lycon, decl, url, true));
-        span->ensure_block_extras(lycon)->list_style_image.resolution = choice.resolution;
+        ensure_block_list(span, lycon)->list_style_image = {};
+        ensure_block_list(span, lycon)->list_style_image.url = lam::shared(resolve_css_resource_url(lycon, decl, url, true));
+        ensure_block_list(span, lycon)->list_style_image.resolution = choice.resolution;
         return true;
     }
 
     ListStyleImage image = {};
     if (!layout_resolve_gradient_image(lycon, value, &image)) return false;
-    span->ensure_block_extras(lycon)->list_style_image = image;
+    ensure_block_list(span, lycon)->list_style_image = image;
     return true;
 }
 
@@ -6442,7 +6442,7 @@ static void css_apply_list_style_component(LayoutContext* lycon, ViewSpan* span,
     } else if (value->type == CSS_VALUE_TYPE_CUSTOM && value->data.custom_property.name) {
         CssEnum position;
         if (css_list_style_custom_position(value->data.custom_property.name, &position)) {
-            span->ensure_block_extras(lycon)->list_style_position = position;
+            ensure_block_list(span, lycon)->list_style_position = position;
         }
     } else if (value->type == CSS_VALUE_TYPE_URL || value->type == CSS_VALUE_TYPE_FUNCTION) {
         css_store_list_style_image(lycon, span, decl, value);
@@ -6564,18 +6564,18 @@ void resolve_css_axis_size(LayoutContext* lycon, ViewBlock* block,
     // width and height are non-inherited; initial/unset compute to auto.
     *refs.given_type = initial_auto ? CSS_VALUE_AUTO : fit_limit ? CSS_VALUE_FIT_CONTENT
         : value->type == CSS_VALUE_TYPE_KEYWORD ? value->data.keyword : CSS_VALUE__UNDEF;
-    float* fit_size = refs.given_fit_content_limit;
-    float* fit_percent = refs.given_fit_content_percent;
-    *fit_size = -1.0f;
-    *fit_percent = NAN;
+    float fit_size = -1.0f;
+    float fit_percent = NAN;
     if (fit_limit) {
         if (fit_limit->type == CSS_VALUE_TYPE_PERCENTAGE) {
-            *fit_percent = fit_limit->data.percentage.value;
+            fit_percent = fit_limit->data.percentage.value;
         } else {
             float resolved = resolve_length_value(lycon, axis_property, fit_limit);
-            if (!isnan(resolved)) *fit_size = max(resolved, 0.0f);
+            if (!isnan(resolved)) fit_size = max(resolved, 0.0f);
         }
     }
+    set_block_fit_content(block->block_mut(), layout_prop_pool(lycon),
+                          axis == LAYOUT_AXIS_X, fit_size, fit_percent);
     *refs.given_percent = value->type == CSS_VALUE_TYPE_PERCENTAGE
         ? value->data.percentage.value : NAN;
 }
@@ -7246,6 +7246,7 @@ struct CssSimpleKeywordSpec {
     CssSimpleKeywordTarget target;
     CssSimpleKeywordRule rule;
     size_t offset;
+    CssEnum BlockPropExt::*extension = nullptr;
 };
 
 static const CssSimpleKeywordSpec* css_simple_keyword_spec(CssPropertyCode property) {
@@ -7263,9 +7264,9 @@ static const CssSimpleKeywordSpec* css_simple_keyword_spec(CssPropertyCode prope
         {CSS_PROPERTY_TEXT_ALIGN_LAST, CSS_SIMPLE_KEYWORD_BLOCK,
          CSS_SIMPLE_KEYWORD_NO_INHERIT, offsetof(BlockProp, text_align_last)},
         {CSS_PROPERTY_BASELINE_SOURCE, CSS_SIMPLE_KEYWORD_BLOCK,
-         CSS_SIMPLE_KEYWORD_BASELINE_SOURCE, offsetof(BlockProp, baseline_source)},
+         CSS_SIMPLE_KEYWORD_BASELINE_SOURCE, 0, &BlockPropExt::baseline_source},
         {CSS_PROPERTY_DOMINANT_BASELINE, CSS_SIMPLE_KEYWORD_BLOCK,
-         CSS_SIMPLE_KEYWORD_ANY, offsetof(BlockProp, dominant_baseline)},
+         CSS_SIMPLE_KEYWORD_ANY, 0, &BlockPropExt::dominant_baseline},
         {CSS_PROPERTY_MIX_BLEND_MODE, CSS_SIMPLE_KEYWORD_INLINE,
          CSS_SIMPLE_KEYWORD_POSITIVE, offsetof(InlineProp, mix_blend_mode)},
         {CSS_PROPERTY_ISOLATION, CSS_SIMPLE_KEYWORD_INLINE,
@@ -7276,23 +7277,23 @@ static const CssSimpleKeywordSpec* css_simple_keyword_spec(CssPropertyCode prope
         {CSS_PROPERTY_DIRECTION, CSS_SIMPLE_KEYWORD_BLOCK,
          CSS_SIMPLE_KEYWORD_POSITIVE, offsetof(BlockProp, direction)},
         {CSS_PROPERTY_TEXT_WRAP_STYLE, CSS_SIMPLE_KEYWORD_BLOCK,
-         CSS_SIMPLE_KEYWORD_POSITIVE, offsetof(BlockProp, text_wrap_style)},
+         CSS_SIMPLE_KEYWORD_POSITIVE, 0, &BlockPropExt::text_wrap_style},
         {CSS_PROPERTY_TEXT_OVERFLOW, CSS_SIMPLE_KEYWORD_BLOCK,
-         CSS_SIMPLE_KEYWORD_POSITIVE, offsetof(BlockProp, text_overflow)},
+         CSS_SIMPLE_KEYWORD_POSITIVE, 0, &BlockPropExt::text_overflow},
         {CSS_PROPERTY_WORD_BREAK, CSS_SIMPLE_KEYWORD_BLOCK,
-         CSS_SIMPLE_KEYWORD_POSITIVE, offsetof(BlockProp, word_break)},
+         CSS_SIMPLE_KEYWORD_POSITIVE, 0, &BlockPropExt::word_break},
         {CSS_PROPERTY_LINE_BREAK, CSS_SIMPLE_KEYWORD_BLOCK,
-         CSS_SIMPLE_KEYWORD_POSITIVE, offsetof(BlockProp, line_break)},
+         CSS_SIMPLE_KEYWORD_POSITIVE, 0, &BlockPropExt::line_break},
         {CSS_PROPERTY_WORD_WRAP, CSS_SIMPLE_KEYWORD_BLOCK,
-         CSS_SIMPLE_KEYWORD_POSITIVE, offsetof(BlockProp, overflow_wrap)},
+         CSS_SIMPLE_KEYWORD_POSITIVE, 0, &BlockPropExt::overflow_wrap},
         {CSS_PROPERTY_OVERFLOW_WRAP, CSS_SIMPLE_KEYWORD_BLOCK,
-         CSS_SIMPLE_KEYWORD_POSITIVE, offsetof(BlockProp, overflow_wrap)},
+         CSS_SIMPLE_KEYWORD_POSITIVE, 0, &BlockPropExt::overflow_wrap},
         {CSS_PROPERTY_HYPHENS, CSS_SIMPLE_KEYWORD_BLOCK,
-         CSS_SIMPLE_KEYWORD_POSITIVE, offsetof(BlockProp, hyphens)},
+         CSS_SIMPLE_KEYWORD_POSITIVE, 0, &BlockPropExt::hyphens},
         {CSS_PROPERTY_WHITE_SPACE, CSS_SIMPLE_KEYWORD_BLOCK,
          CSS_SIMPLE_KEYWORD_POSITIVE, offsetof(BlockProp, white_space)},
         {CSS_PROPERTY_TEXT_SPACING_TRIM, CSS_SIMPLE_KEYWORD_BLOCK,
-         CSS_SIMPLE_KEYWORD_POSITIVE, offsetof(BlockProp, text_spacing_trim)},
+         CSS_SIMPLE_KEYWORD_POSITIVE, 0, &BlockPropExt::text_spacing_trim},
     };
     for (const CssSimpleKeywordSpec& spec : specs) {
         if (spec.property == property) return &spec;
@@ -7363,7 +7364,9 @@ static void resolve_simple_keyword_property(LayoutContext* lycon, ViewSpan* span
         } else {
             source = parent ? (const void*)parent->inl() : (const void*)&INLINE_PROP_DEFAULT;
         }
-        keyword = *(const CssEnum*)((const char*)source + spec->offset);
+        keyword = spec->extension
+            ? ((const BlockProp*)source)->rare().*spec->extension
+            : *(const CssEnum*)((const char*)source + spec->offset);
         if (keyword == CSS_VALUE__UNDEF) {
             // lazy property slots can omit the initial keyword; a CSS-wide reset still computes it.
             const CssProperty* metadata = css_property_get_by_code(property);
@@ -7371,7 +7374,11 @@ static void resolve_simple_keyword_property(LayoutContext* lycon, ViewSpan* span
                 keyword = css_enum_by_name(metadata->initial_value);
         }
     }
-    *(CssEnum*)((char*)target + spec->offset) = keyword;
+    if (spec->extension) {
+        ((BlockProp*)target)->set_ext(layout_prop_pool(lycon), spec->extension, keyword);
+    } else {
+        *(CssEnum*)((char*)target + spec->offset) = keyword;
+    }
 }
 
 struct CursorResolveContext {
@@ -7801,28 +7808,28 @@ static void resolve_list_style_longhand(LayoutContext* lycon, ViewSpan* span,
     span->ensure_block(lycon);
     if (property == CSS_PROPERTY_LIST_STYLE_TYPE) {
         if (value->type == CSS_VALUE_TYPE_KEYWORD) {
-            span->ensure_block_extras(lycon)->list_style_type = value->data.keyword;
-            span->ensure_block_extras(lycon)->list_style_type_string = nullptr;
+            ensure_block_list(span, lycon)->list_style_type = value->data.keyword;
+            ensure_block_list(span, lycon)->list_style_type_string = nullptr;
         } else if (value->type == CSS_VALUE_TYPE_STRING) {
             css_store_list_style_type_string(lycon, span, value->data.string);
         }
     } else if (property == CSS_PROPERTY_LIST_STYLE_POSITION) {
         if (value->type == CSS_VALUE_TYPE_KEYWORD) {
-            span->ensure_block_extras(lycon)->list_style_position = value->data.keyword;
+            ensure_block_list(span, lycon)->list_style_position = value->data.keyword;
         } else if (value->type == CSS_VALUE_TYPE_CUSTOM &&
                    value->data.custom_property.name) {
             CssEnum position;
             if (css_list_style_custom_position(
                     value->data.custom_property.name, &position)) {
-                span->ensure_block_extras(lycon)->list_style_position = position;
+                ensure_block_list(span, lycon)->list_style_position = position;
             }
         }
     } else if (!css_store_list_style_image(lycon, span, decl, value) &&
                value->type == CSS_VALUE_TYPE_KEYWORD &&
                value->data.keyword == CSS_VALUE_NONE) {
-        span->ensure_block_extras(lycon)->list_style_image = {};
-        span->ensure_block_extras(lycon)->list_style_image.url = lam::shared((char*)alloc_prop(lycon, 5));
-        str_copy(span->block()->extras().list_style_image.url, 5, "none", 4);
+        ensure_block_list(span, lycon)->list_style_image = {};
+        ensure_block_list(span, lycon)->list_style_image.url = lam::shared((char*)alloc_prop(lycon, 5));
+        str_copy(span->block()->list().list_style_image.url, 5, "none", 4);
     }
 }
 
@@ -7916,7 +7923,7 @@ static void resolve_line_count_property(LayoutContext* lycon, ViewSpan* block,
                                         const CssValue* value) {
     if (!block) return;
     block->ensure_block(lycon);
-    block->blk->line_clamp = 0;
+    block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::line_clamp, 0);
     if (value->type == CSS_VALUE_TYPE_KEYWORD) {
         if (value->data.keyword != CSS_VALUE_INHERIT) return;
         DomElement* parent = dom_parent_element(lam::dom_require_element(lycon->view));
@@ -7927,7 +7934,7 @@ static void resolve_line_count_property(LayoutContext* lycon, ViewSpan* block,
     }
     double count;
     if (layout_compute_css_integer(lycon, CSS_PROPERTY_LINE_CLAMP, value, 1.0, (double)INT_MAX, &count))
-        block->blk->line_clamp = static_cast<int>(count); // INT_CAST_OK: finite positive line count bounded by INT_MAX.
+        block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::line_clamp, static_cast<int>(count)); // INT_CAST_OK: finite positive line count bounded by INT_MAX.
 }
 
 static bool resolve_background_size(LayoutContext* context, BackgroundGeometry* background,
@@ -8364,7 +8371,7 @@ static CssEnum css_text_box_edge_keyword(const CssValue* value) {
         ? value->data.keyword : CSS_VALUE_TEXT;
 }
 
-static void resolve_text_box_property(ViewBlock* block, const CssValue* value,
+static void resolve_text_box_property(LayoutContext* lycon, ViewBlock* block, const CssValue* value,
                                       bool shorthand) {
     if (!block || !value) return;
     if (!block->blk) return;
@@ -8372,7 +8379,7 @@ static void resolve_text_box_property(ViewBlock* block, const CssValue* value,
         if (value->type == CSS_VALUE_TYPE_KEYWORD) {
             uint8_t trim = 0;
             if (css_text_box_trim_value(value->data.keyword, &trim)) {
-                block->blk->text_box_trim = trim;
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_box_trim, trim);
             }
         }
         return;
@@ -8405,25 +8412,25 @@ static void resolve_text_box_property(ViewBlock* block, const CssValue* value,
             under_edge = item_under;
         }
     }
-    if (has_trim) block->blk->text_box_trim = trim;
+    if (has_trim) block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_box_trim, trim);
     if (has_edge) {
-        block->blk->text_box_over_edge = over_edge;
-        block->blk->text_box_under_edge = under_edge;
+        block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_box_over_edge, over_edge);
+        block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_box_under_edge, under_edge);
     }
 }
 
-static void resolve_text_box_edge_property(ViewBlock* block, const CssValue* value) {
+static void resolve_text_box_edge_property(LayoutContext* lycon, ViewBlock* block, const CssValue* value) {
     if (!block || !value || !block->blk) return;
     if (value->type == CSS_VALUE_TYPE_KEYWORD) {
         CssEnum over = CSS_VALUE_TEXT;
         CssEnum under = CSS_VALUE_TEXT;
         if (css_text_box_edge_value(value->data.keyword, &over, &under)) {
-            block->blk->text_box_over_edge = over;
-            block->blk->text_box_under_edge = under;
+            block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_box_over_edge, over);
+            block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_box_under_edge, under);
         }
     } else if (value->type == CSS_VALUE_TYPE_LIST && value->data.list.count >= 2) {
-        block->blk->text_box_over_edge = css_text_box_edge_keyword(value->data.list.values[0]);
-        block->blk->text_box_under_edge = css_text_box_edge_keyword(value->data.list.values[1]);
+        block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_box_over_edge, css_text_box_edge_keyword(value->data.list.values[0]));
+        block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_box_under_edge, css_text_box_edge_keyword(value->data.list.values[1]));
     }
 }
 
@@ -8476,20 +8483,22 @@ static void resolve_text_wrap_property(LayoutContext* lycon, ViewSpan* span,
         if (value->type != CSS_VALUE_TYPE_KEYWORD) return;
         CssEnum mode = value->data.keyword;
         if (mode == CSS_VALUE_INHERIT || mode == CSS_VALUE_UNSET) {
-            target->text_wrap_mode = get_text_wrap_mode_value(
-                dom_parent_element(lam::dom_require_element(lycon->view)), lycon);
+            target->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_wrap_mode, get_text_wrap_mode_value(
+                dom_parent_element(lam::dom_require_element(lycon->view)), lycon));
         } else if (mode == CSS_VALUE_INITIAL || mode == CSS_VALUE_REVERT) {
-            target->text_wrap_mode = CSS_VALUE_WRAP;
-        } else if (!resolve_text_wrap_mode_keyword(mode, &target->text_wrap_mode)) {
-            target->text_wrap_mode = (CssEnum)0;
+            target->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_wrap_mode, CSS_VALUE_WRAP);
+        } else {
+            CssEnum computed = CSS_VALUE__UNDEF;
+            resolve_text_wrap_mode_keyword(mode, &computed);
+            target->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_wrap_mode, computed);
         }
         return;
     }
     CssEnum mode = CSS_VALUE_WRAP;
     CssEnum style = CSS_VALUE_AUTO;
     if (!layout_resolve_text_wrap_value(value, &mode, &style)) return;
-    target->text_wrap_mode = mode;
-    target->text_wrap_style = style;
+    target->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_wrap_mode, mode);
+    target->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_wrap_style, style);
 }
 
 static bool parse_text_autospace_value(const CssValue* value, uint8_t* flags) {
@@ -8555,8 +8564,8 @@ static uint8_t inherited_text_autospace(ViewSpan* span) {
         ? lam::dom_require_element(span) : nullptr;
     DomElement* parent = element ? dom_parent_element(element) : nullptr;
     while (parent) {
-        if (parent->blk && parent->block()->text_autospace_is_set) {
-            return parent->block()->text_autospace;
+        if (parent->blk && parent->block()->rare().text_autospace_is_set) {
+            return parent->block()->rare().text_autospace;
         }
         parent = dom_parent_element(parent);
     }
@@ -8582,8 +8591,8 @@ static void resolve_text_autospace_property(LayoutContext* lycon,
     } else if (!parse_text_autospace_value(value, &flags)) {
         return;
     }
-    target->text_autospace = flags;
-    target->text_autospace_is_set = true;
+    target->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_autospace, flags);
+    target->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_autospace_is_set, true);
 }
 
 static LayoutShadowValue resolve_shadow_value(LayoutContext* lycon,
@@ -9143,9 +9152,8 @@ void css_apply_computed_property(CssPropertyCode prop_id,
                 // WebKit compatibility values align block descendants unless a
                 // child supplies an explicit non-normal justify-self value.
                 block->blk->text_align = webkit_legacy_align;
-                block->blk->legacy_block_align = webkit_legacy_align;
-                block->blk->legacy_align_center_blocks =
-                    webkit_legacy_align == CSS_VALUE_CENTER;
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::legacy_block_align, webkit_legacy_align);
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::legacy_align_center_blocks, webkit_legacy_align == CSS_VALUE_CENTER);
                 break;
             }
             if (value->type == CSS_VALUE_TYPE_KEYWORD) {
@@ -9236,21 +9244,21 @@ void css_apply_computed_property(CssPropertyCode prop_id,
                 float indent = resolve_length_value(lycon, CSS_PROPERTY_TEXT_INDENT, indent_value);
                 if (indent > MAX_LAYOUT_DIMENSION) indent = MAX_LAYOUT_DIMENSION;
                 else if (indent < -MAX_LAYOUT_DIMENSION) indent = -MAX_LAYOUT_DIMENSION;
-                block->blk->text_indent = indent;
-                block->blk->text_indent_percent = NAN;
-                block->blk->text_indent_calc = nullptr;
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent, indent);
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_percent, NAN);
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_calc, nullptr);
             }
             else if (indent_value && indent_value->type == CSS_VALUE_TYPE_NUMBER &&
                      indent_value->data.number.value == 0.0) {
-                block->blk->text_indent = 0.0f;
-                block->blk->text_indent_percent = NAN;
-                block->blk->text_indent_calc = nullptr;
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent, 0.0f);
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_percent, NAN);
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_calc, nullptr);
             }
             else if (indent_value && indent_value->type == CSS_VALUE_TYPE_PERCENTAGE) {
                 float percent = indent_value->data.percentage.value;
-                block->blk->text_indent = 0;
-                block->blk->text_indent_percent = percent;
-                block->blk->text_indent_calc = nullptr;
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent, 0);
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_percent, percent);
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_calc, nullptr);
             }
             else if (indent_value && indent_value->type == CSS_VALUE_TYPE_KEYWORD &&
                      (indent_value->data.keyword == CSS_VALUE_INHERIT ||
@@ -9258,26 +9266,26 @@ void css_apply_computed_property(CssPropertyCode prop_id,
                 DomElement* dom_elem = lam::dom_require_element(lycon->view);
                 DomElement* parent = dom_parent_element(dom_elem);
                 if (parent && parent->blk) {
-                    copy_computed_text_indent(block->blk, parent->block());
+                    copy_computed_text_indent(lycon, block->blk, parent->block());
                 }
             }
             else if (indent_value && indent_value->type == CSS_VALUE_TYPE_KEYWORD &&
                      (indent_value->data.keyword == CSS_VALUE_INITIAL ||
                       indent_value->data.keyword == CSS_VALUE_REVERT)) {
-                block->blk->text_indent = 0.0f;
-                block->blk->text_indent_percent = NAN;
-                block->blk->text_indent_calc = nullptr;
-                block->blk->text_indent_hanging = false;
-                block->blk->text_indent_each_line = false;
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent, 0.0f);
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_percent, NAN);
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_calc, nullptr);
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_hanging, false);
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_each_line, false);
             }
             else if (indent_value && indent_value->type == CSS_VALUE_TYPE_FUNCTION) {
-                block->blk->text_indent = 0;
-                block->blk->text_indent_percent = NAN;
-                block->blk->text_indent_calc = lam::up(indent_value);
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent, 0);
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_percent, NAN);
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_calc, lam::up(indent_value));
             }
             if (indent_value && indent_value->type != CSS_VALUE_TYPE_KEYWORD) {
-                block->blk->text_indent_hanging = hanging;
-                block->blk->text_indent_each_line = each_line;
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_hanging, hanging);
+                block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_each_line, each_line);
             }
             break;
         }
@@ -9459,13 +9467,13 @@ void css_apply_computed_property(CssPropertyCode prop_id,
         case CSS_PROPERTY_TEXT_BOX_TRIM: {
             if (!block) break;
             block->ensure_block(lycon);
-            resolve_text_box_property(block, value, prop_id == CSS_PROPERTY_TEXT_BOX);
+            resolve_text_box_property(lycon, block, value, prop_id == CSS_PROPERTY_TEXT_BOX);
             break;
         }
         case CSS_PROPERTY_TEXT_BOX_EDGE: {
             if (!block) break;
             block->ensure_block(lycon);
-            resolve_text_box_edge_property(block, value);
+            resolve_text_box_edge_property(lycon, block, value);
             break;
         }
         case CSS_PROPERTY_BACKGROUND_COLOR: {
@@ -10052,29 +10060,29 @@ void css_apply_computed_property(CssPropertyCode prop_id,
             DomElement* parent = dom_parent_element(
                 lam::dom_require_element(lycon->view));
             if (value->type == CSS_VALUE_TYPE_NUMBER && value->data.number.value >= 0.0) {
-                span->blk->tab_size = (float)value->data.number.value;
-                span->blk->tab_size_length = -1.0f;
+                span->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::tab_size, (float)value->data.number.value);
+                span->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::tab_size_length, -1.0f);
             } else if ((value->type == CSS_VALUE_TYPE_LENGTH &&
                         value->data.length.value >= 0.0) ||
                        value->type == CSS_VALUE_TYPE_FUNCTION) {
                 float length = resolve_length_value(lycon, prop_id, value);
                 if (!isnan(length) && length >= 0.0f) {
-                    span->blk->tab_size_length = length;
+                    span->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::tab_size_length, length);
                 }
             } else if (value->type == CSS_VALUE_TYPE_KEYWORD &&
                        (value->data.keyword == CSS_VALUE_INHERIT ||
                         value->data.keyword == CSS_VALUE_UNSET) && parent) {
                 // Inheritance transfers the computed length, not an em length
                 // to be recalculated against the child's font.
-                span->blk->tab_size = parent->block()->tab_size;
-                span->blk->tab_size_length = parent->block()->tab_size_length;
+                span->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::tab_size, parent->block()->rare().tab_size);
+                span->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::tab_size_length, parent->block()->rare().tab_size_length);
             } else if (value->type == CSS_VALUE_TYPE_KEYWORD &&
                        (value->data.keyword == CSS_VALUE_INITIAL ||
                         value->data.keyword == CSS_VALUE_REVERT ||
                         ((value->data.keyword == CSS_VALUE_INHERIT ||
                           value->data.keyword == CSS_VALUE_UNSET) && !parent))) {
-                span->blk->tab_size = BLOCK_PROP_DEFAULT.tab_size;
-                span->blk->tab_size_length = BLOCK_PROP_DEFAULT.tab_size_length;
+                span->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::tab_size, BLOCK_EXTRAS_DEFAULT.tab_size);
+                span->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::tab_size_length, BLOCK_EXTRAS_DEFAULT.tab_size_length);
             }
             break;
         }
@@ -10089,10 +10097,11 @@ void css_apply_computed_property(CssPropertyCode prop_id,
                 ? value->data.keyword : CSS_VALUE__UNDEF;
             if (keyword == CSS_VALUE_INHERIT || keyword == CSS_VALUE_UNSET) {
                 DomElement* parent = dom_parent_element(lam::dom_require_element(lycon->view));
-                if (parent) memcpy(limits, parent->block()->hyphenate_limits, sizeof(limits));
+                if (parent) memcpy(limits, parent->block()->rare().hyphenate_limits, sizeof(limits));
             } else if (keyword != CSS_VALUE_INITIAL && keyword != CSS_VALUE_REVERT &&
                        !layout_compute_hyphenate_limits(lycon, value, limits)) break;
-            BlockProp* rules = span->ensure_block(lycon);
+            BlockPropExt* rules = span->ensure_block_extras(lycon);
+            if (!rules) break;
             memcpy(rules->hyphenate_limits, limits, sizeof(limits));
             rules->hyphenate_limits_is_set = true;
             break;
@@ -10107,12 +10116,12 @@ void css_apply_computed_property(CssPropertyCode prop_id,
                 CssEnum keyword = resolved->data.keyword;
                 if (keyword == CSS_VALUE_AUTO || keyword == CSS_VALUE_INITIAL ||
                     keyword == CSS_VALUE_UNSET || keyword == CSS_VALUE_REVERT) {
-                    span->blk->hyphenate_character = nullptr;
+                    span->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::hyphenate_character, nullptr);
                 } else if (keyword == CSS_VALUE_INHERIT) {
                     DomElement* parent = dom_parent_element(
                         lam::dom_require<DOM_NODE_ELEMENT>(lycon->view));
-                    span->blk->hyphenate_character = parent && parent->blk
-                        ? parent->block()->hyphenate_character : nullptr;
+                    span->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::hyphenate_character, parent && parent->blk
+                        ? parent->block()->rare().hyphenate_character : nullptr);
                 }
             }
             break;
@@ -10366,15 +10375,15 @@ void css_apply_computed_property(CssPropertyCode prop_id,
                 DomElement* parent = dom_elem->parent ? dom_elem->parent->as_element() : nullptr;
                 while (parent) {
                     if (parent->blk) {
-                        if (parent->block()->extras().list_style_type) {
-                            span->ensure_block_extras(lycon)->list_style_type = parent->block()->extras().list_style_type;
+                        if (parent->block()->list().list_style_type) {
+                            ensure_block_list(span, lycon)->list_style_type = parent->block()->list().list_style_type;
                         }
-                        if (parent->block()->extras().list_style_position) {
-                            span->ensure_block_extras(lycon)->list_style_position = parent->block()->extras().list_style_position;
+                        if (parent->block()->list().list_style_position) {
+                            ensure_block_list(span, lycon)->list_style_position = parent->block()->list().list_style_position;
                         }
-                        if (parent->block()->extras().list_style_image.url ||
-                            parent->block()->extras().list_style_image.gradient_type != GRADIENT_NONE) {
-                            span->ensure_block_extras(lycon)->list_style_image = parent->block()->extras().list_style_image;
+                        if (parent->block()->list().list_style_image.url ||
+                            parent->block()->list().list_style_image.gradient_type != GRADIENT_NONE) {
+                            ensure_block_list(span, lycon)->list_style_image = parent->block()->list().list_style_image;
                         }
                         break;
                     }
@@ -10389,8 +10398,8 @@ void css_apply_computed_property(CssPropertyCode prop_id,
             } else {
                 css_apply_list_style_component(lycon, span, decl, value, false);
             }
-            if (span->block()->extras().list_style_type == 0) {
-                span->ensure_block_extras(lycon)->list_style_type = CSS_VALUE_DISC;
+            if (span->block()->list().list_style_type == 0) {
+                ensure_block_list(span, lycon)->list_style_type = CSS_VALUE_DISC;
             }
             break;
         }
@@ -10399,10 +10408,10 @@ void css_apply_computed_property(CssPropertyCode prop_id,
         case CSS_PROPERTY_COUNTER_SET: {
             span->ensure_block(lycon);
             char** target = prop_id == CSS_PROPERTY_COUNTER_RESET
-                ? &span->ensure_block_extras(lycon)->counter_reset
+                ? &ensure_block_list(span, lycon)->counter_reset
                 : prop_id == CSS_PROPERTY_COUNTER_INCREMENT
-                    ? &span->ensure_block_extras(lycon)->counter_increment
-                    : &span->ensure_block_extras(lycon)->counter_set;
+                    ? &ensure_block_list(span, lycon)->counter_increment
+                    : &ensure_block_list(span, lycon)->counter_set;
             const char* name = prop_id == CSS_PROPERTY_COUNTER_RESET ? "counter-reset"
                 : prop_id == CSS_PROPERTY_COUNTER_INCREMENT ? "counter-increment" : "counter-set";
             resolve_counter_property(lycon, value, target, name,

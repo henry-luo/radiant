@@ -11,7 +11,7 @@ bool view_is_top_level_viewport(ViewBlock* block) {
 
 static bool view_overflow_propagation_is_contained(const ViewBlock* block) {
     if (!block || !block->blk) return false;
-    const BlockContainmentProp* style = block->blk->containment_props;
+    const BlockContainmentProp* style = block->blk->rare().containment_props;
     if (!style) return false;
     return style->computed_containment || style->contain_size || style->contain_inline_size ||
         style->contain_positioning || style->contain_paint;

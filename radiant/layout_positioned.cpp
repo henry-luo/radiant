@@ -844,8 +844,8 @@ static PositionedSelfAlignment positioned_axis_self_alignment(
     if (!block || !block->blk || !containing_block) return result;
 
     bool justify = layout_axis_is_inline_for_block(containing_block, axis);
-    CssSelfAlignment alignment = justify ? block->block()->justify_self
-                                         : block->block()->align_self;
+    CssSelfAlignment alignment = justify ? block->block()->rare().justify_self
+                                         : block->block()->rare().align_self;
     result.safe = alignment.safe;
     result.overflow_explicit = alignment.overflow_explicit;
     if (alignment.value == CSS_VALUE_STRETCH) {
@@ -1703,7 +1703,7 @@ void calculate_absolute_position(LayoutContext* lycon, ViewBlock* block, ViewBlo
 
     layout_reresolve_percentage_box(block, cb_width);
     if (lycon->anchor_frame && lycon->anchor_frame->block == block)
-        layout_apply_anchor_alignment(*lycon->anchor_frame);
+        layout_apply_anchor_alignment(lycon, *lycon->anchor_frame);
     // CSS 2.1 §10.3.8: For absolutely positioned replaced elements with
     // 'width: auto', use the intrinsic width. §10.6.5: Same for height.
     if (block->display.inner == RDT_DISPLAY_REPLACED) {
@@ -2003,7 +2003,7 @@ void calculate_absolute_position(LayoutContext* lycon, ViewBlock* block, ViewBlo
         content_height = content_width / preferred_aspect_ratio;
         block->ensure_block(lycon);
         layout_store_given_axis(lycon, block, content_height, false);
-        block->blk->aspect_ratio_auto_height = block->first_child != nullptr;
+        block->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::aspect_ratio_auto_height, block->first_child != nullptr);
     } else if (is_replaced && block->form_control() &&
                block->form_storage()->intrinsic_height > 0) {
         // CSS 2.1 §10.6.5: replaced form control with auto height → use intrinsic height
@@ -2094,7 +2094,7 @@ static void layout_reflow_abs_child_content_after_height_change(
     float used_height = child->block()->given_height;
     CssEnum used_width_type = child->block()->given_width_type;
     CssEnum used_height_type = child->block()->given_height_type;
-    bool used_height_resolved_late = child->block()->percentage_height_resolved_late;
+    bool used_height_resolved_late = child->block()->rare().percentage_height_resolved_late;
     BlockContext parent_block = lycon->block;
     Linebox parent_line = lycon->line;
 
@@ -2125,7 +2125,7 @@ static void layout_reflow_abs_child_content_after_height_change(
     child->blk->given_height = used_height;
     child->blk->given_width_type = used_width_type;
     child->blk->given_height_type = used_height_type;
-    child->blk->percentage_height_resolved_late = used_height_resolved_late;
+    child->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::percentage_height_resolved_late, used_height_resolved_late);
     lycon->block.content_width = layout_content_size_from_border_box(
         child, used_border_width, true);
     lycon->block.content_height = layout_content_size_from_border_box(
@@ -2165,7 +2165,7 @@ void re_resolve_abs_children_vertical(LayoutContext* lycon,
             // This late abspos resolution is a used definite size even though
             // the declaration remains a percentage for future containing-block updates.
             child->blk->given_height_type = CSS_VALUE__UNDEF;
-            child->blk->percentage_height_resolved_late = true;
+            child->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::percentage_height_resolved_late, true);
 
             float content_height = new_given_height;
             bool is_border_box = layout_uses_border_box(child);
@@ -2558,7 +2558,7 @@ static void layout_abs_block_internal(LayoutContext* lycon, DomNode *elmt,
         !block->positionp()->has_left && !block->positionp()->has_right;
     float vertical_static_x = block->x;
     if (vertical_writing_abs && block->blk) {
-        block->blk->vertical_geometry_published = false;
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::vertical_geometry_published, false);
     }
     if (vertical_writing_abs) {
         // CSS Writing Modes: the absolute block's logical inline size is its
@@ -2792,7 +2792,7 @@ static void layout_abs_block_internal(LayoutContext* lycon, DomNode *elmt,
     // and from calculate_absolute_position for top+bottom constraints; it is not corrupted.
     float abs_block_given_height = layout_axis_has_given_size(block, false)
         ? layout_axis_given_size(block->block(), LAYOUT_AXIS_Y) : -1.0f;
-    bool ratio_auto_height = block->blk && block->block()->aspect_ratio_auto_height;
+    bool ratio_auto_height = block->blk && block->block()->rare().aspect_ratio_auto_height;
     float ratio_auto_height_floor = 0.0f;
     if (ratio_auto_height) {
         float preferred_aspect_ratio = layout_preferred_aspect_ratio(block);
@@ -2859,7 +2859,7 @@ static void layout_abs_block_internal(LayoutContext* lycon, DomNode *elmt,
             }
         }
 
-        bool has_text_box_trim = block->blk && block->block_mut()->text_box_trim;
+        bool has_text_box_trim = block->blk && block->block_mut()->rare().text_box_trim;
         if (!has_text_box_trim && max_float_bottom > block->height) {
             block->height = max_float_bottom;
         }
@@ -3237,7 +3237,7 @@ void layout_float_element(LayoutContext* lycon, ViewBlock* block,
         }
     }
     if (block->blk) {
-        block->block_mut()->initial_letter_float_clearance = initial_letter_clearance_applied;
+        block->block_mut()->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::initial_letter_float_clearance, initial_letter_clearance_applied);
     }
     // CSS 2.1 §9.5.1: Calculate containing block edges in BFC coordinates
     float containing_block_left_bfc = parent_x_in_bfc + content_offset_x;

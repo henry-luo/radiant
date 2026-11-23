@@ -3785,7 +3785,7 @@ static void parse_cell_attributes(LayoutContext* lycon, DomNode* cellNode, ViewT
         // style resolution already includes HTML UA inheritance and CSS-wide resets.
         if (cell->blk) {
             table_cell_apply_align_content(
-                cell, cell->block()->align_content_detail);
+                cell, cell->block()->rare().align_content_detail);
         }
         if (lycon->paged) paged_table_cell_alignment(lycon, cell);
         cell->td->uses_baseline_vertical_align =
@@ -3812,23 +3812,23 @@ static void inherit_anonymous_table_block_props(LayoutContext* lycon, DomElement
         anon->blk->line_height = parent->blk->line_height;
         // D5.5.1: retained fixup boxes own leading independently of the source block.
         radiant_compute_stored_line_height(lycon, anon);
-        anon->blk->text_indent = parent->blk->text_indent;
-        anon->blk->text_indent_percent = parent->blk->text_indent_percent;
-        anon->blk->text_indent_calc = parent->blk->text_indent_calc;
-        anon->blk->text_indent_hanging = parent->blk->text_indent_hanging;
-        anon->blk->text_indent_each_line = parent->blk->text_indent_each_line;
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent, parent->blk->rare().text_indent);
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_percent, parent->blk->rare().text_indent_percent);
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_calc, parent->blk->rare().text_indent_calc);
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_hanging, parent->blk->rare().text_indent_hanging);
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_indent_each_line, parent->blk->rare().text_indent_each_line);
         anon->blk->white_space = parent->blk->white_space;
-        anon->blk->word_break = parent->blk->word_break;
-        anon->blk->overflow_wrap = parent->blk->overflow_wrap;
-        anon->blk->line_break = parent->blk->line_break;
-        anon->blk->text_spacing_trim = parent->blk->text_spacing_trim;
-        anon->blk->tab_size = parent->blk->tab_size;
-        anon->blk->tab_size_length = parent->blk->tab_size_length;
-        anon->blk->text_box_trim = parent->blk->text_box_trim;
-        anon->blk->text_box_over_edge = parent->blk->text_box_over_edge;
-        anon->blk->text_box_under_edge = parent->blk->text_box_under_edge;
-        anon->blk->text_overflow = parent->blk->text_overflow;
-        anon->blk->line_clamp = parent->blk->line_clamp;
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::word_break, parent->blk->rare().word_break);
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::overflow_wrap, parent->blk->rare().overflow_wrap);
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::line_break, parent->blk->rare().line_break);
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_spacing_trim, parent->blk->rare().text_spacing_trim);
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::tab_size, parent->blk->rare().tab_size);
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::tab_size_length, parent->blk->rare().tab_size_length);
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_box_trim, parent->blk->rare().text_box_trim);
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_box_over_edge, parent->blk->rare().text_box_over_edge);
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_box_under_edge, parent->blk->rare().text_box_under_edge);
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::text_overflow, parent->blk->rare().text_overflow);
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::line_clamp, parent->blk->rare().line_clamp);
     }
     CssEnum specified_white_space = layout_specified_keyword(parent, CSS_PROPERTY_WHITE_SPACE);
     if (specified_white_space != 0) {
@@ -3844,15 +3844,15 @@ static void inherit_anonymous_table_block_props(LayoutContext* lycon, DomElement
     }
     CssEnum specified_word_break = layout_specified_keyword(parent, CSS_PROPERTY_WORD_BREAK);
     if (specified_word_break != 0) {
-        anon->blk->word_break = specified_word_break;
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::word_break, specified_word_break);
     }
     CssEnum specified_overflow_wrap = layout_specified_keyword(parent, CSS_PROPERTY_OVERFLOW_WRAP);
     if (specified_overflow_wrap != 0) {
-        anon->blk->overflow_wrap = specified_overflow_wrap;
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::overflow_wrap, specified_overflow_wrap);
     }
     CssEnum specified_line_break = layout_specified_keyword(parent, CSS_PROPERTY_LINE_BREAK);
     if (specified_line_break != 0) {
-        anon->blk->line_break = specified_line_break;
+        anon->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::line_break, specified_line_break);
     }
 }
 
@@ -5916,7 +5916,7 @@ static void table_apply_rowspan_distributed_height(LayoutContext* lycon,
 static void align_table_cell_block_child(ViewTableCell* cell, ViewBlock* child,
                                          float content_start_x, float content_width) {
     if (!cell || !child || !cell->blk || content_width <= 0.0f) return;
-    CssEnum align = cell->block()->legacy_block_align;
+    CssEnum align = cell->block()->rare().legacy_block_align;
     bool vertical_middle = layout_block_inline_axis_is_vertical(cell) && cell->td &&
         cell->td->vertical_align == TableCellProp::CELL_VALIGN_MIDDLE;
     if (align != CSS_VALUE_CENTER && align != CSS_VALUE_RIGHT && !vertical_middle) return;
@@ -6009,7 +6009,7 @@ static void layout_table_cell_content(LayoutContext* lycon, ViewBlock* cell, Vie
             table_cell_percentage_basis_height(lycon, tcell, content_height));
         content_height = max(content_height, own_inline_content);
         cell->height = content_height + border_top + border_bottom + padding_top + padding_bottom;
-        tcell->block_mut()->vertical_geometry_published = false;
+        tcell->block_mut()->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::vertical_geometry_published, false);
     }
     // CRITICAL FIX: Set line.left and advance_x to content_start_x to apply padding offset
     lycon->block.content_width = content_width;
@@ -6087,10 +6087,10 @@ static void layout_table_cell_content(LayoutContext* lycon, ViewBlock* cell, Vie
         // the first cell line needs the same paragraph direction as later lines.
         layout_setup_inline_direction(lycon, tcell);
         if (tcell->blk) {
-            if (!isnan(tcell->block()->text_indent_percent)) {
-                lycon->block.text_indent = content_width * tcell->block()->text_indent_percent / 100.0f;
+            if (!isnan(tcell->block()->rare().text_indent_percent)) {
+                lycon->block.text_indent = content_width * tcell->block()->rare().text_indent_percent / 100.0f;
             } else {
-                lycon->block.text_indent = tcell->block()->text_indent;
+                lycon->block.text_indent = tcell->block()->rare().text_indent;
             }
             if (lycon->block.text_indent != 0.0f) {
                 lycon->line.advance_x += lycon->block.text_indent;
@@ -6356,8 +6356,8 @@ static CellIntrinsicWidths measure_cell_widths(LayoutContext* lycon, ViewTableCe
     // Percentage text-indent cannot be resolved during intrinsic measurement
     // (circular dependency with table width), so only fixed lengths are used.
     float cell_text_indent = 0.0f;
-    if (cell->blk && cell->block_mut()->text_indent != 0.0f && isnan(cell->block_mut()->text_indent_percent)) {
-        cell_text_indent = cell->block()->text_indent;
+    if (cell->blk && cell->block_mut()->rare().text_indent != 0.0f && isnan(cell->block_mut()->rare().text_indent_percent)) {
+        cell_text_indent = cell->block()->rare().text_indent;
     }
     bool first_line = true;
     LayoutIntrinsicMinRun inline_min_run;
@@ -6423,10 +6423,10 @@ static CellIntrinsicWidths measure_cell_widths(LayoutContext* lycon, ViewTableCe
                 line_options.word_break = cell_word_break;
                 line_options.start_offset = inline_run_max;
                 if (cell->blk) {
-                    if (cell->block()->tab_size >= 0.0f) {
-                        line_options.tab_size = cell->block()->tab_size;
+                    if (cell->block()->rare().tab_size >= 0.0f) {
+                        line_options.tab_size = cell->block()->rare().tab_size;
                     }
-                    line_options.tab_size_length = cell->block()->tab_size_length;
+                    line_options.tab_size_length = cell->block()->rare().tab_size_length;
                 }
                 IntrinsicSizes widths = layout_measure_text_intrinsic_lines(
                     lycon, measure_text, measure_len, line_options);

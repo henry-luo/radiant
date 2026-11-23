@@ -689,35 +689,6 @@ RdtMatrix compute_transform_matrix(const TransformProp* transform,
         perspective_origin_x, perspective_origin_y);
 }
 
-bool has_transform(DomElement* elem) {
-    return elem && transform_has_functions(elem->transform_prop());
-}
-
-bool transform_preserves_3d(DomElement* elem) {
-    if (!elem || elem->transformp()->transform_style != CSS_VALUE_PRESERVE_3D) return false;
-    const ScrollProp* scroll = elem->scroll();
-    const InlineProp* inline_prop = elem->inl();
-    // grouping effects flatten descendants while preserving the authored computed keyword.
-    return (scroll->overflow_x == CSS_VALUE_VISIBLE || scroll->overflow_x == CSS_VALUE_CLIP) &&
-        (scroll->overflow_y == CSS_VALUE_VISIBLE || scroll->overflow_y == CSS_VALUE_CLIP) &&
-        !(inline_prop->opacity >= 0.0f && inline_prop->opacity < 1.0f) &&
-        (!inline_prop->mix_blend_mode || inline_prop->mix_blend_mode == CSS_VALUE_NORMAL) &&
-        !elem->filterp()->functions &&
-        !(elem->boundary()->mask && elem->boundary()->mask->radial_gradient) &&
-        !elem->block()->containment().contain_paint && !elem->block()->containment().content_visibility_skipped;
-}
-
-bool transform_establishes_containing_block(DomElement* elem) {
-    if (!elem) return false;
-    const TransformProp* transform = elem->transformp();
-    if (has_transform(elem) || transform->perspective > 0.0f ||
-        transform->transform_style == CSS_VALUE_PRESERVE_3D) return true;
-    ViewElement* parent = elem->parent_view();
-    // hidden backfaces establish a containing block when the element participates in a 3D context.
-    return transform->backface_visibility == CSS_VALUE_HIDDEN && parent &&
-        transform_preserves_3d(parent);
-}
-
 void transform_point(float& x, float& y, const RdtMatrix& m) {
     float transformed_x = x;
     float transformed_y = y;

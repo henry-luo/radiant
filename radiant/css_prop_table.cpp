@@ -196,6 +196,7 @@ static const void* prop_group_base(const DomElement* element, PropGroupKind grou
     if (!element) return nullptr;
     switch (group) {
         case PROP_GROUP_BLOCK: return element->block();
+        case PROP_GROUP_BLOCK_EXT: return &element->block()->rare();
         case PROP_GROUP_BOUNDARY: return element->boundary();
         case PROP_GROUP_FONT: return element->fontp();
         case PROP_GROUP_INLINE: return element->inl();
@@ -1812,6 +1813,10 @@ static bool serialize_used_size(const CssPropAccessor* accessor, DomElement* ele
         // Load-time scripts run after cascade but before the first ViewTree;
         // the resolved CSS size is the only valid computed value at that seam.
         if (specified >= 0.0f) value = specified;
+    } else if (element->block()->box_sizing != CSS_VALUE_BORDER_BOX) {
+        // retained geometry stores the border box; CSSOM exposes the used CSS sizing box.
+        value = layout_boundary_content_size_from_border_box(
+            element->bound ? element->boundary() : nullptr, value, accessor->id == CSS_PROPERTY_WIDTH);
     }
     return format_number(out, value, "px");
 }
@@ -2360,14 +2365,14 @@ static const CssPropAccessor CSS_PROP_ROWS[] = {
     DIRECT_ROW(CSS_PROPERTY_TEXT_ALIGN, PROP_GROUP_BLOCK, BlockProp, text_align, CSS_PROP_VALUE_ENUM, 0),
     // the layout slot is lazy and cannot represent a combined transform declaration.
     DECL_ROW(CSS_PROPERTY_TEXT_TRANSFORM),
-    DIRECT_ROW(CSS_PROPERTY_TEXT_OVERFLOW, PROP_GROUP_BLOCK, BlockProp, text_overflow, CSS_PROP_VALUE_ENUM, 0),
+    DIRECT_ROW(CSS_PROPERTY_TEXT_OVERFLOW, PROP_GROUP_BLOCK_EXT, BlockPropExt, text_overflow, CSS_PROP_VALUE_ENUM, 0),
     DERIVED_ROW(CSS_PROPERTY_LINE_CLAMP, serialize_line_clamp, 0),
     DERIVED_ROW(CSS_PROPERTY_WEBKIT_LINE_CLAMP, serialize_line_clamp, 0),
     DECL_ROW(CSS_PROPERTY_HYPHENATE_LIMIT_CHARS),
     DECL_ROW(CSS_PROPERTY_WEBKIT_BOX_ORIENT),
     DIRECT_ROW(CSS_PROPERTY_WHITE_SPACE, PROP_GROUP_BLOCK, BlockProp, white_space, CSS_PROP_VALUE_ENUM, 0),
-    DIRECT_ROW(CSS_PROPERTY_TEXT_WRAP_MODE, PROP_GROUP_BLOCK, BlockProp, text_wrap_mode, CSS_PROP_VALUE_ENUM, 0),
-    DIRECT_ROW(CSS_PROPERTY_TEXT_INDENT, PROP_GROUP_BLOCK, BlockProp, text_indent, CSS_PROP_VALUE_PX, 0),
+    DIRECT_ROW(CSS_PROPERTY_TEXT_WRAP_MODE, PROP_GROUP_BLOCK_EXT, BlockPropExt, text_wrap_mode, CSS_PROP_VALUE_ENUM, 0),
+    DIRECT_ROW(CSS_PROPERTY_TEXT_INDENT, PROP_GROUP_BLOCK_EXT, BlockPropExt, text_indent, CSS_PROP_VALUE_PX, 0),
     DIRECT_ROW(CSS_PROPERTY_VERTICAL_ALIGN, PROP_GROUP_INLINE, InlineProp, vertical_align, CSS_PROP_VALUE_ENUM, 0),
     // Outline longhands are resolved from the retained shorthand expansion.
     DERIVED_ROW(CSS_PROPERTY_OUTLINE_STYLE, serialize_outline,

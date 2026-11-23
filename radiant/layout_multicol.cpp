@@ -940,7 +940,7 @@ static float multicol_child_flow_extent(ViewBlock* container, ViewBlock* child) 
             ? max(child->width - min_x, max_x)
             : max(max_x, child->width - min_x);
         flow_extent = max(flow_extent, overflow_extent);
-    } else if ((child->blk && child->block()->extras().break_inside == CSS_VALUE_AVOID) ||
+    } else if ((child->blk && child->block()->rare().break_inside == CSS_VALUE_AVOID) ||
                (child->blk && container->multicol_prop() &&
                 container->multicol_prop()->fill == COLUMN_FILL_BALANCE &&
                 child->block()->given_height >= 0.0f &&
@@ -1151,8 +1151,8 @@ static bool multicol_has_forced_break_descendant(View* view) {
     auto forces_break = [](View* candidate) {
         ViewBlock* block = lam::view_as_block(candidate);
         return block && block->blk &&
-            (multicol_forces_column_break(block->block()->extras().break_before) ||
-             multicol_forces_column_break(block->block()->extras().break_after));
+            (multicol_forces_column_break(block->block()->rare().break_before) ||
+             multicol_forces_column_break(block->block()->rare().break_after));
     };
     // layout_view_tree_any walks a whole sibling list; started at the view it
     // also matched every later sibling, so a forced break after a block (e.g.
@@ -1192,9 +1192,9 @@ static float multicol_parallel_forced_tail_extent(ViewBlock* float_block) {
 
         float child_offset = child_block->y - float_block->y;
         float candidate = 0.0f;
-        if (multicol_forces_column_break(child_block->block()->extras().break_before)) {
+        if (multicol_forces_column_break(child_block->block()->rare().break_before)) {
             candidate = float_block->height - child_offset;
-        } else if (multicol_forces_column_break(child_block->block()->extras().break_after)) {
+        } else if (multicol_forces_column_break(child_block->block()->rare().break_after)) {
             candidate = float_block->height - child_offset - child_block->height;
         }
         if (candidate > tail_extent) tail_extent = candidate;
@@ -2472,8 +2472,8 @@ static bool multicol_find_fragmentable_line_metrics(
 
 static bool multicol_avoids_inside_column_break(ViewBlock* block) {
     return block && block->blk &&
-        (block->block()->extras().break_inside == CSS_VALUE_AVOID ||
-         block->block()->extras().break_inside == CSS_VALUE_AVOID_COLUMN);
+        (block->block()->rare().break_inside == CSS_VALUE_AVOID ||
+         block->block()->rare().break_inside == CSS_VALUE_AVOID_COLUMN);
 }
 
 static bool multicol_is_contained_monolithic(ViewBlock* block);
@@ -2542,7 +2542,7 @@ static bool multicol_has_fragmentable_block_children(ViewBlock* child) {
             all_blocks_size_contained = false;
         }
         if (!descendant_block->blk ||
-            descendant_block->block()->extras().break_inside != CSS_VALUE_AVOID) {
+            descendant_block->block()->rare().break_inside != CSS_VALUE_AVOID) {
             all_blocks_avoid_break = false;
         }
     }
@@ -2561,7 +2561,7 @@ static bool multicol_has_unbreakable_flow_child(ViewBlock* parent) {
         ViewBlock* child_block = lam::view_as_block(child);
         if (child_block && !layout_block_is_out_of_flow_positioned(child_block) &&
             child_block->blk &&
-            child_block->block()->extras().break_inside == CSS_VALUE_AVOID) {
+            child_block->block()->rare().break_inside == CSS_VALUE_AVOID) {
             return true;
         }
     }
@@ -2693,7 +2693,7 @@ static bool multicol_advance_monolithic_child_flow(
     if (!container || !child || !flow || fragment_height <= 0.0f ||
         !multicol_is_contained_monolithic(child)) return false;
     bool break_before = child->blk &&
-        multicol_forces_column_break(child->block()->extras().break_before);
+        multicol_forces_column_break(child->block()->rare().break_before);
     if (break_before && flow->has_item && flow->block_offset > 0.0f) {
         flow->fragment_index++;
         flow->block_offset = 0.0f;
@@ -2722,7 +2722,7 @@ static bool multicol_advance_monolithic_child_flow(
     flow->pending_margin_after = margin_after;
     flow->has_item = true;
     if (child->blk &&
-        multicol_forces_column_break(child->block()->extras().break_after)) {
+        multicol_forces_column_break(child->block()->rare().break_after)) {
         flow->fragment_index++;
         flow->block_offset = 0.0f;
         flow->pending_margin_after = 0.0f;
@@ -2910,7 +2910,7 @@ static float multicol_block_children_balance_floor(
                                   &margin_before, &margin_after);
             float extent = max(layout_axis_size(child_block, axis), 0.0f);
             bool break_before = child_block->blk &&
-                multicol_forces_column_break(child_block->block()->extras().break_before);
+                multicol_forces_column_break(child_block->block()->rare().break_before);
             if (break_before && has_item) {
                 fragment_count++;
                 fragment_used = 0.0f;
@@ -2945,7 +2945,7 @@ static float multicol_block_children_balance_floor(
                 }
             }
             bool break_after = child_block->blk && has_next_block &&
-                multicol_forces_column_break(child_block->block()->extras().break_after);
+                multicol_forces_column_break(child_block->block()->rare().break_after);
             if (break_after) {
                 fragment_count++;
                 fragment_used = 0.0f;
@@ -2987,7 +2987,7 @@ static void multicol_init_flow_item(MulticolFlowItem* item,
         child->block()->given_height >= 0.0f &&
         height > child->height + item->margin_before + item->margin_after + 0.5f;
     if (fixed_size_overflow && !multicol_has_vertical_inline_axis(container) &&
-        child->block()->extras().break_inside != CSS_VALUE_AVOID) {
+        child->block()->rare().break_inside != CSS_VALUE_AVOID) {
         // css fragmentation: descendant overflow contributes to balancing,
         // while a fixed-size wrapper keeps its own fragment box size.
         item->height = child->height + item->margin_before + item->margin_after;
@@ -3027,13 +3027,13 @@ static void multicol_init_flow_item(MulticolFlowItem* item,
     item->parallel_flow = direct_float &&
         !multicol_has_forced_break_descendant(child);
     item->break_before_column = child && child->blk &&
-        multicol_forces_column_break(child->block()->extras().break_before);
+        multicol_forces_column_break(child->block()->rare().break_before);
     item->break_after_column = child && child->blk &&
-        multicol_forces_column_break(child->block()->extras().break_after);
+        multicol_forces_column_break(child->block()->rare().break_after);
     item->break_before_avoid = child && child->blk &&
-        multicol_avoids_column_break(child->block()->extras().break_before);
+        multicol_avoids_column_break(child->block()->rare().break_before);
     item->break_after_avoid = child && child->blk &&
-        multicol_avoids_column_break(child->block()->extras().break_after);
+        multicol_avoids_column_break(child->block()->rare().break_after);
     item->parallel_balance_tail = 0.0f;
 }
 
@@ -3397,7 +3397,7 @@ static void multicol_allow_fragmentation_before_spanner(
         ViewBlock* child = items[index].block;
         if (!child || !child->blk ||
             block_context_establishes_bfc(child) ||
-            child->block()->extras().break_inside == CSS_VALUE_AVOID ||
+            child->block()->rare().break_inside == CSS_VALUE_AVOID ||
             child->block()->containment().contain_positioning ||
             multicol_is_contained_monolithic(child) ||
             (child->multicol_prop() && is_multicol_container(child))) {
@@ -3452,10 +3452,10 @@ static bool multicol_uses_slice_start_trim(ViewBlock* child) {
     // breaks keep their normal line-box under-edge, so only start-only trim
     // changes the first fragment's line capacity.
     return child && child->blk &&
-        child->block()->extras().box_decoration_break != CSS_VALUE_CLONE &&
-        (child->block()->text_box_trim_applied & TEXT_BOX_TRIM_START) &&
-        !(child->block()->text_box_trim_applied & TEXT_BOX_TRIM_END) &&
-        child->block()->text_box_trim_start_amount > 0.0f;
+        child->block()->rare().box_decoration_break != CSS_VALUE_CLONE &&
+        (child->block()->rare().flow.text_box_trim_applied & TEXT_BOX_TRIM_START) &&
+        !(child->block()->rare().flow.text_box_trim_applied & TEXT_BOX_TRIM_END) &&
+        child->block()->rare().flow.text_box_trim_start_amount > 0.0f;
 }
 
 static bool multicol_uses_slice_end_offset_trim(ViewBlock* child, float initial_fragment_offset) {
@@ -3463,10 +3463,10 @@ static bool multicol_uses_slice_end_offset_trim(ViewBlock* child, float initial_
     // through a fragmentainer, that consumed space reduces only the first
     // fragment's line-box capacity.
     return child && child->blk &&
-        child->block()->extras().box_decoration_break != CSS_VALUE_CLONE &&
+        child->block()->rare().box_decoration_break != CSS_VALUE_CLONE &&
         initial_fragment_offset > 0.0f &&
-        (child->block()->text_box_trim_applied & TEXT_BOX_TRIM_END) &&
-        !(child->block()->text_box_trim_applied & TEXT_BOX_TRIM_START);
+        (child->block()->rare().flow.text_box_trim_applied & TEXT_BOX_TRIM_END) &&
+        !(child->block()->rare().flow.text_box_trim_applied & TEXT_BOX_TRIM_START);
 }
 
 static float multicol_line_visual_height_from_items(InlineFragmentItem* items, int item_count) {
@@ -3523,7 +3523,7 @@ static void multicol_map_line_to_fragment(
 static void multicol_balance_line_to_column(ViewBlock* block, int line_index,
         int line_count, int column_count, int line_capacity, bool first_set,
         int* column_index, int* line_slot) {
-    const BlockPropExt& rules = block ? block->block()->extras() : BLOCK_EXTRAS_DEFAULT;
+    const BlockPropExt& rules = block ? block->block()->rare() : BLOCK_EXTRAS_DEFAULT;
     line_capacity = min(max(line_capacity, 1), line_count);
     int orphans = min(max(rules.orphans, 1), line_capacity + 1);
     int widows = min(max(rules.widows, 1), line_capacity + 1);
@@ -3575,7 +3575,7 @@ static float multicol_normalize_inline_x(float x, float origin_x, float pitch,
 
 static float multicol_fragment_content_extent(ViewBlock* child, float fragment_extent) {
     if (!child || fragment_extent <= 0.0f || !child->blk ||
-        child->block()->extras().box_decoration_break != CSS_VALUE_CLONE) {
+        child->block()->rare().box_decoration_break != CSS_VALUE_CLONE) {
         return fragment_extent;
     }
 
@@ -3584,6 +3584,39 @@ static float multicol_fragment_content_extent(ViewBlock* child, float fragment_e
     float decoration = layout_axis_decoration_start(child->bound, block_axis) +
         layout_axis_decoration_end(child->bound, block_axis);
     return max(fragment_extent - decoration, 0.0f);
+}
+
+static bool multicol_uses_cloned_inline_trim(ViewBlock* child) {
+    return child && child->blk && !multicol_has_vertical_inline_axis(child) &&
+        child->block()->rare().box_decoration_break == CSS_VALUE_CLONE &&
+        child->block()->rare().flow.text_box_trim_applied &&
+        !layout_axis_has_given_size(child, false) && !is_multicol_container(child) &&
+        !multicol_has_in_flow_block_child(child);
+}
+
+static float multicol_cloned_line_extent(ViewBlock* child, float line_advance) {
+    const auto& flow = child->block()->rare().flow;
+    return line_advance - flow.text_box_trim_start_amount - flow.text_box_trim_end_amount;
+}
+
+static float multicol_cloned_inline_flow_extent(ViewBlock* child, float item_height,
+    float fragment_height, float initial_fragment_offset) {
+    if (fragment_height <= 0.0f || !multicol_uses_cloned_inline_trim(child)) return -1.0f;
+    int lines = 0;
+    float advance = 0.0f;
+    if (!multicol_inline_line_metrics(child, &lines, &advance, nullptr) || lines < 2) return -1.0f;
+    float content_height = multicol_fragment_content_extent(child, fragment_height);
+    float trimmed_line = multicol_cloned_line_extent(child, advance);
+    int first = multicol_lines_that_fit_fragment(
+        content_height - initial_fragment_offset, advance, trimmed_line);
+    int continuation = multicol_lines_that_fit_fragment(content_height, advance, trimmed_line);
+    int fragment = 0;
+    int slot = 0;
+    multicol_map_line_to_fragment(lines - 1, first, continuation, &fragment, &slot);
+    if (fragment == 0) return item_height;
+    // only unused space before the final fragment contributes a full column.
+    float consumed = fragment * fragment_height - initial_fragment_offset;
+    return consumed + item_height - (lines - slot - 1) * advance;
 }
 
 static MulticolFragmentPlacement multicol_place_fragment(
@@ -4039,17 +4072,17 @@ static bool multicol_project_fragmented_inline_descendants(
     float first_fragment_line_offset = first_line_y;
     float continuation_line_offset = first_line_y;
     if (slice_start_trim) {
-        first_fragment_line_offset = normal_line_offset - child->block()->text_box_trim_start_amount;
+        first_fragment_line_offset = normal_line_offset - child->block()->rare().flow.text_box_trim_start_amount;
         if (first_fragment_line_offset < 0.0f) first_fragment_line_offset = 0.0f;
         continuation_line_offset = normal_line_offset;
     }
-    if (child->blk && child->block()->extras().box_decoration_break != CSS_VALUE_CLONE &&
-        child->block()->text_box_trim_applied) {
+    if (child->blk && child->block()->rare().box_decoration_break != CSS_VALUE_CLONE &&
+        child->block()->rare().flow.text_box_trim_applied) {
         // slice restores half-leading at continuation edges, including trim-both.
         continuation_line_offset = normal_line_offset;
         if (parent_block->blk &&
-            (parent_block->block()->text_box_trim & TEXT_BOX_TRIM_START) &&
-            !(child->block()->text_box_trim & TEXT_BOX_TRIM_START)) {
+            (parent_block->block()->rare().text_box_trim & TEXT_BOX_TRIM_START) &&
+            !(child->block()->rare().text_box_trim & TEXT_BOX_TRIM_START)) {
             // a multicol container trims each column unless the inner box owns that edge.
             continuation_line_offset = 0.0f;
         }
@@ -4058,7 +4091,14 @@ static bool multicol_project_fragmented_inline_descendants(
     float content_fragment_height = multicol_fragment_content_extent(child, fragment_height);
     int first_fragment_lines = 0;
     int continuation_fragment_lines = 0;
-    if (slice_start_trim) {
+    if (multicol_uses_cloned_inline_trim(child)) {
+        // each clone trims the edges again, leaving more room for complete lines.
+        float trimmed_line_extent = multicol_cloned_line_extent(child, line_advance);
+        first_fragment_lines = multicol_lines_that_fit_fragment(
+            content_fragment_height - initial_fragment_offset, line_advance, trimmed_line_extent);
+        continuation_fragment_lines = multicol_lines_that_fit_fragment(
+            content_fragment_height, line_advance, trimmed_line_extent);
+    } else if (slice_start_trim) {
         first_fragment_lines = multicol_lines_that_fit_fragment(
             content_fragment_height, line_advance, visual_height, first_fragment_line_offset);
         continuation_fragment_lines = multicol_lines_that_fit_fragment(
@@ -4100,7 +4140,7 @@ static bool multicol_project_fragmented_inline_descendants(
     // siblings must skip, so track where the last line box actually ends.
     // text-box-trim fragmentation computes its own continuation flow.
     bool track_line_end = out_flow_shift && !vertical_writing && !slice_start_trim &&
-        !(child->blk && child->block()->text_box_trim) && inner_column_count == 1;
+        !(child->blk && child->block()->rare().text_box_trim) && inner_column_count == 1;
     float projected_line_end = -FLT_MAX;
     for (int i = 0; i < item_count; i++) {
         // CSS Writing Modes: a fragmented block and a nested inline can carry
@@ -4542,7 +4582,7 @@ static int multicol_project_fragmented_descendants(
     bool nested_multicol_spanner_projection = child_is_multicol &&
         !nested_descendants_local && multicol_has_spanner_child(child);
     bool mixed_direct_flow = !child_is_multicol && !vertical_writing &&
-        !(child->blk && child->block()->text_box_trim) &&
+        !(child->blk && child->block()->rare().text_box_trim) &&
         multicol_has_mixed_direct_flow(child);
     bool projected_atomic = false;
     float inline_flow_shift = 0.0f;
@@ -4758,7 +4798,7 @@ static int multicol_project_fragmented_descendants(
                 (original_y - forced_break_origin) + parent_local_push_shift;
         }
         bool force_before = descendant_block && descendant_block->blk &&
-            multicol_forces_column_break(descendant_block->block()->extras().break_before);
+            multicol_forces_column_break(descendant_block->block()->rare().break_before);
         if (forced_break_flow && force_before &&
             (has_forced_break_origin || projected_fragment_count > 1 ||
                              original_y > 0.0f)) {
@@ -4938,7 +4978,7 @@ static int multicol_project_fragmented_descendants(
             }
             float fragment_width = sequence->nested_column_width;
             if (layout_axis_has_given_size(descendant_block, inline_horizontal) &&
-                !(vertical_writing && descendant_block->blk->vertical_auto_inline_size_constrained)) {
+                !(vertical_writing && descendant_block->blk->rare().flow.vertical_auto_inline_size_constrained)) {
                 float given_inline = layout_axis_given_size(descendant_block->block(),
                     inline_horizontal ? LAYOUT_AXIS_X : LAYOUT_AXIS_Y);
                 fragment_width = layout_used_border_box_size(
@@ -5650,7 +5690,7 @@ static int multicol_project_fragmented_descendants(
             multicol_reanchor_text_descendants(descendant, 0.0f, text_y);
         }
         if (forced_break_flow && descendant_block && descendant_block->blk &&
-            multicol_forces_column_break(descendant_block->block()->extras().break_after)) {
+            multicol_forces_column_break(descendant_block->block()->rare().break_after)) {
             forced_break_fragment = max(forced_break_fragment, placement.fragment_index + 1);
             forced_break_origin = original_y + source_block_extent;
             has_forced_break_origin = true;
@@ -7061,6 +7101,10 @@ static float multicol_fragmented_child_union(
         initial_fragment_offset = fmodf(initial_fragment_offset, fragment_capacity);
     }
 
+    float cloned_flow = multicol_cloned_inline_flow_extent(
+        child, item_height, fragment_height, initial_fragment_offset);
+    if (cloned_flow >= 0.0f) item_height = cloned_flow;
+
     if (negative_initial_offset <= 0.0f) {
         int grid_used_columns = 0;
         float grid_union_height = 0.0f;
@@ -7282,6 +7326,7 @@ static float multicol_fragmented_child_union(
 
     if (!preserve_authored_block_size) {
         if (monolithic_flow_extent >= 0.0f) child->height = monolithic_flow_extent;
+        else if (cloned_flow >= 0.0f) child->height = cloned_flow;
         multicol_store_layout_fragments(child, fragment_count, layout_column_count,
             fragment_height, column_width, column_gap, row_gap, fragment_visual_width,
             initial_fragment_offset, zero_height_fragmentainer, group,
@@ -7427,6 +7472,7 @@ static float multicol_fragmented_child_union(
         }
         if (out_fragment_flow_height) *out_fragment_flow_height = monolithic_flow_extent;
     }
+    if (out_fragment_flow_height && cloned_flow >= 0.0f) *out_fragment_flow_height = cloned_flow;
     if (out_used_columns) *out_used_columns = used_columns;
     return union_height;
 }
@@ -7450,8 +7496,8 @@ static bool multicol_has_unconstrained_continuous_flow(ViewBlock* block) {
         multicol_avoids_inside_column_break(block)) return false;
     BoxMetrics box = layout_box_metrics(block);
     if (box.pad_border_v != 0.0f || box.margin_v != 0.0f ||
-        (block->blk && (multicol_forces_column_break(block->block()->extras().break_before) ||
-                       multicol_forces_column_break(block->block()->extras().break_after)))) return false;
+        (block->blk && (multicol_forces_column_break(block->block()->rare().break_before) ||
+                       multicol_forces_column_break(block->block()->rare().break_after)))) return false;
     if (block->first_placed_child() && layout_axis_has_given_size(block, false)) return false;
     for (View* child = block->first_placed_child(); child; child = child->next()) {
         if (layout_text_is_collapsible_whitespace(child)) continue;
@@ -7477,8 +7523,8 @@ static void multicol_balance_continuous_rows(ColumnGroup* group,
         !multicol_has_unconstrained_continuous_flow(child) || item.parallel_flow ||
         item.margin_before != 0.0f || item.margin_after != 0.0f ||
         item.break_before_column || item.break_after_column ||
-        (child->blk && (child->block()->extras().break_inside == CSS_VALUE_AVOID ||
-                       child->block()->extras().box_decoration_break == CSS_VALUE_CLONE))) return;
+        (child->blk && (child->block()->rare().break_inside == CSS_VALUE_AVOID ||
+                       child->block()->rare().box_decoration_break == CSS_VALUE_CLONE))) return;
     float row_height = multicol_specified_row_height(group->container);
     float flow_height = item.content_height;
     if (row_height <= 0.0f || flow_height <= 0.0f) return;
@@ -7585,8 +7631,8 @@ static void multicol_distribute_flow_group(
             cursor->block_offset + flow_height > target_height + 0.5f &&
             can_advance_fragment;
         if (can_fragment && cursor->block_offset > 0.0f && can_advance_fragment) {
-            int orphans = container->blk && container->block()->extras().orphans > 0
-                ? container->block()->extras().orphans : 2;
+            int orphans = container->blk && container->block()->rare().orphans > 0
+                ? container->block()->rare().orphans : 2;
             int line_count = 0;
             float line_advance = 0.0f;
             if (multicol_inline_line_metrics(
@@ -7606,11 +7652,11 @@ static void multicol_distribute_flow_group(
             can_advance_fragment) {
             ViewBlock* next_child = items[index + 1].block;
             bool next_break_avoid = next_child && next_child->blk &&
-                multicol_avoids_column_break(next_child->block()->extras().break_before);
+                multicol_avoids_column_break(next_child->block()->rare().break_before);
             bool current_break_avoid = child->blk &&
-                child->block()->extras().break_inside == CSS_VALUE_AVOID;
+                child->block()->rare().break_inside == CSS_VALUE_AVOID;
             bool next_inside_avoid = next_child && next_child->blk &&
-                next_child->block()->extras().break_inside == CSS_VALUE_AVOID;
+                next_child->block()->rare().break_inside == CSS_VALUE_AVOID;
             if (next_break_avoid && current_break_avoid && next_inside_avoid) {
                 MulticolFlowItem& next_info = items[index + 1];
                 float next_margin_before = max(info.margin_after,
@@ -7897,10 +7943,10 @@ static void multicol_distribute_flow_group(
                 child, flow_height, target_height, fragment_count,
                 cursor->block_offset);
             float fragmented_flow_height = flow_height;
-            // css-break: only descendant forced breaks create new flow beyond
-            // the caller's logical extent; trim-aware fragmentation owns its
-            // continuation height and must not be replaced by visible unions.
-            float* generated_flow_height = multicol_has_forced_break_descendant(child)
+            // forced breaks and cloned trim consume flow according to the
+            // fragment sequence instead of the continuous box's height.
+            float* generated_flow_height = (multicol_has_forced_break_descendant(child) ||
+                multicol_uses_cloned_inline_trim(child))
                 ? &fragmented_flow_height : nullptr;
             float projected_flow_shift = 0.0f;
             placed_height = multicol_fragmented_child_union(
@@ -7962,10 +8008,10 @@ static float multicol_clone_fragmented_flow_height(
     int fragment_count
 ) {
     if (!child || !child->blk || fragment_count <= 1) return item_height;
-    if (child->block()->extras().box_decoration_break != CSS_VALUE_CLONE) return item_height;
-    if (!(child->block()->text_box_trim_applied & TEXT_BOX_TRIM_START)) return item_height;
+    if (child->block()->rare().box_decoration_break != CSS_VALUE_CLONE) return item_height;
+    if (!(child->block()->rare().flow.text_box_trim_applied & TEXT_BOX_TRIM_START)) return item_height;
 
-    float extra_start_trim = child->block()->text_box_trim_start_amount * fragment_count;
+    float extra_start_trim = child->block()->rare().flow.text_box_trim_start_amount * fragment_count;
     if (extra_start_trim <= 0.0f) return item_height;
 
     float adjusted = item_height - extra_start_trim;
@@ -7980,8 +8026,8 @@ static float multicol_slice_text_box_trim_flow_height(
     float initial_fragment_offset
 ) {
     if (!child || !child->blk || fragment_height <= 0.0f) return item_height;
-    if (child->block()->extras().box_decoration_break == CSS_VALUE_CLONE) return item_height;
-    if (!(child->block()->text_box_trim_applied & (TEXT_BOX_TRIM_START | TEXT_BOX_TRIM_END))) {
+    if (child->block()->rare().box_decoration_break == CSS_VALUE_CLONE) return item_height;
+    if (!(child->block()->rare().flow.text_box_trim_applied & (TEXT_BOX_TRIM_START | TEXT_BOX_TRIM_END))) {
         return item_height;
     }
 
@@ -8000,7 +8046,7 @@ static float multicol_slice_text_box_trim_flow_height(
     int first_fragment_lines = 0;
     int continuation_fragment_lines = 0;
     if (slice_start_trim) {
-        first_fragment_line_offset = normal_line_offset - child->block()->text_box_trim_start_amount;
+        first_fragment_line_offset = normal_line_offset - child->block()->rare().flow.text_box_trim_start_amount;
         if (first_fragment_line_offset < 0.0f) first_fragment_line_offset = 0.0f;
         continuation_line_offset = normal_line_offset;
         first_fragment_lines = multicol_lines_that_fit_fragment(
@@ -8032,12 +8078,12 @@ static float multicol_slice_text_box_trim_flow_height(
 
     float flow_height = (fragment_count - 1) * fragment_height +
         last_fragment_line_offset + last_fragment_lines * line_advance;
-    if (child->block()->text_box_trim_applied & TEXT_BOX_TRIM_END) {
-        flow_height -= child->block()->text_box_trim_end_amount;
+    if (child->block()->rare().flow.text_box_trim_applied & TEXT_BOX_TRIM_END) {
+        flow_height -= child->block()->rare().flow.text_box_trim_end_amount;
     }
     if (slice_start_trim) {
         // the first fragment's removed leading is already part of the consumed flow.
-        flow_height -= initial_fragment_offset + child->block()->text_box_trim_start_amount;
+        flow_height -= initial_fragment_offset + child->block()->rare().flow.text_box_trim_start_amount;
     } else if (slice_end_offset_trim) {
         flow_height -= initial_fragment_offset + normal_line_offset;
     }
@@ -8056,7 +8102,7 @@ static float multicol_text_box_trim_fragmented_flow_height(
     int fragment_count,
     float initial_fragment_offset
 ) {
-    if (child && child->blk && child->block()->extras().box_decoration_break == CSS_VALUE_CLONE) {
+    if (child && child->blk && child->block()->rare().box_decoration_break == CSS_VALUE_CLONE) {
         return multicol_clone_fragmented_flow_height(child, item_height, fragment_count);
     }
     return multicol_slice_text_box_trim_flow_height(child, item_height, fragment_height,
@@ -9007,17 +9053,17 @@ static bool multicol_reflow_mixed_direct_flow(
                 multicol_has_fragmentable_block_children(child_block) ||
                 multicol_has_mixed_direct_flow(child_block);
             if (child_block->blk &&
-                child_block->block()->extras().break_inside == CSS_VALUE_AVOID) {
+                child_block->block()->rare().break_inside == CSS_VALUE_AVOID) {
                 item.flow.can_fragment = false;
             }
             item.flow.break_before_column = child_block->blk &&
-                multicol_forces_column_break(child_block->block()->extras().break_before);
+                multicol_forces_column_break(child_block->block()->rare().break_before);
             item.flow.break_after_column = child_block->blk &&
-                multicol_forces_column_break(child_block->block()->extras().break_after);
+                multicol_forces_column_break(child_block->block()->rare().break_after);
             item.flow.break_before_avoid = child_block->blk &&
-                multicol_avoids_column_break(child_block->block()->extras().break_before);
+                multicol_avoids_column_break(child_block->block()->rare().break_before);
             item.flow.break_after_avoid = child_block->blk &&
-                multicol_avoids_column_break(child_block->block()->extras().break_after);
+                multicol_avoids_column_break(child_block->block()->rare().break_after);
             item.flow.parallel_flow = layout_position_is_floated(child_block->position) &&
                 child_block->parent == static_cast<DomNode*>(block);
             item.inline_flow = false;
@@ -9573,8 +9619,8 @@ static float multicol_project_mixed_direct_inline_content(
     float start_offset = first_line_box_y - start_fragment * target_height;
     if (start_offset < 0.0f) start_offset = 0.0f;
 
-    int orphans = block->blk && block->block()->extras().orphans > 0 ? block->block()->extras().orphans : 2;
-    int widows = block->blk && block->block()->extras().widows > 0 ? block->block()->extras().widows : 2;
+    int orphans = block->blk && block->block()->rare().orphans > 0 ? block->block()->rare().orphans : 2;
+    int widows = block->blk && block->block()->rare().widows > 0 ? block->block()->rare().widows : 2;
     int first_fragment_fit = multicol_lines_that_fit_fragment(
         target_height - start_offset, line_advance, visual_height, normal_line_offset);
     bool broke_before_run = false;
@@ -9590,7 +9636,7 @@ static float multicol_project_mixed_direct_inline_content(
     float max_used_height = 0.0f;
     float pitch = column_width + column_gap;
     bool trims_root_start = block->blk &&
-        (block->block()->text_box_trim & TEXT_BOX_TRIM_START);
+        (block->block()->rare().text_box_trim & TEXT_BOX_TRIM_START);
 
     for (int li = 0; li < line_count; li++) {
         float line_offset = fragment_start_offset > 0.0f ? normal_line_offset : 0.0f;
@@ -10000,7 +10046,7 @@ static float multicol_forced_run_target(
     auto visit = [&](View* view, int) {
         ViewBlock* child = lam::view_as_block(view);
         if (child && child->blk &&
-            multicol_forces_column_break(child->block()->extras().break_before)) {
+            multicol_forces_column_break(child->block()->rare().break_before)) {
             break_at(source_offset(child, false));
         }
         // a nested multicol owns its breaks; only its outer box belongs to this flow.
@@ -10009,7 +10055,7 @@ static float multicol_forced_run_target(
     auto leave = [&](View* view, int) {
         ViewBlock* child = lam::view_as_block(view);
         if (child && child->blk &&
-            multicol_forces_column_break(child->block()->extras().break_after)) {
+            multicol_forces_column_break(child->block()->rare().break_after)) {
             break_at(source_offset(child, true));
         }
     };
@@ -10212,7 +10258,7 @@ static float multicol_balanced_target_search(
         lower = max(lower, item_heights[0]);
     }
     if (monolithic_item && !is_multicol_container(monolithic_item) &&
-        monolithic_item->blk && monolithic_item->block()->extras().break_inside == CSS_VALUE_AVOID &&
+        monolithic_item->blk && monolithic_item->block()->rare().break_inside == CSS_VALUE_AVOID &&
         item_margin_before && item_margin_before[0] > 0.0f) {
         // an avoid-break item must fit its leading margin box when balancing.
         lower = max(lower, item_heights[0]);
@@ -10231,8 +10277,8 @@ static float multicol_balanced_target_search(
             column_count, mid,
             item_content_heights, item_margin_before, item_margin_after,
             item_line_advances,
-            block->blk && block->block()->extras().orphans > 0
-                ? block->block()->extras().orphans : 2);
+            block->blk && block->block()->rare().orphans > 0
+                ? block->block()->rare().orphans : 2);
         if (fragments <= column_count) {
             best = mid;
             upper = mid;
@@ -10288,9 +10334,9 @@ float multicol_intrinsic_vertical_block_extent(LayoutContext* lycon,
         item_can_fragment[item_count] = child_block &&
             multicol_has_fragmentable_line_boxes(child_block);
         break_before[item_count] = child_block && child_block->blk &&
-            multicol_forces_column_break(child_block->block()->extras().break_before);
+            multicol_forces_column_break(child_block->block()->rare().break_before);
         break_after[item_count] = child_block && child_block->blk &&
-            multicol_forces_column_break(child_block->block()->extras().break_after);
+            multicol_forces_column_break(child_block->block()->rare().break_after);
         total_extent += extent;
         item_count++;
     }
@@ -10644,7 +10690,7 @@ static void multicol_fit_vertical_auto_inline_size(
         return;
     }
     bool has_authored_inline_size = layout_axis_has_given_size(child, false) &&
-        !(child->blk && child->blk->vertical_auto_inline_size_constrained);
+        !(child->blk && child->blk->rare().flow.vertical_auto_inline_size_constrained);
     if (has_authored_inline_size) return;
 
     // css writing modes: an auto inline-size fills the current column's
@@ -11557,8 +11603,8 @@ void layout_multicol_content(LayoutContext* lycon, ViewBlock* block) {
         bool overflow_columns = completed_lines && multicol_allows_overflow_columns(block);
         float row_gap = multicol_row_gap(block);
         if (row_gap < 0.0f) row_gap = 0.0f;
-        int orphans = block->blk && block->block()->extras().orphans > 0 ? block->block()->extras().orphans : 2;
-        int widows = block->blk && block->block()->extras().widows > 0 ? block->block()->extras().widows : 2;
+        int orphans = block->blk && block->block()->rare().orphans > 0 ? block->block()->rare().orphans : 2;
+        int widows = block->blk && block->block()->rare().widows > 0 ? block->block()->rare().widows : 2;
         auto can_fit_orphans = [&](int first, float available) {
             if (!completed_lines) return true;
             int last = min(first + orphans, line_count) - 1;
@@ -11772,7 +11818,7 @@ void layout_multicol_content(LayoutContext* lycon, ViewBlock* block) {
     // CSS Box 4 §3.1: margin-trim:block-end — trim the last in-flow child's
     // block-end margin. We handle this here since layout_block_inner_content
     // returns early for multicol containers.
-    bool trim_block_end = block->blk && (block->block()->margin_trim & MARGIN_TRIM_BLOCK_END);
+    bool trim_block_end = block->blk && (block->block()->rare().margin_trim & MARGIN_TRIM_BLOCK_END);
     if (trim_block_end && block_count > 0) {
         ViewBlock* last_block = blocks[block_count - 1].block;
         if (last_block->bound && blocks[block_count - 1].margin_after != 0.0f) {
@@ -12163,7 +12209,7 @@ void layout_multicol_content(LayoutContext* lycon, ViewBlock* block) {
         max_column_height += trailing_br_extent;
     }
 
-    bool has_text_box_trim = block->blk && block->block()->text_box_trim;
+    bool has_text_box_trim = block->blk && block->block()->rare().text_box_trim;
     bool has_leading_block_inline_run =
         multicol_has_block_before_inline_run(block) && !has_text_box_trim;
     float mixed_direct_height = 0.0f;
@@ -12250,7 +12296,7 @@ void layout_multicol_content(LayoutContext* lycon, ViewBlock* block) {
         multicol_can_publish_vertical_child_geometry(block)) {
         // css writing modes: multicol distribution has already published its
         // physical child geometry; do not remap it as ordinary vertical flow.
-        block->blk->vertical_geometry_published = true;
+        block->blk->set_flow(layout_prop_pool(lycon), &BlockFlowOutput::vertical_geometry_published, true);
     }
     // Update layout context's advance_y to reflect actual height
     lycon->block.advance_y = content_start_y + max_column_height;

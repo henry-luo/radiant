@@ -33,6 +33,7 @@ struct Runtime;
 enum PropGroupKind : uint8_t {
     PROP_GROUP_NONE = 0,
     PROP_GROUP_BLOCK,
+    PROP_GROUP_BLOCK_EXT,
     PROP_GROUP_BOUNDARY,
     PROP_GROUP_FONT,
     PROP_GROUP_INLINE,
@@ -2426,22 +2427,16 @@ static inline bool css_parse_place_content_alignment(const CssValue* value,
 }
 
 // tier-2: view-pool, rebuilt each relayout
-struct BlockPropExt {
+struct BlockListProp {
+    ListStyleImage list_style_image;
+    lam::Own<char> list_style_type_string;  // custom string marker (CSS Lists 3 §4.1)
+    char* counter_reset;  // counter names and values
+    char* counter_increment;  // counter names and values
+    char* counter_set;  // counter names and values (CSS Lists 3)
     CssEnum list_style_type;
     CssEnum list_style_position;  // inside, outside
-    ListStyleImage list_style_image;
-    lam::Own<char> list_style_type_string;   // custom string marker (CSS Lists 3 §4.1)
-    char* counter_reset;            // counter names and values
-    char* counter_increment;        // counter names and values
-    char* counter_set;              // counter names and values (CSS Lists 3)
-    CssEnum box_decoration_break;  // CSS_VALUE_SLICE (default) | CSS_VALUE_CLONE
-    CssEnum break_before;  // CSS Fragmentation: auto, column, page, always
-    CssEnum break_after;   // CSS Fragmentation: auto, column, page, always
-    CssEnum break_inside;  // css fragmentation: auto, avoid
-    int orphans;           // CSS Fragmentation: minimum lines before a break
-    int widows;            // CSS Fragmentation: minimum lines after a break
 };
-extern const BlockPropExt BLOCK_EXTRAS_DEFAULT;
+extern const BlockListProp BLOCK_LIST_DEFAULT;
 
 struct BlockContainmentProp {
     float contain_intrinsic_width;
@@ -2460,112 +2455,168 @@ struct BlockContainmentProp {
 };
 extern const BlockContainmentProp BLOCK_CONTAINMENT_DEFAULT;
 
-typedef struct BlockProp {
-    lam::Own<BlockContainmentProp> containment_props;
-    const BlockContainmentProp& containment() const { return containment_props ? *containment_props.get() : BLOCK_CONTAINMENT_DEFAULT; }
-    lam::Own<BlockPropExt> ext;
-    const BlockPropExt& extras() const { return ext ? *ext.get() : BLOCK_EXTRAS_DEFAULT; }
-    CssEnum text_align;
-    CssEnum text_align_last;  // CSS text-align-last (auto, start, end, left, right, center, justify)
-    CssEnum text_justify;     // zero inherits the nearest computed text-justify
-    CssEnum align_content;    // CSS Box Alignment align-content for block containers
-    CssSelfAlignment align_content_detail;  // preserves align-content safe/unsafe modifiers
-    CssSelfAlignment align_self;
-    CssSelfAlignment justify_self;
-    bool legacy_align_center_blocks;  // HTML align=center compatibility: center block/table descendants
-    CssEnum legacy_block_align;  // HTML align compatibility for block/table descendants
-    CssEnum direction;  // CSS_VALUE_LTR or CSS_VALUE_RTL (CSS 2.1 §9.2.1)
-    CssEnum unicode_bidi;  // CSS Writing Modes: unicode-bidi embedding mode
-    WritingMode writing_mode;  // CSS Writing Modes: the element’s own block/inline axes
-    float zoom;  // CSS Viewport 1: local zoom factor; effective zoom multiplies ancestors
-    CssEnum text_transform;  // CSS_VALUE_NONE, CSS_VALUE_UPPERCASE, CSS_VALUE_LOWERCASE, CSS_VALUE_CAPITALIZE
-    lam::Shared<const CssValue> line_height;
-    CssValue computed_line_height;  // retained leading owns its scalar after the cascade returns
-    float text_indent;  // can be negative
-    float text_indent_percent;  // NaN if not percentage, else raw percentage value for deferred resolution
-    lam::Up<const CssValue> text_indent_calc;  // non-null if text-indent is calc() with percentage, deferred to layout
-    bool text_indent_hanging;  // CSS Text 3 §8.1: invert the lines selected for indentation
-    bool text_indent_each_line;  // CSS Text 3 §8.1: include lines after forced breaks
-    float given_min_width, given_max_width;  // non-negative
-    float given_min_height, given_max_height;  // non-negative
-    CssEnum given_min_width_type, given_max_width_type;
-    CssEnum given_min_height_type, given_max_height_type;
-    CssEnum box_sizing;  // CSS_VALUE_CONTENT_BOX or CSS_VALUE_BORDER_BOX
-    CssEnum white_space;  // CSS_VALUE_NORMAL, CSS_VALUE_NOWRAP, CSS_VALUE_PRE, etc.
-    CssEnum text_wrap_mode;  // CSS Text 4 text-wrap-mode; zero derives from white-space
-    CssEnum text_wrap_style;  // CSS Text 4 text-wrap-style
-    CssEnum word_break;   // CSS_VALUE_NORMAL, CSS_VALUE_BREAK_ALL, CSS_VALUE_KEEP_ALL
-    CssEnum overflow_wrap;  // CSS_VALUE_NORMAL, CSS_VALUE_BREAK_WORD, CSS_VALUE_ANYWHERE
-    CssEnum hyphens;  // CSS_VALUE_MANUAL or CSS_VALUE_AUTO
-    lam::Shared<char> hyphenate_character;  // CSS Text 4: null means the UA default ('auto')
-    int hyphenate_limits[3];  // word/prefix/suffix character counts; -1 preserves computed auto
-    bool hyphenate_limits_is_set;
-    CssEnum line_break;    // CSS_VALUE_AUTO, CSS_VALUE_LOOSE, CSS_VALUE_NORMAL, CSS_VALUE_STRICT, CSS_VALUE_ANYWHERE
-    CssEnum text_spacing_trim;  // CSS Text 4 text-spacing-trim
-    uint8_t text_autospace;  // CSS Text 4 text-autospace feature flags
-    bool text_autospace_is_set;
-    float tab_size;         // CSS tab-size number of spaces, default 8
-    float tab_size_length;  // absolute length in px; negative means number mode
-    uint8_t margin_trim;     // bitmask: MARGIN_TRIM_BLOCK_START|END|INLINE_START|END
-    uint8_t text_box_trim;   // bitmask: TEXT_BOX_TRIM_START|END (CSS Inline Level 3)
-    uint8_t text_box_trim_applied; // bitmask of start/end trim actually applied during layout
+// Retained flow outputs contain scalars only and can be copied between passes.
+struct BlockFlowOutput {
     float text_box_trim_start_amount;
     float text_box_trim_end_amount;
-    // Raised initial margin boxes still affect root auto-height when trim-start
-    // removes their visual line advance.
     float initial_letter_trimmed_start_contribution;
-    CssEnum text_box_over_edge;  // CSS Inline 3 text-box-edge over metric (CSS_VALUE_TEXT, CSS_VALUE_CAP, CSS_VALUE_EX, etc.)
-    CssEnum text_box_under_edge; // CSS Inline 3 text-box-edge under metric (CSS_VALUE_TEXT, CSS_VALUE_ALPHABETIC, etc.)
-    CssEnum baseline_source;  // CSS Inline 3 baseline-source: auto, first, or last
-    CssEnum dominant_baseline;  // CSS Inline 3 dominant-baseline: auto or named baseline
-    float given_width, given_height;  // CSS specified width/height values
-    CssEnum given_width_type;
-    CssEnum given_height_type;
-    // CSS Sizing 3 fit-content() arguments remain separate from the intrinsic keyword.
+    float bfc_float_avoidance_block_shift;
+    float bfc_float_avoidance_inline_start;
+    float bfc_float_avoidance_inline_reduction;
+    float line_clamp_last_line_ascender;
+    float line_clamp_last_line_max_ascender;
+    float line_clamp_last_line_max_descender;
+    uint8_t text_box_trim_applied;  // bitmask of start/end trim actually applied during layout
+    bool bfc_clearance_resolved;  // normal clearance was resolved with the authoritative BFC fit
+    bool initial_letter_float_clearance;
+    bool vertical_geometry_published;  // transient: direct vertical-flow children were axis-mapped
+    bool vertical_auto_inline_size_constrained;  // transient: auto height resolved from the vertical inline-size CB
+    bool auto_inline_fit_content_resolved;  // transient: fit-content height keeps authored auto semantics
+    bool line_clamp_inherited;  // transient: this block is consuming an ancestor clamp
+    bool line_clamped;  // transient: layout hit this block's active line clamp
+    bool present() const;
+};
+
+struct BlockPropExt {
+    lam::Own<BlockContainmentProp> containment_props;
+    lam::Up<const CssValue> text_indent_calc;  // non-null if text-indent is calc() with percentage, deferred to layout
+    lam::Shared<char> hyphenate_character;  // CSS Text 4: null means the UA default ('auto')
+    BlockFlowOutput flow;
+    float text_indent;  // can be negative
+    float text_indent_percent;  // NaN if not percentage, else raw percentage value for deferred resolution
+    int hyphenate_limits[3];  // word/prefix/suffix character counts; -1 preserves computed auto
+    float tab_size;  // CSS tab-size number of spaces, default 8
+    float tab_size_length;  // absolute length in px; negative means number mode
     float given_width_fit_content_limit;
     float given_height_fit_content_limit;
     float given_width_fit_content_percent;
     float given_height_fit_content_percent;
-    // aspect-ratio auto height is definite for percentage bases and margin adjacency,
-    // but final auto sizing may still grow to contain in-flow content.
+    int line_clamp;  // line-clamp: max visible lines (0 = no clamp)
+    int orphans;  // CSS Fragmentation: minimum lines before a break
+    int widows;  // CSS Fragmentation: minimum lines after a break
+    CssEnum align_content;  // CSS Box Alignment align-content for block containers
+    CssSelfAlignment align_content_detail;  // preserves align-content safe/unsafe modifiers
+    CssSelfAlignment align_self;
+    CssSelfAlignment justify_self;
+    CssEnum legacy_block_align;  // HTML align compatibility for block/table descendants
+    CssEnum text_wrap_mode;  // CSS Text 4 text-wrap-mode; zero derives from white-space
+    CssEnum text_wrap_style;  // CSS Text 4 text-wrap-style
+    CssEnum word_break;  // CSS_VALUE_NORMAL, CSS_VALUE_BREAK_ALL, CSS_VALUE_KEEP_ALL
+    CssEnum overflow_wrap;  // CSS_VALUE_NORMAL, CSS_VALUE_BREAK_WORD, CSS_VALUE_ANYWHERE
+    CssEnum hyphens;  // CSS_VALUE_MANUAL or CSS_VALUE_AUTO
+    CssEnum line_break;  // CSS_VALUE_AUTO, CSS_VALUE_LOOSE, CSS_VALUE_NORMAL, CSS_VALUE_STRICT, CSS_VALUE_ANYWHERE
+    CssEnum text_spacing_trim;  // CSS Text 4 text-spacing-trim
+    CssEnum text_box_over_edge;  // CSS Inline 3 text-box-edge over metric (CSS_VALUE_TEXT, CSS_VALUE_CAP, CSS_VALUE_EX, etc.)
+    CssEnum text_box_under_edge;  // CSS Inline 3 text-box-edge under metric (CSS_VALUE_TEXT, CSS_VALUE_ALPHABETIC, etc.)
+    CssEnum baseline_source;  // CSS Inline 3 baseline-source: auto, first, or last
+    CssEnum dominant_baseline;  // CSS Inline 3 dominant-baseline: auto or named baseline
+    CssEnum text_overflow;  // CSS_VALUE_CLIP (default 0) | CSS_VALUE_ELLIPSIS
+    CssEnum box_decoration_break;  // CSS_VALUE_SLICE (default) | CSS_VALUE_CLONE
+    CssEnum break_before;  // CSS Fragmentation: auto, column, page, always
+    CssEnum break_after;  // CSS Fragmentation: auto, column, page, always
+    CssEnum break_inside;  // css fragmentation: auto, avoid
+    bool legacy_align_center_blocks;  // HTML align=center compatibility: center block/table descendants
+    bool text_indent_hanging;  // CSS Text 3 §8.1: invert the lines selected for indentation
+    bool text_indent_each_line;  // CSS Text 3 §8.1: include lines after forced breaks
+    bool hyphenate_limits_is_set;
+    uint8_t text_autospace;  // CSS Text 4 text-autospace feature flags
+    bool text_autospace_is_set;
+    uint8_t margin_trim;  // bitmask: MARGIN_TRIM_BLOCK_START|END|INLINE_START|END
+    uint8_t text_box_trim;  // bitmask: TEXT_BOX_TRIM_START|END (CSS Inline Level 3)
     bool aspect_ratio_auto_height;
-    // a percentage height made definite after its containing block or grid area completed.
     bool percentage_height_resolved_late;
+    bool line_clamped;  // transient: layout hit this block's active line clamp
+};
+extern const BlockPropExt BLOCK_EXTRAS_DEFAULT;
+
+// Lazy writes of computed initial values must leave the optional slot empty.
+template<class T>
+inline bool block_ext_equal(const T& a, const T& b) { return a == b; }
+
+inline bool block_ext_equal(float a, float b) { return a == b || (isnan(a) && isnan(b)); }
+
+inline bool block_ext_equal(const CssSelfAlignment& a, const CssSelfAlignment& b) {
+    return a.value == b.value && a.safe == b.safe && a.overflow_explicit == b.overflow_explicit &&
+        a.last_baseline == b.last_baseline && a.legacy == b.legacy;
+}
+
+typedef struct BlockProp {
+    lam::Own<BlockListProp> list_props;
+    lam::Own<BlockPropExt> ext;
+    lam::Shared<const CssValue> line_height;
+    CssValue computed_line_height;  // retained leading owns its scalar after the cascade returns
+    WritingMode writing_mode;  // CSS Writing Modes: the element’s own block/inline axes
+    float zoom;  // CSS Viewport 1: local zoom factor; effective zoom multiplies ancestors
+    float given_min_width;  // non-negative
+    float given_max_width;  // non-negative
+    float given_min_height;  // non-negative
+    float given_max_height;  // non-negative
+    float given_width;  // CSS specified width/height values
+    float given_height;  // CSS specified width/height values
     float given_width_percent;  // Raw percentage if width: X% (NaN if not percentage)
-    float given_height_percent; // Raw percentage if height: X% (NaN if not percentage)
-    float given_min_width_percent;   // Raw percentage if min-width: X% (NaN if not percentage)
-    float given_max_width_percent;   // Raw percentage if max-width: X% (NaN if not percentage)
+    float given_height_percent;  // Raw percentage if height: X% (NaN if not percentage)
+    float given_min_width_percent;  // Raw percentage if min-width: X% (NaN if not percentage)
+    float given_max_width_percent;  // Raw percentage if max-width: X% (NaN if not percentage)
     float given_min_height_percent;  // Raw percentage if min-height: X% (NaN if not percentage)
     float given_max_height_percent;  // Raw percentage if max-height: X% (NaN if not percentage)
-    // CSS Inline 3 §5: line box metrics for text-box-trim.
-    // Stored during line_break() to capture inline descendants' contributions.
+    CssEnum text_align;
+    CssEnum text_align_last;  // CSS text-align-last (auto, start, end, left, right, center, justify)
+    CssEnum text_justify;  // zero inherits the nearest computed text-justify
+    CssEnum direction;  // CSS_VALUE_LTR or CSS_VALUE_RTL (CSS 2.1 §9.2.1)
+    CssEnum unicode_bidi;  // CSS Writing Modes: unicode-bidi embedding mode
+    CssEnum text_transform;  // CSS_VALUE_NONE, CSS_VALUE_UPPERCASE, CSS_VALUE_LOWERCASE, CSS_VALUE_CAPITALIZE
+    CssEnum given_min_width_type;
+    CssEnum given_max_width_type;
+    CssEnum given_min_height_type;
+    CssEnum given_max_height_type;
+    CssEnum box_sizing;  // CSS_VALUE_CONTENT_BOX or CSS_VALUE_BORDER_BOX
+    CssEnum white_space;  // CSS_VALUE_NORMAL, CSS_VALUE_NOWRAP, CSS_VALUE_PRE, etc.
+    CssEnum given_width_type;
+    CssEnum given_height_type;
+
+    // retained line output, copied independently of optional block groups.
     float first_line_max_ascender;
     float first_line_max_descender;
     float last_line_max_ascender;
     float last_line_max_descender;
-    // Baseline positions (distance from border-box top to baseline).
-    // Used for flex/inline-block baseline alignment (CSS 2.1 §10.8.1).
     float first_line_baseline;  // first baseline set
-    float last_line_baseline;   // last baseline set
-    // transient exclusion geometry in the containing flow's line/block frame.
-    float bfc_float_avoidance_block_shift;
-    float bfc_float_avoidance_inline_start;
-    float bfc_float_avoidance_inline_reduction;
-    bool bfc_clearance_resolved; // normal clearance was resolved with the authoritative BFC fit
-    // Transient layout state: this float was lowered below a sunk initial letter.
-    bool initial_letter_float_clearance;
-    bool vertical_geometry_published; // transient: direct vertical-flow children were axis-mapped
-    bool vertical_auto_inline_size_constrained; // transient: auto height resolved from the vertical inline-size CB
-    bool auto_inline_fit_content_resolved; // transient: fit-content height keeps authored auto semantics
-    CssEnum text_overflow;  // CSS_VALUE_CLIP (default 0) | CSS_VALUE_ELLIPSIS
-    int line_clamp;         // line-clamp: max visible lines (0 = no clamp)
-    bool line_clamp_inherited; // transient: this block is consuming an ancestor clamp
-    bool line_clamped;      // transient: layout hit this block's active line clamp
-    float line_clamp_advance_y; // transient: content advance at clamp boundary
-    float line_clamp_last_line_ascender;
-    float line_clamp_last_line_max_ascender;
-    float line_clamp_last_line_max_descender;
+    float last_line_baseline;  // last baseline set
+    float line_clamp_advance_y;  // transient: content advance at clamp boundary
+
+    const BlockListProp& list() const { return list_props ? *list_props.get() : BLOCK_LIST_DEFAULT; }
+    const BlockPropExt& rare() const { return ext ? *ext.get() : BLOCK_EXTRAS_DEFAULT; }
+    const BlockContainmentProp& containment() const {
+        const auto& slot = rare().containment_props;
+        return slot ? *slot.get() : BLOCK_CONTAINMENT_DEFAULT;
+    }
+    BlockListProp* ensure_list(Pool* pool);
+    BlockPropExt* ensure_ext(Pool* pool);
+
+    template<class T, class V>
+    void set_flow(Pool* pool, T BlockFlowOutput::*field, V value) {
+        if (auto* storage = ext ? ext.get() : value != T{} ? ensure_ext(pool) : nullptr) {
+            storage->flow.*field = value;
+        }
+    }
+
+    template<class T, class V>
+    void set_ext(Pool* pool, T BlockPropExt::*field, V value) {
+        if (ext) {
+            ext.get()->*field = value;
+            return;
+        }
+        T requested = BLOCK_EXTRAS_DEFAULT.*field;
+        requested = value;
+        if (block_ext_equal(requested, BLOCK_EXTRAS_DEFAULT.*field)) return;
+        if (auto* storage = ensure_ext(pool)) storage->*field = requested;
+    }
 } BlockProp;
+
+#if INTPTR_MAX == INT64_MAX
+static_assert(sizeof(BlockProp) <= 160, "BlockProp size ratchet regressed");
+static_assert(sizeof(BlockListProp) <= 88, "BlockListProp size ratchet regressed");
+static_assert(sizeof(BlockPropExt) <= 192, "BlockPropExt size ratchet regressed");
+#endif
 
 enum TextGlyphOrientation {
     TEXT_GLYPH_HORIZONTAL,
@@ -3281,9 +3332,10 @@ static_assert(sizeof(ViewTableRow) == sizeof(DomElement), "ViewTableRow must not
 static_assert(sizeof(ViewTableCell) == sizeof(DomElement), "ViewTableCell must not add fields");
 // List now carries Lambda's array representation certificate after its stable
 // content offsets; DOM overlays inherit that one-word tail (D4.3.3).
-static_assert(sizeof(DomElement) <= 352, "DomElement size ratchet regressed");
-static_assert(sizeof(DomText) <= 120, "DomText size ratchet regressed");
-static_assert(sizeof(DomNode) <= 80, "DomNode size ratchet regressed");
+static_assert(sizeof(DomElement) <= 344, "DomElement size ratchet regressed");
+// nodes carry their physical arena and native ownership inline (D5.5.1).
+static_assert(sizeof(DomText) <= 136, "DomText size ratchet regressed");
+static_assert(sizeof(DomNode) <= 96, "DomNode size ratchet regressed");
 
 // View pools are rebuilt independently from the source DOM, so async state
 // must re-resolve logical nodes by their retained ID instead of retaining a
@@ -4864,6 +4916,7 @@ typedef struct DocumentJsHostConfig {
     const struct RenderPagedOptions* paged_media;
     bool scripting_disabled;    // DomDocument::scripting_disabled for the loaded document
     bool microphone_granted;   // D11.3.2: initial document only, never inherited
+    bool embedded_document;    // optional child responses do not reject the main capture
 } DocumentJsHostConfig;
 int document_js_host_post_load_settle_ms(int fallback, bool explicitly_set);
 DocumentJsHostConfig document_js_host_config_inherit(UiContext* uicon,

@@ -5,6 +5,7 @@
 
 struct Scene3dAnimationBinding {
     Scene3dAnimationBinding* next;
+    unsigned next_target;
     DomNodeRef node;
     uint64_t identity;
     char property[32];
@@ -20,6 +21,7 @@ struct Scene3dAnimationClip {
 struct Scene3dAnimationNumbers;
 struct Scene3dMotionController;
 static constexpr unsigned SCENE_MOTION_CONTROLLER_LIMIT = 16;
+static constexpr unsigned SCENE_ANIMATION_TARGET_BUCKETS = 256;
 
 struct Scene3dAnimationState {
     DomDocument* document;
@@ -27,6 +29,9 @@ struct Scene3dAnimationState {
     Pool* pool;
     AnimationMixerState* mixer;
     Scene3dAnimationBinding* bindings;
+    Scene3dAnimationBinding** bindings_by_identity;
+    size_t binding_capacity;
+    unsigned target_bindings[SCENE_ANIMATION_TARGET_BUCKETS];
     Scene3dAnimationClip* clips;
     Scene3dAnimationNumbers* numbers;
     Scene3dMotionController* controllers;

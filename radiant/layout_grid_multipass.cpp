@@ -564,8 +564,8 @@ void init_grid_item_view(LayoutContext* lycon, DomNode* child) {
         // cached computed CSS survives role initialization; project it into
         // the grid item's per-pass alignment adapter (D5.5.1).
         GridItemProp* gi = grid_item_prop(elem_block);
-        gi->justify_self = elem->block()->justify_self.value;
-        gi->align_self_grid = elem->block()->align_self.value;
+        gi->justify_self = elem->block()->rare().justify_self.value;
+        gi->align_self_grid = elem->block()->rare().align_self.value;
     }
 
 }
@@ -599,7 +599,7 @@ void measure_grid_items(LayoutContext* lycon, GridContainerLayout* grid_layout,
             bool is_absolute = layout_view_is_abs_or_fixed(item);
             if (!is_absolute && !layout_block_is_display_none(item)) {
                 // the next intrinsic pass must not reuse the previous final grid area's percentage basis.
-                if (item->blk) item->blk->percentage_height_resolved_late = false;
+                if (item->blk) item->blk->set_ext(layout_prop_pool(lycon), &BlockPropExt::percentage_height_resolved_late, false);
                 // row contributions need final column widths; measure only widths in this pass.
                 GridItemProp* gi = grid_item_prop(item);
                 if (gi) {
@@ -722,6 +722,8 @@ static void layout_grid_item_final_content_multipass(LayoutContext* lycon, ViewB
         log_leave();
         return;
     } else if (layout_element_is_css_replaced(grid_item->as_element())) {
+        // definite grid sizing can skip intrinsic queries, but painting still needs the resource.
+        layout_ensure_replaced_image_surface(lycon, grid_item, grid_item->as_element());
         // replaced content has no CSS flow to finalize; grid already resolved its used box.
         grid_item->content_width = content_width;
         grid_item->content_height = content_height;

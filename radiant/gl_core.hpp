@@ -114,9 +114,9 @@ struct NativeGlPresentFrame {
 bool native_gl_present_check_enabled(void);
 // Draws the frame at the top left of the framebuffer, the page scaled to present_width x present_height.
 bool native_gl_present(NativeGlContext* presenter, const NativeGlPresentFrame* frame);
-// A producer publishes a target for the presenter after its last write (fence, resolve) and, before
-// writing it again, waits on the GPU until the presenter's last draw from it has finished.
-bool native_gl_publish(NativeGlContext* context, NativeGlResource target);
+// a shared publication resolves and fences the target for the presenter. An offscreen
+// publication leaves resolution to its first reader in the same context.
+bool native_gl_publish(NativeGlContext* context, NativeGlResource target, bool for_presenter = true);
 // a target's latest publication (0 when it has none or no longer exists)
 uint64_t native_gl_publication(NativeGlContext* context, NativeGlResource target);
 // The layer still shows what its frame was cut against: the producer lives in the same generation and
