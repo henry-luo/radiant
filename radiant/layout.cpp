@@ -5842,6 +5842,10 @@ void layout_html_root(LayoutContext* lycon, DomNode* elmt) {
             vc = vc->next();
         }
     }
+    // the root bypasses ordinary block finalization; retained abspos children
+    // must use its settled height before viewport scrolling clips the root box.
+    re_resolve_abs_children_vertical(lycon, html);
+
     // CSS 2.1 §9.4.3: Apply position:relative offsets to root element after layout
     if (root_is_relative && html->position) {
         if (html->positionp()->position == CSS_VALUE_RELATIVE) {

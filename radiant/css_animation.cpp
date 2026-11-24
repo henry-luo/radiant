@@ -1376,9 +1376,12 @@ static bool capture_underlying_value(DomElement* element, CssPropertyCode proper
         if (!pool) return false;
         if (!parse_property_value(property, text ? text : metadata->initial_value, out, pool)) return false;
         if (out->value_type == ANIM_VAL_LENGTH) {
-            SvgLengthContext lengths = dom_svg_length_context(element);
-            out->value.length.value = svg_resolve_length(text ? text : metadata->initial_value,
-                &lengths, SVG_LENGTH_DIAGONAL, NAN);
+            // absolute lengths are already resolved; only relative values need SVG ancestry.
+            if (!isfinite(out->value.length.value)) {
+                SvgLengthContext lengths = dom_svg_length_context(element);
+                out->value.length.value = svg_resolve_length(text ? text : metadata->initial_value,
+                    &lengths, SVG_LENGTH_DIAGONAL, NAN);
+            }
             out->value.length.is_percent = false;
             out->expression = nullptr;
             return isfinite(out->value.length.value);

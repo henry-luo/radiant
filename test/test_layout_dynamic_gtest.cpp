@@ -1749,6 +1749,22 @@ TEST_F(DynamicLayoutTest, GridStyleReplacementClearsRemovedPadding) {
     EXPECT_FLOAT_EQ(item->width, 180.0f);
 }
 
+TEST_F(DynamicLayoutTest, SvgNaturalRatioTransfersDefiniteHeightInFlowAndFlex) {
+    load("<!doctype html><style>body{margin:0}svg{height:16px;width:auto;flex-shrink:0}"
+         "#row{display:flex;width:200px}#flow{width:200px}</style>"
+         "<div id='row'><svg id='flex-svg' viewBox='0 0 448 512'></svg></div>"
+         "<div id='flow'><svg id='flow-svg' viewBox='0 0 448 512'></svg></div>");
+    ASSERT_NE(document, nullptr);
+    const char* ids[] = {"flex-svg", "flow-svg"};
+    for (const char* id : ids) {
+        SCOPED_TRACE(id);
+        DomElement* svg = element(id);
+        ASSERT_NE(svg, nullptr);
+        EXPECT_FLOAT_EQ(svg->width, 14.0f);
+        EXPECT_FLOAT_EQ(svg->height, 16.0f);
+    }
+}
+
 TEST_F(DynamicLayoutTest, GridAbsoluteChildRetainsGridLineContainingBlock) {
     load("<!doctype html><div style='display:grid;position:absolute;"
          "grid-template-columns:40px 40px 40px;grid-template-rows:40px 40px 40px;"

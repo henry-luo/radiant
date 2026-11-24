@@ -32,9 +32,10 @@ static DomJsMutationAttribute dom_mutation_attribute_from_name(DomDocument* doc,
             dom_element_is_html_tag(target->as_element(), MARKUP_NAME_SLOT)))) {
         return DOM_JS_MUTATION_ATTRIBUTE_SLOT_DISTRIBUTION;
     }
-    // data/ARIA writes cannot change native pseudo states; only an attribute
+    // data/ARIA and inline-style writes cannot change native pseudo states; only an attribute
     // reference inside :has() can make their cascade escape the local subtree.
-    if (name && (strncmp(name, "data-", 5) == 0 || strncmp(name, "aria-", 5) == 0) &&
+    if (name && (strncmp(name, "data-", 5) == 0 || strncmp(name, "aria-", 5) == 0 ||
+        (!doc->js.has_shadow_roots && str_ieq_cstr(name, "style"))) &&
         !dom_engine_attribute_has_relational_css_dependency(doc, name))
         return DOM_JS_MUTATION_ATTRIBUTE_LOCAL;
     return DOM_JS_MUTATION_ATTRIBUTE_UNKNOWN;

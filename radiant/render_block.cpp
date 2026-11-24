@@ -47,6 +47,11 @@ static bool render_block_fully_transparent(ViewBlock* block) {
 static bool render_block_has_visible_child_overflow(RasterRenderContext* rdcon, ViewBlock* block) {
     if (!block || !block->is_element() || !layout_paint_first_child(block)) return false;
     if (block->blk && block->block()->containment().contain_paint) return false;
+    // a context owns positioned paint even when an outside ancestor supplies its containing block.
+    if (radiant_stack_is_context(block) && layout_view_tree_any(layout_paint_first_child(block),
+            [](View* descendant) { return layout_view_is_out_of_flow_positioned(descendant); })) {
+        return true;
+    }
     if (block->scroller &&
         (block->scroll()->overflow_x != CSS_VALUE_VISIBLE ||
          block->scroll()->overflow_y != CSS_VALUE_VISIBLE)) {
@@ -385,6 +390,8 @@ typedef struct RenderBlockPhase {
 
 typedef struct RenderBlockChildrenPhase {
     RenderClipScope overflow_clip_scope;
+    BlockBlot owner_block;
+    BlockBlot content_block;
     uint64_t start_time;
     bool has_children;
 } RenderBlockChildrenPhase;
@@ -543,6 +550,13 @@ static void render_block_deferred_child_outlines(RasterRenderContext* rdcon, Vie
     }
 }
 
+static RenderClipScope render_block_push_contents_scope(RasterRenderContext* rdcon, ViewBlock* block) {
+    float origin_x = rdcon->block.x, origin_y = rdcon->block.y;
+    if (block->scroller || (block->blk && block->block()->containment().contain_paint))
+        setup_scroller(rdcon, block);
+    return render_clip_push_overflow_scope(rdcon, block, origin_x, origin_y);
+}
+
 static RenderBlockChildrenPhase render_block_begin_children_phase(RasterRenderContext* rdcon,
                                                                   ViewBlock* block) {
     RenderBlockChildrenPhase phase = {};
@@ -553,12 +567,7 @@ static RenderBlockChildrenPhase render_block_begin_children_phase(RasterRenderCo
         return phase;
     }
 
-    float origin_x = rdcon->block.x, origin_y = rdcon->block.y;
-    if (block->scroller || (block->blk && block->block()->containment().contain_paint)) {
-        setup_scroller(rdcon, block);
-    }
-
-    phase.overflow_clip_scope = render_clip_push_overflow_scope(rdcon, block, origin_x, origin_y);
+    phase.owner_block = rdcon->block;
     return phase;
 }
 
@@ -570,16 +579,22 @@ static void render_block_walk_children_phase(RasterRenderContext* rdcon, ViewBlo
 
     bool content_phase = render_paint_phase_has_content(rdcon->paint_phase);
     if (content_phase) render_raster_negative_z_descendants(rdcon, block);
+    phase->overflow_clip_scope = render_block_push_contents_scope(rdcon, block);
     bool custom_painted = render_raster_custom_layout_children(rdcon, block);
     if (!custom_painted) {
         render_children(rdcon, layout_paint_first_child(block), true);
     }
+    if (phase->overflow_clip_scope.active) render_clip_pop_scope(rdcon, &phase->overflow_clip_scope);
+    phase->content_block = rdcon->block;
+    // positioned layers apply the owner's overflow only when its containing block requires it.
+    rdcon->block = phase->owner_block;
     if (content_phase) {
         render_raster_positioned_children(rdcon, block);
     }
     if (content_phase && !custom_painted) {
         radiant_stack_visit_positive_z_descendants(block, false, rdcon, render_raster_stacking_layer);
     }
+    rdcon->block = phase->content_block;
 }
 
 // signed layers share ancestry replay, retaining intervening scroll/overflow scopes.
@@ -619,11 +634,9 @@ static void render_raster_stacking_path(RasterRenderContext* rdcon, View* owner,
     rdcon->block.y += block->y * rdcon->raster_scale;
     render_block_setup_font(rdcon, block);
     render_block_apply_inherited_color(rdcon, block);
-    float origin_x = rdcon->block.x, origin_y = rdcon->block.y;
     bool overflow_applies = radiant_stack_overflow_applies(target, block);
-    if (overflow_applies && block->scroller) setup_scroller(rdcon, block);
     RenderClipScope overflow = {};
-    if (overflow_applies) overflow = render_clip_push_overflow_scope(rdcon, block, origin_x, origin_y);
+    if (overflow_applies) overflow = render_block_push_contents_scope(rdcon, block);
     render_raster_stacking_path(rdcon, child, target);
     if (overflow.active) render_clip_pop_scope(rdcon, &overflow);
     if (legacy_clip.active) render_clip_pop_scope(rdcon, &legacy_clip);
@@ -632,7 +645,15 @@ static void render_raster_stacking_path(RasterRenderContext* rdcon, View* owner,
 }
 
 static bool render_raster_stacking_layer(void* context, View* owner, View* layer) {
-    render_raster_stacking_path((RasterRenderContext*)context, owner, layer);
+    RasterRenderContext* rdcon = (RasterRenderContext*)context;
+    ViewBlock* block = lam::view_as_block(owner);
+    BlockBlot saved = rdcon->block;
+    RenderClipScope overflow = {};
+    if (block && radiant_stack_overflow_applies(layer, owner))
+        overflow = render_block_push_contents_scope(rdcon, block);
+    render_raster_stacking_path(rdcon, owner, layer);
+    if (overflow.active) render_clip_pop_scope(rdcon, &overflow);
+    rdcon->block = saved;
     return true;
 }
 
