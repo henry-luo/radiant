@@ -144,7 +144,7 @@ bool clipboard_store_write_image(const char* uri, const char* html, const char* 
     return true;
 }
 
-bool clipboard_store_read_snapshot(char** html, char** text, char** image) {
+static bool clipboard_read_snapshot(char** html, char** text, char** image, size_t* text_length) {
     if (!html || !text) return false;
     *html = nullptr;
     *text = nullptr;
@@ -153,7 +153,9 @@ bool clipboard_store_read_snapshot(char** html, char** text, char** image) {
     ClipboardEntry* markup = clipboard_items_find(items, "text/html");
     ClipboardEntry* plain = clipboard_items_find(items, "text/plain");
     if (markup && markup->data_len) *html = mem_strdup(markup->data, MEM_CAT_TEMP);
-    if (plain) *text = mem_strdup(plain->data, MEM_CAT_TEMP);
+    if (plain) *text = mem_dup_n(plain->data, plain->data_len, MEM_CAT_TEMP);
+    size_t length = *text ? plain->data_len : 0;
+    if (text_length) *text_length = length;
     // keep binary images available even when the HTML alternative references a remote URL.
     const char* image_mimes[] = {"image/png", "image/jpeg", "image/tiff", "image/webp", "image/avif", "image/gif", "image/bmp"};
     for (const char* mime : image_mimes) {
@@ -178,13 +180,21 @@ bool clipboard_store_read_snapshot(char** html, char** text, char** image) {
             break;
         }
     }
-    bool available = (*html && **html) || (*text && **text) || (image && *image && **image);
+    bool available = (*html && **html) || length || (image && *image && **image);
     items_free(items);
     return available;
 }
 
+bool clipboard_store_read_snapshot(char** html, char** text, char** image) {
+    return clipboard_read_snapshot(html, text, image, nullptr);
+}
+
 bool clipboard_store_read_paste(char** html, char** text) {
-    return clipboard_store_read_snapshot(html, text, nullptr);
+    return clipboard_store_read_paste_n(html, text, nullptr);
+}
+
+bool clipboard_store_read_paste_n(char** html, char** text, size_t* length) {
+    return clipboard_read_snapshot(html, text, nullptr, length);
 }
 
 // ---------------------------------------------------------------------------
@@ -346,24 +356,29 @@ void ClipboardStore::clear() {
     if (backend && backend->clear) backend->clear(backend);
 }
 
-void ClipboardStore::write_mime(const char* mime, const char* text) {
+void ClipboardStore::write_mime(const char* mime, const char* text, size_t length) {
     if (!mime || !text) return;
     if (!items) init();
     clear();
     ClipboardItem* it = item_new();
-    arraylist_append(it->entries, entry_new(mime, text, strlen(text)));
+    arraylist_append(it->entries, entry_new(mime, text, length));
     arraylist_append(items, it);
     if (backend && backend->write_items) {
         backend->write_items(backend, items);
     }
-    log_debug("clipboard_store: wrote %zu bytes mime=%s", strlen(text), mime);
+    log_debug("clipboard_store: wrote %zu bytes mime=%s", length, mime);
 }
 
 void ClipboardStore::write_text(const char* text) {
-    write_mime("text/plain", text ? text : "");
+    write_mime("text/plain", text ? text : "", text ? strlen(text) : 0);
 }
 
 void ClipboardStore::write_html(const char* html, const char* plain_text) {
+    const char* text = plain_text ? plain_text : html;
+    if (text) write_html(html, text, strlen(text));
+}
+
+void ClipboardStore::write_html(const char* html, const char* plain_text, size_t length) {
     if (!html) return;
     if (!items) init();
     clear();
@@ -371,15 +386,14 @@ void ClipboardStore::write_html(const char* html, const char* plain_text) {
     ClipboardItem* it = item_new();
     if (!it) return;
     arraylist_append(it->entries, entry_new("text/html", html, strlen(html)));
-    const char* text = plain_text ? plain_text : html;
-    arraylist_append(it->entries, entry_new("text/plain", text, strlen(text)));
+    arraylist_append(it->entries, entry_new("text/plain", plain_text, length));
     arraylist_append(items, it);
 
     if (backend && backend->write_items) {
         backend->write_items(backend, items);
     }
     log_debug("clipboard_store: wrote html=%zu bytes plain=%zu bytes",
-              strlen(html), strlen(text));
+              strlen(html), length);
 }
 
 const char* ClipboardStore::read_mime(const char* mime) {
@@ -423,7 +437,15 @@ ArrayList* ClipboardStore::read_items() {
 }
 
 void clipboard_store_write_text(const char* text) { g_store.write_text(text); }
-void clipboard_store_write_html(const char* html, const char* plain_text) { g_store.write_html(html, plain_text); }
+void clipboard_store_write_text_n(const char* text, size_t length) {
+    g_store.write_mime("text/plain", text, length);
+}
+void clipboard_store_write_html(const char* html, const char* plain_text) {
+    g_store.write_html(html, plain_text);
+}
+void clipboard_store_write_html_n(const char* html, const char* plain_text, size_t length) {
+    g_store.write_html(html, plain_text, length);
+}
 const char* clipboard_store_read_mime(const char* mime) { return g_store.read_mime(mime); }
 const char* clipboard_store_read_text(void) { return g_store.read_text(); }
 void clipboard_store_write_items(ArrayList* items) { g_store.write_items(items); }

@@ -8779,7 +8779,8 @@ static void append_selected_text_plain(StrBuf* sb, DomText* text,
 typedef void (*AppendSelectedText)(StrBuf*, DomText*, uint32_t, uint32_t);
 
 static char* extract_dom_range_to_arena(DomRange* range, Arena* arena,
-                                        AppendSelectedText append_selected) {
+                                        AppendSelectedText append_selected,
+                                        size_t* length = nullptr) {
     if (!range || !arena) return NULL;
     StrBuf* sb = strbuf_new_cap(256);
     if (!sb) return NULL;
@@ -8800,13 +8801,10 @@ static char* extract_dom_range_to_arena(DomRange* range, Arena* arena,
         if (!boundary_before_or_equal(&text_end, &range->end) || text_end.node == range->end.node) break;
         text = dom_range_next_text_after_any(static_cast<DomNode*>(text));
     }
-    char* result = sb->length > 0 ? arena_strdup(arena, sb->str) : NULL;
+    char* result = sb->length > 0 ? arena_dup_n(arena, sb->str, sb->length) : NULL;
+    if (result && length) *length = sb->length;
     strbuf_free(sb);
     return result;
-}
-
-static char* extract_dom_range_text_to_arena(DomRange* range, Arena* arena) {
-    return extract_dom_range_to_arena(range, arena, append_selected_text_plain);
 }
 
 /**
@@ -8856,7 +8854,7 @@ static char* extract_dom_range_html_to_arena(DomRange* range, Arena* arena) {
 }
 
 static char* extract_text_control_selection_to_arena(DocState* state,
-                                                     Arena* arena) {
+                                                     Arena* arena, size_t* length) {
     if (!state || !arena || state->sel.kind != EDIT_SEL_TEXT_CONTROL ||
         !state->sel.control) {
         return NULL;
@@ -8882,20 +8880,23 @@ static char* extract_text_control_selection_to_arena(DocState* state,
     if (end_byte <= start_byte || end_byte > value_len) return NULL;
 
     uint32_t len = end_byte - start_byte;
-    return arena_dup_n(arena, value + start_byte, len);
+    char* result = arena_dup_n(arena, value + start_byte, len);
+    if (result && length) *length = len;
+    return result;
 }
 
-char* state_store_extract_selection_text(DocState* state, Arena* arena) {
+char* state_store_extract_selection_text(DocState* state, Arena* arena, size_t* length) {
+    if (length) *length = 0;
     if (!state || !arena) return NULL;
 
     if (state->sel.kind == EDIT_SEL_TEXT_CONTROL) {
-        return extract_text_control_selection_to_arena(state, arena);
+        return extract_text_control_selection_to_arena(state, arena, length);
     }
 
     state_store_refresh_editing_selection_shadow(state);
     if (state->sel.kind == EDIT_SEL_DOM_RANGE && state->sel.range &&
         !dom_range_collapsed(state->sel.range)) {
-        return extract_dom_range_text_to_arena(state->sel.range, arena);
+        return extract_dom_range_to_arena(state->sel.range, arena, append_selected_text_plain, length);
     }
 
     return NULL;
@@ -8977,16 +8978,20 @@ void clipboard_copy_html(const char* html) {
 }
 
 void clipboard_copy_rich(const char* html, const char* plain_text) {
+    clipboard_copy_rich(html, plain_text, plain_text ? strlen(plain_text) : 0);
+}
+
+void clipboard_copy_rich(const char* html, const char* plain_text, size_t length) {
     if (!html && !plain_text) return;
     const char* text = plain_text ? plain_text : "";
     if (html && html[0]) {
-        clipboard_store_write_html(html, text);
+        clipboard_store_write_html_n(html, text, length);
     } else {
-        clipboard_store_write_text(text);
+        clipboard_store_write_text_n(text, length);
     }
     clipboard_platform_mirror(text);
     log_debug("clipboard_copy_rich: wrote html=%zu plain=%zu",
-              html ? strlen(html) : 0, strlen(text));
+              html ? strlen(html) : 0, length);
 }
 
 static const char* form_direction_live_value(DomElement* element, void*) {

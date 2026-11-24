@@ -299,19 +299,20 @@ static bool sim_text_matches(const char* assertion, const char* actual, size_t l
                              const SimEvent* ev) {
     actual = actual ? actual : "";
     bool passed = true;
-    if (ev && ev->assert_equals && !str_eq_const(actual, length, ev->assert_equals)) {
+    if (ev && ev->assert_equals &&
+            !str_eq(actual, length, ev->assert_equals, ev->assert_equals_length)) {
         log_error("event_sim: %s FAIL - expected '%s', got '%s'",
                   assertion, ev->assert_equals, actual);
         passed = false;
     }
     if (ev && ev->assert_contains &&
-            str_find(actual, length, ev->assert_contains, strlen(ev->assert_contains)) == STR_NPOS) {
+            str_find(actual, length, ev->assert_contains, ev->assert_contains_length) == STR_NPOS) {
         log_error("event_sim: %s FAIL - expected to contain '%s', got '%s'",
                   assertion, ev->assert_contains, actual);
         passed = false;
     }
     if (ev && ev->assert_not_contains &&
-            str_find(actual, length, ev->assert_not_contains, strlen(ev->assert_not_contains)) != STR_NPOS) {
+            str_find(actual, length, ev->assert_not_contains, ev->assert_not_contains_length) != STR_NPOS) {
         log_error("event_sim: %s FAIL - expected not to contain '%s', got '%s'",
                   assertion, ev->assert_not_contains, actual);
         passed = false;
@@ -1236,14 +1237,22 @@ static void parse_drag_geometry(MapReader& reader, SimEvent* ev) {
     }
 }
 
+static char* sim_copy_string(ItemReader reader, size_t* length) {
+    String* value = reader.asString();
+    if (value) {
+        *length = value->len;
+        return mem_dup_n(value->chars, *length, MEM_CAT_LAYOUT);
+    }
+    Symbol* symbol = reader.asSymbol();
+    *length = symbol ? symbol->len : 0;
+    return symbol ? mem_dup_n(symbol->chars, *length, MEM_CAT_LAYOUT) : nullptr;
+}
+
 static void parse_assertion_strings(MapReader& reader, SimEvent* ev,
                                     bool with_target) {
-    const char* equals = reader.get("equals").cstring();
-    if (equals) ev->assert_equals = mem_strdup(equals, MEM_CAT_LAYOUT);
-    const char* contains = reader.get("contains").cstring();
-    if (contains) ev->assert_contains = mem_strdup(contains, MEM_CAT_LAYOUT);
-    const char* not_contains = reader.get("not_contains").cstring();
-    if (not_contains) ev->assert_not_contains = mem_strdup(not_contains, MEM_CAT_LAYOUT);
+    ev->assert_equals = sim_copy_string(reader.get("equals"), &ev->assert_equals_length);
+    ev->assert_contains = sim_copy_string(reader.get("contains"), &ev->assert_contains_length);
+    ev->assert_not_contains = sim_copy_string(reader.get("not_contains"), &ev->assert_not_contains_length);
     if (with_target) parse_target(reader, ev);
 }
 
@@ -2020,14 +2029,13 @@ static SimEvent* parse_sim_event(EventSimContext* ctx, MapReader& reader) {
     else if (strcmp(type_str, "write_file") == 0) {
         ev->type = SIM_EVENT_WRITE_FILE;
         const char* file = reader.get("path").cstring();
-        const char* content = reader.get("content").cstring();
+        ev->input_text = sim_copy_string(reader.get("content"), &ev->input_text_length);
         // fixtures may only write scratch files; an edited working copy lives there
-        if (!event_sim_path_is_temp_scratch(file) || !content) {
+        if (!event_sim_path_is_temp_scratch(file) || !ev->input_text) {
             log_error("event_sim: write_file requires a ./temp/ 'path' and 'content'");
             return parse_sim_event_fail(ev);
         }
         ev->file_path = mem_strdup(file, MEM_CAT_LAYOUT);
-        ev->input_text = mem_strdup(content, MEM_CAT_LAYOUT);
     }
     else if (strcmp(type_str, "assert_file") == 0) {
         ev->type = SIM_EVENT_ASSERT_FILE;
@@ -4598,11 +4606,13 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
                 if (!passed) log_error("event_sim: clipboard bytes differ from %s", ev->file_path);
                 break;
             }
-            const char* clip = ev->clipboard_mime
-                ? clipboard_store_read_mime(ev->clipboard_mime)
-                : clipboard_get_text();
-            if (!clip) clip = "";
-            bool passed = sim_text_matches("assert_clipboard", clip, ev);
+            ArrayList* items = clipboard_store_read_items();
+            ClipboardEntry* entry = clipboard_items_find(items,
+                ev->clipboard_mime ? ev->clipboard_mime : "text/plain");
+            bool passed = entry
+                ? sim_text_matches("assert_clipboard", entry->data, entry->data_len, ev)
+                : sim_text_matches("assert_clipboard", ev->clipboard_mime ? nullptr : clipboard_get_text(), ev);
+            clipboard_items_free(items);
             if (passed) {
                 log_info("event_sim: assert_clipboard PASS");
             }
@@ -5994,12 +6004,12 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
 
         case SIM_EVENT_WRITE_FILE: {
             if (!event_sim_create_parent_dirs(ev->file_path) ||
-                write_text_file_atomic(ev->file_path, ev->input_text) != 0) {
+                write_binary_file_atomic(ev->file_path, ev->input_text, ev->input_text_length) != 0) {
                 log_error("event_sim: write_file FAIL - could not write %s", ev->file_path);
                 sim_record_assertion(ctx, false);
             } else {
                 log_info("event_sim: write_file %s (%zu bytes)", ev->file_path,
-                         strlen(ev->input_text));
+                         ev->input_text_length);
             }
             break;
         }
@@ -6016,7 +6026,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
                 log_error("event_sim: assert_file FAIL - cannot read %s", ev->file_path);
                 passed = false;
             }
-            if (passed && exists) passed = sim_text_matches("assert_file", data, ev);
+            if (passed && exists) passed = sim_text_matches("assert_file", data, size, ev);
             if (passed) log_info("event_sim: assert_file PASS (%s)", ev->file_path);
             sim_record_assertion(ctx, passed);
             if (data) mem_free(data);

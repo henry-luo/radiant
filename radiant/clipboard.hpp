@@ -57,6 +57,7 @@ void clipboard_items_free(ArrayList* items);
 ClipboardEntry* clipboard_items_find(ArrayList* items, const char* mime);
 // paste takes one owned snapshot so a subsequent read cannot invalidate it.
 bool clipboard_store_read_paste(char** html, char** text);
+bool clipboard_store_read_paste_n(char** html, char** text, size_t* text_length);
 // the optional image representation is independent of any HTML alternative.
 bool clipboard_store_read_snapshot(char** html, char** text, char** image);
 bool clipboard_store_write_image(const char* data_uri, const char* html, const char* text);
@@ -70,6 +71,7 @@ ClipboardBackend* clipboard_backend_glfw(void);       // existing plain-text-onl
 // Copy the supplied UTF-8 text to the clipboard as text/plain. Replaces
 // any prior contents.
 void   clipboard_store_write_text(const char* text);
+void   clipboard_store_write_text_n(const char* text, size_t length);
 
 // Read the clipboard's text/plain representation. Returned pointer is
 // owned by the store and valid until the next clipboard write/clear.
@@ -77,6 +79,7 @@ const char* clipboard_store_read_text(void);
 
 // Copy HTML plus a plain-text fallback as one multi-MIME clipboard item.
 void   clipboard_store_write_html(const char* html, const char* plain_text);
+void   clipboard_store_write_html_n(const char* html, const char* plain_text, size_t length);
 
 // Read a specific MIME representation. NULL if not present.
 const char* clipboard_store_read_mime(const char* mime);
@@ -116,9 +119,10 @@ struct ClipboardStore {
     void destroy();
     void clear();
     void set_backend(ClipboardBackend* next_backend);
-    void write_mime(const char* mime, const char* text);
+    void write_mime(const char* mime, const char* text, size_t length);
     void write_text(const char* text);
     void write_html(const char* html, const char* plain_text);
+    void write_html(const char* html, const char* plain_text, size_t length);
     const char* read_mime(const char* mime);
     const char* read_text();
     void write_items(ArrayList* next_items);
