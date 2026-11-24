@@ -918,12 +918,20 @@ static void svg_cb_render_marker(RenderContext* vctx, ViewSpan* marker, float ab
         }
         default: {
             // text markers (decimal, roman, alpha, etc.)
-            if (marker_prop->text_content && *marker_prop->text_content) {
+            if (marker_prop->text_content_length) {
                 float baseline_y = render_marker_baseline_y(marker_prop, y);
                 const char* src = marker_prop->text_content;
-                StrBuf* escaped = strbuf_new_cap(strlen(src) * 2);
-                escape_append(escaped, src, strlen(src), ESCAPE_RULES_HTML_TEXT,
-                              ESCAPE_RULES_HTML_TEXT_COUNT, ESCAPE_CTRL_NONE);
+                const char* end = src + marker_prop->text_content_length;
+                StrBuf* escaped = strbuf_new_cap(marker_prop->text_content_length);
+                if (!escaped) break;
+                while (src < end) {
+                    const char* nul = (const char*)memchr(src, 0, (size_t)(end - src));
+                    escape_append(escaped, src, (size_t)((nul ? nul : end) - src),
+                                  ESCAPE_RULES_HTML_TEXT, ESCAPE_RULES_HTML_TEXT_COUNT, ESCAPE_CTRL_NONE);
+                    if (!nul) break;
+                    strbuf_append_utf8(escaped, TEXT_NUL_PLACEHOLDER);
+                    src = nul + 1;
+                }
                 FontHandle* marker_font_handle = font_box_handle(font);
                 const char* family = marker_font_handle
                     ? font_handle_get_family_name(marker_font_handle) : "Arial";

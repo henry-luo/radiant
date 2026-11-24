@@ -154,8 +154,7 @@ static bool ruby_node_in_flow(DomNode* node) {
 static bool ruby_nodes_are_whitespace(DomNode** nodes, int count) {
     if (count <= 0) return false;
     for (int index = 0; index < count; index++) {
-        if (!nodes[index]->is_text() || !is_only_whitespace(
-                (const char*)nodes[index]->text_data())) return false;
+        if (!nodes[index]->is_text() || layout_text_node_has_content(nodes[index])) return false;
     }
     return true;
 }
@@ -1538,8 +1537,7 @@ static bool ruby_collect_text_runs(LayoutContext* context, DomNode* node, DomNod
         LayoutRubyTextRun* run = &fragment->runs[fragment->run_count++];
         run->source = node;
         run->root = root;
-        if (!node->text_data()) return false;
-        run->source_length = strlen((const char*)node->text_data());
+        if (!node->text_data(&run->source_length)) return false;
         if (!layout_measure_text_break_plan(context, node, scope, &run->plan)) return false;
         if (fragment->run_count > 1) {
             LayoutRubyTextRun* previous = run - 1;

@@ -139,6 +139,10 @@ bool layout_get_grapheme_cluster_bytes(const unsigned char* cluster_start,
         !cluster_bytes) {
         return false;
     }
+    if (text_end - cluster_start == 1) return false;
+    // CRLF is the only ASCII pair that forms a grapheme, even with NUL in the span.
+    unsigned char first = cluster_start[0], second = cluster_start[1];
+    if ((first | second) < 0x80 && (first != '\r' || second != '\n')) return false;
     uint32_t previous = 0;
     int first_bytes = str_utf8_decode(
         (const char*)cluster_start, (size_t)(text_end - cluster_start), &previous);

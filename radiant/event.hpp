@@ -693,6 +693,8 @@ typedef struct InputIntent {
     ~InputIntent();
     InputIntentType type;
     const char* data;
+    size_t data_length;  // known byte length for clipboard text
+    size_t text_length() const;
     const char* html_data;
     const char* data_mime;
     char* owned_data;
@@ -919,7 +921,7 @@ typedef struct DomEditInvocation {
 // command waist. Returned strings are MEM_CAT_TEMP copies owned by the caller.
 Item radiant_edit_result_field(Item result, const char* name);
 bool radiant_edit_result_bool(Item result, const char* name);
-char* radiant_edit_result_string_copy(Item result, const char* name);
+char* radiant_edit_result_string_copy(Item result, const char* name, size_t* length = nullptr);
 uint64_t radiant_model_edit_surface_bind(DomElement* target,
                                          uint64_t model_revision);
 bool radiant_finish_model_edit(Item surface_handle, Item edit_result);
@@ -3945,7 +3947,7 @@ char* extract_html_from_view(View* view, Arena* arena);
  * Extract the canonical StateStore editing selection as plain text / HTML.
  * These do not fall back to caret/selection projection caches.
  */
-char* state_store_extract_selection_text(DocState* state, Arena* arena);
+char* state_store_extract_selection_text(DocState* state, Arena* arena, size_t* length = nullptr);
 char* state_store_extract_selection_html(DocState* state, Arena* arena);
 
 /**
@@ -3978,6 +3980,7 @@ void clipboard_copy_html(const char* html);
  * @param plain_text The plain-text representation of the same selection
  */
 void clipboard_copy_rich(const char* html, const char* plain_text);
+void clipboard_copy_rich(const char* html, const char* plain_text, size_t text_length);
 
 // ============================================================================
 // Dirty Tracking API

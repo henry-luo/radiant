@@ -981,8 +981,15 @@ static void window_submit_pointer_move(double x, double y) {
 
 // A move to a point outside the document hit-tests no target, which clears
 // hover and dispatches the mouseout/mouseleave boundary events.
-void radiant_host_pointer_left(RadiantWindow*) {
-    window_submit_pointer_move(-1.0, -1.0);
+void radiant_host_pointer_left(RadiantWindow* window) {
+    if (window && ui_context.mouse_state.is_mouse_down) {
+        // The held pointer's real exit edge determines selection scrolling.
+        double x, y;
+        radiant_platform_get_cursor_pos(window, &x, &y);
+        window_submit_pointer_move(x, y);
+    } else {
+        window_submit_pointer_move(-1.0, -1.0);
+    }
 }
 
 // macOS sends motion and enter/leave only to the key window, so a window that

@@ -72,10 +72,7 @@ static bool flex_container_has_only_direct_text_and_br(ViewBlock* flex_container
     DomNode* child = flex_container->first_child;
     while (child) {
         if (child->is_text()) {
-            const char* text = (const char*)child->text_data();
-            if (text && !is_only_whitespace(text)) {
-                saw_content = true;
-            }
+            saw_content = saw_content || layout_text_node_has_content(child);
         } else if (flex_child_is_br(child)) {
             saw_content = true;
             saw_br = true;
@@ -1625,12 +1622,7 @@ void layout_final_flex_content(LayoutContext* lycon, ViewBlock* flex_container) 
     bool has_text_content = false;
     DomNode* text_child = flex_container->first_child;
     while (text_child && !has_text_content) {
-        if (text_child->is_text()) {
-            const char* text = (const char*)text_child->text_data();
-            if (text && !is_only_whitespace(text)) {
-                has_text_content = true;
-            }
-        }
+        has_text_content = layout_text_node_has_content(text_child);
         text_child = text_child->next_sibling;
     }
 
@@ -1713,8 +1705,9 @@ void layout_final_flex_content(LayoutContext* lycon, ViewBlock* flex_container) 
         text_child = flex_container->first_child;
         while (!handled_direct_text_br_run && text_child) {
             if (text_child->is_text()) {
-                const char* text = (const char*)text_child->text_data();
-                if (text && !is_only_whitespace(text)) {
+                size_t length;
+                const char* text = (const char*)text_child->text_data(&length);
+                if (!is_only_whitespace(text, length)) {
                     CssEnum ws = CSS_VALUE_NORMAL;
                     if (flex_container->blk && flex_container->block_mut()->white_space != 0) {
                         ws = flex_container->block()->white_space;
@@ -1724,7 +1717,7 @@ void layout_final_flex_content(LayoutContext* lycon, ViewBlock* flex_container) 
                     bool nowrap = (ws == CSS_VALUE_NOWRAP || ws == CSS_VALUE_PRE);
 
                     LayoutTextRun run = layout_prepare_text_run(
-                        text, strlen(text),
+                        text, length,
                         collapse_ws ? LAYOUT_TEXT_RUN_COLLAPSE : LAYOUT_TEXT_RUN_RAW);
                     TextIntrinsicWidths widths = layout_measure_text_intrinsic_widths(
                         lycon, run.text, run.length,
@@ -1820,7 +1813,7 @@ void layout_final_flex_content(LayoutContext* lycon, ViewBlock* flex_container) 
                             dt->rect->width = text_width;
                             dt->rect->height = text_height;
                             dt->rect->start_index = 0;
-                            dt->rect->length = (int)strlen(text); // INT_CAST_OK: string length
+                            dt->rect->length = (int)length; // INT_CAST_OK: source byte length
                             dt->rect->next = nullptr;  // single rect for vertical text
                         }
                     }
@@ -1838,11 +1831,12 @@ void layout_final_flex_content(LayoutContext* lycon, ViewBlock* flex_container) 
         DomNode* child = flex_container->first_child;
         while (!handled_direct_text_br_run && child) {
             if (child->is_text()) {
-                const char* text = (const char*)child->text_data();
-                if (text && !is_only_whitespace(text)) {
+                size_t length;
+                const char* text = (const char*)child->text_data(&length);
+                if (!is_only_whitespace(text, length)) {
 
                     LayoutTextRun run = layout_prepare_text_run(
-                        text, strlen(text), LAYOUT_TEXT_RUN_TRIM);
+                        text, length, LAYOUT_TEXT_RUN_TRIM);
                     if (run.length > 0) {
                         bool text_is_anonymous_flex_item =
                             flex_find_anonymous_text_item(flex, child->as_text()) != nullptr;

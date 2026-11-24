@@ -15,12 +15,15 @@ void radiant_dom_mutation_begin(DomDocument* document, DomJsMutationKind kind,
                                 CssPropertyCode presentation_property);
 void radiant_dom_mutation_begin(DomDocument* document, DomJsMutationKind kind,
                                 DomNode* target, DomNode* parent, const char* attribute_name,
-                                CssPropertyCode presentation_property, const char* old_value);
+                                CssPropertyCode presentation_property, const char* old_value,
+                                size_t old_value_length = SIZE_MAX);
 void radiant_dom_mutation_finish(DomDocument* document, DomJsMutationKind kind);
 void radiant_dom_notify_native(DomDocument* document, DomJsMutationKind kind,
                                DomNode* target, DomNode* parent,
-                               const char* attribute_name, const char* old_value);
+                               const char* attribute_name, const char* old_value,
+                               size_t old_value_length = SIZE_MAX);
 extern "C" bool dom_edit_transaction_defer_mutation(DomDocument* document, DomJsMutationKind kind,
                                                     DomNode* target, DomNode* parent,
-                                                    const char* attribute_name, const char* old_value);
+                                                    const char* attribute_name, const char* old_value,
+                                                    size_t old_value_length = SIZE_MAX);
 

@@ -2156,6 +2156,7 @@ typedef struct MarkerProp {
     float bullet_size;       // Size of the bullet shape (typically ~0.35em = 5-6px)
     float trailing_space_width; // Collapsible separator after a default text marker
     lam::Own<char> text_content;      // Text content for numbered markers (decimal, roman, alpha)
+    size_t text_content_length;
     ListStyleImage image;     // list-style-image URL or gradient
     lam::Up<ImageSurface> loaded_image; // borrowed from the image cache, for layout and render
     bool is_image_marker;     // true for a valid image without URL intrinsic size
@@ -3943,6 +3944,8 @@ struct FormControlProp {
     const char* value;          // Current value (for display)
     const char* placeholder;    // Placeholder text
     const char* name;           // Form field name
+    size_t attribute_value_length;
+    size_t placeholder_length;
 
     // Sizing attributes
     int size;                   // Character width for text inputs (size attr)
@@ -4010,6 +4013,10 @@ struct FormControlProp {
     uint32_t selection_end;           // UTF-16 code units
     uint8_t  selection_direction;     // 0=none, 1=forward, 2=backward
     uint8_t  tc_initialized : 1;
+
+    StrView display_value() const {
+        return {value, value == current_value ? current_value_len : attribute_value_length};
+    }
 
     // Constraint Validation API (§4.10.20)
     // Custom validity error message set via setCustomValidity(msg).

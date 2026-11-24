@@ -13,7 +13,7 @@ struct RadiantEditingDomHostOps {
     bool (*remove_child)(DomNode* child);
     bool (*insert_html)(DomDocument* document, const char* html);
     void (*notify)(DomJsMutationKind kind, DomNode* target, DomNode* parent,
-                   const char* attribute_name, const char* old_value);
+                   const char* attribute_name, const char* old_value, size_t old_value_length);
 };
 
 bool radiant_editing_dom_host_register(const RadiantEditingDomHostOps* operations);
@@ -23,4 +23,5 @@ bool radiant_editing_dom_remove_child(DomNode* child, bool* host_present);
 bool radiant_editing_dom_insert_html(DomDocument* document, const char* html);
 // True means a script host delivered the mutation; false leaves native delivery to the caller.
 bool radiant_editing_dom_notify_host(DomJsMutationKind kind, DomNode* target, DomNode* parent,
-                                     const char* attribute_name, const char* old_value);
+                                     const char* attribute_name, const char* old_value,
+                                     size_t old_value_length = SIZE_MAX);

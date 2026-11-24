@@ -179,7 +179,7 @@ void render_marker_view(RasterRenderContext* rdcon, ViewSpan* marker) {
         case CSS_VALUE_GEORGIAN:
         case CSS_VALUE_JAPANESE_INFORMAL:
         case CSS_VALUE_CJK_DECIMAL: {
-            if (marker_prop->text_content && *marker_prop->text_content && font_box_handle(marker_font)) {
+            if (marker_prop->text_content_length && font_box_handle(marker_font)) {
                 Color previous_color = rdcon->color;
                 rdcon->color = color;
                 float s = rdcon->raster_scale;
@@ -187,13 +187,14 @@ void render_marker_view(RasterRenderContext* rdcon, ViewSpan* marker) {
                 FontStyleDesc marker_style = font_style_desc_from_prop(marker_font->style);
                 FontHandle* marker_handle = font_box_handle(marker_font);
                 const char* marker_end = marker_prop->text_content +
-                    strlen(marker_prop->text_content);
+                    marker_prop->text_content_length;
 
                 float total_text_width = 0.0f;
                 const char* p = marker_prop->text_content;
                 while (p < marker_end) {
                     uint32_t cp;
                     if (!layout_utf8_next_codepoint(&p, marker_end, &cp)) continue;
+                    if (!cp) cp = text_nul_glyph_codepoint(marker_handle);
                     LoadedGlyph* glyph = font_load_glyph(marker_handle, &marker_style, cp, false);
                     total_text_width += glyph ? glyph->advance_x + marker_font->style->letter_spacing * s : (marker_font->style->space_width * s);
                 }
@@ -209,6 +210,7 @@ void render_marker_view(RasterRenderContext* rdcon, ViewSpan* marker) {
                         continue;
                     }
 
+                    if (!cp) cp = text_nul_glyph_codepoint(marker_handle);
                     LoadedGlyph* glyph = font_load_glyph(marker_handle, &marker_style, cp, true);
                     if (glyph) {
                         draw_glyph(rdcon, &glyph->bitmap, lroundf(tx + glyph->bitmap.bearing_x), lroundf(y + ascend - glyph->bitmap.bearing_y));

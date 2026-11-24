@@ -507,20 +507,21 @@ static void refresh_marker_content(LayoutContext* lycon, DomElement* parent_elem
         MarkerProp* marker_prop, CssEnum marker_style, float font_size,
         float image_default_size, float image_gap, float effective_zoom,
         bool is_bullet_marker, bool is_outside, bool is_string_marker,
-        const char* string_marker, const char* marker_css_content, FontHandle* font_handle) {
+        const char* string_marker, StrView marker_css_content, FontHandle* font_handle,
+        FontProp* marker_font) {
     lam::Own<char> previous = marker_prop->text_content;
-    marker_prop->text_content = nullptr;
     marker_prop->trailing_space_width = 0.0f;
     marker_prop->trailing_space_trimmed = false;
-    if (marker_css_content) {
+    char marker_text[64];
+    StrView content = {};
+    if (marker_css_content.str) {
         // ::marker { content: ... } overrides list-style-type
-        radiant_retain_marker_text_content(marker_prop, lam::promote_to_pool(lycon->pool, marker_css_content));
+        content = marker_css_content;
         marker_prop->marker_type = CSS_VALUE_DECIMAL;  // force text rendering
     } else if (is_string_marker && !marker_prop->is_image_marker && !marker_prop->loaded_image) {
         // CSS Lists 3 §4.1: use the string directly as marker content
-        radiant_retain_marker_text_content(marker_prop, lam::promote_to_pool(lycon->pool, string_marker));
+        content = strview_from_cstr(string_marker);
     } else if (!is_bullet_marker && !marker_prop->is_image_marker && !marker_prop->loaded_image) {
-        char marker_text[64];
         int marker_len = counter_format(lycon->counter_context, "list-item", marker_style, marker_text, sizeof(marker_text));
         const char* suffix = counter_style_suffix(marker_style);
         size_t suffix_length = strlen(suffix);
@@ -528,13 +529,15 @@ static void refresh_marker_content(LayoutContext* lycon, DomElement* parent_elem
         if (marker_len > 0 && (size_t)marker_len + suffix_length < sizeof(marker_text)) {
             str_copy(marker_text + marker_len, sizeof(marker_text) - marker_len, suffix, suffix_length);
 
-            radiant_retain_marker_text_content(marker_prop, lam::promote_to_pool(lycon->pool, marker_text));
+            content = {marker_text, (size_t)marker_len + suffix_length};
         }
     }
+    radiant_retain_marker_text_content(marker_prop, lam::PoolPtr<char>(
+        content.str ? pool_dup_n(lycon->pool, content.str, content.length) : nullptr), content.length);
     lam::free_owned(lycon->pool, previous);
     if (!marker_prop->has_explicit_content && !is_string_marker &&
         marker_prop->text_content && font_handle) {
-        size_t marker_length = strlen(marker_prop->text_content);
+        size_t marker_length = marker_prop->text_content_length;
         if (marker_length > 0 && marker_prop->text_content[marker_length - 1] == ' ') {
             TextExtents space = font_measure_text(font_handle, " ", 1);
             marker_prop->trailing_space_width = space.width;
@@ -545,9 +548,14 @@ static void refresh_marker_content(LayoutContext* lycon, DomElement* parent_elem
     if (!set_marker_image_geometry(parent_elem, marker_prop, image_default_size,
                                    image_gap, effective_zoom) &&
         marker_prop->text_content && font_handle) {
-        TextExtents extents = font_measure_text(font_handle, marker_prop->text_content,
-                                                 (int)strlen(marker_prop->text_content)); // INT_CAST_OK: string length
-        marker_prop->width = extents.width;
+        size_t length = marker_prop->text_content_length;
+        if (length > INT_MAX || memchr(marker_prop->text_content, 0, length)) {
+            marker_prop->width = layout_measure_utf8_text_width(font_handle, marker_font,
+                marker_prop->text_content, length, ui_context_raster_scale(lycon->ui_context));
+        } else {
+            marker_prop->width = font_measure_text(font_handle, marker_prop->text_content,
+                (int)length).width; // INT_CAST_OK: bounded font byte count.
+        }
     } else if (!marker_prop->loaded_image && is_bullet_marker) {
         marker_prop->width = list_marker_bullet_inline_size(
             font_size, is_outside, marker_prop->reserves_first_line);
@@ -563,8 +571,9 @@ static DomElement* create_marker_element(LayoutContext* lycon, DomElement* paren
                                          float effective_zoom,
                                          bool is_bullet_marker, bool is_outside,
                                          bool is_string_marker, const char* string_marker,
-                                         const char* marker_css_content,
+                                         StrView marker_css_content,
                                          FontHandle* font_handle,
+                                         FontProp* marker_font,
                                          const ListStyleImage* image) {
     float bullet_size = font_size * 0.35f;  // ~5-6px at 16px font
 
@@ -578,17 +587,17 @@ static DomElement* create_marker_element(LayoutContext* lycon, DomElement* paren
     marker_prop->marker_type = marker_style;
     marker_prop->bullet_size = bullet_size;
     marker_prop->is_outside = is_outside;
-    marker_prop->has_explicit_content = marker_css_content != nullptr;
+    marker_prop->has_explicit_content = marker_css_content.str != nullptr;
     DomElement* list_parent = parent_elem->parent_element();
     bool is_quirks = lycon->doc && lycon->doc->view_tree &&
         is_quirks_mode(lycon->doc->view_tree->html_version);
     marker_prop->reserves_first_line = is_quirks && is_outside &&
         (!list_parent || !layout_is_html_list_container_tag(list_parent->tag_id));
-    refresh_marker_image(lycon, marker_prop, image, marker_css_content != nullptr);
+    refresh_marker_image(lycon, marker_prop, image, marker_css_content.str != nullptr);
 
     refresh_marker_content(lycon, parent_elem, marker_prop, marker_style, font_size,
         image_default_size, image_gap, effective_zoom, is_bullet_marker, is_outside,
-        is_string_marker, string_marker, marker_css_content, font_handle);
+        is_string_marker, string_marker, marker_css_content, font_handle, marker_font);
     marker_elem->view_type = RDT_VIEW_MARKER;
     marker_elem->set_marker_prop(marker_prop);
 
@@ -680,7 +689,7 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
     // CSS Lists 3 §3.2: a valid image takes precedence even when the marker string is none.
     bool has_marker = has_image || (effective_list_style != CSS_VALUE_NONE) || (string_marker != nullptr);
     // Check for ::marker { content: ... } CSS override
-    const char* marker_css_content = nullptr;
+    StrView marker_css_content = {};
     DomElement* list_elem = lam::dom_require<DOM_NODE_ELEMENT>(elmt);
     if (list_elem->pseudo_style(PSEUDO_STYLE_MARKER)) {
         CssDeclaration* content_decl = style_tree_get_declaration(
@@ -694,7 +703,7 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
                 marker_css_content = dom_element_get_pseudo_element_content_with_counters(
                     list_elem, 6, lycon->counter_context, lycon->pass_arena,
                     lycon->counter_context ? &lycon->counter_context->quote_depth : nullptr);
-                if (marker_css_content) {
+                if (marker_css_content.str) {
                     has_marker = true;
                 }
             }
@@ -710,7 +719,7 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
     CssEnum marker_style = effective_list_style;
     bool is_string_marker = (string_marker != nullptr);
 
-    bool is_bullet_marker = !is_string_marker && !marker_css_content &&
+    bool is_bullet_marker = !is_string_marker && !marker_css_content.str &&
                             (marker_style == CSS_VALUE_DISC ||
                             marker_style == CSS_VALUE_CIRCLE ||
                             marker_style == CSS_VALUE_SQUARE ||
@@ -756,13 +765,13 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
         MarkerProp* marker_prop = block->pseudo_prop()->marker->marker_prop();
         marker_prop->suppressed = false;
         marker_prop->marker_type = marker_style;
-        marker_prop->has_explicit_content = marker_css_content != nullptr;
-        refresh_marker_image(lycon, marker_prop, image, marker_css_content != nullptr);
+        marker_prop->has_explicit_content = marker_css_content.str != nullptr;
+        refresh_marker_image(lycon, marker_prop, image, marker_css_content.str != nullptr);
         marker_prop->is_outside = is_outside_position;
         marker_prop->bullet_size = marker_font_size * 0.35f;
         refresh_marker_content(lycon, parent_elem, marker_prop, marker_style, marker_font_size,
             image_default_size, image_gap, effective_zoom, is_bullet_marker, is_outside_position,
-            is_string_marker, string_marker, marker_css_content, marker_font_handle);
+            is_string_marker, string_marker, marker_css_content, marker_font_handle, marker_font_prop);
     }
 
     if (!block->pseudo_prop()->marker_generated) {
@@ -771,7 +780,7 @@ void process_list_item(LayoutContext* lycon, ViewBlock* block, DomNode* elmt,
             image_default_size, image_gap, effective_zoom,
             is_bullet_marker, is_outside_position,
             is_string_marker, string_marker, marker_css_content,
-            marker_font_handle, image);
+            marker_font_handle, marker_font_prop, image);
 
         if (marker_elem) {
             marker_elem->font = lam::view_prop(marker_font_prop);

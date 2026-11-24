@@ -211,22 +211,20 @@ char* tc_copy_initial_value(DomElement* elem, uint32_t* out_len) {
         StrBuf* sb = strbuf_new_cap(64);
         if (!sb) return nullptr;
         dom_collect_text_content((DomNode*)elem, sb);
-        size_t len = sb->str ? strlen(sb->str) : 0;
-        const char* attr_value = nullptr;
-        if (len == 0) {
-            attr_value = elem->get_attribute("value");
-            if (attr_value) len = strlen(attr_value);
+        StrView value = {sb->str ? sb->str : "", sb->length};
+        if (value.length == 0) {
+            StrView fallback = elem->get_attribute_view("value");
+            if (fallback.str) value = fallback;
         }
-        const char* value = attr_value ? attr_value : (sb->str ? sb->str : "");
-        char* out = mem_dup_n(value, len, MEM_CAT_DOM);
+        char* out = mem_dup_n(value.str, value.length, MEM_CAT_DOM);
         strbuf_free(sb);
-        if (out_len) *out_len = (uint32_t)len;
+        if (out_len) *out_len = (uint32_t)value.length;
         return out;
     }
-    const char* v = elem->get_attribute("value");
-    if (!v) v = "";
-    char* out = mem_strdup(v, MEM_CAT_DOM);
-    if (out_len) *out_len = (uint32_t)strlen(v);
+    StrView value = elem->get_attribute_view("value");
+    if (!value.str) value.str = "";
+    char* out = mem_dup_n(value.str, value.length, MEM_CAT_DOM);
+    if (out_len) *out_len = (uint32_t)value.length;
     return out;
 }
 

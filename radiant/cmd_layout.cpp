@@ -3361,7 +3361,7 @@ static CssStylesheet* load_home_stylesheet(CssEngine* css_engine, Pool* pool,
     return stylesheet;
 }
 
-// load a text file as an escaped, monospace HTML source view.
+// load a text file into a monospace view without reparsing its contents as HTML.
 DomDocument* load_text_doc(Url* text_url, int viewport_width, int viewport_height, Pool* pool) {
     if (!text_url || !pool) {
         log_error("load_text_doc: invalid parameters");
@@ -3377,41 +3377,15 @@ DomDocument* load_text_doc(Url* text_url, int viewport_width, int viewport_heigh
     log_info("[TIMING] Loading text document: %s", text_filepath);
 
     auto step1_start = time_now_ns();
-    char* text_content = read_text_file(text_filepath);
+    size_t content_len = 0;
+    lam::Temp<char> text_content(read_binary_file(text_filepath, &content_len));
     if (!text_content) {
         log_error("Failed to read text file: %s", text_filepath);
         return nullptr;
     }
-    size_t content_len = strlen(text_content);
     auto step1_end = time_now_ns();
     log_info("[TIMING] Step 1 - Read text file: %.1fms (%zu bytes)",
         time_elapsed_ms_f(step1_start, step1_end), content_len);
-
-    auto step2_start = time_now_ns();
-
-    StrBuf* escaped_buf = strbuf_new_cap(content_len + 1);
-    if (!escaped_buf) {
-        log_error("Failed to allocate escaped content buffer");
-        mem_free(text_content);  // from read_text_file, uses stdlib
-        return nullptr;
-    }
-    escape_append(escaped_buf, text_content, content_len, ESCAPE_RULES_HTML_TEXT,
-                  ESCAPE_RULES_HTML_TEXT_COUNT, ESCAPE_CTRL_NONE);
-    char* escaped_content = mem_strdup(escaped_buf->str, MEM_CAT_LAYOUT);
-    strbuf_free(escaped_buf);
-    mem_free(text_content);  // from read_text_file, uses stdlib
-    if (!escaped_content) {
-        log_error("Failed to copy escaped content buffer");
-        return nullptr;
-    }
-
-    auto step2_end = time_now_ns();
-    log_info("[TIMING] Step 2 - Escape HTML: %.1fms",
-        time_elapsed_ms_f(step2_start, step2_end));
-
-    auto step3_start = time_now_ns();
-
-    const char* filename = file_path_basename(text_filepath);
 
     const char* html_template =
         "<!DOCTYPE html>\n"
@@ -3437,28 +3411,33 @@ DomDocument* load_text_doc(Url* text_url, int viewport_width, int viewport_heigh
         "  </style>\n"
         "</head>\n"
         "<body>\n"
-        "<pre>%s</pre>\n"
+        "<pre id=\"plain-text\"></pre>\n"
         "</body>\n"
         "</html>\n";
 
-    size_t html_len = strlen(html_template) + strlen(filename) + strlen(escaped_content) + 1;
-    char* html_content = (char*)mem_alloc(html_len, MEM_CAT_LAYOUT);
-    if (!html_content) {
-        log_error("Failed to allocate HTML buffer");
-        mem_free(escaped_content);
+    const char* filename = file_path_basename(text_filepath);
+    StrBuf* title = strbuf_new();
+    StrBuf* html = strbuf_new();
+    if (!title || !html) {
+        strbuf_free(title);
+        strbuf_free(html);
         return nullptr;
     }
-    snprintf(html_content, html_len, html_template, filename, escaped_content);
-    mem_free(escaped_content);
-
-    auto step3_end = time_now_ns();
-    log_info("[TIMING] Step 3 - Build HTML: %.1fms",
-        time_elapsed_ms_f(step3_start, step3_end));
-
+    escape_append_html_text(title, filename, strlen(filename));
+    strbuf_append_format(html, html_template, title->str);
+    strbuf_free(title);
     DomDocument* document = load_lambda_html_doc(
         text_url, nullptr, viewport_width, viewport_height, pool,
-        html_content, false, false);
-    mem_free(html_content);
+        html->str, false, false);
+    strbuf_free(html);
+    if (!document || content_len == 0) return document;
+    DomElement* pre = dom_find_element_by_id(document->root, "plain-text");
+    // keep the exact bytes, including NUL, out of HTML tokenizer preprocessing.
+    DomText* text = pre ? DomText::create_detached_copy(document, text_content.get(), content_len) : nullptr;
+    if (!text || !pre->append_child(text)) {
+        dom_document_destroy(document);
+        return nullptr;
+    }
     return document;
 }
 

@@ -1027,18 +1027,17 @@ static void pseudo_append_child(DomElement* parent, DomNode* child) {
     parent->last_child = lam::up(child);
 }
 
-static void pseudo_append_text_child(DomElement* pseudo_elem, const char* text) {
-    if (!pseudo_elem || !pseudo_elem->doc || !text) return;
-    size_t text_len = strlen(text);
-    DomText* text_node = DomText::create_copy(text, text_len, pseudo_elem);
+static void pseudo_append_text_child(DomElement* pseudo_elem, StrView text) {
+    if (!pseudo_elem || !pseudo_elem->doc || !text.str) return;
+    DomText* text_node = DomText::create_copy(text.str, text.length, pseudo_elem);
     if (!text_node) return;
     pseudo_append_child(pseudo_elem, static_cast<DomNode*>(text_node));
 }
 
-static void pseudo_update_text(DomDocument* doc, DomText* text_node, const char* content) {
+static void pseudo_update_text(DomDocument* doc, DomText* text_node, StrView content) {
     // unchanged generated text must not grow document-owned string storage on every layout.
-    if (text_node->text && strcmp(text_node->text, content) == 0) return;
-    String* text_string = dom_document_create_string(doc, content, strlen(content));
+    if (text_node->text && str_eq(text_node->text, text_node->length, content.str, content.length)) return;
+    String* text_string = dom_document_create_string(doc, content.str, content.length);
     if (text_string) {
         dom_text_adopt_document_string(text_node, doc, text_string);
         text_node->rect = nullptr;
@@ -1046,14 +1045,14 @@ static void pseudo_update_text(DomDocument* doc, DomText* text_node, const char*
 }
 
 // the text of a synthetic box: its first text child takes `content`, added when missing
-static void pseudo_set_text(DomElement* pseudo_element, const char* content) {
+static void pseudo_set_text(DomElement* pseudo_element, StrView content) {
     DomNode* first = pseudo_element->first_child;
     // a retained list-item marker precedes its content; update that content instead of duplicating it.
     if (first && pseudo_element->pseudo_prop() && first == pseudo_element->pseudo_prop()->marker)
         first = first->next_sibling;
     if (first && first->is_text()) {
         pseudo_update_text(pseudo_element->doc, lam::dom_as<DOM_NODE_TEXT>(first), content);
-    } else if (content[0]) {
+    } else if (content.length) {
         pseudo_append_text_child(pseudo_element, content);
     }
 }
@@ -1113,9 +1112,10 @@ static bool pseudo_materialize_content_children(LayoutContext* lycon, DomElement
     };
     auto flush_text = [&]() {
         if (!text_buf->length) return;
+        StrView content = {text_buf->str, text_buf->length};
         DomNode* child = take_child(nullptr);
-        if (child) { pseudo_update_text(pseudo_elem->doc, child->as_text(), text_buf->str); pseudo_append_child(pseudo_elem, child); }
-        else pseudo_append_text_child(pseudo_elem, text_buf->str);
+        if (child) { pseudo_update_text(pseudo_elem->doc, child->as_text(), content); pseudo_append_child(pseudo_elem, child); }
+        else pseudo_append_text_child(pseudo_elem, content);
         strbuf_reset(text_buf); appended_any = true;
     };
     int open_quote_count = 0;
@@ -1158,7 +1158,7 @@ static bool pseudo_materialize_content_children(LayoutContext* lycon, DomElement
             if (leader) {
                 if (!child) leader->set_attribute("style", "white-space:pre");
                 leader->display = {CSS_VALUE_INLINE, CSS_VALUE_FLOW};
-                pseudo_set_text(leader, text_buf->str);
+                pseudo_set_text(leader, {text_buf->str, text_buf->length});
                 pseudo_append_child(pseudo_elem, leader); appended_any = true;
             }
             strbuf_reset(text_buf);
@@ -1472,7 +1472,7 @@ static bool pseudo_content_has_function(const CssValue* value, const char* name)
 }
 
 static DomElement* create_pseudo_element(LayoutContext* lycon, DomElement* parent,
-                                          const char* content, bool is_before,
+                                          StrView content, bool is_before,
                                           FontProp* parent_font) {
     if (!lycon || !parent) return nullptr;
     DomElement* pseudo_elem = DomElement::create(parent->doc, is_before ? "::before" : "::after", nullptr);
@@ -1506,13 +1506,9 @@ static DomElement* create_pseudo_element(LayoutContext* lycon, DomElement* paren
         pseudo_content_has_function(value, "counters");
     bool materialized_children = has_counter_content ? false :
         pseudo_materialize_content_children(lycon, parent, pseudo_elem, is_before);
-    if (!materialized_children && ((content && *content) || has_counter_content)) {
-        log_info("%s [PSEUDO] Creating fallback text node for pseudo-element, content_len=%zu, first_byte=0x%02x", parent->source_loc(),
-            content ? strlen(content) : 0, content ? (unsigned char)*content : 0);
-        pseudo_append_text_child(pseudo_elem, content ? content : "");
-    } else if (!materialized_children) {
-        log_info("%s [PSEUDO] NOT creating text node: content=%p, first_byte=%s", parent->source_loc(),
-            (void*)content, content ? ((*content) ? "nonzero" : "ZERO") : "NULL");
+    if (!materialized_children && (content.length || has_counter_content)) {
+        log_info("%s [PSEUDO] fallback text bytes=%zu", parent->source_loc(), content.length);
+        pseudo_append_text_child(pseudo_elem, content.str ? content : StrView{"", 0});
     }
     return pseudo_elem;
 }
@@ -1601,10 +1597,10 @@ DomElement* layout_footnote_pseudo(LayoutContext* lycon, DomElement* note, bool 
 }
 
 // drifting while preserving that ordering invariant.
-static const char* resolve_pseudo_generated_content(LayoutContext* lycon,
+static StrView resolve_pseudo_generated_content(LayoutContext* lycon,
                                                     DomElement* element,
                                                     bool is_before) {
-    if (!lycon || !element) return nullptr;
+    if (!lycon || !element) return {};
     PseudoElementType pseudo = is_before ? PSEUDO_ELEMENT_BEFORE : PSEUDO_ELEMENT_AFTER;
     // CSS Lists 3 §4.4.1: generated content takes its counters from its
     // flattened-tree position, so resolve it when the pseudo box is laid out.
@@ -1638,7 +1634,7 @@ void layout_update_pseudo_content_with_counters(LayoutContext* lycon,
         pseudo_materialize_content_children(lycon, origin, pseudo_element, pseudo == PSEUDO_ELEMENT_BEFORE, true);
         return;
     }
-    const char* content = nullptr;
+    StrView content = {};
     if (pseudo == PSEUDO_ELEMENT_FOOTNOTE_CALL || pseudo == PSEUDO_ELEMENT_FOOTNOTE_MARKER) {
         // CSS GCPM 3 §2.3: a call or marker without content shows its note's footnote
         // counter, the marker followed by a space as the item engine set it
@@ -1649,14 +1645,15 @@ void layout_update_pseudo_content_with_counters(LayoutContext* lycon,
             if (length < 0) length = 0;
             if (pseudo == PSEUDO_ELEMENT_FOOTNOTE_MARKER) number[length++] = ' ';
             number[length] = '\0';
-            content = arena_dup_n(lycon->pass_arena, number, (size_t)length);
+            const char* stored = arena_dup_n(lycon->pass_arena, number, (size_t)length);
+            if (stored) content = {stored, (size_t)length};
         }
     }
-    if (!content) content = dom_element_get_pseudo_element_content_with_counters(
+    if (!content.str) content = dom_element_get_pseudo_element_content_with_counters(
         origin, pseudo, lycon->counter_context, lycon->pass_arena,
         &lycon->counter_context->quote_depth, lycon->paged ? paged_content_function : nullptr, lycon);
-    if (!content) content = dom_element_get_pseudo_element_content(origin, pseudo);
-    pseudo_set_text(pseudo_element, content ? content : "");
+    if (!content.str) content = dom_element_get_pseudo_element_content(origin, pseudo);
+    pseudo_set_text(pseudo_element, content.str ? content : StrView{"", 0});
 }
 
 DomElement* layout_generated_text(DomElement* owner, const char* text) {
@@ -1670,7 +1667,7 @@ DomElement* layout_generated_text(DomElement* owner, const char* text) {
         box->display.outer = CSS_VALUE_INLINE; box->display.inner = CSS_VALUE_FLOW;
         insert_pseudo_into_dom(owner, box, true);
     }
-    pseudo_set_text(box, text ? text : "");
+    pseudo_set_text(box, strview_from_cstr(text));
     return box;
 }
 
@@ -1688,13 +1685,13 @@ void layout_materialize_before_after(LayoutContext* lycon, ViewBlock* block) {
     }
     if (has_before && !pseudo->before_generated) {
         log_info("%s [PSEUDO] Getting before content for <%s>", block->source_loc(), elem->tag_name() ? elem->tag_name() : "?");
-        const char* before_content = resolve_pseudo_generated_content(lycon, elem, true);
-        pseudo->before = lam::up(create_pseudo_element(lycon, elem, before_content ? before_content : "", true, block->font));
+        StrView before_content = resolve_pseudo_generated_content(lycon, elem, true);
+        pseudo->before = lam::up(create_pseudo_element(lycon, elem, before_content, true, block->font));
         pseudo->before_generated = true;
     }
     if (has_after && !pseudo->after_generated) {
-        const char* after_content = resolve_pseudo_generated_content(lycon, elem, false);
-        pseudo->after = lam::up(create_pseudo_element(lycon, elem, after_content ? after_content : "", false, block->font));
+        StrView after_content = resolve_pseudo_generated_content(lycon, elem, false);
+        pseudo->after = lam::up(create_pseudo_element(lycon, elem, after_content, false, block->font));
         pseudo->after_generated = true;
     }
 }
@@ -1748,18 +1745,12 @@ static int find_first_letter_boundary(const unsigned char* text, int text_len) {
     return (int)(after_letter - content_start); // INT_CAST_OK: UTF-8 byte offset within the text run.
 }
 
-static bool is_text_all_whitespace(const unsigned char* data) {
-    return !data || str_all((const char*)data, strlen((const char*)data), str_is_html_space);
-}
-
 static DomText* find_first_text_node(DomNode* node, bool* suppressed) {
     if (!node) return nullptr;
     if (node->is_text()) {
-        DomText* text = node->as_text();
-        unsigned char* data = node->text_data();
-        if (data && *data && !is_text_all_whitespace(data)) {
-            return text;
-        }
+        size_t length;
+        const char* data = (const char*)node->text_data(&length);
+        if (data && !str_all(data, length, str_is_html_space)) return node->as_text();
         return nullptr;
     }
     if (node->is_element()) {
@@ -1801,14 +1792,15 @@ static void create_first_letter_pseudo(LayoutContext* lycon, ViewBlock* block) {
     if (!text_node || suppressed) {
         return;
     }
-    unsigned char* text_data = text_node->text_data();
-    if (!text_data || !*text_data) return;
-    int text_len = (int)strlen((const char*)text_data); // INT_CAST_OK: string length
+    size_t length;
+    unsigned char* text_data = text_node->text_data(&length);
+    if (!text_data || !length || length > INT_MAX) return;
+    int text_len = (int)length; // INT_CAST_OK: checked UTF-8 byte length
     CssEnum white_space = get_white_space_value(text_node);
     bool preserves_space_advance = white_space_preserves_space_advance(white_space);
     const unsigned char* p = text_data;
-    while (*p && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) p++;
-    if (!*p) return;
+    while (p < text_data + length && is_space(*p)) p++;
+    if (p == text_data + length) return;
     int ws_offset = (int)(p - text_data); // INT_CAST_OK: UTF-8 byte offset within the text run.
     int boundary = find_first_letter_boundary(p, text_len - ws_offset);
     if (boundary <= 0) {
@@ -9279,9 +9271,10 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
                                 break;
                             }
                         } else if (dom_child->is_text()) {
-                            const unsigned char* text = lam::dom_require<DOM_NODE_TEXT>(dom_child)->text_data();
+                            size_t length;
+                            const unsigned char* text = lam::dom_require<DOM_NODE_TEXT>(dom_child)->text_data(&length);
                             if (text) {
-                                bool all_ws = str_all((const char*)text, strlen((const char*)text),
+                                bool all_ws = str_all((const char*)text, length,
                                                       str_is_html_space);
                                 if (!all_ws) break;  // real text content stops parent-child collapse
                             }

@@ -245,10 +245,12 @@ struct SimEvent {
     float* pen_samples;
     int pen_sample_count;
     char* input_text;            // for type action: text to type
+    size_t input_text_length;    // exact bytes for write_file
     bool clear_first;            // for type action: select-all + delete before typing
     char* assert_contains;       // for assert_text: substring match
     char* assert_equals;         // for assert_text: exact match
     char* assert_not_contains;   // for assert_attribute: negative substring match (pass when absent OR does not include)
+    size_t assert_contains_length, assert_equals_length, assert_not_contains_length;
     char* state_snapshot_name;   // for snapshot_state_store/assert_state_store_snapshot
     bool has_expected_snapshot_removed;
     bool expected_snapshot_removed;

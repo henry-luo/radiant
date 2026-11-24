@@ -1909,6 +1909,10 @@ float layout_inline_end_edge(ViewSpan* span);
 float layout_inline_span_edge_extent(ViewSpan* span, bool rtl, bool start_edge,
                                       bool include_margin);
 bool text_codepoint_has_zero_advance(uint32_t codepoint);
+constexpr uint32_t TEXT_NUL_PLACEHOLDER = 0x25A0; // black square
+inline uint32_t text_nul_glyph_codepoint(FontHandle* font) {
+    return font_has_codepoint(font, 0) ? 0 : TEXT_NUL_PLACEHOLDER;
+}
 inline uint32_t layout_text_resolve_css_whitespace(uint32_t codepoint) {
     // source newlines are parsed already; a DOM CR has U+0020 semantics (CSS Text §4).
     return codepoint == '\r' ? ' ' : codepoint;
@@ -5108,22 +5112,23 @@ bool paged_flow_pass_settle(LayoutContext* lycon);
 void paged_flow_compose(LayoutContext* lycon);
 void layout_svg_foreign_object(LayoutContext* lycon, DomElement* element, float width, float height);
 void layout_svg_foreign_objects(LayoutContext* lycon, DomElement* element, unsigned depth = 0);
-bool is_only_whitespace(const char* str);
+bool is_only_whitespace(const char* str, size_t length);
 bool should_collapse_inter_element_whitespace(DomNode* text_node);
+
+static inline bool layout_text_node_has_content(DomNode* node) {
+    if (!node || !node->is_text()) return false;
+    size_t length;
+    const char* text = (const char*)node->text_data(&length);
+    return !is_only_whitespace(text, length);
+}
 
 static inline bool layout_suppress_ignorable_container_text(DomNode* node) {
     if (!node || !node->is_text()) return false;
-    const char* text = (const char*)node->text_data();
-    if (text && !is_only_whitespace(text)) return false;
+    if (layout_text_node_has_content(node)) return false;
     node->view_type = RDT_VIEW_NONE;
     return true;
 }
 
-static inline bool layout_text_node_has_content(DomNode* node) {
-    if (!node || !node->is_text()) return false;
-    const char* text = (const char*)node->text_data();
-    return text && !is_only_whitespace(text);
-}
 // box-tree consumers share display:contents flattening; policy selects their
 // text participation and initialization requirements independently of display role.
 typedef bool (*LayoutFlattenedTextItemPredicate)(DomNode* text,
@@ -5750,7 +5755,7 @@ float layout_measure_utf8_text_width(struct FontHandle* handle, FontProp* style,
                                      float raster_scale);
 size_t layout_normalize_collapsible_whitespace(const char* text, size_t length,
                                                char* buffer, size_t buffer_size);
-bool layout_text_edge_has_whitespace(const char* text, bool end);
+bool layout_text_edge_has_whitespace(const char* text, size_t length, bool end);
 bool layout_element_edge_has_whitespace(DomNode* element, bool end);
 // DomNode style resolution
 CssEnum layout_element_css_all_reset_keyword(DomElement* element);
@@ -6292,7 +6297,7 @@ void print_text_json(ViewText* text, StrBuf* buf, int indent);
 void print_br_json(View* br, StrBuf* buf, int indent);
 void print_inline_json(ViewSpan* span, StrBuf* buf, int indent);
 
-const char* form_button_label_text(ViewBlock* block, FormControlProp* form);
+StrView form_button_label_text(ViewBlock* block, FormControlProp* form);
 // Text combination control for view tree output
 // When false, consecutive text nodes are output separately (useful for PDF testing)
 void set_combine_text_nodes(bool combine);

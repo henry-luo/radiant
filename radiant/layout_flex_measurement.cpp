@@ -719,8 +719,8 @@ void measure_flex_child_content(LayoutContext* lycon, DomNode* child, bool width
     float content_height = 0.0f;
     bool has_height = !width_only;
     if (child->is_text()) {
-        const char* text = (const char*)child->text_data();
-        size_t length = text ? strlen(text) : 0;
+        size_t length;
+        const char* text = (const char*)child->text_data(&length);
         LayoutTextRun run = flex_measure_prepare_text_run(child, text, length);
         TextIntrinsicWidths sizes = flex_measure_text_widths(lycon, child, run);
         measured_width = content_width = sizes.max_content;
@@ -843,12 +843,12 @@ static bool flex_measure_pseudo_content(LayoutContext* lycon, DomElement* item,
                                         int pseudo_element,
                                         float* width, float* height,
                                         float* min_width = nullptr) {
-    const char* content = dom_element_get_pseudo_element_content(item, pseudo_element);
-    if (!content || !*content) return false;
+    StrView content = dom_element_get_pseudo_element_content(item, pseudo_element);
+    if (!content.length) return false;
 
     LayoutFontScope font_scope(lycon);
     if (item->font) setup_font(lycon->ui_context, &lycon->font, item->font);
-    TextIntrinsicWidths widths = measure_text_intrinsic_widths(lycon, content, strlen(content));
+    TextIntrinsicWidths widths = measure_text_intrinsic_widths(lycon, content.str, content.length);
     float line_height = flex_font_line_height(lycon, 16.0f);
 
     *width += widths.max_content;
@@ -1041,9 +1041,9 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
 
     } else if (child->is_text() && !child->next_sibling) {
         // Simple text node - use unified intrinsic sizing API if available
-        const char* text = (const char*)child->text_data();
+        size_t len;
+        const char* text = (const char*)child->text_data(&len);
         if (text) {
-            size_t len = strlen(text);
             LayoutContext* lycon = flex_layout ? flex_layout->lycon : nullptr;
             if (lycon) {
                 // Normalize whitespace according to the text node's CSS white-space property
@@ -1208,8 +1208,8 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
             for (int index = 0; c; c = nodes
                     ? (++index < node_count ? nodes[index] : nullptr) : c->next_sibling) {
                 if (layout_text_node_has_content(c)) {
-                    const char* text = (const char*)c->text_data();
-                    size_t text_len = strlen(text);
+                    size_t text_len;
+                    const char* text = (const char*)c->text_data(&text_len);
                     float text_min_width, text_max_width, text_height;
                     if (lycon) {
                         LayoutTextRun run = flex_measure_prepare_text_run(c, text, text_len);

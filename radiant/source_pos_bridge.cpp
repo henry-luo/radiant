@@ -423,6 +423,10 @@ extern "C" bool dom_selection_apply_source_selection(DomSelection* ds,
 
     const char* exc = NULL;
 
+    // A virtualized surface may have no visible portion of its model selection.
+    if (strcmp(kind_str, "none") == 0)
+        return state_store_set_selection(ds->state, nullptr, nullptr, &exc);
+
     if (strcmp(kind_str, "text") == 0) {
         SourcePosC anchor_pos;
         SourcePosC head_pos;
