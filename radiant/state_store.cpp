@@ -2848,6 +2848,10 @@ static void dropdown_reset_scroll(DocState* state) {
 static void doc_state_detach_transient_owner(DocState* state, View* view) {
     if (!state || !view) return;
 
+    // A pointer timer must stop before its text or control is retired.
+    if (state->editing_autoscroll_surface == view) {
+        editing_interaction_clear_autoscroll(state);
+    }
     if (state->hover_target == view) {
         doc_state_log_view_target_transition(state, "hover.target", state->hover_target, NULL);
         state->hover_target = NULL;
@@ -3202,6 +3206,11 @@ static uint32_t doc_state_prune_stale_transient_owners(DocState* state, DomNode*
         doc_state_log_view_target_transition(state, "drag.target", state->drag_target, NULL);
         state->drag_target = NULL;
         state->is_dragging = false;
+        changed++;
+    }
+    if (state->editing_autoscroll_surface &&
+        !view_tree_contains_view(root, state->editing_autoscroll_surface)) {
+        editing_interaction_clear_autoscroll(state);
         changed++;
     }
     if (state->open_dropdown && !view_tree_contains_view(root, state->open_dropdown)) {

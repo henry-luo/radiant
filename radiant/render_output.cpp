@@ -855,6 +855,7 @@ static void render_output_trace_retained_stats(RenderPathTrace* trace,
 
 struct RenderFrameKey {
     uint64_t generations[9];
+    uint64_t selection_revision;
     const UiContext* ui;
     const View* root;
     uint32_t mutation_epoch, style_content_epoch, style_query_epoch;
@@ -925,7 +926,12 @@ static RenderFrameKey render_frame_key(UiContext* ui, ViewTree* tree, uint32_t b
     key.mutation_epoch = doc->mutation_epoch;
     key.style_content_epoch = doc->style_content_epoch;
     key.style_query_epoch = doc->style_query_epoch;
-    key.generations[0] = doc_state_content_version(doc->state);
+    DocState* state = doc->state;
+    key.generations[0] = doc_state_content_version(state);
+    // A document range paints inline. The collapsed caret is a separate overlay.
+    if (state && state->sel.kind == EDIT_SEL_DOM_RANGE &&
+        !dom_selection_is_collapsed(state->dom_selection))
+        key.selection_revision = state->selection_mutation_seq;
     key.generations[1] = font_context_glyph_cache_generation(ui->font_ctx);
     key.generations[2] = font_context_resource_generation(ui->font_ctx);
     key.generations[3] = image_cache_resource_generation(ui);
@@ -939,7 +945,7 @@ static bool render_frame_key_equal(const RenderFrameKey& a, const RenderFrameKey
     return a.ui == b.ui && a.root == b.root && a.scale == b.scale &&
         a.width == b.width && a.height == b.height &&
         a.mutation_epoch == b.mutation_epoch && a.style_content_epoch == b.style_content_epoch &&
-        a.style_query_epoch == b.style_query_epoch &&
+        a.style_query_epoch == b.style_query_epoch && a.selection_revision == b.selection_revision &&
         memcmp(a.generations, b.generations, sizeof(a.generations)) == 0;
 }
 
