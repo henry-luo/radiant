@@ -828,10 +828,12 @@ static bool positioned_axis_is_auto(ViewBlock* block, bool horizontal) {
         element, horizontal);
     // Logical size aliases do not populate a physical declaration. Select the
     // cascade-winning alias so `block-size` is not mistaken for height:auto.
-    // absent CSS can still have a definite HTML hint; reuse its resolved size identity.
-    return size_decl && size_decl->value
-        ? layout_css_size_is_automatic(block, horizontal)
-        : layout_block_has_automatic_size(block, horizontal);
+    if (size_decl && size_decl->value) return layout_css_size_is_automatic(block, horizontal);
+
+    // native UA defaults can set an intrinsic keyword without a declaration or a resolved length.
+    LayoutAxis axis = horizontal ? LAYOUT_AXIS_X : LAYOUT_AXIS_Y;
+    return !layout_axis_uses_intrinsic_size(block->blk, axis) &&
+        layout_block_has_automatic_size(block, horizontal);
 }
 
 typedef struct PositionedSelfAlignment {
