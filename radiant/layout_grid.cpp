@@ -523,9 +523,9 @@ void layout_grid_container(LayoutContext* lycon, ViewBlock* container, bool intr
             DomNode* child = item->first_child;
             while (child) {
                 if (child->is_text()) {
-                    const char* text = (const char*)child->text_data();
-                    size_t text_len = text ? strlen(text) : 0;
-                    if (text_len > 0) {
+                    size_t text_len;
+                    const char* text = (const char*)child->text_data(&text_len);
+                    if (text && text_len > 0) {
                         CssEnum text_transform = CSS_VALUE_NONE;
                         CssEnum font_variant = CSS_VALUE_NONE;
                         if (child->parent && child->parent->is_element()) {

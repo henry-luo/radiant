@@ -1925,8 +1925,10 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         const char* type = block->get_attribute("type");
         block->form_storage()->input_type = type;
         block->form_storage()->control_type = get_input_control_type(type);
-        block->form_storage()->value = block->get_attribute("value");
-        block->form_storage()->placeholder = block->get_attribute("placeholder");
+        block->form_storage()->value = block->get_attribute(
+            "value", &block->form_storage()->attribute_value_length);
+        block->form_storage()->placeholder = block->get_attribute(
+            "placeholder", &block->form_storage()->placeholder_length);
         block->form_storage()->name = block->get_attribute("name");
 
         const char* size_attr = block->get_attribute("size");
@@ -2177,7 +2179,8 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
         ensure_form_control_prop(lycon, block, FORM_CONTROL_TEXTAREA, &form_created);
         if (form_created) {
             block->form_storage()->name = block->get_attribute("name");
-            block->form_storage()->placeholder = block->get_attribute("placeholder");
+            block->form_storage()->placeholder = block->get_attribute(
+                "placeholder", &block->form_storage()->placeholder_length);
             apply_html_form_state_attributes(lycon, block, true, false, false);
             // Parse cols/rows
             const char* cols_attr = block->get_attribute("cols");

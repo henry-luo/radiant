@@ -17,14 +17,14 @@ static inline uint32_t dom_mutation_bit(DomJsMutationKind kind) {
 
 
 static DomJsMutationAttribute dom_mutation_attribute_from_name(DomDocument* doc,
-    DomNode* target, const char* name, const char* old_value) {
+    DomNode* target, const char* name, StrView old_value) {
     if (name && str_icmp_cstr(name, "class") == 0) {
         DomElement* element = target ? target->as_element() : nullptr;
         // unchanged relational memberships cannot restyle an ancestor; shadow
         // stylesheet graphs and unknown old values retain the conservative path.
-        if (!doc->js.has_shadow_roots && old_value && element &&
+        if (!doc->js.has_shadow_roots && old_value.str && element &&
             !radiant_css_document_relational_attribute_match_changes(doc, name, old_value,
-                element->get_attribute(name))) return DOM_JS_MUTATION_ATTRIBUTE_LOCAL;
+                element->get_attribute_view(name))) return DOM_JS_MUTATION_ATTRIBUTE_LOCAL;
         return DOM_JS_MUTATION_ATTRIBUTE_CLASS;
     }
     if (doc->js.has_shadow_roots && name &&
@@ -64,7 +64,7 @@ static bool dom_mutation_child_list_affects_direction(DomNode* parent) {
 static void dom_record_mutation_detail(DomDocument* doc, DomJsMutationKind kind,
                                         DomNode* target, DomNode* parent, uint32_t sequence,
                                         const char* attribute_name, CssPropertyCode presentation_property,
-                                        const char* old_value) {
+                                        StrView old_value) {
     parent = dom_source_inclusive_ancestor(parent);
     if (!doc) return;
     // Atomic replacements may publish only their child records before the
@@ -131,12 +131,13 @@ void radiant_dom_record_mutation_detail(DomDocument* doc, DomJsMutationKind kind
                                         DomNode* target, DomNode* parent, uint32_t sequence,
                                         const char* attribute_name, CssPropertyCode presentation_property) {
     dom_record_mutation_detail(doc, kind, target, parent, sequence,
-        attribute_name, presentation_property, nullptr);
+        attribute_name, presentation_property, {});
 }
 
 void radiant_dom_mutation_begin(DomDocument* doc, DomJsMutationKind kind,
                                 DomNode* target, DomNode* parent, const char* attribute_name,
-                                CssPropertyCode presentation_property, const char* old_value) {
+                                CssPropertyCode presentation_property, const char* old_value,
+                                size_t old_value_length) {
     if (!doc) return;
     parent = dom_source_inclusive_ancestor(parent);
     doc->js.mutation_count++;
@@ -157,8 +158,10 @@ void radiant_dom_mutation_begin(DomDocument* doc, DomJsMutationKind kind,
             (legacy_flush || same_detail);
     }
     if (!has_pending_structural_record) {
+        StrView old = {old_value, !old_value ? 0 : old_value_length == SIZE_MAX
+            ? strlen(old_value) : old_value_length};
         dom_record_mutation_detail(doc, kind, target, parent, doc->js.mutation_sequence,
-                                           attribute_name, presentation_property, old_value);
+                                           attribute_name, presentation_property, old);
     }
 }
 
@@ -187,12 +190,14 @@ void radiant_dom_mutation_finish(DomDocument* doc, DomJsMutationKind kind) {
 
 void radiant_dom_notify_native(DomDocument* doc, DomJsMutationKind kind,
                                DomNode* target, DomNode* parent,
-                               const char* attribute_name, const char* old_value) {
+                               const char* attribute_name, const char* old_value,
+                               size_t old_value_length) {
     if (!doc) doc = dom_node_ancestor_document(target);
     if (!doc) doc = dom_node_ancestor_document(parent);
     if (!doc || dom_edit_transaction_defer_mutation(doc, kind, target, parent,
-                                                     attribute_name, old_value)) return;
-    radiant_dom_mutation_begin(doc, kind, target, parent, attribute_name, CSS_PROPERTY_UNKNOWN, old_value);
+                                                     attribute_name, old_value, old_value_length)) return;
+    radiant_dom_mutation_begin(doc, kind, target, parent, attribute_name,
+                               CSS_PROPERTY_UNKNOWN, old_value, old_value_length);
     radiant_dom_mutation_finish(doc, kind);
 }
 

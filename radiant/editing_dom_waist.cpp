@@ -205,6 +205,7 @@ typedef struct DomMutationNotification {
     DomNode* parent;
     char* attribute_name;
     char* old_value;
+    size_t old_value_length;
 } DomMutationNotification;
 
 struct DomMutationTransaction {
@@ -253,7 +254,7 @@ static void editing_dom_transaction_note_owned_write(
 static bool editing_dom_transaction_append_notification(
         DomMutationTransaction* transaction, DomJsMutationKind kind,
         DomNode* target, DomNode* parent, const char* attribute_name,
-        const char* old_value) {
+        const char* old_value, size_t old_value_length) {
     if (!transaction || !transaction->notifications) return false;
     DomMutationNotification* notification =
         static_cast<DomMutationNotification*>(mem_calloc(
@@ -270,7 +271,10 @@ static bool editing_dom_transaction_append_notification(
         }
     }
     if (old_value) {
-        notification->old_value = mem_strdup(old_value, MEM_CAT_TEMP);
+        // Keep CharacterData snapshots intact until the transaction publishes them.
+        notification->old_value_length = old_value_length == SIZE_MAX
+            ? strlen(old_value) : old_value_length;
+        notification->old_value = mem_dup_n(old_value, notification->old_value_length, MEM_CAT_TEMP);
         if (!notification->old_value) {
             mem_free(notification->attribute_name);
             mem_free(notification);
@@ -298,14 +302,15 @@ static bool editing_dom_transaction_append_notification(
 // active generic transaction on the target document.
 extern "C" bool dom_edit_transaction_defer_mutation(
         DomDocument* document, DomJsMutationKind kind, DomNode* target,
-        DomNode* parent, const char* attribute_name, const char* old_value) {
+        DomNode* parent, const char* attribute_name, const char* old_value,
+        size_t old_value_length) {
     DocState* state = document ? (DocState*)document->state : nullptr;
     DomMutationTransaction* transaction =
         state ? state->editing.dom_mutation_transaction : nullptr;
     if (!transaction || transaction->document != document) return false;
     if (!editing_dom_transaction_append_notification(transaction, kind, target,
                                                      parent, attribute_name,
-                                                     old_value)) {
+                                                     old_value, old_value_length)) {
         transaction->notification_failed = true;
     } else {
         // This notification came through an ordinary package-visible DOM
@@ -319,9 +324,11 @@ extern "C" bool dom_edit_transaction_defer_mutation(
 static void editing_dom_notify(DomDocument* document, DomJsMutationKind kind,
                                DomNode* target, DomNode* parent,
                                const char* attribute_name = nullptr,
-                               const char* old_value = nullptr) {
-    if (radiant_editing_dom_notify_host(kind, target, parent, attribute_name, old_value)) return;
-    radiant_dom_notify_native(document, kind, target, parent, attribute_name, old_value);
+                               const char* old_value = nullptr,
+                               size_t old_value_length = SIZE_MAX) {
+    if (radiant_editing_dom_notify_host(kind, target, parent, attribute_name,
+                                      old_value, old_value_length)) return;
+    radiant_dom_notify_native(document, kind, target, parent, attribute_name, old_value, old_value_length);
 }
 
 extern "C" DomRange** dom_range_state_live_ranges_slot(DocState* state);
@@ -1104,7 +1111,7 @@ static bool editing_dom_transaction_commit(DomEditInvocation* invocation) {
         if (!notification) continue;
         editing_dom_notify(transaction->document, notification->kind, notification->target,
                            notification->parent, notification->attribute_name,
-                           notification->old_value);
+                           notification->old_value, notification->old_value_length);
     }
     editing_dom_transaction_free(transaction, true);
     invocation->transaction = nullptr;
@@ -1173,7 +1180,7 @@ static bool editing_dom_transaction_replace_text(
     }
     if (!editing_dom_transaction_append_notification(transaction,
             DOM_JS_MUTATION_TEXT, static_cast<DomNode*>(text), text->parent,
-            nullptr, undo->previous_value)) {
+            nullptr, undo->previous_value, original_len)) {
         return editing_dom_transaction_reject(invocation);
     }
     transaction->changed = true;
@@ -1203,13 +1210,14 @@ bool dom_edit_replace_range_u16(DocState* state, DomText* text,
     uint32_t repl_bytes = (uint32_t)strlen(repl);
     uint32_t repl_u16 = tc_utf8_to_utf16_length(repl, repl_bytes);
     const char* current = text->text ? text->text : "";
-    char* old_value = mem_strdup(current, MEM_CAT_TEMP);
+    size_t old_length = text->length;
+    char* old_value = mem_dup_n(current, old_length, MEM_CAT_TEMP);
     if (!old_value) return false;
     bool changed = dom_text_replace_data_contents(state, text, start_u16,
                                                   end_u16 - start_u16,
                                                   repl, repl_bytes, repl_u16);
     if (changed) {
-        editing_dom_notify(nullptr, DOM_JS_MUTATION_TEXT, text, text->parent, nullptr, old_value);
+        editing_dom_notify(nullptr, DOM_JS_MUTATION_TEXT, text, text->parent, nullptr, old_value, old_length);
         if (out_caret_u16) *out_caret_u16 = start_u16 + repl_u16;
     }
     mem_free(old_value);
@@ -1522,14 +1530,15 @@ static bool editing_dom_replace_text(DocState* state, DomSelection* selection,
                                      uint32_t caret_in_replacement_u16) {
     if (!state || !selection || !text || !replacement || end < start) return false;
     const char* current = text->text ? text->text : "";
-    char* old_value = mem_strdup(current, MEM_CAT_TEMP);
+    size_t old_length = text->length;
+    char* old_value = mem_dup_n(current, old_length, MEM_CAT_TEMP);
     if (!old_value) return false;
     uint32_t replacement_u16 = tc_utf8_to_utf16_length(replacement, replacement_len);
     bool changed = dom_text_replace_data_contents(state, text, start, end - start,
                                                   replacement, replacement_len,
                                                   replacement_u16);
     if (changed) {
-        editing_dom_notify(nullptr, DOM_JS_MUTATION_TEXT, text, text->parent, nullptr, old_value);
+        editing_dom_notify(nullptr, DOM_JS_MUTATION_TEXT, text, text->parent, nullptr, old_value, old_length);
         const char* exception = nullptr;
         if (!dom_selection_collapse(selection, static_cast<DomNode*>(text),
                                     start + caret_in_replacement_u16, &exception)) {
@@ -1981,8 +1990,9 @@ static bool editing_dom_retained_restore_snapshot(
         if (snapshot->node->is_text() && snapshot->text_string) {
             DomText* text = snapshot->node->as_text();
             const char* old_value = text->text ? text->text : "";
-            if (strcmp(old_value, snapshot->text_string->chars) != 0) {
-                char* copied_old_value = mem_strdup(old_value, MEM_CAT_TEMP);
+            size_t old_length = text->length;
+            if (!str_eq(old_value, old_length, snapshot->text_string->chars, snapshot->text_string->len)) {
+                char* copied_old_value = mem_dup_n(old_value, old_length, MEM_CAT_TEMP);
                 if (!copied_old_value || !dom_text_replace_data_contents(state,
                         text, 0, dom_text_utf16_length(text),
                         snapshot->text_string->chars,
@@ -1993,7 +2003,7 @@ static bool editing_dom_retained_restore_snapshot(
                     return false;
                 }
                 editing_dom_notify(invocation->host->doc, DOM_JS_MUTATION_TEXT, text,
-                                   text->parent, nullptr, copied_old_value);
+                                   text->parent, nullptr, copied_old_value, old_length);
                 mem_free(copied_old_value);
             }
         }

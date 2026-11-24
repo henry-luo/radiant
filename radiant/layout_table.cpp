@@ -634,13 +634,14 @@ static bool is_cell_empty(ViewTableCell* cell) {
             return false;
         }
         if (child->is_text()) {
-            const char* text = lam::dom_require<DOM_NODE_TEXT>(child)->text;
+            DomText* node = lam::dom_require<DOM_NODE_TEXT>(child);
+            const char* text = node->text;
             if (text) {
-                if (ws_preserved && strlen(text) > 0) {
+                if (ws_preserved && node->length > 0) {
                     return false;
                 }
                 const unsigned char* p = (const unsigned char*)text;
-                const unsigned char* p_end = p + strlen(text);
+                const unsigned char* p_end = p + node->length;
                 while (p < p_end) {
                     uint32_t codepoint = 0;
                     if (!layout_utf8_next_codepoint(&p, p_end, &codepoint)) break;
@@ -6388,9 +6389,9 @@ static CellIntrinsicWidths measure_cell_widths(LayoutContext* lycon, ViewTableCe
     };
     for (DomNode* child = cell_elem->first_child; child; child = child->next_sibling) {
         if (child->is_text()) {
-            const unsigned char* text = child->text_data();
-            if (text && *text) {
-                size_t text_len = strlen((const char*)text);
+            size_t text_len;
+            const unsigned char* text = child->text_data(&text_len);
+            if (text && text_len) {
                 const char* measure_text = (const char*)text;
                 size_t measure_len = text_len;
                 static char normalized_buffer[4096];  // LARGE_ARRAY_OK: static buffer — not on call stack.

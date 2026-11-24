@@ -32,9 +32,10 @@ bool radiant_editing_dom_insert_html(DomDocument* document, const char* html) {
 }
 
 bool radiant_editing_dom_notify_host(DomJsMutationKind kind, DomNode* target, DomNode* parent,
-                                     const char* attribute_name, const char* old_value) {
+                                     const char* attribute_name, const char* old_value,
+                                     size_t old_value_length) {
     const RadiantEditingDomHostOps* operations = lambda_provider_load(&editing_dom_host_ops);
     if (!operations || !operations->available()) return false;
-    operations->notify(kind, target, parent, attribute_name, old_value);
+    operations->notify(kind, target, parent, attribute_name, old_value, old_value_length);
     return true;
 }

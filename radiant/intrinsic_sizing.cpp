@@ -1084,15 +1084,15 @@ static bool text_line_has_tab(const char* text, size_t length) {
 
 static bool text_node_is_ascii_whitespace(DomNode* node) {
     if (!node || !node->is_text()) return false;
-    const char* text = (const char*)node->text_data();
+    size_t length;
+    const char* text = (const char*)node->text_data(&length);
     if (!text) return true;
-    return str_all(text, strlen(text), str_is_html_space);
+    return str_all(text, length, str_is_html_space);
 }
 
 static bool text_node_has_intrinsic_table_content(DomNode* node) {
     if (!node || !node->is_text()) return false;
-    const char* text = (const char*)node->text_data();
-    if (!text || !*text) return false;
+    if (!node->as_text()->length) return false;
     if (!text_node_is_ascii_whitespace(node)) return true;
     return white_space_preserves_space_advance(get_white_space_value(node));
 }
@@ -1496,7 +1496,7 @@ static float measure_preserved_line_width_with_tabs(LayoutContext* lycon, const 
 
         for (int ti = 0; ti < tt_count; ti++) {
             uint32_t cp = (ti == 0) ? codepoint : tt_out[ti];
-            if (cp == 0 || text_codepoint_has_zero_advance(cp)) {
+            if (text_codepoint_has_zero_advance(cp)) {
                 continue;
             }
             bool loaded = false;
@@ -1528,6 +1528,7 @@ static float intrinsic_loaded_glyph_advance(LayoutContext* lycon,
                                             float kerning,
                                             bool emoji_presentation,
                                             bool* loaded) {
+    if (codepoint == 0) codepoint = text_nul_glyph_codepoint(font_box_handle(&lycon->font));
     float vertical;
     if (layout_text_glyph_orientation(lycon, codepoint) == TEXT_GLYPH_UPRIGHT &&
         text_upright_codepoint_advance(&lycon->font, codepoint, &vertical)) {
@@ -2265,7 +2266,7 @@ float measure_direct_text_children_intrinsic_width(LayoutContext* lycon,
 
 static TextIntrinsicWidths intrinsic_measure_pseudo_text_widths(LayoutContext* lycon,
                                                                 StyleTree* pseudo_style,
-                                                                const char* content) {
+                                                                StrView content) {
     TextIntrinsicWidths widths = {0, 0};
     LayoutFontScope font_scope(lycon);
     FontProp* pseudo_font = layout_resolve_pseudo_font(
@@ -2274,8 +2275,8 @@ static TextIntrinsicWidths intrinsic_measure_pseudo_text_widths(LayoutContext* l
         // Generated content uses its pseudo-element's computed font, not its host's.
         setup_font(lycon->ui_context, &lycon->font, pseudo_font);
     }
-    if (content && *content) {
-        widths = measure_text_intrinsic_widths(lycon, content, strlen(content));
+    if (content.length) {
+        widths = measure_text_intrinsic_widths(lycon, content.str, content.length);
     }
     CssDeclaration* width_decl = pseudo_style
         ? style_tree_get_declaration(pseudo_style, CSS_PROPERTY_WIDTH) : nullptr;
@@ -2688,10 +2689,10 @@ static bool intrinsic_node_has_inline_boundary_content(DomNode* node) {
                                        : dom_element_has_after_content(element);
         StyleTree* style = pseudo == 1 ? element->pseudo_style(PSEUDO_STYLE_BEFORE) : element->pseudo_style(PSEUDO_STYLE_AFTER);
         if (!has_content || !intrinsic_pseudo_style_is_inline(style)) continue;
-        const char* content = dom_element_get_pseudo_element_content(element, pseudo);
+        StrView content = dom_element_get_pseudo_element_content(element, pseudo);
         // Generated text is real inline boundary content, so adjacent collapsed
         // whitespace must contribute to the containing block's max-content size.
-        if (content && *content) return true;
+        if (content.length) return true;
     }
     for (DomNode* child = element->first_child; child; child = child->next_sibling) {
         if (child->is_comment()) continue;
@@ -2761,9 +2762,9 @@ static LayoutTextIntrinsicLineOptions intrinsic_text_line_options(LayoutContext*
 bool layout_intrinsic_node_has_forced_break_at_edge(DomNode* node, bool end) {
     if (!node) return false;
     if (node->is_text()) {
-        const char* text = (const char*)node->text_data();
-        if (!text || !*text) return false;
-        size_t length = strlen(text);
+        size_t length;
+        const char* text = (const char*)node->text_data(&length);
+        if (!text || !length) return false;
         CssEnum white_space = get_white_space_value(node);
         bool preserves_newlines = white_space == CSS_VALUE_PRE ||
             white_space == CSS_VALUE_PRE_WRAP ||
@@ -2790,10 +2791,11 @@ bool layout_intrinsic_node_has_forced_break_at_edge(DomNode* node, bool end) {
 static bool intrinsic_node_has_collapsible_space_at_edge(DomNode* node, bool end) {
     if (!node) return false;
     if (node->is_text()) {
-        const char* text = (const char*)node->text_data();
-        if (!text || !*text) return false;
-        char edge = text[end ? strlen(text) - 1 : 0];
-        return layout_text_edge_has_whitespace(text, end) &&
+        size_t length;
+        const char* text = (const char*)node->text_data(&length);
+        if (!text || !length) return false;
+        char edge = text[end ? length - 1 : 0];
+        return layout_text_edge_has_whitespace(text, length, end) &&
             (!white_space_preserves_space_advance(get_white_space_value(node)) ||
              (layout_text_is_segment_break(edge) && layout_ruby_annotation_content(node)));
     }
@@ -4697,7 +4699,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
             view_block_replaced->form_storage()->control_type == FORM_CONTROL_BUTTON &&
             replaced_tag == MARKUP_NAME_INPUT &&
             form_button_label_text(view_block_replaced,
-                                   view_block_replaced->form_storage());
+                                   view_block_replaced->form_storage()).str;
         // A <button>'s form width is only a label width stashed by flex sizing (and
         // retained by a reflow); native measurement omits its flow children, so a
         // <button> always takes the content path below, as on a first layout.
@@ -4953,14 +4955,15 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
                         }
                         DomElement* owner = item->parent && item->parent->is_element()
                             ? item->parent->as_element() : nullptr;
-                        const char* text = (const char*)item->text_data();
-                        if (!text || !*text) continue;
-                        if (inline_run_has_content && layout_text_edge_has_whitespace(text, false)) {
+                        size_t length;
+                        const char* text = (const char*)item->text_data(&length);
+                        if (!text || !length) continue;
+                        if (inline_run_has_content && layout_text_edge_has_whitespace(text, length, false)) {
                             inline_run_max += layout_measure_space_advance(
                                 lycon, font_box_handle(&lycon->font), lycon->font.style);
                         }
                         TextIntrinsicWidths text_widths = measure_text_intrinsic_widths(
-                            lycon, text, strlen(text),
+                            lycon, text, length,
                             owner ? get_element_text_transform(owner) : CSS_VALUE_NONE,
                             owner ? get_element_font_variant(owner) : CSS_VALUE_NONE);
                         inline_run_max += text_widths.max_content;
@@ -4968,7 +4971,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
                             inline_run_min = text_widths.min_content;
                         }
                         inline_run_has_content = true;
-                        prev_ended_with_space = layout_text_edge_has_whitespace(text, true);
+                        prev_ended_with_space = layout_text_edge_has_whitespace(text, length, true);
                         inline_run_last_content_was_text = true;
                         continue;
                     }
@@ -5552,10 +5555,10 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
     bool has_generated_inline_before = false;
     if (!replaced_intrinsic_set && !intrinsic_pseudo_child_is_materialized(element, true) &&
         dom_element_has_before_content(element) && element->pseudo_style(PSEUDO_STYLE_BEFORE) && element->pseudo_style(PSEUDO_STYLE_BEFORE)->tree) {
-        const char* before_content = dom_element_get_pseudo_element_content(
+        StrView before_content = dom_element_get_pseudo_element_content(
             element, 1 /*PSEUDO_ELEMENT_BEFORE*/);
         if (intrinsic_pseudo_style_is_inline(element->pseudo_style(PSEUDO_STYLE_BEFORE)) &&
-            before_content && *before_content) {
+            before_content.length) {
             TextIntrinsicWidths tw = intrinsic_measure_pseudo_text_widths(
                 lycon, element->pseudo_style(PSEUDO_STYLE_BEFORE), before_content);
             float before_width = tw.max_content;
@@ -5745,9 +5748,9 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         }
 
         if (child->is_text()) {
-            const char* text = (const char*)child->text_data();
+            size_t text_len;
+            const char* text = (const char*)child->text_data(&text_len);
             if (text) {
-                size_t text_len = strlen(text);
                 // CSS 2.1 §16.6: white-space determines whether to collapse or preserve spaces
                 CssEnum ws = get_white_space_value(child);
                 bool combined = layout_text_combine_upright_applies(child);
@@ -6354,7 +6357,7 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
             if (!intrinsic_pseudo_style_is_inline(ps)) continue;
 
             // Measure content text width
-            const char* pc = dom_element_get_pseudo_element_content(element,
+            StrView pc = dom_element_get_pseudo_element_content(element,
                 is_before ? 1 /*PSEUDO_ELEMENT_BEFORE*/ : 2 /*PSEUDO_ELEMENT_AFTER*/);
             TextIntrinsicWidths content_widths = intrinsic_measure_pseudo_text_widths(lycon, ps, pc);
             float content_w = content_widths.max_content;
@@ -6744,11 +6747,12 @@ IntrinsicSizes calculate_node_intrinsic_widths(LayoutContext* lycon, DomNode* no
     if (node->is_text()) {
         LayoutViewScope text_owner_scope(lycon);
         lycon->elmt = lam::up(node);
-        const char* text = (const char*)node->text_data();
+        size_t length;
+        const char* text = (const char*)node->text_data(&length);
         if (text) {
             DomElement* owner = node->parent ? node->parent->as_element() : nullptr;
             // retain computed break policy and edge segments for parallel Ruby and parent inline runs.
-            sizes = layout_measure_text_intrinsic_lines(lycon, text, strlen(text),
+            sizes = layout_measure_text_intrinsic_lines(lycon, text, length,
                 intrinsic_text_line_options(lycon, owner, node));
         }
         return sizes;
@@ -6840,8 +6844,9 @@ static void intrinsic_append_normalized_text(StrBuf* output,
 
 static void intrinsic_append_normalized_inline_text(StrBuf* output, DomNode* node,
                                                     IntrinsicInlineTextState* state) {
-    const char* data = reinterpret_cast<const char*>(node->text_data());
-    intrinsic_append_normalized_text(output,data,data ? strlen(data) : 0,
+    size_t length;
+    const char* data = reinterpret_cast<const char*>(node->text_data(&length));
+    intrinsic_append_normalized_text(output,data,length,
         get_white_space_value(node),state,layout_ruby_annotation_content(node));
 }
 
@@ -6869,10 +6874,10 @@ bool layout_measure_text_break_plan(LayoutContext* context, DomNode* source,
     DomElement* owner = source->parent ? source->parent->as_element() : nullptr;
     if (owner && owner->font) setup_font(context->ui_context, &context->font, owner->font);
     LayoutTextIntrinsicLineOptions options = intrinsic_text_line_options(context, owner, source);
-    const char* text = (const char*)source->text_data();
-    size_t length = strlen(text);
+    size_t length;
+    const char* text = (const char*)source->text_data(&length);
     // conditional breaks need generated-mark/emergency metadata beyond a prefix-width plan.
-    if (options.overflow_wrap == CSS_VALUE_BREAK_WORD || strstr(text, "\xC2\xAD") ||
+    if (options.overflow_wrap == CSS_VALUE_BREAK_WORD || str_find(text, length, "\xC2\xAD", 2) != STR_NPOS ||
             get_inherited_text_enum(context, CSS_PROPERTY_HYPHENS, &BlockPropExt::hyphens,
                 CSS_VALUE_MANUAL, source) == CSS_VALUE_AUTO) return false;
     // preserved spaces can hang and tabs depend on the line origin; prefix widths do not describe those edges.
@@ -7350,8 +7355,9 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
     // For text nodes, estimate based on line height and text width
     if (node->is_text()) {
         // Check if text is whitespace-only (shouldn't contribute to height in block context)
-        const char* text = (const char*)node->text_data();
-        if (!text || *text == '\0') return 0;
+        size_t text_len;
+        const char* text = (const char*)node->text_data(&text_len);
+        if (!text || !text_len) return 0;
 
 
         if (text_node_is_ascii_whitespace(node)) return 0;
@@ -7393,7 +7399,6 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
 
 	        // Estimate how many lines the text will take based on available width
 	        if (width > 0) {
-	            size_t text_len = strlen(text);
 	            CssEnum ws_val = get_white_space_value(node);
 	            const char* measure_text = text;
 	            size_t measure_len = text_len;

@@ -1227,8 +1227,8 @@ void layout_inline(LayoutContext* lycon, DomNode *elmt, DisplayValue display);
 void adjust_text_bounds(ViewText* text);
 void apply_element_default_style(LayoutContext* lycon, DomNode* elmt);
 
-bool is_only_whitespace(const char* str) {
-    return !str || str_all(str, strlen(str), [](char c) { return is_space(c); });
+bool is_only_whitespace(const char* str, size_t length) {
+    return !str || str_all(str, length, [](char c) { return is_space(c); });
 }
 
 static void layout_note_inline_atomic_wrap_opportunity(LayoutContext* lycon,
@@ -1296,8 +1296,7 @@ bool should_collapse_inter_element_whitespace(DomNode* text_node) {
 
     if (!text_node->parent->is_block()) return false;
 
-    const char* str = (const char*)text_node->text_data();
-    if (!is_only_whitespace(str)) return false;
+    if (layout_text_node_has_content(text_node)) return false;
     if (text_node->prev_sibling && text_node->next_sibling &&
         text_node->prev_sibling->is_element() &&
         text_node->next_sibling->is_element()) {
@@ -1400,8 +1399,7 @@ static DomNode* get_next_element_sibling(DomNode* node) {
         if (sibling->is_element()) {
             return sibling;
         } else if (sibling->is_text()) {
-            const char* text = (const char*)sibling->text_data();
-            if (!is_only_whitespace(text)) {
+            if (layout_text_node_has_content(sibling)) {
                 return nullptr;
             }
             DomNode* parent = node->parent;
@@ -1943,6 +1941,7 @@ float layout_measure_font_glyph_advance(FontHandle* handle, FontProp* style,
     // default-ignorable and combining codes never acquire a .notdef advance.
     if (text_codepoint_has_zero_advance(codepoint)) return 0.0f;
     if (!style || style->font_size <= 0.0f || !handle) return 0.0f;
+    if (codepoint == 0) codepoint = text_nul_glyph_codepoint(handle);
     FontStyleDesc desc = font_style_desc_from_prop(style);
     LoadedGlyph* glyph = font_load_glyph(handle, &desc, codepoint, false);
     if (!glyph || glyph->advance_x <= 0.0f) {
@@ -1985,6 +1984,7 @@ float layout_measure_utf8_text_width(FontHandle* handle, FontProp* style,
     while (cursor < end) {
         uint32_t codepoint = 0;
         if (!layout_utf8_next_codepoint(&cursor, end, &codepoint)) continue;
+        if (codepoint == 0) codepoint = text_nul_glyph_codepoint(handle);
         LoadedGlyph* glyph = font_load_glyph(handle, &desc, codepoint, false);
         if (glyph) width += glyph->advance_x /
             (raster_scale > 0.0f ? raster_scale : 1.0f);
@@ -2111,10 +2111,11 @@ bool layout_text_combine_upright_applies(DomNode* text_node) {
     if (writing_mode != CSS_VALUE_VERTICAL_RL && writing_mode != CSS_VALUE_VERTICAL_LR) return false;
     if (mode == CSS_VALUE_ALL) return true;
 
-    const unsigned char* text = text_node->text_data();
+    size_t length;
+    const unsigned char* text = text_node->text_data(&length);
     if (!text || limit < 2.0f) return false;
     size_t count = 0;
-    for (const unsigned char* cursor = text; *cursor; cursor++) {
+    for (const unsigned char* cursor = text; cursor < text + length; cursor++) {
         if (*cursor < '0' || *cursor > '9') return false;
         count++;
     }
@@ -2954,14 +2955,9 @@ static bool display_is_table_column_marker(DisplayValue display) {
 static bool dom_children_have_renderable_content(DomNode* child) {
     while (child) {
         if (child->is_text()) {
-            const unsigned char* text = child->text_data();
-            while (text && *text) {
-                if (*text != ' ' && *text != '\t' && *text != '\n' &&
-                    *text != '\r' && *text != '\f') {
-                    return true;
-                }
-                text++;
-            }
+            size_t length;
+            const char* text = (const char*)child->text_data(&length);
+            if (text && !str_all(text, length, str_is_html_space)) return true;
         } else if (child->is_element()) {
             return true;
         }

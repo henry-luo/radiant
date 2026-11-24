@@ -445,17 +445,17 @@ static void calc_textarea_size(LayoutContext* lycon, ViewBlock* block, FormContr
     }
 }
 
-const char* form_button_label_text(ViewBlock* block, FormControlProp* form) {
-    const char* text = form ? form->value : nullptr;
-    if ((!text || !*text) && block) {
-        text = block->get_attribute("value");
+StrView form_button_label_text(ViewBlock* block, FormControlProp* form) {
+    StrView text = form ? form->display_value() : StrView{};
+    if (!text.length && block) {
+        text = block->get_attribute_view("value");
     }
-    if ((!text || !*text) && form && form->input_type) {
+    if (!text.length && form && form->input_type) {
         if (form_input_kind_is(form->input_type, FORM_INPUT_KIND_SUBMIT)) {
-            return "Submit";
+            return strview_from_str("Submit");
         }
         if (form_input_kind_is(form->input_type, FORM_INPUT_KIND_RESET)) {
-            return "Reset";
+            return strview_from_str("Reset");
         }
     }
     return text;
@@ -500,7 +500,7 @@ static void calc_button_size(LayoutContext* lycon, ViewBlock* block, FormControl
                              FontProp* font, LayoutTextIntrinsicLineMetrics* label_metrics) {
     float zoom = layout_effective_zoom((View*)block);
     // Get button text from live value, value attribute, or input-type default.
-    const char* text = form_button_label_text(block, form);
+    StrView text = form_button_label_text(block, form);
     LayoutFontScope font_scope(lycon,font);
     LayoutTextIntrinsicLineMetrics line_metrics;
     bool has_non_normal_line_height = false;
@@ -508,7 +508,7 @@ static void calc_button_size(LayoutContext* lycon, ViewBlock* block, FormControl
         lycon,block,font,&has_non_normal_line_height);
     bool native_label = layout_form_control_has_native_intrinsic_size(block);
 
-    if (text && *text && font && font->font_size > 0) {
+    if (text.length && font && font->font_size > 0) {
         LayoutTextIntrinsicLineOptions options;
         options.white_space = block->blk && block->block()->white_space
             ? block->block()->white_space : CSS_VALUE_NORMAL;
@@ -518,7 +518,7 @@ static void calc_button_size(LayoutContext* lycon, ViewBlock* block, FormControl
             options.line_height_is_normal = !has_non_normal_line_height;
         }
         // label strings need the same whitespace processing as anonymous inline text.
-        StrBuf* normalized = layout_normalize_inline_text(text,strlen(text),options.white_space);
+        StrBuf* normalized = layout_normalize_inline_text(text.str,text.length,options.white_space);
         options.processed_forced_breaks = true;
         IntrinsicSizes tw = normalized ? layout_measure_text_intrinsic_lines(lycon,
             normalized->str,normalized->length,options,nullptr,&line_metrics) : IntrinsicSizes{};
@@ -627,9 +627,9 @@ float layout_select_option_text_width(LayoutContext* lycon, DomElement* select) 
         if (!child->is_element() || child->as_element()->tag() != MARKUP_NAME_OPTGROUP) {
             continue;
         }
-        const char* label = child->as_element()->get_attribute("label");
-        if (!label || !*label) continue;
-        float label_width = measure_text_max_content_width(lycon, label, strlen(label));
+        StrView label = child->as_element()->get_attribute_view("label");
+        if (!label.length) continue;
+        float label_width = measure_text_max_content_width(lycon, label.str, label.length);
         if (label_width > max_text_width) max_text_width = label_width;
     }
     return max_text_width;

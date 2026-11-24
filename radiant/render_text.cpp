@@ -763,7 +763,8 @@ static char* render_text_create_paint_segment(const unsigned char* text,
             is_word_start = false;
             for (int index = 0; index < count; index++) {
                 uint32_t exported = render_text_resolve_mathlive_fallback_glyph(transformed[index]);
-                if (exported != 0) dst += utf8_encode(exported, dst);
+                // export text cannot carry a literal NUL through XML or C-string APIs.
+                dst += utf8_encode(exported ? exported : TEXT_NUL_PLACEHOLDER, dst);
             }
         }
         src += bytes;
@@ -1146,8 +1147,8 @@ void render_text_view(RasterRenderContext* rdcon, ViewText* text_view) {
                     continue;
                 }
                 int bytes = str_utf8_decode((const char*)p, (size_t)(end - p), &codepoint);
-                if (bytes <= 0) { p++;  codepoint = 0;  char_index++; }
-                else { p += bytes;  char_index += bytes; }
+                if (bytes <= 0) { p++; char_index++; continue; }
+                p += bytes; char_index += bytes;
 
                 // Variation selectors are consumed by the preceding glyph; asking
                 // CoreText to paint them standalone triggers hidden UI-font lookup.
@@ -1164,7 +1165,7 @@ void render_text_view(RasterRenderContext* rdcon, ViewText* text_view) {
 
                 for (int tti = 0; tti < tt_count; tti++) {
                     uint32_t render_cp = render_text_resolve_mathlive_fallback_glyph(tt_out[tti]);
-                    if (render_cp == 0) continue;
+                    if (render_cp == 0) render_cp = text_nul_glyph_codepoint(font_box_handle(&rdcon->font));
                     bool character_gap = text_justify_character_gap(&justify_context, render_cp, text_justify);
                     if (text_codepoint_has_zero_advance(render_cp)) continue;
                     if (justification_per_gap > 0.0f &&

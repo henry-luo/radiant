@@ -405,9 +405,8 @@ int apply_text_transform_full(uint32_t codepoint, CssEnum text_transform,
     return 1;
 }
 
-bool layout_text_edge_has_whitespace(const char* text, bool end) {
-    if (!text || !*text) return false;
-    size_t length = strlen(text);
+bool layout_text_edge_has_whitespace(const char* text, size_t length, bool end) {
+    if (!text || !length) return false;
     unsigned char ch = (unsigned char)text[end ? length - 1 : 0];
     return ch == ' ' || ch == '\t' || ch == '\n' ||
            ch == '\r' || ch == '\f';
@@ -420,8 +419,9 @@ bool layout_element_edge_has_whitespace(DomNode* element, bool end) {
                         : element->as_element()->first_child;
     while (node) {
         if (node->is_text()) {
-            return layout_text_edge_has_whitespace(
-                (const char*)node->text_data(), end);
+            size_t length;
+            const char* text = (const char*)node->text_data(&length);
+            return layout_text_edge_has_whitespace(text, length, end);
         }
         DomElement* child = node->is_element() ? node->as_element() : nullptr;
         DomNode* edge_child = child
@@ -879,12 +879,13 @@ static inline bool is_line_break_ex_is_sy(uint32_t cp) {
  * Peek at the next Unicode codepoint without advancing the string pointer.
  * Returns 0 if at end of string.
  */
-static inline uint32_t peek_codepoint(const unsigned char* str) {
-    if (!str || !*str) return 0;
-    if (*str < 128) return *str;
+static inline uint32_t peek_codepoint(const unsigned char* str, const unsigned char* end) {
+    if (!str || str >= end) return 0;
+    unsigned char first = *str;
+    if (first < 128) return first ? first : TEXT_NUL_PLACEHOLDER;
     uint32_t cp = 0;
-    str_utf8_decode((const char*)str, 4, &cp);
-    return cp ? cp : *str;
+    str_utf8_decode((const char*)str, (size_t)(end - str), &cp);
+    return cp ? cp : first;
 }
 
 bool layout_measure_grapheme_cluster_advance(
@@ -901,6 +902,7 @@ bool layout_measure_grapheme_cluster_advance(
     if (!layout_utf8_next_codepoint(&unit_cursor, text_end, &unit_first)) return false;
     DomNode* owner = text_node ? text_node : lycon->elmt.get();
     if (text_glyph_orientation(layout_text_orientation_policy(owner), unit_first) == TEXT_GLYPH_UPRIGHT) {
+        if (unit_first == 0) return false;  // measure a NUL in the scalar glyph path.
         // vertical metrics and isolated shaping belong to the whole typographic unit, including its marks.
         return text_visit_glyph_unit(&lycon->font, cluster_start, text_end, TEXT_SHAPE_UPRIGHT_UNIT, true,
             nullptr, nullptr, cluster_bytes, cluster_width);
@@ -993,8 +995,9 @@ static uint32_t inline_text_edge_in_scope(DomNode* node, bool backwards,
     if (source) *source = nullptr;
     while (node) {
         if (node->is_text()) {
-            const unsigned char* text = node->text_data();
-            if (text && *text) {
+            size_t length;
+            const unsigned char* text = node->text_data(&length);
+            if (text && length) {
                 CssEnum white_space = mode == LAYOUT_INLINE_TEXT_FIND_LINE_CONTENT
                     ? get_white_space_value(node) : CSS_VALUE_NORMAL;
                 bool retained_space = mode == LAYOUT_INLINE_TEXT_KEEP_ASCII_SPACE ||
@@ -1002,10 +1005,11 @@ static uint32_t inline_text_edge_in_scope(DomNode* node, bool backwards,
                      !layout_white_space_collapses(white_space));
                 uint32_t edge = 0;
                 bool ruby_segment_breaks = layout_ruby_annotation_content(node);
-                const unsigned char* end = text + strlen((const char*)text);
+                const unsigned char* end = text + length;
                 while (text < end) {
                     uint32_t cp = 0;
                     if (!layout_utf8_next_codepoint(&text, end, &cp)) break;
+                    if (cp == 0) cp = TEXT_NUL_PLACEHOLDER;  // zero signals no edge to callers.
                     if (layout_text_is_segment_break(cp) && ruby_segment_breaks) {
                         if (mode == LAYOUT_INLINE_TEXT_KEEP_ASCII_SPACE) cp = ' ';
                         else continue;
@@ -1120,10 +1124,18 @@ uint32_t layout_adjacent_inline_codepoint(DomNode* node, bool backwards,
     return 0;
 }
 
-static uint32_t peek_next_inline_codepoint(DomNode* node, const unsigned char* remaining) {
+static uint32_t peek_next_inline_codepoint(DomNode* node, const unsigned char* remaining,
+                                           const unsigned char* end) {
     // CSS Text 3 §5.5: inline boundaries preserve adjacency; atomic boxes stop the lookup.
-    uint32_t next = peek_codepoint(remaining);
+    uint32_t next = peek_codepoint(remaining, end);
     return next ? next : layout_adjacent_inline_codepoint(node, false);
+}
+
+static inline bool has_ascii_opening_break(DomNode* node, uint32_t current,
+        const unsigned char* next, const unsigned char* end) {
+    // A multibyte sequence cannot encode the opening ASCII punctuation.
+    uint32_t following = next < end ? *next : layout_adjacent_inline_codepoint(node, false);
+    return layout_text_allows_ascii_opening_break(current, following);
 }
 
 static float inline_fragment_edge_width(DomNode* node, bool start, bool at_source_edge) {
@@ -2102,7 +2114,7 @@ LineFillStatus node_has_line_filled(LayoutContext* lycon, DomNode* node,
 LineFillStatus text_has_line_filled(LayoutContext* lycon, DomNode* text_node,
                                    LineFillProbe* probe, float* measured_width);
 static inline void skip_collapsible_space_sequence(unsigned char** str, bool collapse_newlines,
-                                                     const unsigned char* end = nullptr);
+                                                     const unsigned char* end);
 
 static bool inline_node_is_unbreakable_text(LayoutContext* lycon, DomNode* node) {
     if (!node) return false;
@@ -2117,9 +2129,10 @@ static bool inline_node_is_unbreakable_text(LayoutContext* lycon, DomNode* node)
         CssEnum white_space = get_white_space_value(node, lycon);
         if (wrap_lines &&
             (word_break == CSS_VALUE_BREAK_ALL || line_break == CSS_VALUE_ANYWHERE)) return false;
-        const unsigned char* text = node->text_data();
+        size_t length;
+        const unsigned char* text = node->text_data(&length);
         const unsigned char* cursor = text;
-        const unsigned char* end = text ? text + strlen((const char*)text) : nullptr;
+        const unsigned char* end = text ? text + length : nullptr;
         while (cursor && cursor < end) {
             uint32_t codepoint = 0;
             if (!layout_utf8_next_codepoint(&cursor, end, &codepoint)) return false;
@@ -2135,12 +2148,11 @@ static bool inline_node_is_unbreakable_text(LayoutContext* lycon, DomNode* node)
                 (wrap_lines && (codepoint == '-' || codepoint == '?'))) {
                 return false;
             }
-            if (wrap_lines && layout_text_allows_ascii_opening_break(
-                    codepoint, peek_next_inline_codepoint(node, cursor))) {
+            if (wrap_lines && has_ascii_opening_break(node, codepoint, cursor, end)) {
                 return false;
             }
         }
-        return text && *text;
+        return text && length;
     }
     if (!node->is_element()) return false;
     DomElement* element = lam::dom_require_element(node);
@@ -3064,7 +3076,7 @@ static float measure_first_word_width(LayoutContext* lycon, const unsigned char*
     while (str < text_end && is_space(*str)) str++;
     if (str == text_end) return 0.0f;
 
-    while (str < text_end && *str && !is_space(*str)) {
+    while (str < text_end && !is_space(*str)) {
         int shaped_bytes = 0;
         float shaped_width = 0.0f;
         uint32_t first_cp = 0;
@@ -3190,11 +3202,12 @@ static float measure_preserved_tab_advance(LayoutContext* lycon, float current_x
 LineFillStatus text_has_line_filled(LayoutContext* lycon, DomNode* text_node,
                                    LineFillProbe* probe, float* measured_width) {
     *measured_width = 0.0f;
-    const char* text = (const char*)text_node->text_data();
+    size_t length;
+    const char* text = (const char*)text_node->text_data(&length);
     if (!text) return RDT_LINE_NOT_FILLED;  // null check
     // an empty text node adds no width; the measuring loop below would read its
     // terminator as a glyph (the .notdef advance) and step past the string
-    if (!*text) return RDT_NOT_SURE;
+    if (!length) return RDT_NOT_SURE;
     LayoutFontScope font_scope(lycon);
     DomElement* owner = text_node->parent ? text_node->parent->as_element() : nullptr;
     FontProp* font = owner ? owner->font.get() : nullptr;
@@ -3203,7 +3216,7 @@ LineFillStatus text_has_line_filled(LayoutContext* lycon, DomNode* text_node,
     // leaving an inline changes the following text's font before its advance is probed.
     if (font && lycon->font.style != font) setup_font(lycon->ui_context, &lycon->font, font);
     unsigned char* str = (unsigned char*)text;
-    unsigned char* text_end = str + strlen(text);
+    unsigned char* text_end = str + length;
     float text_width = 0.0f;
     CssEnum text_transform = get_text_transform_from_node(text_node);
     CssEnum white_space = get_white_space_value(text_node, lycon);
@@ -3252,7 +3265,7 @@ LineFillStatus text_has_line_filled(LayoutContext* lycon, DomNode* text_node,
                         + text_character_spacing(lycon->font.style, 0x20, collapse_spaces);
             }
             probe->trailing_collapsible_space = collapse_spaces;
-            if (collapse_spaces) skip_collapsible_space_sequence(&str, collapse_newlines);
+            if (collapse_spaces) skip_collapsible_space_sequence(&str, collapse_newlines, text_end);
             else str++;
             prev_codepoint = ' ';
             is_word_start = true;
@@ -3348,17 +3361,16 @@ LineFillStatus text_has_line_filled(LayoutContext* lycon, DomNode* text_node,
             if (has_break_opportunity) return RDT_NOT_SURE;
             return RDT_LINE_FILLED;
         }
-        uint32_t next_codepoint = peek_codepoint(str);
         if ((wrap_lines && codepoint == '-') ||
             (break_all && is_break_all_text_unit(codepoint) &&
-            layout_text_allows_letter_break(codepoint, next_codepoint,
+            layout_text_allows_letter_break(codepoint, peek_codepoint(str, text_end),
                 line_break, false, false, lycon->elmt)) ||
             (wrap_lines &&
-             layout_text_allows_ascii_opening_break(codepoint, next_codepoint))) {
+             layout_text_allows_ascii_opening_break(codepoint, str < text_end ? *str : 0))) {
             // record the boundary after its visible glyph fits, before probing the next unit.
             has_break_opportunity = true;
         }
-    } while (*str);  // end of text
+    } while (str < text_end);
     *measured_width = text_width;
     return RDT_NOT_SURE;
 }
@@ -3894,7 +3906,7 @@ static void record_inline_box_decoration_fragment(LayoutContext* lycon, DomNode*
 
 static inline void skip_collapsible_space_sequence(unsigned char** str, bool collapse_newlines,
                                                      const unsigned char* end) {
-    while ((!end || *str < end) && is_space(**str) && (collapse_newlines || !layout_text_is_segment_break(**str))) {
+    while (*str < end && is_space(**str) && (collapse_newlines || !layout_text_is_segment_break(**str))) {
         (*str)++;
     }
 }
@@ -3905,7 +3917,7 @@ static bool skip_collapsible_text_edge(LayoutContext* lycon, DomNode* text_node,
     if (layout_text_combine_upright_applies(text_node)) return false;
     skip_collapsible_space_sequence(str, collapse_newlines, end);
     clear_slice_inline_start_edge(lycon, text_node);
-    if (*str >= end || !**str) {
+    if (*str >= end) {
         if (clear_view_when_empty) text_node->view_type = RDT_VIEW_NONE;
         return true;
     }
@@ -3914,11 +3926,13 @@ static bool skip_collapsible_text_edge(LayoutContext* lycon, DomNode* text_node,
 }
 
 static bool collapsible_space_before_forced_break(DomNode* text_node,
-        unsigned char* cursor, bool collapse_newlines, const unsigned char* end = nullptr) {
+        unsigned char* cursor, bool collapse_newlines, const unsigned char* end,
+        bool at_source_end) {
     if (!text_node || !cursor || !is_space(*cursor)) return false;
     skip_collapsible_space_sequence(&cursor, collapse_newlines, end);
-    if (end && cursor >= end && *cursor) return false;
-    if (*cursor) return !collapse_newlines && layout_text_is_segment_break(*cursor);
+    if (cursor < end) return !collapse_newlines && layout_text_is_segment_break(*cursor);
+    // a bounded slice may end before the node's actual boundary.
+    if (!at_source_end) return false;
     return layout_adjacent_inline_codepoint(text_node, false,
         LAYOUT_INLINE_TEXT_FIND_LINE_CONTENT) == '\n';
 }
@@ -4315,9 +4329,10 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
 
 
     unsigned char* next_ch;  ViewText* text_view = null;
-    unsigned char* text_start = text_node->text_data();
+    // use the node's byte length so a zero byte remains inside the layout range.
+    size_t source_length;
+    unsigned char* text_start = text_node->text_data(&source_length);
     if (!text_start) return;  // null check for text data
-    size_t source_length = strlen((const char*)text_start);
     const LayoutTextSliceScope* slice = lycon->text_slice.get();
     while (slice && slice->source != text_node) slice = slice->previous.get();
     size_t first = slice ? slice->first : 0;
@@ -4497,7 +4512,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
     {
         float line_right = lycon->line.has_float_intrusion ?
                            lycon->line.effective_right : lycon->line.right;
-        uint32_t first_codepoint = peek_codepoint(str);
+        uint32_t first_codepoint = peek_codepoint(str, text_end);
         // CSS Text 3 §5.2: zero-advance attachment characters cannot create a
         // break before themselves; ZWSP must first be placed, then records its
         // break opportunity after the character.
@@ -4530,7 +4545,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
                     first_codepoint, true);
         }
         bool whitespace_before_forced_break = collapse_spaces &&
-            collapsible_space_before_forced_break(text_node, str, collapse_newlines, text_end);
+            collapsible_space_before_forced_break(text_node, str, collapse_newlines, text_end, last == source_length);
         bool next_atomic_fits = collapsed_space_followed_by_fitting_atomic(
             lycon, text_node, line_right);
         // a space-only inline retains its current-line fragment; wrapping
@@ -4564,7 +4579,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
         preceding_text != text_node &&
         get_inherited_text_enum(lycon, CSS_PROPERTY_OVERFLOW_WRAP,
             &BlockPropExt::overflow_wrap, CSS_VALUE_NORMAL, preceding_text) == CSS_VALUE_ANYWHERE &&
-        !text_codepoint_has_zero_advance(peek_codepoint(str))) {
+        !text_codepoint_has_zero_advance(peek_codepoint(str, text_end))) {
         float line_right = lycon->line.has_float_intrusion
             ? lycon->line.effective_right : lycon->line.right;
         // the preceding anywhere scope supplies an emergency boundary; keep
@@ -4719,7 +4734,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
         lycon->line.prev_codepoint = last;
         lycon->line.prev_text_spacing_codepoint = last;
         if (wrap_lines && (is_space(last) || break_all || (has_id_line_break_class(last) && !keep_all)) &&
-                layout_text_allows_letter_break(last, peek_next_inline_codepoint(text_node, text_end),
+                layout_text_allows_letter_break(last, peek_next_inline_codepoint(text_node, text_end, text_end),
                     line_break_val, false, cj_is_non_starter, text_node)) {
             // publish the real outer edge to the same cross-node break machinery as ordinary text.
             layout_record_line_break_opportunity(lycon, text_end - 1, rect->width,
@@ -4958,9 +4973,11 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
                         emoji_presentation = true;
                     }
                 }
+                FontHandle* handle = font_box_handle(&lycon->font);
+                uint32_t glyph_codepoint = codepoint ? codepoint : text_nul_glyph_codepoint(handle);
                 LoadedGlyph* glyph = emoji_presentation
-                    ? font_load_glyph_emoji(font_box_handle(&lycon->font), &_sd, codepoint, false)
-                    : font_load_glyph(font_box_handle(&lycon->font), &_sd, codepoint, false);
+                    ? font_load_glyph_emoji(handle, &_sd, glyph_codepoint, false)
+                    : font_load_glyph(handle, &_sd, glyph_codepoint, false);
                 float raster_scale = ui_context_raster_scale(lycon->ui_context);
                 if (document_font_missing_figure_space(lycon, codepoint)) {
                     wd = layout_font_em_size(lycon);
@@ -5201,7 +5218,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
                 rect->x + rect->width + end_spacing_trim - terminal_trim <=
                     line_right + kTextLayoutSubpixelEpsilon &&
                 layout_text_allows_letter_break(codepoint,
-                    peek_next_inline_codepoint(text_node, next_ch), line_break_val,
+                    peek_next_inline_codepoint(text_node, next_ch, text_end), line_break_val,
                     false, cj_is_non_starter, text_node)) {
                 // allow-end uses the remaining punctuation half-space before moving a fitting line.
                 rect->width += end_spacing_trim;
@@ -5222,7 +5239,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
             else if (collapse_spaces && (str < text_end && is_space(*str)) &&
                      (layout_text_is_collapsible_whitespace(
                          text_node, (size_t)(str - text_start)) ||
-                      collapsible_space_before_forced_break(text_node, str, collapse_newlines, text_end))) {
+                      collapsible_space_before_forced_break(text_node, str, collapse_newlines, text_end, last == source_length))) {
                 // defer a terminal collapsed separator to the next inline item
                 // or preserved break; wrapping before LF would add an empty line before its forced break.
             }
@@ -5431,7 +5448,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
                     bool remove_break = false;
                     bool prev_is_zwsp = (last_processed_cp == 0x200B);
                     bool next_is_zwsp = false;
-                    uint32_t next_cp = peek_next_inline_codepoint(text_node, str);
+                    uint32_t next_cp = peek_next_inline_codepoint(text_node, str, text_end);
                     if (next_cp == 0x200B) {
                         next_is_zwsp = true;
                     }
@@ -5518,7 +5535,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
         else if (codepoint == 0x003F && wrap_lines && !lycon->line.is_line_start) {
             // CSS Text 3 §5.2: UAs may add wrap opportunities at typographic symbol units.
             str = next_ch;
-            uint32_t next_cp = peek_codepoint(str);
+            uint32_t next_cp = peek_codepoint(str, text_end);
             if ((next_cp >= 'A' && next_cp <= 'Z') || (next_cp >= 'a' && next_cp <= 'z')
                     || (next_cp >= '0' && next_cp <= '9')) {
                 layout_record_line_break_opportunity(
@@ -5542,7 +5559,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
             str = next_ch;
             mark_line_non_space(&lycon->line);
 
-            uint32_t next_cp = peek_next_inline_codepoint(text_node, str);
+            uint32_t next_cp = peek_next_inline_codepoint(text_node, str, text_end);
             bool allow_break = layout_text_allows_letter_break(
                 codepoint, next_cp, line_break_val, zwj_preceded,
                 cj_is_non_starter, text_node);
@@ -5573,7 +5590,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
             }
             // CSS Text 3 §5.5: closing candidates share the following-character restrictions across inline boundaries.
             if (wrap_lines && (is_line_break_cl(codepoint) || is_line_break_ns(codepoint))) {
-                uint32_t next_cp = peek_next_inline_codepoint(text_node, str);
+                uint32_t next_cp = peek_next_inline_codepoint(text_node, str, text_end);
                 if (layout_text_allows_letter_break(codepoint, next_cp, line_break_val,
                         zwj_preceded, cj_is_non_starter, text_node)) {
                     record_fitting_text_break(lycon, text_node, rect, str,
@@ -5581,8 +5598,7 @@ void layout_text(LayoutContext* lycon, DomNode *text_node) {
                 }
             }
         }
-        if (wrap_lines && layout_text_allows_ascii_opening_break(
-                codepoint, peek_next_inline_codepoint(text_node, str))) {
+        if (wrap_lines && has_ascii_opening_break(text_node, codepoint, str, text_end)) {
             BreakKind kind = is_line_break_cl(codepoint) ? BRK_CL
                 : codepoint == '-' ? BRK_HYPHEN : BRK_TEXT;
             record_fitting_text_break(lycon, text_node, rect, str, kind);

@@ -26,7 +26,7 @@ static bool insert_html(DomDocument* document, const char* html) {
     return true;
 }
 static void notify(DomJsMutationKind kind, DomNode* target, DomNode* parent,
-                   const char* attribute_name, const char* old_value) {
+                   const char* attribute_name, const char* old_value, size_t) {
     observed_kind = kind;
     observed_child = target;
     observed_reference = parent;

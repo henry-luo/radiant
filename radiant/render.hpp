@@ -3161,8 +3161,10 @@ inline void radiant_clear_background_image(BackgroundProp* background) {
     field.clear();
 }
 
-inline void radiant_retain_marker_text_content(MarkerProp* marker, lam::PoolPtr<char> text_content) {
+inline void radiant_retain_marker_text_content(MarkerProp* marker, lam::PoolPtr<char> text_content,
+                                               size_t length) {
     marker->text_content = lam::own(text_content.get());
+    marker->text_content_length = text_content.get() ? length : 0;
 }
 
 inline void radiant_take_image_source_path(ImageSurface* surface, lam::SessionPtr<char>& source_path) {

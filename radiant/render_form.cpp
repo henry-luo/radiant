@@ -377,6 +377,7 @@ static bool form_glyph_run_next(FormGlyphRun* run, FormGlyphStep* step) {
         if (bytes <= 0) { run->cursor++; continue; }
         run->cursor += bytes;
         step->start = glyph_start;
+        if (codepoint == 0) codepoint = text_nul_glyph_codepoint(run->font_handle);
         step->glyph = font_load_glyph(run->font_handle, &run->style,
                                       codepoint, run->render_bitmap);
         return true;
@@ -494,9 +495,9 @@ static bool password_next_utf8_span(const unsigned char** cursor,
 }
 
 static char* build_password_display(const char* src,
-                                    int src_len,
+                                    size_t src_len,
                                     uint32_t reveal_start,
-                                    uint32_t reveal_end) {
+                                    uint32_t reveal_end, size_t* out_len) {
     if (!src) return nullptr;
     uint32_t display_len = 0;
     const unsigned char* p = (const unsigned char*)src;
@@ -524,6 +525,7 @@ static char* build_password_display(const char* src,
         }
     }
     out[out_i] = '\0';
+    *out_len = out_i;
     return out;
 }
 
@@ -576,6 +578,7 @@ struct TextControlDisplayText {
     const char* value_text;
     uint32_t value_len;
     const char* text;
+    size_t text_len;
     uint32_t selection_start;
     uint32_t selection_end;
     uint32_t preedit_start;
@@ -595,7 +598,8 @@ static char* build_preedit_display_text(FormControlProp* form,
                                         uint32_t selection_end,
                                         uint32_t* out_preedit_start,
                                         uint32_t* out_preedit_end,
-                                        uint32_t* out_caret_byte) {
+                                        uint32_t* out_caret_byte,
+                                        size_t* out_len) {
     // The preedit is the document's, not the control's (ES18/F7): ask on behalf
     // of this control and get null unless it is the one being composed into.
     uint32_t pre_len = 0, pre_caret = 0;
@@ -619,6 +623,7 @@ static char* build_preedit_display_text(FormControlProp* form,
     if (out_preedit_start) *out_preedit_start = start;
     if (out_preedit_end) *out_preedit_end = start + pre_len;
     if (out_caret_byte) *out_caret_byte = start + caret_in_preedit;
+    *out_len = (size_t)value_len - (end - start) + pre_len;
     return display;
 }
 
@@ -626,14 +631,16 @@ static void resolve_text_control_display_text(FormControlProp* form,
                                               DocState* state,
                                               View* view,
                                               const char* value_text,
+                                              uint32_t value_len,
                                               bool placeholder_requires_text,
                                               TextControlDisplayText* out) {
     if (!out) return;
     memset(out, 0, sizeof(*out));
     if (!value_text) value_text = "";
     out->value_text = value_text;
-    out->value_len = (uint32_t)strlen(value_text);
+    out->value_len = value_len;
     out->text = value_text;
+    out->text_len = value_len;
 
     form_control_get_selection(state, view, &out->selection_start,
                                &out->selection_end, NULL);
@@ -642,13 +649,14 @@ static void resolve_text_control_display_text(FormControlProp* form,
         out->preedit_display = build_preedit_display_text(form, state, view, value_text,
             out->value_len, out->selection_start, out->selection_end,
             &out->preedit_start, &out->preedit_end,
-            &out->preedit_caret_byte);
+            &out->preedit_caret_byte, &out->text_len);
         if (out->preedit_display) out->text = out->preedit_display;
-    } else if (!out->text || !*out->text) {
+    } else if (out->text_len == 0) {
         bool can_use_placeholder = !placeholder_requires_text ||
-            (form && form->placeholder && *form->placeholder);
+            (form && form->placeholder_length != 0);
         if (can_use_placeholder) {
             out->text = form ? form->placeholder : nullptr;
+            out->text_len = form ? form->placeholder_length : 0;
             out->is_placeholder = true;
         }
     }
@@ -674,8 +682,9 @@ static void render_text_input(RasterRenderContext* rdcon, ViewBlock* block, Form
     DocState* state = fc.state;
     bool focused_here = form_control_has_focus(&fc, block);
     TextControlDisplayText display;
+    StrView value = form->display_value();
     resolve_text_control_display_text(form, state, static_cast<View*>(block),
-                                      form->value, false, &display);
+                                      value.str, (uint32_t)value.length, false, &display);
     const char* src_text = display.text;
     uint32_t selection_start = display.selection_start;
     uint32_t selection_end = display.selection_end;
@@ -696,9 +705,10 @@ static void render_text_input(RasterRenderContext* rdcon, ViewBlock* block, Form
     }
     lam::Temp<char> mask_buf;
     const char* text = src_text;
+    size_t text_len = display.text_len;
     if (is_password) {
-        mask_buf.reset(build_password_display(src_text, (int)strlen(src_text),
-            password_reveal_start, password_reveal_end));
+        mask_buf.reset(build_password_display(src_text, text_len,
+            password_reveal_start, password_reveal_end, &text_len));
         if (mask_buf) text = mask_buf.get();
     }
     FontProp* render_font = form_render_font(block, form, is_placeholder);
@@ -710,8 +720,8 @@ static void render_text_input(RasterRenderContext* rdcon, ViewBlock* block, Form
     float text_y = y + content.y * s + (content.height * s - font_size_scaled) / 2.0f;
     float content_right = text_x + content.width * s;
     float content_w     = content_right - text_x;
-    float text_w = (text && *text && render_font)
-        ? measure_input_text_width(rdcon, render_font, text, (int)strlen(text)) * s
+    float text_w = (text && text_len && render_font)
+        ? measure_input_text_width(rdcon, render_font, text, (int)text_len) * s // INT_CAST_OK: form byte length.
         : 0.0f;
     float text_origin_x = text_x + form_text_align_offset(block, content_w, text_w);
 
@@ -722,7 +732,7 @@ static void render_text_input(RasterRenderContext* rdcon, ViewBlock* block, Form
     int caret_byte = 0;
     if (focused_here && !is_placeholder && text && render_font &&
         (has_preedit || caret_get_offset(state, &caret_byte))) {
-        int src_len = src_text ? (int)strlen(src_text) : 0;
+        int src_len = (int)display.text_len; // INT_CAST_OK: form byte length.
         if (has_preedit) caret_byte = (int)preedit_caret_byte;
         if (caret_byte > src_len) caret_byte = src_len;
         bool used_shared_geometry = false;
@@ -759,11 +769,11 @@ static void render_text_input(RasterRenderContext* rdcon, ViewBlock* block, Form
     uint32_t selection_start_byte = 0;
     uint32_t selection_end_byte = 0;
     bool paint_selection = focused_here && !has_preedit && !is_placeholder &&
-        form->tc_initialized && selection_start != selection_end && text && *text;
+        form->tc_initialized && selection_start != selection_end && text && text_len;
     if (paint_selection) {
         const char* value = form->current_value ? form->current_value : src_text;
         uint32_t value_len = form->current_value
-            ? form->current_value_len : (uint32_t)strlen(src_text);
+            ? form->current_value_len : display.value_len;
         selection_start_byte = tc_utf16_to_utf8_offset(
             value, value_len, selection_start);
         selection_end_byte = tc_utf16_to_utf8_offset(
@@ -818,12 +828,12 @@ static void render_text_input(RasterRenderContext* rdcon, ViewBlock* block, Form
         }
     }
 
-    if (text && *text && render_font) {
+    if (text && text_len && render_font) {
         Color text_color = form_text_color(block, form, is_placeholder);
         // F4: glyph-based render works for both regular and password text
         // (mask_buf substitutes glyphs), with scroll_x applied uniformly.
-        render_simple_string(rdcon, text, text_origin_x - scroll_px, text_y,
-                             render_font, text_color);
+        render_simple_string_range(rdcon, text, text_len, text_origin_x - scroll_px,
+                                   text_y, render_font, text_color);
         if (paint_selection && block->in_line &&
             block->inl()->has_selection_color) {
             int start_byte = is_password
@@ -834,7 +844,6 @@ static void render_text_input(RasterRenderContext* rdcon, ViewBlock* block, Form
                 ? password_display_byte_offset(src_text, (int)selection_end_byte,
                     password_reveal_start, password_reveal_end)
                 : (int)selection_end_byte;
-            size_t text_len = strlen(text);
             if (start_byte >= 0 && end_byte > start_byte &&
                 (size_t)end_byte <= text_len) {
                 float selected_x = text_origin_x - scroll_px +
@@ -1016,19 +1025,20 @@ static void render_button(RasterRenderContext* rdcon, ViewBlock* block, FormCont
 
     // For void elements like <input type="submit">, render value text directly
     // (child content rendering only works for <button>text</button> style elements)
-    const char* label_text = form_button_label_text(block, form);
-    if (!block->first_child && label_text && *label_text && block->font) {
+    StrView label = form_button_label_text(block, form);
+    if (!block->first_child && label.length && block->font) {
         Color text_color = form_text_color(block, form, false);
 
         // Measure text width for horizontal centering
         float text_width = measure_input_text_width(
-            rdcon, block->font, label_text,
-            (int)strlen(label_text)) * s; // INT_CAST_OK: form text measurement API uses byte-count ints.
+            rdcon, block->font, label.str,
+            (int)label.length) * s; // INT_CAST_OK: form text measurement API uses byte-count ints.
 
         float font_size_scaled = block->fontp()->font_size * s;
         float text_x = x + (w - text_width) / 2;
         float text_y = y + (h - font_size_scaled) / 2;
-        render_simple_string(rdcon, label_text, text_x, text_y, block->font, text_color);
+        render_simple_string_range(rdcon, label.str, label.length, text_x, text_y,
+                                   block->font, text_color);
     }
 
 
@@ -1182,8 +1192,9 @@ static void render_select_listbox_rows(RasterRenderContext* rdcon, ViewBlock* bl
         dom_option_label(option, label);
         if (label && label->length && paint.font) {
             float font_height = paint.font->font_height * s;
-            render_simple_string(rdcon, label->str, row_x + paint.padding * s,
-                                 row_y + (row_h - font_height) / 2, paint.font, paint.text);
+            render_simple_string_range(rdcon, label->str, label->length,
+                row_x + paint.padding * s, row_y + (row_h - font_height) / 2,
+                paint.font, paint.text);
         }
     }
     strbuf_free(label);
@@ -1263,8 +1274,7 @@ static void render_select(RasterRenderContext* rdcon, ViewBlock* block, FormCont
     if (block->font && selected_index >= 0) {
         StrBuf* label = strbuf_new_cap(32);
         dom_option_label(dom_select_option_at_index(block, selected_index), label);
-        const char* selected_text = label && label->length ? label->str : nullptr;
-        if (selected_text) {
+        if (label && label->length) {
             // Use actual CSS padding so text starts after the author-specified
             // left padding and is reserved on the right for any UA arrow well
             // or author chevron (e.g. ::after sibling).
@@ -1308,11 +1318,13 @@ static void render_select(RasterRenderContext* rdcon, ViewBlock* block, FormCont
                     if (text_x > rdcon->block.clip.left) rdcon->block.clip.left = text_x;
                     if (content_right < rdcon->block.clip.right) rdcon->block.clip.right = content_right;
                 }
-                render_simple_string(rdcon, selected_text, text_x, text_top, block->font, text_color);
+                render_simple_string_range(rdcon, label->str, label->length,
+                                           text_x, text_top, block->font, text_color);
                 render_clip_pop_scope(rdcon, &clip_scope);
                 rdcon->block.clip = saved_clip;
             } else {
-                render_simple_string(rdcon, selected_text, text_x, text_top, block->font, text_color);
+                render_simple_string_range(rdcon, label->str, label->length,
+                                           text_x, text_top, block->font, text_color);
             }
         }
         strbuf_free(label);
@@ -1408,7 +1420,8 @@ void render_select_dropdown(RasterRenderContext* rdcon, ViewBlock* select, DocSt
 
 
             // Render the option text (y is top of text area, not baseline)
-            render_simple_string(rdcon, label->str, text_x, text_top, paint.font, paint.text);
+            render_simple_string_range(rdcon, label->str, label->length,
+                                       text_x, text_top, paint.font, paint.text);
         }
     }
     strbuf_free(label);
@@ -1434,19 +1447,19 @@ void render_select_dropdown(RasterRenderContext* rdcon, ViewBlock* select, DocSt
  * Find the start-of-line byte offset for a given line number in text.
  * Line 0 starts at offset 0. Lines are delimited by '\n'.
  */
-static int textarea_line_start(const char* text, int line) {
+static int textarea_line_start(const char* text, size_t length, int line) {
     if (!text || line <= 0) return 0;
     int cur_line = 0;
-    int i = 0;
-    while (text[i]) {
+    size_t i = 0;
+    while (i < length) {
         if (text[i] == '\n') {
             cur_line++;
-            if (cur_line == line) return i + 1;
+            if (cur_line == line) return (int)(i + 1); // INT_CAST_OK: textarea byte offset.
         }
         i++;
     }
     // past last line — return end of string
-    return i;
+    return (int)i; // INT_CAST_OK: textarea byte offset.
 }
 
 /**
@@ -1456,7 +1469,7 @@ static int textarea_line_start(const char* text, int line) {
 static void textarea_offset_to_line_col(const char* text, int byte_offset, int* out_line, int* out_col) {
     int line = 0, col = 0;
     if (text) {
-        for (int i = 0; i < byte_offset && text[i]; i++) {
+        for (int i = 0; i < byte_offset; i++) {
             if (text[i] == '\n') {
                 line++;
                 col = 0;
@@ -1486,16 +1499,17 @@ static void render_textarea(RasterRenderContext* rdcon, ViewBlock* block, FormCo
     // textarea would be flagged as a placeholder and the caret-render
     // path (guarded by !is_placeholder) would skip drawing the caret.
     DocState* state = fc.state;
-    const char* value_text = form_control_get_value(state, static_cast<View*>(block), nullptr);
+    uint32_t value_len;
+    const char* value_text = form_control_get_value(state, static_cast<View*>(block), &value_len);
     lam::Temp<char> initial_value;
     if (!value_text) {
         // An unfocused textarea can paint before its live value is materialized.
-        initial_value.reset(tc_copy_initial_value(block->as_element()));
+        initial_value.reset(tc_copy_initial_value(block->as_element(), &value_len));
         value_text = initial_value.get();
     }
     TextControlDisplayText display;
     resolve_text_control_display_text(form, state, static_cast<View*>(block),
-                                      value_text, true, &display);
+                                      value_text, value_len, true, &display);
     const char* text = display.text;
     uint32_t preedit_start = display.preedit_start;
     uint32_t preedit_end = display.preedit_end;
@@ -1551,7 +1565,7 @@ static void render_textarea(RasterRenderContext* rdcon, ViewBlock* block, FormCo
         if (focused == static_cast<View*>(block) &&
             selection_get_anchor_range(state, focused, &active_sel_start, &active_sel_end)) {
             const char* value = form->value;
-            int val_len = value ? (int)strlen(value) : 0; // INT_CAST_OK: textarea selection offsets use byte-index ints.
+            int val_len = (int)display.value_len; // INT_CAST_OK: textarea selection byte offsets.
             if (active_sel_start < 0) active_sel_start = 0;
             if (active_sel_end > val_len) active_sel_end = val_len;
             has_active_selection = active_sel_start < active_sel_end && value;
@@ -1578,7 +1592,7 @@ static void render_textarea(RasterRenderContext* rdcon, ViewBlock* block, FormCo
     }
 
     // Render text lines
-    if (text && *text && render_font) {
+    if (text && display.text_len && render_font) {
         Color text_color = form_text_color(block, form, is_placeholder);
         Color selected_text_color = make_color(255, 255, 255);
         if (block->in_line && block->inl()->has_selection_color) {
@@ -1604,11 +1618,12 @@ static void render_textarea(RasterRenderContext* rdcon, ViewBlock* block, FormCo
             float scroll_y_px = form ? form->scroll_y * s : 0.0f;
             float pen_y = content_y - scroll_y_px;
             const char* line_start = text;
+            const char* text_end = text + display.text_len;
 
-            while (*line_start && pen_y <= y + h) {
+            while (line_start < text_end && pen_y <= y + h) {
                 // find end of this logical line
-                const char* line_end = line_start;
-                while (*line_end && *line_end != '\n') line_end++;
+                const char* line_end = (const char*)memchr(line_start, '\n', text_end - line_start);
+                if (!line_end) line_end = text_end;
                 size_t line_byte_len = (size_t)(line_end - line_start);
 
                 // render this line's characters
@@ -1648,7 +1663,7 @@ static void render_textarea(RasterRenderContext* rdcon, ViewBlock* block, FormCo
 
                 pen_y += line_height;
                 // advance past the '\n'
-                line_start = *line_end ? line_end + 1 : line_end;
+                line_start = line_end < text_end ? line_end + 1 : line_end;
             }
 
             rdcon->color = saved_color;
@@ -1662,7 +1677,7 @@ static void render_textarea(RasterRenderContext* rdcon, ViewBlock* block, FormCo
         textarea_offset_to_line_col(preedit_display.get(), (int)preedit_start, &start_line, &start_col);
         textarea_offset_to_line_col(preedit_display.get(), (int)preedit_end, &end_line, &end_col);
         if (start_line == end_line) {
-            line_start = textarea_line_start(preedit_display.get(), start_line);
+            line_start = textarea_line_start(preedit_display.get(), display.text_len, start_line);
             FontBox fbox = {0};
             setup_font(rdcon->ui_context, &fbox, block->font);
             if (font_box_handle(&fbox)) {
@@ -1697,7 +1712,7 @@ static void render_textarea(RasterRenderContext* rdcon, ViewBlock* block, FormCo
         if (focused == static_cast<View*>(block) && caret_is_visible(state) &&
             (has_preedit || caret_get_offset(state, &caret_off))) {
             const char* value = text;
-            int val_len = value ? (int)strlen(value) : 0;
+            int val_len = (int)display.text_len; // INT_CAST_OK: textarea caret byte offset.
             if (has_preedit) caret_off = (int)preedit_caret_byte;
             if (caret_off > val_len) caret_off = val_len;
 
@@ -1731,7 +1746,7 @@ static void render_textarea(RasterRenderContext* rdcon, ViewBlock* block, FormCo
                 setup_font(rdcon->ui_context, &fbox, block->font);
                 if (font_box_handle(&fbox)) {
                     float raster_scale = ui_context_raster_scale(rdcon->ui_context);
-                    int line_off = textarea_line_start(value, caret_line);
+                    int line_off = textarea_line_start(value, display.text_len, caret_line);
                     caret_x = content_x + layout_measure_utf8_text_width(
                             font_box_handle(&fbox), block->font, value + line_off,
                             (size_t)caret_col, raster_scale) * s

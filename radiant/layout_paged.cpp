@@ -674,8 +674,8 @@ static bool paged_content_target_function(ViewTree* tree, PagedComposition* comp
     if (strcmp(name, "footnote") == 0) return false;
     return counter_snapshot_append(value->counters, name, separator, style, text);
 }
-static const char* paged_content_attribute(void* context, const char* name) {
-    return ((PagedContentBinding*)context)->style->source->get_attribute(name);
+static StrView paged_content_attribute(void* context, const char* name) {
+    return ((PagedContentBinding*)context)->style->source->get_attribute_view(name);
 }
 static const char* paged_content_quote(void* context, bool open, int depth) {
     return css_content_quote_char(((PagedContentBinding*)context)->style->quotes, open, depth);

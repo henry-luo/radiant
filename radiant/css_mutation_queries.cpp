@@ -5,8 +5,8 @@
 #include "lib/str.h"
 
 struct AttributeMatchChange {
-    const char* before;
-    const char* after;
+    StrView before;
+    StrView after;
     SelectorMatcher matcher;
 };
 
@@ -38,8 +38,8 @@ bool radiant_css_selector_attribute_match_changes(CssSelector* selector, const c
     // absent/unknown old values retain the broad path, including empty boolean attributes.
     if (!before || !after) return radiant_css_selector_mentions_mutation_attribute(selector, attribute);
     AttributeMatchChange change = {};
-    change.before = before;
-    change.after = after;
+    change.before = strview_from_cstr(before);
+    change.after = strview_from_cstr(after);
     change.matcher.case_sensitive_attrs = case_sensitive;
     return selector_mentions_mutation_attribute(selector, attribute, &change);
 }
@@ -221,9 +221,9 @@ bool radiant_css_document_has_relational_mutation_attribute_dependency(
 }
 
 bool radiant_css_document_relational_attribute_match_changes(DomDocument* doc, const char* attribute,
-        const char* before, const char* after) {
+        StrView before, StrView after) {
     if (!doc || !attribute) return true;
-    if (!before || !after)
+    if (!before.str || !after.str)
         return radiant_css_document_has_relational_mutation_attribute_dependency(doc, attribute);
     AttributeMatchChange change = {};
     change.before = before;

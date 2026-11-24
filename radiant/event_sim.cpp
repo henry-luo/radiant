@@ -295,26 +295,32 @@ bool event_sim_create_parent_dirs(const char* path) {
     return ok;
 }
 
-static bool sim_text_matches(const char* assertion, const char* actual,
+static bool sim_text_matches(const char* assertion, const char* actual, size_t length,
                              const SimEvent* ev) {
     actual = actual ? actual : "";
     bool passed = true;
-    if (ev && ev->assert_equals && strcmp(actual, ev->assert_equals) != 0) {
+    if (ev && ev->assert_equals && !str_eq_const(actual, length, ev->assert_equals)) {
         log_error("event_sim: %s FAIL - expected '%s', got '%s'",
                   assertion, ev->assert_equals, actual);
         passed = false;
     }
-    if (ev && ev->assert_contains && !strstr(actual, ev->assert_contains)) {
+    if (ev && ev->assert_contains &&
+            str_find(actual, length, ev->assert_contains, strlen(ev->assert_contains)) == STR_NPOS) {
         log_error("event_sim: %s FAIL - expected to contain '%s', got '%s'",
                   assertion, ev->assert_contains, actual);
         passed = false;
     }
-    if (ev && ev->assert_not_contains && strstr(actual, ev->assert_not_contains)) {
+    if (ev && ev->assert_not_contains &&
+            str_find(actual, length, ev->assert_not_contains, strlen(ev->assert_not_contains)) != STR_NPOS) {
         log_error("event_sim: %s FAIL - expected not to contain '%s', got '%s'",
                   assertion, ev->assert_not_contains, actual);
         passed = false;
     }
     return passed;
+}
+
+static bool sim_text_matches(const char* assertion, const char* actual, const SimEvent* ev) {
+    return sim_text_matches(assertion, actual, actual ? strlen(actual) : 0, ev);
 }
 
 
@@ -810,10 +816,10 @@ static bool sim_is_checkbox_or_radio(View* view) {
 }
 
 // Extract visible text from a view tree recursively
-static void sim_append_visible_text(StrBuf* buf, const char* text) {
+static void sim_append_visible_text(StrBuf* buf, const char* text, size_t length) {
     if (!buf || !text) return;
     const char* cursor = text;
-    const char* end = text + strlen(text);
+    const char* end = text + length;
     while (cursor < end) {
         uint32_t codepoint = 0;
         int byte_count = str_utf8_decode(cursor, (size_t)(end - cursor),
@@ -841,7 +847,7 @@ static bool sim_extract_text_visitor(View* view, bool entering, void* context) {
         // remain excluded from visible-text assertions.
         if (view->view_type == RDT_VIEW_TEXT ||
             (dom_element_is_svg(parent) && dom_svg_is_text(parent))) {
-            sim_append_visible_text(buf, text->text);
+            sim_append_visible_text(buf, text->text, text->length);
         }
     }
     return true;
@@ -4945,7 +4951,7 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             if (!elem) break;
             StrBuf* buf = strbuf_new_cap(256);
             view_geometry_walk_tree(elem, sim_extract_text_visitor, buf);
-            bool passed = sim_text_matches("assert_text", buf->str, ev);
+            bool passed = sim_text_matches("assert_text", buf->str, buf->length, ev);
             if (passed) {
                 log_info("event_sim: assert_text PASS");
             }
