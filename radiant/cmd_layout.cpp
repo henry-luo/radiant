@@ -3690,8 +3690,7 @@ static DomDocument* load_markdown_doc(Url* markdown_url, int viewport_width,
     log_info("[TIMING] Loading markdown document: %s", markdown_filepath);
 
     auto step1_start = time_now_ns();
-    // the parser attaches each formula's math AST and lists the <math> elements,
-    // so rendering below needs neither a tree walk nor a second parse
+    // the parser lists math nodes so the runtime can parse and render their source.
     InputParseOptions parse_options = {};
     parse_options.embedded_math = true;
     Input* input = read_layout_input_file(markdown_url, markdown_filepath,
