@@ -307,6 +307,14 @@ static double render_walk_block_paint_children(RenderPaintBlockDriver* ctx, View
             backend->end_block_children(backend->ctx, block);
         }
         if (content_clip) backend->end_clip(backend->ctx);
+    } else if (backend->begin_block_children && backend->end_block_children &&
+               render_paint_phase_has_content(backend->ctx->paint_phase)) {
+        const char* role = block->get_attribute("data-graph-role");
+        if (role && strcmp(role, "node") == 0) {
+            // an unlabeled graph node still needs its semantic SVG group.
+            backend->begin_block_children(backend->ctx, block);
+            backend->end_block_children(backend->ctx, block);
+        }
     }
     return 0.0;
 }
