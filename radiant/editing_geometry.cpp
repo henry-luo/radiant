@@ -161,45 +161,96 @@ static uint32_t editing_geometry_line_offset_for_x(UiContext* uicon,
     return line_start + line_len;
 }
 
-static void editing_geometry_textarea_line_for_y(const char* value,
-                                                 uint32_t value_len,
-                                                 float rel_y,
-                                                 float line_height,
-                                                 uint32_t* out_line_start,
-                                                 uint32_t* out_line_len) {
-    uint32_t line_start = 0;
-    uint32_t line_len = value_len;
-    float safe_line_height = line_height > 0.0f ? line_height : 18.0f;
-    int click_line = (int)(rel_y / safe_line_height); // INT_CAST_OK: line index is a repeat/count value.
+// Keep hit testing and selection on the same soft-wrapped lines as textarea paint.
+struct TextareaLineIterator {
+    const char* value;
+    uint32_t length;
+    uint32_t next;
+    float width;
+    float scale;
+    FontHandle* font;
+    FontProp* prop;
+    bool finished;
+};
 
-    int total_lines = 1;
-    if (value) {
-        for (uint32_t i = 0; i < value_len; i++) {
-            if (value[i] == '\n') total_lines++;
-        }
-    }
-    if (click_line >= total_lines) click_line = total_lines - 1;
-    if (click_line < 0) click_line = 0;
+static TextareaLineIterator editing_geometry_textarea_lines(UiContext* uicon,
+        ViewBlock* block, const char* value, uint32_t length, float width) {
+    FontBox box = {0};
+    if (uicon && block && block->font) setup_font(uicon, &box, block->font);
+    return {value ? value : "", length, 0, width, uicon ? ui_context_raster_scale(uicon) : 1.0f,
+            font_box_handle(&box), block ? block->font : nullptr, false};
+}
 
-    int line_index = 0;
-    if (value) {
-        for (uint32_t i = 0; i < value_len && line_index < click_line; i++) {
-            if (value[i] == '\n') {
-                line_index++;
-                if (line_index == click_line) {
-                    line_start = i + 1;
-                    break;
-                }
-            }
+static bool editing_geometry_next_textarea_line(TextareaLineIterator* it,
+        uint32_t* start, uint32_t* end, bool* newline) {
+    if (it->finished) return false;
+    *start = it->next;
+    *newline = false;
+    float width = 0.0f;
+    const unsigned char* base = (const unsigned char*)it->value;
+    const unsigned char* p = base + it->next;
+    const unsigned char* limit = base + it->length;
+    while (p < limit) {
+        if (*p == '\n') { *newline = true; break; }
+        const unsigned char* previous = p;
+        uint32_t codepoint = 0;
+        if (!layout_utf8_next_codepoint(&p, limit, &codepoint)) continue;
+        float advance = it->font && it->prop
+            ? layout_measure_font_glyph_advance(it->font, it->prop, codepoint, it->scale) : 0.0f;
+        if (width + advance > it->width && previous > base + *start) {
+            p = previous;
+            break;
         }
+        width += advance;
     }
-    line_len = 0;
-    while (line_start + line_len < value_len &&
-           value[line_start + line_len] != '\n') {
-        line_len++;
+    *end = (uint32_t)(p - base);
+    if (*newline) it->next = *end + 1;
+    else if (*end < it->length) it->next = *end;
+    else it->finished = true;
+    return true;
+}
+
+bool editing_geometry_textarea_line_destination(UiContext* uicon, DomElement* elem,
+        uint32_t offset, const char* operation, uint32_t* destination) {
+    if (!uicon || !elem || !elem->form_storage() || !operation || !destination ||
+        !form_control_is_textarea(elem->form_storage())) return false;
+    bool backward = strcmp(operation, "moveLineBackward") == 0;
+    bool forward = strcmp(operation, "moveLineForward") == 0;
+    bool start_op = strcmp(operation, "moveLineStart") == 0;
+    bool end_op = strcmp(operation, "moveLineEnd") == 0;
+    if (!backward && !forward && !start_op && !end_op) return false;
+    ViewBlock* block = lam::view_require_block(elem);
+    if (!block) return false;
+    tc_ensure_init(elem);
+    const char* value = elem->form_storage()->current_value;
+    uint32_t length = elem->form_storage()->current_value_len;
+    if (!value) value = "";
+    if (offset > length) offset = length;
+    float width = editing_geometry_text_control_metrics(elem, block).content_width;
+    TextareaLineIterator lines = editing_geometry_textarea_lines(uicon, block, value, length, width);
+    uint32_t start = 0, end = 0, previous_start = 0, previous_end = 0;
+    bool newline = false, has_previous = false;
+    while (editing_geometry_next_textarea_line(&lines, &start, &end, &newline)) {
+        if (offset < end || (offset == end && (newline || lines.finished))) break;
+        previous_start = start;
+        previous_end = end;
+        has_previous = true;
     }
-    if (out_line_start) *out_line_start = line_start;
-    if (out_line_len) *out_line_len = line_len;
+    if (start_op || end_op) {
+        *destination = start_op ? start : end;
+        return true;
+    }
+    float x = 0.0f;
+    editing_geometry_text_metrics(uicon, block, value + start, offset - start, &x);
+    if (backward && has_previous) {
+        *destination = editing_geometry_line_offset_for_x(uicon, block, value,
+            previous_start, previous_end - previous_start, x);
+    } else if (forward && editing_geometry_next_textarea_line(&lines, &start, &end, &newline)) {
+        *destination = editing_geometry_line_offset_for_x(uicon, block, value, start, end - start, x);
+    } else {
+        *destination = offset;
+    }
+    return true;
 }
 
 void editing_boundary_clear(EditingBoundary* out) {
@@ -335,9 +386,14 @@ bool editing_geometry_text_control_offset_for_point(UiContext* uicon,
         float line_height = font_size * 1.4f;
         float rel_y = local_y - metrics.content.y + elem->form_storage()->scroll_y;
         if (rel_y < 0.0f) rel_y = 0.0f;
-        uint32_t line_start = 0, line_len = 0;
-        editing_geometry_textarea_line_for_y(value, value_len, rel_y, line_height,
-                                             &line_start, &line_len);
+        uint32_t line_start = 0, line_end = 0, line_number = 0;
+        bool newline = false;
+        TextareaLineIterator lines = editing_geometry_textarea_lines(uicon, block, value, value_len, content_w);
+        while (editing_geometry_next_textarea_line(&lines, &line_start, &line_end, &newline)) {
+            if ((float)(line_number + 1) * line_height > rel_y || lines.finished) break;
+            line_number++;
+        }
+        uint32_t line_len = line_end - line_start;
         if (editing_geometry_text_control_line_is_rtl(elem, block, value,
                 line_start, line_len)) {
             rel_x = content_w - rel_x;
@@ -561,18 +617,18 @@ bool editing_geometry_hit_test_boundary(UiContext* uicon,
     return true;
 }
 
-bool editing_geometry_text_control_caret_rect(UiContext* uicon,
-                                              DomElement* elem,
-                                              uint32_t offset,
-                                              EditingCaretRect* out) {
+bool editing_geometry_text_control_caret_rect_for_value(UiContext* uicon,
+                                                        DomElement* elem,
+                                                        const char* value,
+                                                        uint32_t value_len,
+                                                        uint32_t offset,
+                                                        EditingCaretRect* out) {
     if (!out) return false;
     editing_caret_rect_clear(out);
     if (!uicon || !elem || !tc_is_text_control(elem) || !elem->form_storage()) return false;
 
     ViewBlock* block = lam::view_require_block(elem);
-    tc_ensure_init(elem);
-    const char* value = elem->form_storage()->current_value ? elem->form_storage()->current_value : elem->form_storage()->value;
-    uint32_t value_len = elem->form_storage()->current_value_len;
+    if (!block) return false;
     if (offset > value_len) offset = value_len;
 
     EditingTextControlMetrics metrics = editing_geometry_text_control_metrics(elem, block);
@@ -582,29 +638,23 @@ bool editing_geometry_text_control_caret_rect(UiContext* uicon,
     float text_width = 0.0f;
     uint32_t line_start = 0;
     uint32_t line_len = value_len;
-    if (form_control_is_textarea(elem->form_storage()) && value) {
-        uint32_t scan = 0;
-        while (scan < offset) {
-            if (value[scan] == '\n') line_start = scan + 1;
-            scan++;
-        }
-        uint32_t line_end = line_start;
-        while (line_end < value_len && value[line_end] != '\n') line_end++;
-        line_len = line_end - line_start;
-        editing_geometry_text_metrics(uicon, block, value + line_start,
-                                      offset - line_start, &text_width);
-    } else {
-        editing_geometry_text_metrics(uicon, block, value, offset, &text_width);
-    }
-
     float font_size = metrics.font_size;
     float line_height = form_control_is_textarea(elem->form_storage())
         ? font_size * 1.4f : font_size;
     float line_y = 0.0f;
     if (form_control_is_textarea(elem->form_storage()) && value) {
-        for (uint32_t i = 0; i < offset && i < value_len; i++) {
-            if (value[i] == '\n') line_y += line_height;
+        TextareaLineIterator lines = editing_geometry_textarea_lines(uicon, block, value, value_len, content_w);
+        uint32_t line_end = 0;
+        bool newline = false;
+        while (editing_geometry_next_textarea_line(&lines, &line_start, &line_end, &newline)) {
+            if (offset < line_end || (offset == line_end && (newline || lines.finished))) break;
+            line_y += line_height;
         }
+        line_len = line_end - line_start;
+        editing_geometry_text_metrics(uicon, block, value + line_start,
+                                      offset - line_start, &text_width);
+    } else {
+        editing_geometry_text_metrics(uicon, block, value, offset, &text_width);
     }
 
     bool rtl_line = editing_geometry_text_control_line_is_rtl(elem, block,
@@ -621,20 +671,29 @@ bool editing_geometry_text_control_caret_rect(UiContext* uicon,
     return true;
 }
 
-bool editing_geometry_text_control_for_each_selection_rect(UiContext* uicon,
-                                                           DomElement* elem,
-                                                           uint32_t start_offset,
-                                                           uint32_t end_offset,
-                                                           EditingGeometryRectCb cb,
-                                                           void* userdata) {
+bool editing_geometry_text_control_caret_rect(UiContext* uicon,
+                                              DomElement* elem,
+                                              uint32_t offset,
+                                              EditingCaretRect* out) {
+    if (!out) return false;
+    editing_caret_rect_clear(out);
+    if (!elem || !tc_is_text_control(elem)) return false;
+    tc_ensure_init(elem);
+    FormControlProp* form = elem->form_storage();
+    if (!form) return false;
+    const char* value = form->current_value ? form->current_value : form->value;
+    return editing_geometry_text_control_caret_rect_for_value(uicon, elem, value,
+        form->current_value_len, offset, out);
+}
+
+bool editing_geometry_text_control_for_each_selection_rect_for_value(UiContext* uicon,
+    DomElement* elem, const char* value, uint32_t value_len, uint32_t start_offset,
+    uint32_t end_offset, EditingGeometryRectCb cb, void* userdata) {
     if (!uicon || !elem || !tc_is_text_control(elem) || !elem->form_storage() || !cb) return false;
     if (start_offset == end_offset) return true;
 
     ViewBlock* block = lam::view_require_block(elem);
     if (!block) return false;
-    tc_ensure_init(elem);
-    const char* value = elem->form_storage()->current_value ? elem->form_storage()->current_value : elem->form_storage()->value;
-    uint32_t value_len = elem->form_storage()->current_value_len;
     if (!value) value = "";
     if (start_offset > value_len) start_offset = value_len;
     if (end_offset > value_len) end_offset = value_len;
@@ -664,40 +723,41 @@ bool editing_geometry_text_control_for_each_selection_rect(UiContext* uicon,
     }
 
     float line_height = font_size * 1.4f;
-    uint32_t line_off = 0;
-    uint32_t line_num = 0;
-    while (line_off <= value_len) {
-        uint32_t line_end_off = line_off;
-        while (line_end_off < value_len && value[line_end_off] != '\n') {
-            line_end_off++;
-        }
-
-        uint32_t line_range_end = (line_end_off < value_len) ? line_end_off + 1 : line_end_off;
+    uint32_t line_off = 0, line_end_off = 0, line_num = 0;
+    bool newline = false;
+    TextareaLineIterator lines = editing_geometry_textarea_lines(uicon, block, value, value_len, content_w);
+    while (editing_geometry_next_textarea_line(&lines, &line_off, &line_end_off, &newline)) {
+        uint32_t line_range_end = line_end_off + (newline ? 1 : 0);
         if (start_offset < line_range_end && end_offset > line_off) {
             uint32_t hl_start = start_offset > line_off ? start_offset - line_off : 0;
             uint32_t hl_end = end_offset < line_end_off ? end_offset - line_off : line_end_off - line_off;
-
-            float x0_w = 0.0f;
-            float x1_w = 0.0f;
+            float x0_w = 0.0f, x1_w = 0.0f;
             editing_geometry_text_metrics(uicon, block, value + line_off, hl_start, &x0_w);
             editing_geometry_text_metrics(uicon, block, value + line_off, hl_end, &x1_w);
-
             float x0 = content_x + x0_w;
-            float x1 = content_x + x1_w;
-            if (end_offset > line_end_off && line_end_off < value_len) {
-                x1 = content_x + content_w;
-            }
+            float x1 = newline && end_offset > line_end_off ? content_x + content_w : content_x + x1_w;
             float y = content_y + (float)line_num * line_height;
-            if (x1 > x0) {
-                cb(x0, y, x1 - x0, line_height, userdata);
-            }
+            if (x1 > x0) cb(x0, y, x1 - x0, line_height, userdata);
         }
-
-        if (line_end_off >= value_len) break;
-        line_off = line_end_off + 1;
         line_num++;
     }
+
     return true;
+}
+
+bool editing_geometry_text_control_for_each_selection_rect(UiContext* uicon,
+                                                           DomElement* elem,
+                                                           uint32_t start_offset,
+                                                           uint32_t end_offset,
+                                                           EditingGeometryRectCb cb,
+                                                           void* userdata) {
+    if (!elem || !tc_is_text_control(elem)) return false;
+    tc_ensure_init(elem);
+    FormControlProp* form = elem->form_storage();
+    if (!form) return false;
+    const char* value = form->current_value ? form->current_value : form->value;
+    return editing_geometry_text_control_for_each_selection_rect_for_value(uicon, elem,
+        value, form->current_value_len, start_offset, end_offset, cb, userdata);
 }
 
 bool editing_geometry_dom_text_boundary_from_byte_offset(DomText* text,

@@ -168,7 +168,21 @@ struct TextControlSelectionPaint {
     float border_css;
     float padding_css;
     bool use_text_origin;
+    bool underline;
+    float underline_offset;
 };
+
+static TextControlSelectionPaint text_control_selection_paint(RasterRenderContext* rdcon,
+        ViewBlock* block, Color color, float scale, float scroll_x, float scroll_y) {
+    TextControlSelectionPaint paint = {};
+    paint.rdcon = rdcon;
+    paint.block = block;
+    paint.color = color;
+    paint.scale = scale;
+    paint.scroll_x = scroll_x;
+    paint.scroll_y = scroll_y;
+    return paint;
+}
 
 static void paint_text_control_selection_rect(float x, float y, float w, float h,
                                               void* userdata) {
@@ -183,7 +197,12 @@ static void paint_text_control_selection_rect(float x, float y, float w, float h
         rx -= paint->scroll_x;
     }
     float ry = paint->rdcon->block.y + y * paint->scale - paint->scroll_y;
-    fill_rect(paint->rdcon, rx, ry, w * paint->scale, h * paint->scale, paint->color);
+    float height = h * paint->scale;
+    if (paint->underline) {
+        ry += paint->underline_offset * paint->scale;
+        height = paint->scale;
+    }
+    fill_rect(paint->rdcon, rx, ry, w * paint->scale, height, paint->color);
 }
 
 // Helper to draw a filled circle using RdtVector
@@ -791,14 +810,9 @@ static void render_text_input(RasterRenderContext* rdcon, ViewBlock* block, Form
         }
         bool used_shared_selection = false;
         if (!is_password) {
-            TextControlSelectionPaint paint;
-            memset(&paint, 0, sizeof(paint));
-            paint.rdcon = rdcon;
-            paint.block = block;
-            paint.color = sel_color;
-            paint.scale = s;
+            TextControlSelectionPaint paint = text_control_selection_paint(
+                rdcon, block, sel_color, s, scroll_px, 0.0f);
             paint.text_origin_x = text_origin_x;
-            paint.scroll_x = scroll_px;
             paint.border_css = form_control_border_left_width(block,
                 has_css_border, use_default_border);
             paint.padding_css = block->bound ? block->boundary()->padding.left
@@ -1548,9 +1562,11 @@ static void render_textarea(RasterRenderContext* rdcon, ViewBlock* block, FormCo
         !state->editing.pointer_selecting) {
         int caret_offset = 0;
         EditingCaretRect caret_rect;
-        if (!has_preedit && caret_get_offset(state, &caret_offset) &&
-            editing_geometry_text_control_caret_rect(rdcon->ui_context, block,
-                caret_offset > 0 ? (uint32_t)caret_offset : 0, &caret_rect)) { // INT_CAST_OK: non-negative caret byte offset.
+        bool has_caret = has_preedit || caret_get_offset(state, &caret_offset);
+        uint32_t caret_byte = has_preedit ? preedit_caret_byte
+            : (caret_offset > 0 ? (uint32_t)caret_offset : 0);
+        if (has_caret && editing_geometry_text_control_caret_rect_for_value(
+                rdcon->ui_context, block, text, (uint32_t)display.text_len, caret_byte, &caret_rect)) {
             float caret_top = caret_rect.y - block->y - content.y;
             form->scroll_y = form_scroll_to_reveal(form->scroll_y,
                 caret_top, caret_rect.height, content_h / s, 0.0f);
@@ -1578,14 +1594,8 @@ static void render_textarea(RasterRenderContext* rdcon, ViewBlock* block, FormCo
         if (block->in_line && block->inl()->has_selection_background_color) {
             sel_color = block->inl()->selection_background_color;
         }
-        TextControlSelectionPaint paint;
-        memset(&paint, 0, sizeof(paint));
-        paint.rdcon = rdcon;
-        paint.block = block;
-        paint.color = sel_color;
-        paint.scale = s;
-        paint.scroll_x = form ? form->scroll_x * s : 0.0f;
-        paint.scroll_y = form ? form->scroll_y * s : 0.0f;
+        TextControlSelectionPaint paint = text_control_selection_paint(rdcon, block,
+            sel_color, s, form ? form->scroll_x * s : 0.0f, form ? form->scroll_y * s : 0.0f);
         editing_geometry_text_control_for_each_selection_rect(rdcon->ui_context,
             block, (uint32_t)active_sel_start,
             (uint32_t)active_sel_end, paint_text_control_selection_rect, &paint);
@@ -1670,36 +1680,16 @@ static void render_textarea(RasterRenderContext* rdcon, ViewBlock* block, FormCo
         }
     }
 
+    // The preedit can cross soft wraps, so underline each visual segment.
     if (has_preedit && preedit_display && block->font && preedit_end > preedit_start) {
-        int line_start = 0;
-        int start_line = 0, start_col = 0;
-        int end_line = 0, end_col = 0;
-        textarea_offset_to_line_col(preedit_display.get(), (int)preedit_start, &start_line, &start_col);
-        textarea_offset_to_line_col(preedit_display.get(), (int)preedit_end, &end_line, &end_col);
-        if (start_line == end_line) {
-            line_start = textarea_line_start(preedit_display.get(), display.text_len, start_line);
-            FontBox fbox = {0};
-            setup_font(rdcon->ui_context, &fbox, block->font);
-            if (font_box_handle(&fbox)) {
-                float raster_scale = ui_context_raster_scale(rdcon->ui_context);
-                float ux0 = content_x + layout_measure_utf8_text_width(
-                    font_box_handle(&fbox), block->font, preedit_display.get() + line_start,
-                    (size_t)start_col, raster_scale) * s;
-                float ux1 = content_x + layout_measure_utf8_text_width(
-                    font_box_handle(&fbox), block->font, preedit_display.get() + line_start,
-                    (size_t)end_col, raster_scale) * s;
-                if (ux1 > ux0) {
-                    Color underline = make_color(0x33, 0x33, 0x33, 0xCC);
-                    float ux_scroll = form ? form->scroll_x * s : 0.0f;
-                    float uy_scroll = form ? form->scroll_y * s : 0.0f;
-                    ux0 -= ux_scroll;
-                    ux1 -= ux_scroll;
-                    float uy = content_y + start_line * line_height +
-                        font_size_scaled - 2.0f * s - uy_scroll;
-                    fill_rect(rdcon, ux0, uy, ux1 - ux0, 1.0f * s, underline);
-                }
-            }
-        }
+        Color underline = make_color(0x33, 0x33, 0x33, 0xCC);
+        TextControlSelectionPaint paint = text_control_selection_paint(rdcon, block,
+            underline, s, form ? form->scroll_x * s : 0.0f, form ? form->scroll_y * s : 0.0f);
+        paint.underline = true;
+        paint.underline_offset = block->fontp()->font_size - 2.0f;
+        editing_geometry_text_control_for_each_selection_rect_for_value(rdcon->ui_context,
+            block, preedit_display.get(), (uint32_t)display.text_len, preedit_start,
+            preedit_end, paint_text_control_selection_rect, &paint);
     }
 
     // Draw caret if this textarea has focus. Note: do NOT gate on
@@ -1719,17 +1709,14 @@ static void render_textarea(RasterRenderContext* rdcon, ViewBlock* block, FormCo
             float caret_x = content_x;
             float caret_y_pos = content_y;
             bool used_shared_geometry = false;
-            if (!has_preedit) {
-                EditingCaretRect caret_rect;
-                if (editing_geometry_text_control_caret_rect(rdcon->ui_context,
-                        block, (uint32_t)caret_off,
-                        &caret_rect)) {
-                    caret_x = x + (caret_rect.x - block->x) * s
-                        - (form ? form->scroll_x * s : 0.0f);
-                    caret_y_pos = y + (caret_rect.y - block->y) * s
-                        - (form ? form->scroll_y * s : 0.0f);
-                    used_shared_geometry = true;
-                }
+            EditingCaretRect caret_rect;
+            if (editing_geometry_text_control_caret_rect_for_value(rdcon->ui_context,
+                    block, value, (uint32_t)display.text_len, (uint32_t)caret_off, &caret_rect)) {
+                caret_x = x + (caret_rect.x - block->x) * s
+                    - (form ? form->scroll_x * s : 0.0f);
+                caret_y_pos = y + (caret_rect.y - block->y) * s
+                    - (form ? form->scroll_y * s : 0.0f);
+                used_shared_geometry = true;
             }
             if (!used_shared_geometry) {
                 // compute caret line/column from byte offset

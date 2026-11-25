@@ -612,10 +612,10 @@ static void html_ua_length(StrBuf* css, const char* property, float value, const
 }
 
 const char* layout_html_ua_focus_css() {
-    // Match HTML focus candidates before querying state; ordinary blocks have no focus dependency.
-    return "a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,"
-        "textarea:focus-visible,[tabindex]:focus-visible,[contenteditable]:focus-visible,"
-        "body:focus-visible{outline:2px solid #1a73e8;outline-offset:2px}";
+    // text fields use the slim, adjacent outline of browser form controls.
+    return ":focus-visible{outline:2px solid #1a73e8;outline-offset:2px}"
+        "input:not([type=checkbox i],[type=radio i]):focus-visible,textarea:focus-visible,"
+        "select:focus-visible{outline:1px solid #005fcc;outline-offset:0}";
 }
 
 bool layout_html_ua_stylesheet(StrBuf* css) {

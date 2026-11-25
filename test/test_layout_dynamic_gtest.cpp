@@ -314,6 +314,14 @@ protected:
         return dom_find_element_by_id(document->root, id);
     }
 
+    void apply_focus_visible(DomElement* element) {
+        DocState* state = radiant_document_ensure_state(document, "test focus outline");
+        ASSERT_NE(state, nullptr);
+        state_set_bool(state, element, STATE_FOCUS_VISIBLE, true);
+        radiant_recascade_document(document);
+        layout_html_doc(&ui, document, false);
+    }
+
     DomNode* hit_at(float x, float y) {
         EventContext context = {};
         context.ui_context = &ui;
@@ -398,6 +406,28 @@ protected:
         EXPECT_FLOAT_EQ(status->height, 28.0f);
     }
 };
+
+TEST_F(DynamicLayoutTest, DefaultFocusOutlineAppliesToDialogWithoutTabindex) {
+    load("<!doctype html><dialog id='dialog' open>Dialog</dialog>");
+    DomElement* dialog = element("dialog");
+    ASSERT_NE(dialog, nullptr);
+    apply_focus_visible(dialog);
+    ASSERT_NE(dialog->boundary(), nullptr);
+    ASSERT_NE(dialog->boundary()->outline, nullptr);
+    EXPECT_EQ(dialog->boundary()->outline->style, CSS_VALUE_SOLID);
+}
+
+TEST_F(DynamicLayoutTest, DefaultTextFieldFocusOutlineTouchesBorder) {
+    load("<!doctype html><input id='field'>");
+    DomElement* field = element("field");
+    ASSERT_NE(field, nullptr);
+    apply_focus_visible(field);
+    ASSERT_NE(field->boundary(), nullptr);
+    const OutlineProp* outline = field->boundary()->outline;
+    ASSERT_NE(outline, nullptr);
+    EXPECT_FLOAT_EQ(outline->width, 1.0f);
+    EXPECT_FLOAT_EQ(outline->offset, 0.0f);
+}
 
 TEST_F(DynamicLayoutTest, ExplicitGridImagesAdmitTheirSurfaceAndReselectAfterMutation) {
     load("<!doctype html><style>body{margin:0}#grid{display:grid;"
@@ -1768,6 +1798,65 @@ TEST_F(DynamicLayoutTest, OverflowingAtomicInlineFitsBeforeOutsideFloat) {
          "<textarea id='control'></textarea></div></div>");
     ASSERT_NE(document, nullptr);
     EXPECT_FLOAT_EQ(element("control")->y, 0.0f);
+}
+
+struct TextareaSelectionRects {
+    uint32_t count;
+    float first_y;
+    float last_y;
+};
+
+static void record_textarea_selection_rect(float x, float y, float width, float height,
+                                           void* userdata) {
+    TextareaSelectionRects* rects = (TextareaSelectionRects*)userdata;
+    if (rects->count == 0) rects->first_y = y;
+    rects->last_y = y;
+    rects->count++;
+}
+
+TEST_F(DynamicLayoutTest, TextareaCaretAndHitTestingFollowSoftWrap) {
+    load("<!doctype html><style>body{margin:0}textarea{font:16px monospace;"
+         "width:80px;height:180px;padding:4px}</style>"
+         "<textarea id='control'>abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ</textarea>");
+    DomElement* control = element("control");
+    ASSERT_NE(control, nullptr);
+    tc_ensure_init(control);
+    EditingCaretRect first = {};
+    ASSERT_TRUE(editing_geometry_text_control_caret_rect(&ui, control, 0, &first));
+
+    // Find a caret inside the second visual line without depending on the font's advance.
+    uint32_t second_line = 0;
+    EditingCaretRect caret = {};
+    for (uint32_t offset = 1; offset < 52; offset++) {
+        ASSERT_TRUE(editing_geometry_text_control_caret_rect(&ui, control, offset, &caret));
+        if (caret.y > first.y && caret.x > first.x) { second_line = offset; break; }
+    }
+    ASSERT_GT(second_line, 0u);
+    uint32_t hit = 0;
+    ASSERT_TRUE(editing_geometry_text_control_offset_for_point(&ui, control,
+        caret.x + 0.1f, caret.y + 2.0f, &hit));
+    EXPECT_EQ(hit, second_line);
+
+    uint32_t next = 0, previous = 0;
+    ASSERT_TRUE(editing_geometry_textarea_line_destination(&ui, control, second_line,
+        "moveLineForward", &next));
+    EXPECT_GT(next, second_line);
+    ASSERT_TRUE(editing_geometry_textarea_line_destination(&ui, control, next,
+        "moveLineBackward", &previous));
+    EXPECT_EQ(previous, second_line);
+
+    // Composition adds provisional text without changing the control's live value.
+    const char* composed = "xabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    EditingCaretRect composed_caret = {};
+    ASSERT_TRUE(editing_geometry_text_control_caret_rect_for_value(&ui, control,
+        composed, (uint32_t)strlen(composed), second_line + 1, &composed_caret));
+    EXPECT_FLOAT_EQ(composed_caret.y, caret.y);
+    TextareaSelectionRects rects = {};
+    ASSERT_TRUE(editing_geometry_text_control_for_each_selection_rect_for_value(&ui,
+        control, composed, (uint32_t)strlen(composed), 0, second_line + 1,
+        record_textarea_selection_rect, &rects));
+    EXPECT_GE(rects.count, 2u);
+    EXPECT_GT(rects.last_y, rects.first_y);
 }
 
 TEST_F(DynamicLayoutTest, BoxlessElementsDoNotModifyCounters) {

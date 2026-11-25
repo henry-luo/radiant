@@ -5019,6 +5019,8 @@ static void process_sim_event(EventSimContext* ctx, SimEvent* ev, UiContext* uic
             // legacy non-FormControl widgets (e.g. todo.ls) working.
             const char* actual = nullptr;
             StrBuf* option_text = nullptr;
+            // Textarea defaults live in their text children until first use.
+            if (tc_is_text_control(dom_elem)) tc_ensure_init(dom_elem);
             if (dom_elem->tag() == MARKUP_NAME_SELECT) {
                 // A select's value comes from live option selectedness, not
                 // from the select's immutable content attribute/edit buffer.

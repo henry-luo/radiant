@@ -1612,12 +1612,27 @@ bool editing_geometry_text_control_caret_rect(UiContext* uicon,
                                               uint32_t offset,
                                               EditingCaretRect* out);
 
+bool editing_geometry_text_control_caret_rect_for_value(UiContext* uicon,
+                                                        DomElement* elem,
+                                                        const char* value,
+                                                        uint32_t value_len,
+                                                        uint32_t offset,
+                                                        EditingCaretRect* out);
+
+bool editing_geometry_textarea_line_destination(UiContext* uicon, DomElement* elem,
+                                                uint32_t offset, const char* operation,
+                                                uint32_t* destination);
+
 bool editing_geometry_text_control_for_each_selection_rect(UiContext* uicon,
                                                            DomElement* elem,
                                                            uint32_t start_offset,
                                                            uint32_t end_offset,
                                                            EditingGeometryRectCb cb,
                                                            void* userdata);
+
+bool editing_geometry_text_control_for_each_selection_rect_for_value(UiContext* uicon,
+    DomElement* elem, const char* value, uint32_t value_len, uint32_t start_offset,
+    uint32_t end_offset, EditingGeometryRectCb cb, void* userdata);
 
 bool editing_geometry_dom_text_boundary_from_byte_offset(DomText* text,
                                                          uint32_t byte_offset,
