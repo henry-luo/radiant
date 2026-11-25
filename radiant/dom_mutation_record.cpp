@@ -48,7 +48,7 @@ static bool dom_mutation_attribute_affects_direction(const char* name) {
         str_ieq_cstr(name, "name") || str_istarts_with_cstr(name, "xmlns");
 }
 
-static bool dom_mutation_child_list_affects_direction(DomNode* parent) {
+static bool dom_mutation_content_affects_direction(DomNode* parent) {
     // slot distribution can affect a different tree; retain its conservative closure.
     if (dom_shadow_root(parent)) return true;
     for (DomElement* ancestor = parent ? parent->as_element() : nullptr;
@@ -102,11 +102,13 @@ static void dom_record_mutation_detail(DomDocument* doc, DomJsMutationKind kind,
         record->attribute = kind == DOM_JS_MUTATION_ATTRIBUTE
             ? dom_mutation_attribute_from_name(doc, target, attribute_name, old_value)
             : DOM_JS_MUTATION_ATTRIBUTE_UNKNOWN;
+        // first-strong text changes direction only inside an automatic-direction context.
         record->direction_sensitive = kind == DOM_JS_MUTATION_ATTRIBUTE
             ? dom_mutation_attribute_affects_direction(attribute_name)
-            : (kind == DOM_JS_MUTATION_CHILD_INSERT || kind == DOM_JS_MUTATION_CHILD_REMOVE)
-                ? dom_mutation_child_list_affects_direction(parent)
-                : kind == DOM_JS_MUTATION_TEXT || kind == DOM_JS_MUTATION_CONTROL_VALUE;
+            : (kind == DOM_JS_MUTATION_CHILD_INSERT || kind == DOM_JS_MUTATION_CHILD_REMOVE ||
+               kind == DOM_JS_MUTATION_TEXT || kind == DOM_JS_MUTATION_CONTROL_VALUE) &&
+                dom_mutation_content_affects_direction(
+                    kind == DOM_JS_MUTATION_CONTROL_VALUE ? target : parent);
         record->presentation_property = presentation_property;
         // preserve paint-property identity without narrowing the attribute's observer/epoch effects.
         if (kind == DOM_JS_MUTATION_ATTRIBUTE && attribute_name &&
