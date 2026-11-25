@@ -287,11 +287,25 @@ bool layout_replaced_flex_intrinsic_dimensions(ViewBlock* block,
     if (!block || !flex_layout || !facts || !width || !height) return false;
     *width = facts->has_natural_width ? facts->natural_width : facts->width;
     *height = facts->has_natural_height ? facts->natural_height : facts->height;
+    float preferred_ratio = layout_used_preferred_aspect_ratio(block);
+    if (preferred_ratio <= 0.0f && facts->has_natural_aspect_ratio) preferred_ratio = facts->natural_aspect_ratio;
     bool image = block->tag() == MARKUP_NAME_IMG;
-    bool specified_image_axis = image && (layout_axis_has_given_size(block, true) || layout_axis_has_given_size(block, false));
-    if (image && *width > 0.0f && *height > 0.0f) {
-        float ratio = layout_used_preferred_aspect_ratio(block);
-        if (ratio <= 0.0f && facts->has_natural_aspect_ratio) ratio = facts->natural_aspect_ratio;
+    bool svg = layout_is_svg_viewport(block->tag());
+    bool specified_replaced_axis = (image || svg) &&
+        (layout_axis_has_given_size(block, true) || layout_axis_has_given_size(block, false));
+    if (svg && specified_replaced_axis) {
+        // SVG flex contributions use resolved CSS axes before the parent-slot fallback.
+        float width_constraint = layout_axis_has_given_size(block, true)
+            ? layout_content_size_if_border_box(block, block->block()->given_width, true) : NAN;
+        float height_constraint = layout_axis_has_given_size(block, false)
+            ? layout_content_size_if_border_box(block, block->block()->given_height, false) : NAN;
+        bool natural_ratio = layout_preferred_aspect_ratio(block) <= 0.0f ||
+            layout_aspect_ratio_uses_content_box(block);
+        ReplacedSizeConstraints constraints = layout_replaced_size_constraints(block,
+            width_constraint, height_constraint, preferred_ratio, natural_ratio);
+        layout_replaced_content_size(facts, &constraints, flex_layout->main_axis_size, width, height);
+    } else if (image && *width > 0.0f && *height > 0.0f) {
+        float ratio = preferred_ratio;
         if (layout_axis_has_given_size(block, true)) {
             *width = block->block()->given_width;
             *height = layout_axis_has_given_size(block, false)
@@ -309,7 +323,7 @@ bool layout_replaced_flex_intrinsic_dimensions(ViewBlock* block,
     }
     float ratio = facts->has_natural_aspect_ratio
         ? facts->natural_aspect_ratio : 0.0f;
-    if (ratio > 0.0f && !specified_image_axis) {
+    if (ratio > 0.0f && !specified_replaced_axis) {
         if (facts->has_natural_width && !facts->has_natural_height) {
             *height = *width / ratio;
         } else if (facts->has_natural_height && !facts->has_natural_width) {
@@ -341,7 +355,7 @@ bool layout_replaced_flex_intrinsic_dimensions(ViewBlock* block,
             }
         }
     }
-    if (*width <= 0.0f || *height <= 0.0f) return false;
+    if (!isfinite(*width) || !isfinite(*height) || *width < 0.0f || *height < 0.0f) return false;
 
     bool horizontal = is_main_axis_horizontal(flex_layout);
     bool cross_horizontal = !horizontal;

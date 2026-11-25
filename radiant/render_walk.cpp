@@ -42,6 +42,16 @@ static bool render_walk_aborted(RenderBackend* backend) {
     return backend && backend->should_abort && backend->should_abort(backend->ctx);
 }
 
+static bool render_walk_begin_contents_clip(RenderBackend* backend, RenderWalkState* state,
+        ViewBlock* block) {
+    return backend->begin_clip && backend->end_clip &&
+        backend->begin_clip(backend->ctx, block, state->x, state->y, RENDER_CLIP_CONTENTS);
+}
+
+static void render_walk_end_contents_clip(RenderBackend* backend, bool clipped) {
+    if (clipped) backend->end_clip(backend->ctx);
+}
+
 static float render_walk_css_opacity(const InlineProp* in_line) {
     if (!in_line) return 1.0f;
     float opacity = in_line->opacity;
@@ -257,15 +267,12 @@ static double render_walk_block_paint_children(RenderPaintBlockDriver* ctx, View
     RenderTextPaintScope text_paint(backend->ctx, block, &state->font, &state->color);
     View* children = layout_paint_first_child(block);
     if (children || block->custom_layout_paint_prop()) {
-        // overflow and containment clip descendants after the box's own boundary paint.
-        bool content_clip = backend->begin_clip && backend->end_clip &&
-            backend->begin_clip(backend->ctx, block, state->x, state->y, RENDER_CLIP_CONTENTS);
-        if (backend->begin_block_children) {
-            backend->begin_block_children(backend->ctx, block);
-        }
-
         bool content_phase = render_paint_phase_has_content(backend->ctx->paint_phase);
         if (content_phase) render_walk_negative_z_descendants(backend, state, block);
+        // overflow and containment clip descendants after the box's own boundary paint.
+        bool content_clip = render_walk_begin_contents_clip(backend, state, block);
+        // emit the semantic group during content painting. Stacking replays only the clip.
+        if (backend->begin_block_children) backend->begin_block_children(backend->ctx, block);
 
         if (block->custom_layout_paint_prop()) {
             RadiantStackPaintList paint = radiant_stack_collect_custom_layout_paint(block);
@@ -296,17 +303,15 @@ static double render_walk_block_paint_children(RenderPaintBlockDriver* ctx, View
             render_walk_children(backend, state, children, true);
         }
 
+        if (backend->end_block_children) backend->end_block_children(backend->ctx, block);
+        render_walk_end_contents_clip(backend, content_clip);
+
         if (content_phase) {
             render_walk_positioned_children(backend, state, block);
         }
         if (content_phase && !block->custom_layout_paint_prop()) {
             render_walk_positive_z_descendants(backend, state, block);
         }
-
-        if (backend->end_block_children) {
-            backend->end_block_children(backend->ctx, block);
-        }
-        if (content_clip) backend->end_clip(backend->ctx);
     } else if (backend->begin_block_children && backend->end_block_children &&
                render_paint_phase_has_content(backend->ctx->paint_phase)) {
         const char* role = block->get_attribute("data-graph-role");
@@ -574,20 +579,26 @@ static void render_walk_stacking_path(RenderBackend* backend, RenderWalkState* s
     bool legacy_clip = backend->begin_clip && backend->end_clip &&
         backend->begin_clip(backend->ctx, block, state->x, state->y, RENDER_CLIP_LEGACY);
     bool overflow_applies = radiant_stack_overflow_applies(target, block);
-    bool content_clip = overflow_applies && backend->begin_clip && backend->end_clip &&
-        backend->begin_clip(backend->ctx, block, state->x, state->y, RENDER_CLIP_CONTENTS);
-    if (overflow_applies && backend->begin_block_children) backend->begin_block_children(backend->ctx, block);
+    bool content_clip = overflow_applies && render_walk_begin_contents_clip(backend, state, block);
     render_walk_stacking_path(backend, state, child, target, outline_only);
-    if (overflow_applies && backend->end_block_children) backend->end_block_children(backend->ctx, block);
-    if (content_clip) backend->end_clip(backend->ctx);
+    render_walk_end_contents_clip(backend, content_clip);
     if (legacy_clip) backend->end_clip(backend->ctx);
     if (shape_clip) backend->end_clip(backend->ctx);
     *state = saved;
 }
 
+static void render_walk_owner_layer(RenderBackend* backend, RenderWalkState* state,
+        View* owner, View* layer, bool outline_only = false) {
+    ViewBlock* block = lam::view_as_block(owner);
+    bool overflow_applies = block && radiant_stack_overflow_applies(layer, owner);
+    bool content_clip = overflow_applies && render_walk_begin_contents_clip(backend, state, block);
+    render_walk_stacking_path(backend, state, owner, layer, outline_only);
+    render_walk_end_contents_clip(backend, content_clip);
+}
+
 static bool render_walk_stacking_layer(void* context, View* owner, View* layer) {
     RenderWalkBlockDriver* driver = (RenderWalkBlockDriver*)context;
-    render_walk_stacking_path(driver->backend, driver->state, owner, layer);
+    render_walk_owner_layer(driver->backend, driver->state, owner, layer);
     return true;
 }
 
@@ -650,7 +661,7 @@ static void render_walk_positioned_layer(RenderBackend* backend, RenderWalkState
         *index < layers->length && radiant_stack_path_child(layer, (View*)layers->data[*index]);
     ViewBlock* saved_outline = state->deferred_outline;
     if (defer) state->deferred_outline = block;
-    render_walk_stacking_path(backend, state, owner, layer);
+    render_walk_owner_layer(backend, state, owner, layer);
     state->deferred_outline = saved_outline;
     if (!defer || render_walk_aborted(backend)) return;
     // lifted zero-level descendants paint in tree order before their ancestor's outline.
@@ -658,7 +669,7 @@ static void render_walk_positioned_layer(RenderBackend* backend, RenderWalkState
             radiant_stack_path_child(layer, (View*)layers->data[*index]))
         render_walk_positioned_layer(backend, state, owner, layers, index);
     if (!render_walk_aborted(backend))
-        render_walk_stacking_path(backend, state, owner, layer, true);
+        render_walk_owner_layer(backend, state, owner, layer, true);
 }
 
 void render_walk_positioned_children(RenderBackend* backend, RenderWalkState* state, ViewBlock* block) {

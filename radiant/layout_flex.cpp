@@ -29,7 +29,6 @@ static void calculate_line_cross_sizes(FlexContainerLayout* flex_layout,
 static void determine_hypothetical_cross_sizes(LayoutContext* lycon, FlexContainerLayout* flex_layout);
 static void flex_apply_intrinsic_cross_size(ViewElement* item,
                                              FlexContainerLayout* flex_layout,
-                                             bool preserve_wrapping_width,
                                              bool overwrite);
 static float flex_form_intrinsic_size(ViewElement* item, FlexContainerLayout* flex_layout,
                                       bool horizontal);
@@ -3439,7 +3438,7 @@ void align_items_cross_axis(FlexContainerLayout* flex_layout, FlexLineInfo* line
                 item, !is_horizontal);
 
             if (!has_explicit_cross_size && has_flex_item_prop(item)) {
-                flex_apply_intrinsic_cross_size(item, flex_layout, true, false);
+                flex_apply_intrinsic_cross_size(item, flex_layout, false);
             }
         }
 
@@ -3454,7 +3453,7 @@ void align_items_cross_axis(FlexContainerLayout* flex_layout, FlexLineInfo* line
         // align-self has no effect in that dimension. Do not stretch such
         if (has_cross_auto_margin && !has_explicit_cross_size_for_auto &&
             has_flex_item_prop(item)) {
-            flex_apply_intrinsic_cross_size(item, flex_layout, false, true);
+            flex_apply_intrinsic_cross_size(item, flex_layout, true);
         }
 
         float line_cross_size = line->cross_size;
@@ -3754,7 +3753,6 @@ bool flex_item_will_stretch_cross_axis(ViewElement* item, FlexContainerLayout* f
 
 static void flex_apply_intrinsic_cross_size(ViewElement* item,
                                              FlexContainerLayout* flex_layout,
-                                             bool preserve_wrapping_width,
                                              bool overwrite) {
     if (!item || !flex_layout || !has_flex_item_prop(item)) return;
     LayoutAxisRefs selected(item, flex_cross_axis(flex_layout));
@@ -3771,19 +3769,7 @@ static void flex_apply_intrinsic_cross_size(ViewElement* item,
     // ratio-transferred sizes have already been resolved by the hypothetical cross-size pass.
     if (!overwrite && selected.get_size() > 0.0f && !fit_inline_cross) return;
     if (selected.horizontal()) {
-        ViewBlock* item_block = lam::view_as_block(item);
-        FlexProp* item_flex = item_block && item_block->embed
-            ? item_block->embedp()->flex : nullptr;
-        bool row_wrap = item_flex &&
-            (layout_flex_direction(item_block) == CSS_VALUE_ROW ||
-             layout_flex_direction(item_block) == CSS_VALUE_ROW_REVERSE) &&
-            (item_flex->wrap == CSS_VALUE_WRAP ||
-             item_flex->wrap == CSS_VALUE_WRAP_REVERSE);
-        if (preserve_wrapping_width && row_wrap &&
-            flex_layout->cross_axis_size > 0.0f) {
-            selected.set_size(flex_layout->cross_axis_size);
-            return;
-        }
+        // wrapping children retain fit-content cross sizing; wrapping alone does not imply stretch.
         intrinsic = fit_inline_cross ? flex_item_fit_content_border_size(item, flex_layout, true)
             : layout_border_size_from_content_box(lam::view_as_block(item), intrinsic, true);
     }

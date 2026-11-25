@@ -8,6 +8,7 @@
 #include "lib/font/font.h"
 #include "lambda/input/css/dom_element.hpp"
 #include "lib/canvas.h"
+#include "lib/image.h"
 #include "lib/log.h"
 #include "lib/mem.h"
 #include "lib/str.h"
@@ -16,11 +17,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-
-// Keep this bounded while ImageSurface owns an implementation-specific pixel
-// allocation.  A rejected resize leaves the prior bitmap intact.
-#define RADIANT_CANVAS_MAX_DIMENSION 4096
-#define RADIANT_CANVAS_MAX_PIXELS 4194304u
 
 enum CanvasTextAlign {
     CANVAS_TEXT_ALIGN_START = 0,
@@ -519,6 +515,32 @@ extern "C" StrBuf* radiant_canvas_to_data_url(void* canvas_element) {
     if (!entry) return nullptr;
     if (!entry->surface) return strbuf_create("data:,");
     return render_encode_surface_data_uri(entry->surface);
+}
+
+extern "C" bool radiant_canvas_read_pixels(void* canvas_element, int64_t x, int64_t y,
+        uint32_t width, uint32_t height, uint8_t* rgba, size_t bytes) {
+    uint64_t count = (uint64_t)width * height;
+    if (!rgba || !width || !height || count > RADIANT_CANVAS_MAX_PIXELS || bytes < count * 4 ||
+        x > INT64_MAX - width || y > INT64_MAX - height) return false;
+    ImageSurfaceReadScope read_scope;
+    CanvasEntry* entry = canvas_entry_for_element((DomElement*)canvas_element, true);
+    if (!entry || entry->mode == 2) return false;
+    // pixel reads bypass the drawing transform, clip and alpha; out-of-bounds samples are transparent.
+    memset(rgba, 0, (size_t)count * 4);
+    ImageSurface* surface = entry->surface;
+    if (!surface || !surface->pixels) return true;
+    int64_t left = x > 0 ? x : 0, top = y > 0 ? y : 0;
+    int64_t right = x + width < surface->width ? x + width : surface->width;
+    int64_t bottom = y + height < surface->height ? y + height : surface->height;
+    if (left >= right || top >= bottom) return true;
+    for (int64_t row = top; row < bottom; row++) {
+        const uint8_t* source = (const uint8_t*)surface->pixels + (size_t)row * surface->pitch + (size_t)left * 4;
+        uint8_t* destination = rgba + ((size_t)(row - y) * width + (size_t)(left - x)) * 4;
+        if (surface->alpha_mode == IMAGE_ALPHA_PREMULTIPLIED)
+            image_unpremultiply_rgba_row(destination, source, (size_t)(right - left));
+        else memcpy(destination, source, (size_t)(right - left) * 4);
+    }
+    return true;
 }
 
 extern "C" bool radiant_canvas_set_dimension(void* canvas_element,

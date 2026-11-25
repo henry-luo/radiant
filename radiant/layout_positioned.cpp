@@ -530,7 +530,9 @@ void layout_resolve_scrolled_sticky(ViewTree* view_tree) {
 ViewBlock* find_initial_containing_view_block(ViewBlock* element) {
     if (!element) return nullptr;
     ViewBlock* root = element;
-    for (ViewElement* ancestor = element->parent_view(); ancestor; ancestor = ancestor->parent_view()) {
+    // shadow fragments have no formatting box; the initial block belongs to the host's tree.
+    for (DomNode* ancestor = dom_shadow_including_parent(element); ancestor;
+         ancestor = dom_shadow_including_parent(ancestor)) {
         ViewBlock* ancestor_block = lam::view_as_block(ancestor);
         if (ancestor_block) root = ancestor_block;
     }
@@ -633,11 +635,12 @@ void layout_parent_to_containing_block_offset(ViewBlock* block,
                                               ViewBlock* containing_block,
                                               float* out_x, float* out_y) {
     LayoutAxisPair<float> parent_to_cb_offset = {};
-    ViewElement* walk_start = block->parent_view();
+    // paint offsets follow formatting ancestors across shadow fragments and slot projection.
+    ViewElement* walk_start = layout_render_parent(block);
     ViewElement* containing_element = reinterpret_cast<ViewElement*>(containing_block);
 
     while (walk_start && !walk_start->is_block() && walk_start != containing_element) {
-        walk_start = walk_start->parent_view();
+        walk_start = layout_render_parent(walk_start);
     }
 
     if (walk_start && (walk_start->is_block() || walk_start == containing_element)) {
@@ -660,9 +663,9 @@ void layout_parent_to_containing_block_offset(ViewBlock* block,
                 break;
             }
 
-            ViewElement* gp = p->parent_view();
+            ViewElement* gp = layout_render_parent(p);
             while (gp && !gp->is_block() && gp != containing_element) {
-                gp = gp->parent_view();
+                gp = layout_render_parent(gp);
             }
             // an inline containing block terminates this walk before outer
             // block origins are added to its descendants' local static positions.
@@ -679,7 +682,7 @@ void layout_parent_to_containing_block_offset(ViewBlock* block,
         // inline descendants share their ancestor block's coordinates. Keep
         // the current union origin in the cached offset so finalizing a split
         // inline updates its static children when that origin changes.
-        ViewElement* parent = block->parent_view();
+        ViewElement* parent = layout_render_parent(block);
         bool inline_parent = parent && parent->view_type == RDT_VIEW_INLINE;
         bool vertical_line = layout_block_inline_axis_is_vertical(block);
         // vertical inline edges and RTL inline-extent alignment already
@@ -825,10 +828,12 @@ static bool positioned_axis_is_auto(ViewBlock* block, bool horizontal) {
         element, horizontal);
     // Logical size aliases do not populate a physical declaration. Select the
     // cascade-winning alias so `block-size` is not mistaken for height:auto.
-    // absent CSS can still have a definite HTML hint; reuse its resolved size identity.
-    return size_decl && size_decl->value
-        ? layout_css_size_is_automatic(block, horizontal)
-        : layout_block_has_automatic_size(block, horizontal);
+    if (size_decl && size_decl->value) return layout_css_size_is_automatic(block, horizontal);
+
+    // native UA defaults can set an intrinsic keyword without a declaration or a resolved length.
+    LayoutAxis axis = horizontal ? LAYOUT_AXIS_X : LAYOUT_AXIS_Y;
+    return !layout_axis_uses_intrinsic_size(block->blk, axis) &&
+        layout_block_has_automatic_size(block, horizontal);
 }
 
 typedef struct PositionedSelfAlignment {
@@ -2151,7 +2156,8 @@ void re_resolve_abs_children_vertical(LayoutContext* lycon,
     ViewBlock* child = containing_block->positionp()->first_abs_child;
     while (child) {
         LayoutContainingBlock cb = positioned_child_used_containing_block(lycon,
-            containing_block, child, layout_containing_block_for_view(containing_block));
+            containing_block, child, layout_absolute_containing_block(lycon,
+                containing_block, child->positionp()->position));
         float cb_height = cb.padding_height;
         float old_height = child->height;
         // calculated percentages need the final containing height just like bare percentages.

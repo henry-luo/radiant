@@ -5983,6 +5983,22 @@ static void layout_close_failed_load_logs(EventStateLog** event_log,
     }
 }
 
+static bool layout_free_loaded_document(UiContext* ui_context, DomDocument* doc,
+        Url*& input_url, Pool*& pool, DocumentCleanupTiming* timing) {
+    source_pos_bridge_reset();
+    if (input_url == doc->url) {
+        InputManager::detach_url(input_url);
+        input_url = nullptr;
+    }
+    if (doc->owned_loader_pool == pool) pool = nullptr;
+    if (!free_document_profiled(doc, timing)) {
+        log_error("layout-document-cleanup: document retained at a non-quiescent boundary");
+        return false;
+    }
+    if (ui_context->document == doc) ui_context->document = nullptr;
+    return true;
+}
+
 // load and layout one document file.
 static bool layout_single_file(
     const char* input_file,
@@ -6059,11 +6075,13 @@ static bool layout_single_file(
 
     const char* effective_ext = nullptr;
     bool is_http_url = (input_url->scheme == URL_SCHEME_HTTP || input_url->scheme == URL_SCHEME_HTTPS);
+    // query and fragment text can contain extensions that do not describe the document.
+    const char* input_path = url_get_pathname(input_url);
 
     DomDocument* doc = nullptr;
-    const char* ext = file_path_ext(input_file);
+    const char* ext = file_path_ext(input_path);
 
-    bool has_valid_ext = layout_path_has_known_extension(input_file) ||
+    bool has_valid_ext = layout_path_has_known_extension(input_path) ||
         (ext && (strcmp(ext, ".html") == 0 || strcmp(ext, ".htm") == 0));
 
     if (is_http_url && !has_valid_ext) {
@@ -6092,7 +6110,8 @@ static bool layout_single_file(
     }
 
     bool special_handled = false;
-    const char* route_path = effective_ext ? effective_ext : input_file;
+    const char* route_path = effective_ext ? effective_ext : input_path;
+    bool keep_separate_text_nodes = ext && (strcmp(ext, ".pdf") == 0 || strcmp(ext, ".svg") == 0);
     {
         // the batch's documents share one loader runtime, as a window's do
         LayoutLoaderHostScope loader_host(ui_context);
@@ -6117,8 +6136,11 @@ static bool layout_single_file(
 
             const char* next_href = url_get_href(next_url);
             log_info("[Layout] Following document navigation to %s", next_href ? next_href : "(null)");
-            if (!radiant_loader_cleanup_html_script(doc)) return false;
-            dom_document_destroy(doc);
+            // scripts can create view and state owners before requesting navigation.
+            if (!layout_free_loaded_document(ui_context, doc, input_url, pool, nullptr)) {
+                url_destroy(next_url);
+                return false;
+            }
             doc = nullptr;
             if (input_url) url_destroy(input_url);
             pool_destroy(pool);
@@ -6159,9 +6181,7 @@ static bool layout_single_file(
     if (!state) {
         log_error("Failed to create DocState for headless document: %s", input_file);
         layout_close_failed_load_logs(&event_log, &state_dump);
-        if (!radiant_loader_cleanup_html_script(doc)) return false;
-        dom_document_destroy(doc);
-        ui_context->document = nullptr;
+        if (!layout_free_loaded_document(ui_context, doc, input_url, pool, nullptr)) return false;
         if (input_url) {
             url_destroy(input_url);
         }
@@ -6226,9 +6246,7 @@ static bool layout_single_file(
     } else {
         log_info("[Layout] Layout computed successfully for %s", input_file);
 
-        bool is_pdf = ext && strcmp(ext, ".pdf") == 0;
-        bool is_svg = ext && strcmp(ext, ".svg") == 0;
-        if (is_pdf || is_svg) {
+        if (keep_separate_text_nodes) {
             set_combine_text_nodes(false);
         }
 
@@ -6243,7 +6261,7 @@ static bool layout_single_file(
         output_end = time_now_ns();
         output_phase_ran = true;
 
-        if (is_pdf || is_svg) {
+        if (keep_separate_text_nodes) {
             set_combine_text_nodes(true);
         }
     }
@@ -6266,27 +6284,15 @@ static bool layout_single_file(
 
     auto cleanup_start = time_now_ns();
     if (doc) {
-        source_pos_bridge_reset();
         // retired iframe storage belongs to the document resource graph and
         // must outlive this document's state and view teardown.
-        if (input_url == doc->url) {
-            InputManager::detach_url(input_url);
-            input_url = nullptr;
-        }
-        if (doc->owned_loader_pool == pool) pool = nullptr;
         DocumentCleanupTiming cleanup_timing;
-        if (!free_document_profiled(doc, &cleanup_timing)) {
-            log_error("layout-document-cleanup: document retained at a non-quiescent boundary");
-            return false;
-        }
+        if (!layout_free_loaded_document(ui_context, doc, input_url, pool, &cleanup_timing)) return false;
         phase_timing.cleanup_network_ms += cleanup_timing.network_ms;
         phase_timing.cleanup_state_ms += cleanup_timing.state_ms;
         phase_timing.cleanup_script_ms += cleanup_timing.script_ms;
         phase_timing.cleanup_view_ms += cleanup_timing.view_ms;
         phase_timing.cleanup_document_ms += cleanup_timing.document_ms;
-        if (ui_context->document == doc) {
-            ui_context->document = nullptr;
-        }
     }
     if (event_log) {
         event_state_log_document(event_log, "unload_complete");

@@ -236,6 +236,10 @@ void layout_apply_preferred_ratio_to_replaced_auto_axes(LayoutContext* lycon,
         layout_block_has_automatic_size(block, false)
     };
     float preferred_aspect_ratio = layout_used_preferred_aspect_ratio(block);
+    if (preferred_aspect_ratio <= 0.0f && layout_is_svg_viewport(block->tag())) {
+        ReplacedIntrinsicFacts facts = layout_replaced_intrinsic_facts(lycon, block);
+        if (facts.has_natural_aspect_ratio) preferred_aspect_ratio = facts.natural_aspect_ratio;
+    }
     if (preferred_aspect_ratio <= 0.0f || (!automatic.x && !automatic.y)) return;
     // a natural ratio describes content even when the specified size uses border-box.
     bool ratio_uses_content_box = layout_aspect_ratio_uses_content_box(block) ||
@@ -8104,6 +8108,10 @@ void layout_block_content(LayoutContext* lycon, ViewBlock* block, BlockContext *
                              block->block()->given_width_type == CSS_VALUE__UNDEF;
         bool height_is_auto = !block->blk || block->block()->given_height_type == CSS_VALUE_AUTO ||
                               block->block()->given_height_type == CSS_VALUE__UNDEF;
+        // a definite opposite axis transfers the SVG ratio before an auto width uses its parent slot.
+        if (width_is_auto && !height_is_auto && lycon->block.given_width < 0.0f &&
+            lycon->block.given_height >= 0.0f)
+            layout_apply_preferred_ratio_to_replaced_auto_axes(lycon, block);
         float ratio_slot_content_width = -1.0f;
         if (width_is_auto && lycon->block.given_width < 0 && !has_width_percent) {
             if (use_parent_ratio_slot) {
