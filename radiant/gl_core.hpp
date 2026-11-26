@@ -106,6 +106,7 @@ struct NativeGlPresentFrame {
     bool page_hidden;            // an opaque layer covers the page: neither uploaded nor drawn
     uint32_t background_rgba;    // clears exposed framebuffer areas (surface format)
     int present_width, present_height, framebuffer_width, framebuffer_height;
+    unsigned top_down_framebuffer; // external presentation target, with row zero at the top
     const NativeGlPresentLayer* layers;
     unsigned layer_count;
     const ImageSurface* reference; // the CPU composition RADIANT_PRESENT_CHECK compares; null: the page

@@ -174,12 +174,8 @@ bool ui_context_resize_window_surface(UiContext* uicon, int pixel_width, int pix
     if (!uicon || pixel_width <= 0 || pixel_height <= 0 ||
         (pixel_width == uicon->window_width && pixel_height == uicon->window_height)) return false;
 
-    // native resize invalidates the front buffer; restore the completed image
-    // before allocating a blank target and doing the potentially slow reflow.
-    if (!uicon->headless && uicon->window && uicon->window_surface &&
-        uicon->window_surface->pixels) {
-        ui_context_present_surface(uicon, uicon->window_surface.get());
-    }
+    // leave presentation to the render turn after layout and paint have
+    // filled the new surface. Swapping the old image here flashes stale geometry.
     uicon->window_width = pixel_width;
     uicon->window_height = pixel_height;
     ui_context_create_surface(uicon, pixel_width, pixel_height);

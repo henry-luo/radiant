@@ -234,7 +234,8 @@ NATIVE_CLOSURE_LIBS ?= $(INPUT_ROOT)/build/deps/utf8proc/lib/libutf8proc.a \
   -framework SystemConfiguration -framework Security -framework Cocoa -framework IOKit \
   -framework CoreVideo -framework AVFoundation -framework AudioToolbox -framework CoreMedia \
   -framework OpenGL -framework Foundation -framework CoreGraphics -framework Accelerate \
-  -framework CoreText -framework AppKit -framework Carbon -framework WebKit -liconv -lpthread \
+  -framework CoreText -framework AppKit -framework QuartzCore -framework IOSurface \
+  -framework Carbon -framework WebKit -liconv -lpthread \
   $(shell PKG_CONFIG_PATH="$(INPUT_ROOT)/build/deps/thorvg/lib/pkgconfig:$$PKG_CONFIG_PATH" pkg-config --libs --static thorvg 2>/dev/null | tr ' ' '\n' | sed -n 's/\.dylib$$/.a/p')
 
 .PHONY: test-native-closure

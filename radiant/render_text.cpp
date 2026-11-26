@@ -1283,14 +1283,27 @@ static void render_text_inline_background(RasterRenderContext* rdcon, ViewText* 
 
     if (bg_color && bg_color->a > 0) {
         if (bg_radius > 0) {
-            // inline fragments need the same used-radius constraint as block backgrounds.
-            Corner corners = render_path_uniform_corner(bg_radius,bg_radius,bg_radius,bg_radius);
-            constrain_corner_radii(&corners,bg_rect.width,bg_rect.height);
-            RdtPath* p = render_path_create_rounded_rect(bg_rect,&corners);
-            // the path is in the same local space as the glyphs; under a CSS transform an
-            // identity fill drew the background away from its text (e.g. during fly-ins).
-            rc_fill_path(rdcon, p, *bg_color, RDT_FILL_WINDING, render_state_current_transform(rdcon));
-            rdt_path_free(p);
+            const RdtMatrix* transform = render_state_current_transform(rdcon);
+            const Bound& clip = rdcon->block.clip;
+            Bound visible = transform ? clip : view_geometry_intersect_bound_rect(clip, bg_rect);
+            if (visible.left < visible.right && visible.top < visible.bottom) {
+                Corner corners = render_path_uniform_corner(bg_radius, bg_radius, bg_radius, bg_radius);
+                constrain_corner_radii(&corners, bg_rect.width, bg_rect.height);
+                RdtPath* path = render_path_create_rounded_rect(bg_rect, &corners);
+
+                // vector fills need the rectangular block clip in surface space.
+                Rect clip_rect = {clip.left, clip.top, clip.right - clip.left, clip.bottom - clip.top};
+                bool needs_clip = transform || !view_geometry_rect_contains_rect(clip_rect, bg_rect, 0.0f);
+                RenderClipScope scope = {};
+                if (needs_clip) scope = render_clip_push_rect_scope(rdcon, &clip);
+                if (path && (!needs_clip || scope.active)) {
+                    rc_fill_path(rdcon, path, *bg_color, RDT_FILL_WINDING, transform);
+                } else {
+                    rdcon->paint_failed = true;
+                }
+                render_clip_pop_scope(rdcon, &scope);
+                rdt_path_free(path);
+            }
         } else {
             render_painter_fill_context_rect(rdcon, &bg_rect, bg_color->c);
         }

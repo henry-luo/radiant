@@ -454,11 +454,12 @@ NativeGlContext* native_gl_create(bool enabled, char* diagnostic, size_t capacit
 static const char* PRESENT_VERTEX = "#version 330 core\n"
     "uniform vec4 rect;\n"
     "uniform float flip;\n"
+    "uniform float output_y;\n"
     "out vec2 uv;\n"
     "void main() {\n"
     "    vec2 corner = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1));\n"
     "    uv = vec2(corner.x, flip > 0.5 ? corner.y : 1.0 - corner.y);\n"
-    "    gl_Position = vec4(mix(rect.x, rect.z, corner.x), mix(rect.w, rect.y, corner.y), 0.0, 1.0);\n"
+    "    gl_Position = vec4(mix(rect.x, rect.z, corner.x), output_y * mix(rect.w, rect.y, corner.y), 0.0, 1.0);\n"
     "}\n";
 // page segments are display-encoded premultiplied bytes, drawn as they are
 static const char* PRESENT_FRAGMENT = "#version 330 core\n"
@@ -481,7 +482,7 @@ static const char* PRESENT_LAYER_FRAGMENT = "#version 330 core\n"
     "uniform vec3 inverse_x, inverse_y;\n" // surface pixel -> destination space
     "uniform vec3 edges[4];\n"             // signed distance to each quad edge in surface pixels, positive inside
     "uniform vec4 dst;\n"                  // destination x, y, width, height
-    "uniform vec3 device;\n"               // framebuffer height, the page's scale into the framebuffer
+    "uniform vec3 device;\n"               // framebuffer y origin, the page's scale into the framebuffer
     "uniform float flip, opacity, upsampled, masked, encoding;\n"
     "uniform sampler2D mask;\n"           // clip coverage from mask_origin, in surface pixels
     "uniform vec2 mask_origin;\n"
@@ -502,7 +503,7 @@ static const char* PRESENT_LAYER_FRAGMENT = "#version 330 core\n"
     "    return vec4(min(vec3(1.0), vec3(encode(s.r), encode(s.g), encode(s.b))) * e.a, e.a);\n"
     "}\n"
     "void main() {\n"
-    "    vec3 p = vec3(gl_FragCoord.x / device.y, (device.x - gl_FragCoord.y) / device.z, 1.0);\n"
+    "    vec3 p = vec3(gl_FragCoord.x / device.y, abs(device.x - gl_FragCoord.y) / device.z, 1.0);\n"
     "    float distance = min(min(dot(edges[0], p), dot(edges[1], p)), min(dot(edges[2], p), dot(edges[3], p)));\n"
     "    if (distance <= -0.5) discard;\n"
     "    vec2 local = clamp(vec2(dot(inverse_x, p), dot(inverse_y, p)), dst.xy, dst.xy + dst.zw - 0.0001);\n"
@@ -562,7 +563,7 @@ NativeGlContext* native_gl_presenter_create(void* window, char* diagnostic, size
 // A damage rectangle that missed a write leaves stale pixels; a composite may round differently by
 // up to `tolerance` per channel.
 static void native_gl_present_check(NativeGlContext* presenter, const ImageSurface* expected_surface,
-                                    int framebuffer_width, int framebuffer_height, int tolerance) {
+                                    int framebuffer_width, int framebuffer_height, int tolerance, bool top_down) {
     if (!native_gl_present_check_enabled()) return;
     static uint64_t frame = 0;
     frame++;
@@ -574,11 +575,11 @@ static void native_gl_present_check(NativeGlContext* presenter, const ImageSurfa
     if (!drawn) return;
     NativeGlFunctions& gl = presenter->gl;
     gl.PixelStorei(GL_PACK_ALIGNMENT, 1);
-    gl.ReadPixels(0, framebuffer_height - height, width, height, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8_REV, drawn);
+    gl.ReadPixels(0, top_down ? 0 : framebuffer_height - height, width, height,
+                  GL_RGBA, GL_UNSIGNED_INT_8_8_8_8_REV, drawn);
     size_t differ = 0; int first_x = -1, first_y = -1, worst = 0;
     for (int y = 0; y < height; y++) {
-        // GL rows run bottom up
-        const uint32_t* row = drawn + (size_t)(height - 1 - y) * width;
+        const uint32_t* row = drawn + (size_t)(top_down ? y : height - 1 - y) * width;
         const uint32_t* expected = (const uint32_t*)((const uint8_t*)expected_surface->pixels + (size_t)y * expected_surface->pitch);
         for (int x = 0; x < width; x++) {
             if (((row[x] ^ expected[x]) & 0x00FFFFFFu) == 0) continue;
@@ -658,7 +659,7 @@ static void native_gl_present_mask(NativeGlContext* presenter, unsigned index, c
 
 // one quad from surface-pixel coordinates (top-left origin) into the page's NDC rectangle
 static void native_gl_present_quad(NativeGlContext* presenter, NativeGlSlot* program, const ImageSurface* page,
-                                   float left, float top, float right, float bottom, bool flip) {
+                                   float left, float top, float right, float bottom, bool flip, bool top_down) {
     NativeGlFunctions& gl = presenter->gl;
     float rect[4] = {left / page->width * 2.0f - 1.0f, 1.0f - top / page->height * 2.0f,
                      right / page->width * 2.0f - 1.0f, 1.0f - bottom / page->height * 2.0f};
@@ -667,6 +668,7 @@ static void native_gl_present_quad(NativeGlContext* presenter, NativeGlSlot* pro
     gl.Uniform1i(native_gl_uniform_location(presenter, program, "page"), 0);
     gl.Uniform4fv(native_gl_uniform_location(presenter, program, "rect"), 1, rect);
     gl.Uniform1fv(native_gl_uniform_location(presenter, program, "flip"), 1, &flip_value);
+    gl.Uniform1f(native_gl_uniform_location(presenter, program, "output_y"), top_down ? -1.0f : 1.0f);
     gl.DrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, 1);
 }
 #endif
@@ -687,8 +689,10 @@ bool native_gl_present(NativeGlContext* presenter, const NativeGlPresentFrame* f
     if (!page_program || !layer_program) return false;
     const ImageSurface* page = frame->page;
     NativeGlFunctions& gl = presenter->gl;
-    gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
-    gl.Viewport(0, frame->framebuffer_height - frame->present_height, frame->present_width, frame->present_height);
+    bool top_down = frame->top_down_framebuffer != 0;
+    gl.BindFramebuffer(GL_FRAMEBUFFER, frame->top_down_framebuffer);
+    gl.Viewport(0, top_down ? 0 : frame->framebuffer_height - frame->present_height,
+                frame->present_width, frame->present_height);
     uint32_t bg = frame->background_rgba;
     gl.ClearColor((bg & 0xff) / 255.0f, ((bg >> 8) & 0xff) / 255.0f, ((bg >> 16) & 0xff) / 255.0f, ((bg >> 24) & 0xff) / 255.0f);
     gl.Clear(GL_COLOR_BUFFER_BIT);
@@ -708,7 +712,8 @@ bool native_gl_present(NativeGlContext* presenter, const NativeGlPresentFrame* f
         native_gl_present_upload(presenter, 0, page, frame->damage, partial);
         present.page_segment = segment;
         present.page_stale = false;
-        native_gl_present_quad(presenter, page_program, page, 0, 0, (float)page->width, (float)page->height, false);
+        native_gl_present_quad(presenter, page_program, page, 0, 0,
+                               (float)page->width, (float)page->height, false, top_down);
     } else {
         presenter->present.page_stale = true;
     }
@@ -725,7 +730,7 @@ bool native_gl_present(NativeGlContext* presenter, const NativeGlPresentFrame* f
             gl.BindSampler(0, presenter->present.samplers[0]);
             gl.BindTexture(GL_TEXTURE_2D, image->texture);
             native_gl_use_program(presenter, layer_program);
-            const float device[3] = {(float)frame->framebuffer_height, scale_x, scale_y};
+            const float device[3] = {top_down ? 0.0f : (float)frame->framebuffer_height, scale_x, scale_y};
             const float dst[4] = {layer.dst_x, layer.dst_y, layer.dst_width, layer.dst_height};
             gl.Uniform3fv(native_gl_uniform_location(presenter, layer_program, "inverse_x"), 1, layer.inverse);
             gl.Uniform3fv(native_gl_uniform_location(presenter, layer_program, "inverse_y"), 1, layer.inverse + 3);
@@ -751,7 +756,7 @@ bool native_gl_present(NativeGlContext* presenter, const NativeGlPresentFrame* f
             }
             // the clip is whole surface pixels inside the quad's bounds, so its quad covers every drawn pixel
             native_gl_present_quad(presenter, layer_program, page, layer.clip_left, layer.clip_top,
-                                   layer.clip_right, layer.clip_bottom, !image->top_down);
+                                   layer.clip_right, layer.clip_bottom, !image->top_down, top_down);
             gl.BindSampler(0, presenter->present.samplers[unscaled ? 0 : 1]);
             // the producer's next write to this target waits for this draw on the GPU
             if (image->consumed) gl.DeleteSync(image->consumed);
@@ -765,7 +770,8 @@ bool native_gl_present(NativeGlContext* presenter, const NativeGlPresentFrame* f
                 native_gl_present_upload(presenter, 1 + i, layer.above, &none, !layer.above_changed);
             for (unsigned r = 0; layer.above_changed && r < layer.above_damage_count; r++)
                 native_gl_present_upload(presenter, 1 + i, layer.above, &layer.above_damage[r], true);
-            native_gl_present_quad(presenter, page_program, page, 0, 0, (float)page->width, (float)page->height, false);
+            native_gl_present_quad(presenter, page_program, page, 0, 0,
+                                   (float)page->width, (float)page->height, false, top_down);
         }
     }
     gl.Disable(GL_BLEND);
@@ -777,7 +783,7 @@ bool native_gl_present(NativeGlContext* presenter, const NativeGlPresentFrame* f
         const ImageSurface* expected = frame->reference ? frame->reference : frame->layer_count ? nullptr : page;
         // a composite rounds translucent edges in two premultiplied steps instead of one blend
         if (expected) native_gl_present_check(presenter, expected, frame->framebuffer_width, frame->framebuffer_height,
-                                              frame->layer_count ? 8 : 0);
+                                              frame->layer_count ? 8 : 0, top_down);
     }
     return native_gl_check(presenter, "window present");
 #else

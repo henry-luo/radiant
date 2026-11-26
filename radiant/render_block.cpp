@@ -275,11 +275,32 @@ void render_element_marker_end(RasterRenderContext* rdcon, RenderElementMarkerSc
 }
 
 static bool render_collapsed_borders(RasterRenderContext* rdcon, ViewBlock* view, Rect rect) {
-    if (!render_paint_boundary_emit_collapsed_borders(
-            rdcon->paint_list, view, rect, rdcon->raster_scale)) return false;
+    if (!rdcon->paint_list || !render_paint_boundary_has_collapsed_borders(view)) return false;
+
+    // PaintIR edges bypass the raster block clip. Include half-edges and round caps.
+    float scale = rdcon->raster_scale;
+    BoxEdges half_edges = layout_table_cell_alignment_insets(static_cast<ViewTableCell*>(view)).border;
+    float outset = fmaxf(fmaxf(half_edges.left, half_edges.right),
+        fmaxf(half_edges.top, half_edges.bottom)) * scale;
+    Bound ink = view_geometry_rect_to_bound(view_geometry_expand_rect(rect, outset));
+    const Bound& clip = rdcon->block.clip;
+    if (clip.left >= clip.right || clip.top >= clip.bottom ||
+        !view_geometry_bounds_intersect(ink, clip)) return true;
+
+    RenderClipScope scope = {};
+    if (ink.left < clip.left || ink.top < clip.top ||
+        ink.right > clip.right || ink.bottom > clip.bottom) {
+        scope = render_clip_push_rect_scope(rdcon, &clip);
+        if (!scope.active) {
+            rdcon->paint_failed = true;
+            return true;
+        }
+    }
+    render_paint_boundary_emit_collapsed_borders(rdcon->paint_list, view, rect, scale);
     // consume each cell fragment once; retaining it replays every earlier border on the next cell.
     PaintRecordTarget target = rc_record_target(rdcon);
     paint_record_lower_pending(&target);
+    render_clip_pop_scope(rdcon, &scope);
     return true;
 }
 
