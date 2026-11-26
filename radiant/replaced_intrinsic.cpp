@@ -417,7 +417,7 @@ bool layout_svg_percentage_attribute(DomElement* element, bool horizontal, float
 }
 
 ReplacedSvgIntrinsicSize layout_replaced_svg_intrinsic_size(DomElement* element,
-                                                            float constrained_width) {
+    float constrained_width, bool has_definite_width) {
     ReplacedSvgIntrinsicSize result = {REPLACED_DEFAULT_WIDTH, REPLACED_DEFAULT_HEIGHT};
     if (!element) return result;
     Element* svg = dom_element_backing(lam::dom_require_element(element));
@@ -425,7 +425,12 @@ ReplacedSvgIntrinsicSize layout_replaced_svg_intrinsic_size(DomElement* element,
     if (intrinsic.has_intrinsic_width) result.width = intrinsic.width;
     if (intrinsic.has_intrinsic_height) result.height = intrinsic.height;
     if (intrinsic.has_intrinsic_aspect_ratio) {
-        if (intrinsic.has_intrinsic_width && !intrinsic.has_intrinsic_height) {
+        if (has_definite_width && constrained_width >= 0.0f) {
+            // Auto height follows the resolved viewport width even when both
+            // SVG attributes supply natural dimensions.
+            result.width = constrained_width;
+            result.height = constrained_width / intrinsic.aspect_ratio;
+        } else if (intrinsic.has_intrinsic_width && !intrinsic.has_intrinsic_height) {
             result.height = result.width / intrinsic.aspect_ratio;
         } else if (!intrinsic.has_intrinsic_width && intrinsic.has_intrinsic_height) {
             result.width = result.height * intrinsic.aspect_ratio;

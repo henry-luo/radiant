@@ -966,9 +966,15 @@ static void reset_background_style_cache(LayoutContext* lycon, ViewSpan* view) {
     }
 }
 
-static void layout_prepare_background_images(LayoutContext* context, DomElement* element) {
-    BackgroundProp* background = element->bound ? element->boundary()->background.get() : nullptr;
-    if (!background || !context->ui_context || !context->doc) return;
+static void layout_prepare_style_images(LayoutContext* context, DomElement* element) {
+    if (!element->bound || !context->ui_context || !context->doc) return;
+    const MaskProp* mask = element->boundary()->mask;
+    if (mask) for (int index = 0; index < mask->image_count; ++index) {
+        const char* source = mask->image(index).image;
+        if (source && source[0] != '#') load_document_image(context->doc, context->ui_context, source);
+    }
+    BackgroundProp* background = element->boundary()->background;
+    if (!background) return;
     // image clocks must exist before the host advances its frame timeline, rather than at first paint.
     for (int index = 0; index < max(1, background->layer_count); index++) {
         BackgroundLayer* layer = background->layer_count > 0 ? &background->layers[index] : background;
@@ -2510,7 +2516,7 @@ void dom_node_resolve_style(DomNode* node, LayoutContext* lycon) {
                 // before those queries so each property need not rematch every stylesheet.
                 dom_elem->set_styles_resolved(true);
                 dom_elem->set_needs_style_recompute(false);
-                if (!lycon->css_query_probe) layout_prepare_background_images(lycon, dom_elem);
+                if (!lycon->css_query_probe) layout_prepare_style_images(lycon, dom_elem);
             }
 
             // ordered-effect preparation cannot publish motion baselines from provisional boxes.
@@ -6112,13 +6118,19 @@ static void layout_container_metrics(DomDocument* document, DomElement* element,
     result->value_context = element;
 }
 
+static ViewBlock* layout_container_view(DomElement* element) {
+    ViewBlock* block = lam::view_as_block(element);
+    if (!block || !block->blk || block->display.outer == CSS_VALUE_NONE ||
+        block->display.outer == CSS_VALUE_CONTENTS) return nullptr;
+    return block;
+}
+
 static bool layout_provide_size_container(void* context, DomElement* target,
     const char* name, uint8_t axes, CssContainerMetrics* result) {
     DomDocument* document = (DomDocument*)context;
     for (DomElement* ancestor = dom_flat_tree_parent(target); ancestor; ancestor = dom_flat_tree_parent(ancestor)) {
-        ViewBlock* block = lam::view_as_block(ancestor);
-        if (!block || !block->blk || block->display.outer == CSS_VALUE_NONE ||
-            block->display.outer == CSS_VALUE_CONTENTS) continue;
+        ViewBlock* block = layout_container_view(ancestor);
+        if (!block) continue;
         // ordinary ancestors cannot answer size queries; avoid repeatedly walking
         // their inherited writing-mode chain before reaching an eligible container.
         if (axes && !block->block()->containment().container_axes) continue;
@@ -6142,8 +6154,8 @@ static bool layout_collect_container_measurements(DomNode* node, void* data) {
     LayoutContainerMeasurements* measurements = (LayoutContainerMeasurements*)data;
     ++measurements->elements;
     DomElement* element = node->as_element();
-    ViewBlock* block = lam::view_as_block(element);
-    if (!block || !block->blk || (!block->block()->containment().container_axes &&
+    ViewBlock* block = layout_container_view(element);
+    if (!block || (!block->block()->containment().container_axes &&
         !block->block()->containment().container_names)) return true;
     CssContainerMetrics box = {};
     layout_container_metrics(element->doc, element, block, &box);
@@ -6394,13 +6406,17 @@ struct LayoutScriptBudgetScope {
     ~LayoutScriptBudgetScope() { finish(); }
 };
 
-void layout_html_doc(UiContext* uicon, DomDocument *doc, bool is_reflow, PagedFlowState* paged) {
+enum class DocumentLayoutMode { Initial, Reflow, Rebuild };
+
+static void layout_html_document(UiContext* uicon, DomDocument* doc, DocumentLayoutMode mode,
+                                 PagedFlowState* paged) {
     uint64_t t_start = time_now_ns();
 
     reset_layout_timing();
 
     LayoutContext lycon;
     if (!doc) return;
+    bool is_reflow = mode != DocumentLayoutMode::Initial;
     // a mutation cascade may have installed faces since the caller's checkpoint.
     process_document_font_faces(uicon, doc);
     layout_invalidate_document_geometry(doc->view_tree);
@@ -6460,8 +6476,6 @@ void layout_html_doc(UiContext* uicon, DomDocument *doc, bool is_reflow, PagedFl
         return;
     }
 
-    reset_float_prelaid_flags(root_node);
-
     CssEngine* engine = (CssEngine*)doc->services.cached_css_engine;
     if (engine) {
         engine->container_provider = layout_provide_size_container;
@@ -6481,6 +6495,10 @@ void layout_html_doc(UiContext* uicon, DomDocument *doc, bool is_reflow, PagedFl
     }
     LayoutContainerMeasurements previous = engine && engine->container_dependencies
         ? layout_container_measurements(root_node) : LayoutContainerMeasurements{};
+    // a broad recascade read the old container boxes. Compare against those
+    // measurements even though the rebuild releases their view properties.
+    if (mode == DocumentLayoutMode::Rebuild) view_pool_reset_retained(doc->view_tree);
+    reset_float_prelaid_flags(root_node);
     LayoutAnchorPass anchor_pass;
     LayoutPassScope layout_scope(&lycon, doc, uicon);
     lycon.paged = lam::up(paged);
@@ -6632,4 +6650,12 @@ void layout_html_doc(UiContext* uicon, DomDocument *doc, bool is_reflow, PagedFl
     log_info("[TIMING] print_view_tree: %.1fms", time_elapsed_ms_f(t_layout, t_end));
     log_layout_timing_summary();
     log_info("[TIMING] layout_html_doc total: %.1fms", time_elapsed_ms_f(t_start, t_end));
+}
+
+void layout_html_doc(UiContext* ui, DomDocument* doc, bool is_reflow, PagedFlowState* paged) {
+    layout_html_document(ui, doc, is_reflow ? DocumentLayoutMode::Reflow : DocumentLayoutMode::Initial, paged);
+}
+
+void layout_rebuild_document(UiContext* ui, DomDocument* doc) {
+    layout_html_document(ui, doc, DocumentLayoutMode::Rebuild, nullptr);
 }

@@ -207,6 +207,7 @@ typedef enum AnimationType {
     ANIM_LOTTIE,
     ANIM_SVG,
     ANIM_TIMELINE,
+    ANIM_WEB_ANIMATION,
 } AnimationType;
 
 typedef enum AnimationDirection {
@@ -340,7 +341,8 @@ void animation_scheduler_destroy(AnimationScheduler* scheduler);
 bool animation_scheduler_tick(AnimationScheduler* scheduler, double now,
                               DirtyTracker* dirty_tracker, bool force_css_sample = false,
                               AnimationInstance* only = nullptr, bool timelines_only = false);
-void animation_scheduler_anchor_host_time(AnimationScheduler* scheduler, double now);
+void animation_scheduler_anchor_host_time(AnimationScheduler* scheduler, double now,
+                                          bool preserve_css_time = false);
 void animation_scheduler_add(AnimationScheduler* scheduler, AnimationInstance* anim);
 void animation_scheduler_move_before(AnimationScheduler* scheduler,
     AnimationInstance* anim, AnimationInstance* before);
@@ -356,6 +358,7 @@ AnimationInstance* animation_instance_create(AnimationScheduler* scheduler);
 AnimationInstance* animation_clock_driver_start(AnimationScheduler* scheduler, AnimationType type,
     void* target, AnimTickFn tick, AnimFinishFn released);
 double animation_clock_time(const AnimationScheduler* scheduler, const AnimationInstance* driver, double origin);
+float animation_effect_progress(AnimationInstance* effect, double time);
 void animation_instance_pause(AnimationInstance* anim, double now);
 void animation_instance_sample(AnimationInstance* anim, double now, bool preserve_timeline = false);
 void animation_instance_resume(AnimationInstance* anim, double now);
@@ -1725,10 +1728,44 @@ float background_position_offset(const BackgroundGeometry* background, bool hori
 float background_size_dimension(const BackgroundGeometry* background, bool horizontal,
                                 float available, float raster_scale = 1.0f);
 
+enum class CssMaskComposite : uint8_t { Add, Subtract, Intersect, Exclude };
+
+enum CssMaskComponent {
+    MASK_POSITION, MASK_SIZE, MASK_REPEAT, MASK_ORIGIN, MASK_CLIP,
+    MASK_MODE, MASK_COMPOSITE, MASK_COMPONENT_COUNT,
+};
+
+struct MaskLayerOptions {
+    lam::Handle<ImageSurface> prepared_image;
+    CssMaskComposite composite;
+    bool has_image;
+    bool luminance;
+    bool no_clip;
+};
+
 // tier-2: view-pool, rebuilt each relayout
-typedef struct MaskProp {
-    lam::Own<RadialGradient> radial_gradient;
-} MaskProp;
+struct MaskProp {
+    BackgroundProp images;
+    MaskLayerOptions first;
+    lam::OwnArr<MaskLayerOptions> layers;
+    int image_count;
+    int component_counts[MASK_COMPONENT_COUNT];
+
+    BackgroundLayer& image(int index) {
+        if (images.layers) return images.layers[index];
+        return images;
+    }
+    const BackgroundLayer& image(int index) const {
+        if (images.layers) return images.layers[index];
+        return images;
+    }
+    MaskLayerOptions& options(int index) { return layers ? layers[index] : first; }
+    const MaskLayerOptions& options(int index) const { return layers ? layers[index] : first; }
+
+    bool active() const { return image_count > 1 || (image_count == 1 && options(0).has_image); }
+};
+
+void view_release_mask_images(ViewTree* tree, MaskProp* mask);
 
 /**
  * BoxShadow - CSS box-shadow property
@@ -4291,26 +4328,38 @@ typedef struct CssAnimState {
     Pool* pool;
 } CssAnimState;
 
-// Web Animations keep their timeline/effect state on the DOM element. The
-// sampled values reuse CssAnimState and are applied after cascade resolution;
-// they are deliberately not AnimationInstances because pause/currentTime do
-// not make a Web Animation a CSS animation lifecycle participant.
+struct CssWebAnimationTiming {
+    double duration_ms;
+    double delay_ms;
+    double iterations;
+    TimingFunction easing;
+    AnimationFillMode fill;
+};
+
+// The effect belongs to the document even while its scheduler driver is idle.
 typedef struct CssWebAnimationState {
     CssWebAnimationState* next;
     CssAnimState sample;
     DomElement* element;
-    double duration_ms;
+    DomDocument* document;
+    AnimationInstance* driver;
+    CssWebAnimationTiming timing;
     double current_time_ms;
-    TimingFunction timing;
+    double last_composite_time;
     bool current_time_resolved;
     bool underlying_captured;
+    bool sample_applied;
+    bool composited;
 } CssWebAnimationState;
 
 CssWebAnimationState* css_web_animation_create(DomElement* element,
                                                 CssKeyframes* keyframes,
-                                                double duration_ms,
-                                                const TimingFunction* timing,
+                                                const CssWebAnimationTiming* timing,
                                                 Pool* pool);
+double css_web_animation_current_time(const CssWebAnimationState* state);
+bool css_web_animation_is_relevant(const CssWebAnimationState* state);
+void css_web_animation_play(CssWebAnimationState* state);
+void css_web_animation_pause(CssWebAnimationState* state);
 void css_web_animation_set_current_time(CssWebAnimationState* state,
                                          double current_time_ms);
 void css_web_animation_cancel(CssWebAnimationState* state);
@@ -4956,7 +5005,7 @@ DomDocument* load_html_doc(Url *base, char* doc_filename, int viewport_width, in
                            struct CookieJar* top_level_cookie_jar = nullptr,
                            bool defer_html_scripts = false,
                            bool print_media = false);
-void complete_deferred_html_scripts(DomDocument* doc);
+bool complete_deferred_html_scripts(DomDocument* doc);
 // Returns an owned cross-document URL; consumes startup fragment navigation in place.
 Url* document_resolve_navigation_redirect(DomDocument* doc);
 DomDocument* load_html_doc_profiled(Url* base, char* doc_filename, int viewport_width,

@@ -64,12 +64,37 @@ struct RadiantRadialGeometry { float cx, cy, rx, ry; };
 RadiantRadialGeometry radiant_radial_gradient_geometry(const RadialGradient* gradient, Rect rect);
 
 // frame-local native style facts; retained lists reject this borrowed payload (D5.5.1).
-struct RadialMaskPaint {
-    lam::Up<RadialGradient> gradient;
-    Rect rect;
+struct CssMaskPaint {
+    lam::Up<const MaskProp> style;
+    Rect border_box;
+    Rect padding_box;
+    Rect content_box;
     RdtMatrix inverse;
     bool invertible;
+
+    bool active() const { return bool(style); }
 };
+
+CssMaskPaint render_prepare_css_mask(UiContext* ui, ViewBlock* block, Rect rect, const RdtMatrix& frame);
+
+struct BackgroundTilePlan {
+    float origin_x;
+    float origin_y;
+    float tile_w;
+    float tile_h;
+    int start_col;
+    int end_col;
+    int start_row;
+    int end_row;
+    float space_gap_x;
+    float space_gap_y;
+    CssEnum repeat_x;
+    CssEnum repeat_y;
+};
+
+bool compute_background_tile_plan(const BackgroundGeometry* bg, Rect position_rect,
+        Rect coverage_rect, float intrinsic_w, float intrinsic_h, BackgroundTilePlan* plan,
+        float raster_scale, bool intrinsic_ratio = true);
 
 
 inline float radiant_linear_gradient_used_angle(const LinearGradient* gradient,
@@ -168,6 +193,7 @@ typedef struct {
 Color render_gradient_stop_color(const RdtGradientStop& stop);
 void render_set_uniform_gradient_stops(RdtGradientStop* stops, Color color);
 Color render_sample_gradient_stops(const RdtGradientStop* stops, int count, float position, float stop_scale);
+Color render_gradient_average_color(const RdtGradientStop* stops, int count);
 bool render_normalize_linear_gradient_range(RadiantGradientLine* line, RdtGradientStop* stops, int count);
 bool render_normalize_radial_gradient_range(RadiantRadialGeometry* geometry, RdtGradientStop* stops, int* count);
 
@@ -829,7 +855,7 @@ typedef struct {
     int x0, y0, w, h;       // physical pixel region
     float opacity;
     bool premultiplied_source;
-    RadialMaskPaint mask;
+    CssMaskPaint mask;
 } DlCompositeOpacity;
 
 // Save backdrop pixels before element with mix-blend-mode renders.
@@ -1226,7 +1252,7 @@ void dl_blit_surface_scaled(DisplayList* dl, ImageSurface* src_surface,
 
 // Post-processing operations (coordinates already in physical pixels)
 void dl_composite_opacity(DisplayList* dl, int x0, int y0, int w, int h,
-                          float opacity, bool premultiplied_source = false, const RadialMaskPaint* mask = nullptr);
+                          float opacity, bool premultiplied_source = false, const CssMaskPaint* mask = nullptr);
 
 void dl_save_backdrop(DisplayList* dl, int x0, int y0, int w, int h);
 
@@ -1629,7 +1655,7 @@ typedef struct {
     int x0, y0, w, h;       // physical pixel region
     float opacity;
     bool premultiplied_source;
-    RadialMaskPaint mask;
+    CssMaskPaint mask;
 } PaintCompositeOpacity;
 
 typedef struct {
@@ -1722,7 +1748,7 @@ typedef struct PaintEffectGroup {
     lam::Up<FilterProp> backdrop_filter;  // backdrop-filter; null = none
     bool shadow;             // box-shadow present
     bool isolation;          // forced isolation
-    RadialMaskPaint mask;    // frame-local style facts; masked display lists remain unretainable.
+    CssMaskPaint mask;    // frame-local style facts; masked display lists remain unretainable.
 } PaintEffectGroup;
 
 // A nested SVG subscene (Phase F). Carries the inheritance + geometry that
@@ -1987,7 +2013,7 @@ void paint_pop_transform(PaintList* pl);
 // Raster-lowering tier (pixel-domain effect ops; see enum comment).
 void paint_save_backdrop(PaintList* pl, int x0, int y0, int w, int h);
 void paint_composite_opacity(PaintList* pl, int x0, int y0, int w, int h,
-                             float opacity, bool premultiplied_source, const RadialMaskPaint* mask = nullptr);
+                             float opacity, bool premultiplied_source, const CssMaskPaint* mask = nullptr);
 void paint_apply_blend_mode(PaintList* pl, int x0, int y0, int w, int h, int blend_mode);
 void paint_apply_filter(PaintList* pl, float x, float y, float w, float h,
                         FilterProp* filter, const Bound* clip);
@@ -3650,7 +3676,7 @@ static inline void paint_record_save_backdrop(PaintRecordTarget* target, const c
 static inline void paint_record_composite_opacity(PaintRecordTarget* target, const char* op,
                                                   int x0, int y0, int w, int h,
                                                   float opacity,
-                                                  bool premultiplied_source, const RadialMaskPaint* mask = nullptr) {
+                                                  bool premultiplied_source, const CssMaskPaint* mask = nullptr) {
     if (!paint_record_ready(target)) {
         paint_record_missing(target, op);
         return;
@@ -3888,7 +3914,7 @@ Rect render_painter_projection_viewport(RasterRenderContext* rdcon);
 void rc_pop_clip(RasterRenderContext* rdcon);
 void rc_save_backdrop(RasterRenderContext* rdcon, int x0, int y0, int w, int h);
 void rc_composite_opacity(RasterRenderContext* rdcon, int x0, int y0, int w, int h,
-                          float opacity, bool premultiplied_source = false, const RadialMaskPaint* mask = nullptr);
+                          float opacity, bool premultiplied_source = false, const CssMaskPaint* mask = nullptr);
 void rc_apply_blend_mode(RasterRenderContext* rdcon, int x0, int y0, int w, int h,
                          int blend_mode);
 void rc_apply_filter(RasterRenderContext* rdcon, float x, float y, float w, float h,
@@ -4162,7 +4188,7 @@ void render_composite_apply_region(ImageSurface* surface, const uint32_t* backdr
                                    CssEnum blend_mode, uint8_t opacity,
                                    const ClipShape* exclude_shape = nullptr,
                                    const ClipShape* include_shape = nullptr,
-                                   const RadialMaskPaint* mask = nullptr,
+                                   const CssMaskPaint* mask = nullptr,
                                    float offset_x = 0, float offset_y = 0);
 void render_composite_blend_surface(ImageSurface* surface, const uint32_t* backdrop,
                                     int x0, int y0, int width, int height,
@@ -4498,7 +4524,7 @@ typedef struct RenderEffectGroup {
     bool has_filter_backdrop;
     bool has_filter;
     bool has_backdrop_filter;
-    RadialMaskPaint mask;
+    CssMaskPaint mask;
     Bound capture_bounds;
     int recording_start;
     int source_start;

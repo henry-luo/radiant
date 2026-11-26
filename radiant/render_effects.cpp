@@ -51,12 +51,40 @@ static RenderEffectBackdrop render_effect_backdrop_begin(RasterRenderContext* rd
     return backdrop;
 }
 
+CssMaskPaint render_prepare_css_mask(UiContext* ui, ViewBlock* block, Rect rect, const RdtMatrix& frame) {
+    CssMaskPaint mask = {};
+    MaskProp* style = block && block->bound ? block->boundary()->mask.get() : nullptr;
+    if (!style || !style->active()) return mask;
+    mask.style = lam::up(style);
+    mask.border_box = rect;
+    mask.invertible = rdt_matrix_inverse(&frame, &mask.inverse);
+
+    const BorderProp* border = block->boundary()->border;
+    const Spacing* padding = &block->boundary()->padding;
+    mask.padding_box = render_geometry_adjust_box_rect(rect, CSS_VALUE_PADDING_BOX, 1.0f, border, padding);
+    mask.content_box = render_geometry_adjust_box_rect(rect, CSS_VALUE_CONTENT_BOX, 1.0f, border, padding);
+    // prepare URL images on the producer, before borrowing the view mask for replay.
+    for (int index = 0; index < style->image_count; ++index) {
+        MaskLayerOptions& options = style->options(index);
+        const char* source = style->image(index).image;
+        options.prepared_image = {};
+        if (!source || !*source || *source == '#') continue;
+        ImageSurface* image = load_document_image(block->doc, ui, source);
+        if (!image || image->width <= 0 || image->height <= 0) continue;
+        if (image->format == IMAGE_FORMAT_SVG) {
+            if (!render_media_rasterize_svg_picture(image, image->width, image->height)) continue;
+        } else image_surface_ensure_decoded(image, image->width, image->height);
+        if (image->pixels) options.prepared_image = image->self;
+    }
+    return mask;
+}
+
 static bool render_effect_backdrop_active(const RenderEffectBackdrop* backdrop) {
     return backdrop && backdrop->active && backdrop->width > 0 && backdrop->height > 0;
 }
 
 static void render_effect_backdrop_finish_opacity(RenderEffectBackdrop* backdrop,
-                                                  float opacity, const RadialMaskPaint* mask = nullptr) {
+                                                  float opacity, const CssMaskPaint* mask = nullptr) {
     if (!render_effect_backdrop_active(backdrop)) {
         return;
     }
@@ -163,10 +191,6 @@ RenderEffectGroup render_effect_group_begin(RasterRenderContext* rdcon,
     group.has_opacity_group = block->in_line && !layer_root &&
         block->inl()->opacity < 1.0f && block->inl()->opacity >= 0.0f;
     group.opacity = group.has_opacity_group ? block->inl()->opacity : 1.0f;
-    if (block->bound && block->boundary()->mask && block->boundary()->mask->radial_gradient) {
-        group.mask.gradient = lam::up(block->boundary()->mask->radial_gradient.get());
-        group.has_opacity_group = true;
-    }
     group.has_filter = render_filter_effective(block->filter_prop());
     group.has_backdrop_filter = render_effect_has_visible_backdrop(block, block->backdrop_filter_prop());
 
@@ -176,13 +200,14 @@ RenderEffectGroup render_effect_group_begin(RasterRenderContext* rdcon,
     float y0 = parent_block->y + block->y * scale;
     float x1 = x0 + block->width * scale;
     float y1 = y0 + block->height * scale;
-    if (group.mask.gradient) {
+    if (block->bound && block->boundary()->mask && block->boundary()->mask->active()) {
         // masks cover the entire flattened subtree, then opacity composites once.
-        group.mask.rect = {x0 / scale, y0 / scale, block->width, block->height};
         RdtMatrix frame = rdcon->transform;
         RdtMatrix density = {scale, 0, 0, 0, scale, 0, 0, 0, 1};
         frame = rdt_matrix_multiply(&frame, &density);
-        group.mask.invertible = rdt_matrix_inverse(&frame, &group.mask.inverse);
+        group.mask = render_prepare_css_mask(rdcon->ui_context, block,
+            {x0 / scale, y0 / scale, block->width, block->height}, frame);
+        group.has_opacity_group = true;
     }
     float visual_overflow = render_geometry_block_visual_overflow(block, scale) * scale;
     float effect_x0 = x0 - visual_overflow;

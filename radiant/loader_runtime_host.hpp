@@ -75,7 +75,8 @@ struct RadiantLoaderRuntimeHostOps {
     bool (*prepare_script)();
     bool (*render_embedded)(UiContext* host, Input* input, Runtime** owned, Runtime** shared);
     const LambdaDocumentTransformConfig* (*transform_for_type)(const char* input_type);
-    void (*execute_html_scripts)(Element* root, DomDocument* document, Pool* pool,
+    // false rejects an unusable realm; ordinary guest exceptions need not invalidate the document.
+    bool (*execute_html_scripts)(Element* root, DomDocument* document, Pool* pool,
                                  Url* base_url, DocumentScriptPhaseTiming* timing);
     void (*compile_html_handlers)(DomDocument* document);
     void (*begin_document_timing)();
@@ -122,7 +123,7 @@ void radiant_loader_finish_script(RadiantScriptDocumentLoad* load, DomDocument* 
 bool radiant_loader_prepare_script();
 bool radiant_loader_render_embedded(UiContext* host, Input* input, Runtime** owned, Runtime** shared);
 const LambdaDocumentTransformConfig* radiant_loader_transform_for_type(const char* input_type);
-void radiant_loader_execute_html_scripts(Element* root, DomDocument* document, Pool* pool,
+bool radiant_loader_execute_html_scripts(Element* root, DomDocument* document, Pool* pool,
                                          Url* base_url, DocumentScriptPhaseTiming* timing);
 void radiant_loader_compile_html_handlers(DomDocument* document);
 void radiant_loader_begin_document_timing();

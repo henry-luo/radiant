@@ -2424,19 +2424,29 @@ TEST_F(DynamicLayoutTest, NestedColumnIntrinsicHeightRetainsInlineForcedBreaks) 
          "*{box-sizing:border-box}#hero{display:flex;align-items:flex-end;width:600px;"
          "height:360px;padding:20px}#row{display:flex;align-items:flex-end;width:560px}"
          "#column,#group,#title{display:flex;flex-direction:column;flex:none;height:min-content}"
-         "#column{width:240px;gap:40px}#group{width:100%;gap:24px}#wrap{display:contents}"
-         "#spacer{height:42px;flex:none}#title{width:100%}h1{margin:0;font:30px/36px monospace}"
+         "#column{width:240px;gap:40px}#group{width:240px;gap:24px}#wrap{display:contents}"
+         "#spacer{height:42px;flex:none}#title{width:100%;margin:0 12px}h1{margin:0;font:30px/36px monospace}"
          "p{margin:0;font:12px/24px monospace}#button{width:80px;height:48px;flex:none}</style>"
          "<div id='hero'><div id='row'><div id='column'><div id='group'><div id='spacer'></div>"
          "<div id='wrap'><div id='title'><h1 id='heading'><span>AAAA AAAA AAAA AAAA</span>"
          "<span id='break'><br></span><span>BBBB</span></h1></div></div>"
          "<p>first line<br>second line</p></div><div id='button'></div></div></div></div>");
-    for (const char* alignment : {"stretch", "flex-start", "stretch"}) {
-        SCOPED_TRACE(alignment);
+    // the first pass must size fixed-width descendants before later recascades materialize their styles.
+    EXPECT_NEAR(element("column")->height, 334.0f, 0.1f);
+    EXPECT_NEAR(element("column")->y, 0.0f, 0.1f);
+    EXPECT_NEAR(element("title")->width, 240.0f, 0.1f);
+    EXPECT_NEAR(element("button")->y + element("button")->height, 334.0f, 0.1f);
+    struct Case { const char* alignment; const char* group_width; } cases[] = {
+        {"stretch", "100%"}, {"flex-start", "240px"}, {"stretch", "100%"}
+    };
+    for (const Case& entry : cases) {
+        SCOPED_TRACE(entry.alignment);
         StrBuf* style = strbuf_new();
-        strbuf_append_format(style, "align-items:%s", alignment);
+        strbuf_append_format(style, "align-items:%s", entry.alignment);
         for (const char* id : {"column", "group", "title"})
             ASSERT_TRUE(element(id)->set_attribute("style", style->str));
+        strbuf_append_format(style, ";width:%s", entry.group_width);
+        ASSERT_TRUE(element("group")->set_attribute("style", style->str));
         strbuf_free(style);
         ASSERT_TRUE(element("row")->set_attribute("style", "height:min-content"));
         for (bool show_break : {true, false, true}) {

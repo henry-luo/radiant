@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include <string.h>
 #include "radiant/input_value.hpp"
+#include "radiant/radiant.hpp"
+#include "lib/file.h"
 #include "lib/document_lifetime_guard.h"
 #include "radiant/select_options.hpp"
 #include "radiant/form_controls.hpp"
@@ -21,6 +23,8 @@
 static UiContext* loader_test_host;
 static DomDocument* loader_test_document;
 static Runtime* loader_test_runtime;
+static bool loader_test_script_usable = true;
+static int loader_test_handler_calls;
 
 TEST(RadiantInputValueTest, NativeDocumentLifetimeGuardProtectsItsOwner) {
     int document = 0;
@@ -220,10 +224,14 @@ static bool loader_test_embedded(UiContext* host, Input*, Runtime** owned, Runti
     *shared = nullptr;
     return true;
 }
-static void loader_test_html_scripts(Element*, DomDocument* doc, Pool*, Url*, DocumentScriptPhaseTiming*) {
+static bool loader_test_html_scripts(Element*, DomDocument* doc, Pool*, Url*, DocumentScriptPhaseTiming*) {
     loader_test_document = doc;
+    return loader_test_script_usable;
 }
-static void loader_test_html_handlers(DomDocument* doc) { loader_test_document = doc; }
+static void loader_test_html_handlers(DomDocument* doc) {
+    loader_test_document = doc;
+    loader_test_handler_calls++;
+}
 static void loader_test_timing_begin() { loader_test_host = nullptr; }
 static void loader_test_timing_end(RadiantScriptPhaseSummary* timing) { timing->parse_us = 37; }
 static void loader_test_script_cleanup(DomDocument* doc) { loader_test_document = doc; }
@@ -420,7 +428,7 @@ TEST(RadiantInputValueTest, LoaderRuntimeHostIsOptionalAndChecksRegistration) {
     EXPECT_EQ(ui_context_loader_runtime(host), runtime);
     EXPECT_EQ(loader_test_host, host);
     loader_test_document = nullptr;
-    radiant_loader_execute_html_scripts(nullptr, document, nullptr, nullptr, nullptr);
+    EXPECT_TRUE(radiant_loader_execute_html_scripts(nullptr, document, nullptr, nullptr, nullptr));
     EXPECT_EQ(loader_test_document, document);
     loader_test_document = nullptr;
     radiant_loader_compile_html_handlers(document);
@@ -446,6 +454,32 @@ TEST(RadiantInputValueTest, LoaderRuntimeHostIsOptionalAndChecksRegistration) {
     ASSERT_TRUE(radiant_loader_render_embedded(host, nullptr, &owned, &shared));
     EXPECT_EQ(owned, runtime);
     EXPECT_EQ(shared, nullptr);
+
+    loader_test_runtime = nullptr;
+    ASSERT_EQ(file_ensure_dir("temp"), 0);
+    const char* fixture = "temp/radiant_unusable_script.html";
+    ASSERT_EQ(write_text_file_atomic(fixture,
+        "<!doctype html><p>script load boundary</p><script>0;</script>"), 0);
+    struct Case { bool deferred; bool usable; } cases[] = {
+        {false, true}, {false, false}, {true, false}
+    };
+    for (const Case& entry : cases) {
+        SCOPED_TRACE(entry.deferred ? "deferred" : entry.usable ? "healthy" : "unusable");
+        int previous_handlers = loader_test_handler_calls;
+        loader_test_script_usable = entry.deferred || entry.usable;
+        DomDocument* loaded = load_html_doc(nullptr, const_cast<char*>(fixture), 320, 200,
+                                            nullptr, nullptr, entry.deferred);
+        loader_test_script_usable = true;
+        bool accepted = loaded != nullptr;
+        if (entry.deferred && loaded) {
+            loader_test_script_usable = entry.usable;
+            accepted = complete_deferred_html_scripts(loaded);
+            loader_test_script_usable = true;
+        }
+        EXPECT_EQ(accepted, entry.usable);
+        EXPECT_EQ(loader_test_handler_calls, previous_handlers + (entry.usable ? 1 : 0));
+        if (loaded) free_document(loaded);
+    }
 }
 
 struct SelectHooks {

@@ -32,7 +32,7 @@ static inline bool render_effect_group_needs_raster_fallback(
     return group &&
            (group->has_clip || group->blend_mode != 0 || group->filter ||
             group->backdrop || group->backdrop_filter ||
-            group->shadow || group->isolation || group->mask.gradient);
+            group->shadow || group->isolation || group->mask.active());
 }
 
 static inline bool render_effect_group_needs_page_backdrop(

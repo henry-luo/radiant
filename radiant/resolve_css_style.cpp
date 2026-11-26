@@ -97,6 +97,7 @@ static bool clone_background_layer(LayoutContext* context, const BackgroundLayer
 }
 
 static void resolve_background_style(DomElement* element, LayoutContext* context);
+static void resolve_mask_style(DomElement* element, LayoutContext* context);
 static void resolve_background_declaration(LayoutContext* context, ViewSpan* span,
                                            const CssDeclaration* declaration, const CssValue* value);
 
@@ -2112,24 +2113,6 @@ const char* css_background_url_value(const CssValue* value) {
     const CssValue* arg = value->data.function->args[0];
     return arg && (arg->type == CSS_VALUE_TYPE_URL || arg->type == CSS_VALUE_TYPE_STRING)
         ? (arg->type == CSS_VALUE_TYPE_URL ? arg->data.url : arg->data.string) : nullptr;
-}
-
-static void resolve_css_mask_image(LayoutContext* lycon, ViewSpan* span,
-                                   const CssValue* value) {
-    if (!lycon || !span || !value) return;
-    span->ensure_boundary(lycon);
-    if (!span->boundary()->mask)
-        span->bound->mask = lam::own((MaskProp*)alloc_prop(lycon, sizeof(MaskProp)));
-    MaskProp* mask = span->boundary()->mask;
-    if (!mask) return;
-    // style replacement reclaims the previous gradient rather than retaining a stale mask.
-    if (mask->radial_gradient) {
-        view_release_gradient_value(layout_prop_pool(lycon), mask->radial_gradient.get());
-    }
-    mask->radial_gradient = nullptr;
-    RadialGradient* gradient = nullptr;
-    if (resolve_radial_gradient_value(lycon, value, &gradient))
-        mask->radial_gradient = lam::own(gradient);
 }
 
 static bool css_value_is_background_color_candidate(const CssValue* value) {
@@ -6003,6 +5986,7 @@ void resolve_css_styles(DomElement* dom_elem, LayoutContext* lycon) {
     resolve_css_inherited_properties(dom_elem, lycon, false);
     radiant_compute_stored_line_height(lycon, lam::view_require_element(lycon->view));
     resolve_background_style(dom_elem, lycon);
+    resolve_mask_style(dom_elem, lycon);
     resolve_grid_components(dom_elem, lycon);
     resolve_flex_components(dom_elem, lycon);
     resolve_line_clamp_count(dom_elem, lycon);
@@ -8167,6 +8151,24 @@ static const BackgroundGeometry* background_component_at(const BackgroundProp* b
         ? &background->component_values[index % count] : background;
 }
 
+static bool retain_background_component(LayoutContext* context, BackgroundProp* owner,
+        BackgroundGeometry* target, const BackgroundGeometry* source, CssPropertyCode property) {
+    copy_background_component(target, source, property);
+    lam::Up<const CssValue>* expressions[2] = {};
+    if (property == CSS_PROPERTY_BACKGROUND_POSITION_X) expressions[0] = &target->bg_position_x_expression;
+    else if (property == CSS_PROPERTY_BACKGROUND_POSITION_Y) expressions[0] = &target->bg_position_y_expression;
+    else if (property == CSS_PROPERTY_BACKGROUND_SIZE) {
+        expressions[0] = &target->bg_size_width_expression;
+        expressions[1] = &target->bg_size_height_expression;
+    }
+    for (lam::Up<const CssValue>* expression : expressions) if (expression && *expression) {
+        // inheritance copies computed px leaves without applying the child's units or zoom again.
+        *expression = lam::up(retain_background_computed_expression(context, owner, *expression, property, false));
+        if (!*expression) return false;
+    }
+    return true;
+}
+
 static bool compute_background_periods(LayoutContext* context, Pool* scratch,
         const CssBackgroundWinner* winners, BackgroundProp* result, const BackgroundProp* previous) {
     // retain each axis's original list before cycling it over images; inheritance can change image counts (CI-18).
@@ -8195,19 +8197,8 @@ static bool compute_background_periods(LayoutContext* context, Pool* scratch,
         for (int index = 0; index < result->component_counts[component]; index++) {
             BackgroundGeometry* geometry = result->component_values ? &result->component_values[index] : result;
             if (source || inherited) {
-                copy_background_component(geometry, background_component_at(source, component, index), property);
-                lam::Up<const CssValue>* expressions[2] = {};
-                if (property == CSS_PROPERTY_BACKGROUND_POSITION_X) expressions[0] = &geometry->bg_position_x_expression;
-                else if (property == CSS_PROPERTY_BACKGROUND_POSITION_Y) expressions[0] = &geometry->bg_position_y_expression;
-                else if (property == CSS_PROPERTY_BACKGROUND_SIZE) {
-                    expressions[0] = &geometry->bg_size_width_expression;
-                    expressions[1] = &geometry->bg_size_height_expression;
-                }
-                for (lam::Up<const CssValue>* expression : expressions) if (expression && *expression) {
-                    // inheritance copies computed px leaves without applying the child's units or zoom again.
-                    *expression = lam::up(retain_background_computed_expression(context, result, *expression, property, false));
-                    if (!*expression) return false;
-                }
+                if (!retain_background_component(context, result, geometry,
+                        background_component_at(source, component, index), property)) return false;
             } else {
                 const CssValue* value = background_winner_component(scratch, winner, property, index);
                 bool position_shorthand = winner.declaration &&
@@ -8294,6 +8285,169 @@ static void resolve_background_style(DomElement* element, LayoutContext* context
     ViewTree* tree = layout_context_view_tree(context);
     if (!valid) { view_release_background_images(tree, &replacement); return; }
     publish_computed_background(tree, previous, &replacement);
+}
+
+static constexpr CssPropertyCode mask_style_properties[] = {
+    CSS_PROPERTY_MASK_POSITION, CSS_PROPERTY_MASK_SIZE, CSS_PROPERTY_MASK_REPEAT,
+    CSS_PROPERTY_MASK_ORIGIN, CSS_PROPERTY_MASK_CLIP, CSS_PROPERTY_MASK_MODE,
+    CSS_PROPERTY_MASK_COMPOSITE, CSS_PROPERTY_MASK_IMAGE, CSS_PROPERTY_MASK, CSS_PROPERTY_ALL,
+};
+
+static CssBackgroundWinner mask_component_winner(DomElement* element, LayoutContext* context,
+        Pool* scratch, CssPropertyCode property) {
+    const CssPropertyCode sources[] = {property, CSS_PROPERTY_MASK, CSS_PROPERTY_ALL};
+    CssDeclaration* declaration = style_tree_get_component_declaration(element->specified_style, sources, 3);
+    if (!declaration) return {};
+    const CssValue* value = resolve_layout_var_value(context, element, declaration->value,
+        declaration->property_code, scratch);
+    if (!value || !css_property_validate_value_mode(declaration->property_code, value,
+            dom_element_uses_quirks_css(element))) return {};
+    return {declaration, value};
+}
+
+static const CssValue* mask_winner_value(Pool* scratch, const CssBackgroundWinner& winner,
+        CssPropertyCode property, int index) {
+    const CssValue* value = background_list_item(winner.value, index);
+    if (!winner.declaration || winner.declaration->property_code != CSS_PROPERTY_MASK ||
+            css_value_is_global_keyword(value)) return value;
+    CssMaskLayerParts parts;
+    if (!css_mask_layer_components(value, &parts)) return nullptr;
+    const CssBackgroundParts& geometry = parts.geometry;
+    switch (property) {
+        case CSS_PROPERTY_MASK_IMAGE: return geometry.image;
+        case CSS_PROPERTY_MASK_POSITION: return background_parts_component(scratch, geometry, CSS_PROPERTY_BACKGROUND_POSITION);
+        case CSS_PROPERTY_MASK_SIZE: return background_parts_component(scratch, geometry, CSS_PROPERTY_BACKGROUND_SIZE);
+        case CSS_PROPERTY_MASK_REPEAT: return background_parts_component(scratch, geometry, CSS_PROPERTY_BACKGROUND_REPEAT);
+        case CSS_PROPERTY_MASK_ORIGIN: return geometry.origin;
+        case CSS_PROPERTY_MASK_CLIP: return geometry.clip;
+        case CSS_PROPERTY_MASK_MODE: return parts.mode;
+        case CSS_PROPERTY_MASK_COMPOSITE: return parts.composite;
+        default: return nullptr;
+    }
+}
+
+static CssEnum mask_box_value(const CssValue* value) {
+    if (css_value_keyword_equals(value, CSS_VALUE_PADDING_BOX)) return CSS_VALUE_PADDING_BOX;
+    if (css_value_keyword_equals(value, CSS_VALUE_CONTENT_BOX) || css_value_identifier_is(value, "fill-box"))
+        return CSS_VALUE_CONTENT_BOX;
+    return CSS_VALUE_BORDER_BOX;
+}
+
+static CssMaskComposite mask_composite_value(const CssValue* value) {
+    if (css_value_identifier_is(value, "subtract")) return CssMaskComposite::Subtract;
+    if (css_value_identifier_is(value, "intersect")) return CssMaskComposite::Intersect;
+    if (css_value_identifier_is(value, "exclude")) return CssMaskComposite::Exclude;
+    return CssMaskComposite::Add;
+}
+
+static bool compute_mask_geometry(LayoutContext* context, Pool* scratch,
+        const CssBackgroundWinner* winners, const MaskProp* parent, MaskProp* result, int index) {
+    BackgroundLayer& layer = result->image(index);
+    MaskLayerOptions& options = result->options(index);
+    for (int component = 0; component < MASK_COMPONENT_COUNT; ++component) {
+        const CssValue* value = mask_winner_value(scratch, winners[component], mask_style_properties[component], index);
+        bool inherit = parent && css_value_keyword_equals(value, CSS_VALUE_INHERIT);
+        int inherited_index = inherit ? index % result->component_counts[component] : 0;
+        const BackgroundLayer* source = inherit ? &parent->image(inherited_index) : nullptr;
+        const MaskLayerOptions* source_options = inherit ? &parent->options(inherited_index) : nullptr;
+        auto geometry = [&](CssPropertyCode property, bool position = false) {
+            return source ? retain_background_component(context, &result->images, &layer, source, property)
+                : compute_background_component(context, &layer, value, property, position, &result->images, false);
+        };
+        switch (component) {
+            case MASK_POSITION:
+                if (!geometry(CSS_PROPERTY_BACKGROUND_POSITION_X, true) ||
+                    !geometry(CSS_PROPERTY_BACKGROUND_POSITION_Y, true)) return false;
+                break;
+            case MASK_SIZE: if (!geometry(CSS_PROPERTY_BACKGROUND_SIZE)) return false; break;
+            case MASK_REPEAT: if (!geometry(CSS_PROPERTY_BACKGROUND_REPEAT)) return false; break;
+            case MASK_ORIGIN: layer.bg_origin = source ? source->bg_origin : mask_box_value(value); break;
+            case MASK_CLIP:
+                layer.bg_clip = source ? source->bg_clip : mask_box_value(value);
+                options.no_clip = source_options ? source_options->no_clip : css_value_identifier_is(value, "no-clip");
+                break;
+            case MASK_MODE:
+                options.luminance = source_options ? source_options->luminance : css_value_identifier_is(value, "luminance");
+                break;
+            case MASK_COMPOSITE:
+                options.composite = source_options ? source_options->composite : mask_composite_value(value);
+                break;
+            default: break;
+        }
+    }
+    return true;
+}
+
+static void resolve_mask_style(DomElement* element, LayoutContext* context) {
+    ViewSpan* span = lam::view_require_element(context->view);
+    if (!span || !element->specified_style) return;
+    MaskProp* previous = span->bound ? span->boundary()->mask.get() : nullptr;
+    if (!previous && !style_tree_get_component_declaration(element->specified_style, mask_style_properties,
+            sizeof(mask_style_properties) / sizeof(*mask_style_properties))) return;
+
+    Pool* scratch = pool_create();
+    if (!scratch) return;
+    MaskProp result = {};
+    DomElement* ancestor = dom_parent_element(element);
+    const MaskProp* parent = ancestor && ancestor->bound ? ancestor->boundary()->mask.get() : nullptr;
+    CssBackgroundWinner source = mask_component_winner(element, context, scratch, CSS_PROPERTY_MASK_IMAGE);
+    bool inherit_images = parent && css_value_keyword_equals(source.value, CSS_VALUE_INHERIT);
+    result.image_count = inherit_images ? parent->image_count : background_list_count(source.value);
+    int count = max(1, result.image_count);
+    CssBackgroundWinner winners[MASK_COMPONENT_COUNT] = {};
+    bool retain_components = false;
+    for (int component = 0; component < MASK_COMPONENT_COUNT; ++component) {
+        CssBackgroundWinner& winner = winners[component];
+        winner = mask_component_winner(element, context, scratch, mask_style_properties[component]);
+        bool inherit = parent && css_value_keyword_equals(winner.value, CSS_VALUE_INHERIT);
+        int period = inherit ? parent->component_counts[component] : background_list_count(winner.value);
+        result.component_counts[component] = max(1, period);
+        count = max(count, period);
+        retain_components |= inherit || (winner.declaration && winner.declaration->property_code != CSS_PROPERTY_ALL);
+    }
+
+    bool valid = (size_t)count <= SIZE_MAX / max(sizeof(BackgroundLayer), sizeof(MaskLayerOptions));
+    if (valid && count > 1) {
+        result.images.layers = lam::own_arr((BackgroundLayer*)alloc_prop(context, (size_t)count * sizeof(BackgroundLayer)));
+        result.layers = lam::own_arr((MaskLayerOptions*)alloc_prop(context, (size_t)count * sizeof(MaskLayerOptions)));
+        valid = result.images.layers && result.layers;
+        if (result.images.layers) result.images.layer_count = count;
+    }
+    for (int index = 0; valid && index < count; ++index) {
+        BackgroundLayer& layer = result.image(index);
+        if (index < result.image_count) {
+            MaskLayerOptions& options = result.options(index);
+            if (inherit_images) {
+                options.has_image = parent->options(index).has_image;
+                valid = clone_background_layer(context, &parent->image(index), &layer);
+                static_cast<BackgroundGeometry&>(layer) = {};
+            } else {
+                const CssValue* image = mask_winner_value(scratch, source, CSS_PROPERTY_MASK_IMAGE, index);
+                options.has_image = image && !css_value_keyword_equals(image, CSS_VALUE_NONE) &&
+                    !css_value_is_global_keyword(image);
+                // an admitted but unavailable image remains a transparent mask layer.
+                if (options.has_image) compute_background_image(context, source.declaration, image, &layer);
+            }
+        }
+        valid = valid && compute_mask_geometry(context, scratch, winners, parent, &result, index);
+    }
+
+    pool_destroy(scratch);
+    ViewTree* tree = layout_context_view_tree(context);
+    if (valid && (previous || result.active() || retain_components)) {
+        span->ensure_boundary(context);
+        if (!previous && span->bound) {
+            previous = (MaskProp*)alloc_prop(context, sizeof(MaskProp));
+            if (previous) span->boundary_mut()->mask = lam::own(previous);
+        }
+        if (previous) {
+            MaskProp retired = *previous;
+            *previous = result;
+            view_release_mask_images(tree, &retired);
+            return;
+        }
+    }
+    view_release_mask_images(tree, &result);
 }
 
 static void resolve_background_declaration(LayoutContext* context, ViewSpan* span,
@@ -9487,9 +9641,10 @@ void css_apply_computed_property(CssPropertyCode prop_id,
         case CSS_PROPERTY_BACKGROUND_IMAGE:
             resolve_background_declaration(lycon, span, decl, value);
             break;
-        case CSS_PROPERTY_MASK_IMAGE:
-            resolve_css_mask_image(lycon, span, value);
-            break;
+        case CSS_PROPERTY_MASK: case CSS_PROPERTY_MASK_IMAGE: case CSS_PROPERTY_MASK_POSITION:
+        case CSS_PROPERTY_MASK_SIZE: case CSS_PROPERTY_MASK_REPEAT: case CSS_PROPERTY_MASK_ORIGIN:
+        case CSS_PROPERTY_MASK_CLIP: case CSS_PROPERTY_MASK_MODE: case CSS_PROPERTY_MASK_COMPOSITE:
+            break; // the mask family resolves together after the ordinary cascade walk.
         case CSS_PROPERTY_BACKGROUND_ATTACHMENT:
         case CSS_PROPERTY_BACKGROUND_ORIGIN:
         case CSS_PROPERTY_BACKGROUND_CLIP:

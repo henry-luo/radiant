@@ -227,13 +227,18 @@ void animation_scheduler_destroy(AnimationScheduler* scheduler) {
     // scheduler itself was pool-allocated, freed when pool is destroyed
 }
 
-void animation_scheduler_anchor_host_time(AnimationScheduler* scheduler, double now) {
+void animation_scheduler_anchor_host_time(AnimationScheduler* scheduler, double now,
+                                          bool preserve_css_time) {
     if (!scheduler) return;
-    if (!scheduler->host_time_anchored) {
+    bool first_anchor = !scheduler->host_time_anchored;
+    if (first_anchor || preserve_css_time) {
         // Layout uses time zero before the host clock exists; preserve each
         // animation's elapsed time when its document first joins that clock.
         double offset = now - scheduler->current_time;
         for (AnimationInstance* anim = scheduler->first; anim; anim = anim->next) {
+            // loading rAF services host timelines without aging the selected CSS frame.
+            if (!first_anchor && anim->type != ANIM_CSS_ANIMATION &&
+                    anim->type != ANIM_CSS_TRANSITION && anim->type != ANIM_WEB_ANIMATION) continue;
             anim->start_time += offset;
             anim->pause_time += offset;
         }
@@ -405,7 +410,7 @@ bool animation_easing_before(const AnimationInstance* anim) {
     return (delayed && !reversed) || (completed && reversed);
 }
 
-static float compute_animation_progress(AnimationInstance* anim, double now) {
+float animation_effect_progress(AnimationInstance* anim, double now) {
     anim->sample_time = now;
     double elapsed = now - anim->start_time;
     anim->active_time = elapsed - anim->delay;
@@ -522,7 +527,7 @@ bool animation_scheduler_tick(AnimationScheduler* scheduler, double now,
         if (css_animation && anim->play_state == ANIM_PLAY_FINISHED) {
             anim->play_state = ANIM_PLAY_RUNNING;
         }
-        float raw_t = compute_animation_progress(anim, paused ? anim->pause_time : now);
+        float raw_t = animation_effect_progress(anim, paused ? anim->pause_time : now);
         anim->sampled = true;
         bool finished = anim->play_state == ANIM_PLAY_FINISHED;
         if (!finished) anim->finish_notified = false;
@@ -617,7 +622,7 @@ void animation_instance_sample(AnimationInstance* anim, double now, bool preserv
         return;
     }
     bool paused = anim->play_state == ANIM_PLAY_PAUSED;
-    float progress = compute_animation_progress(anim, paused ? anim->pause_time : now);
+    float progress = animation_effect_progress(anim, paused ? anim->pause_time : now);
     if (paused) anim->play_state = ANIM_PLAY_PAUSED;
     // retained layout replaces view properties without changing the effect's timeline.
     if (progress >= 0.0f && anim->tick)

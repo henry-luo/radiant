@@ -32,6 +32,11 @@ static DomJsMutationAttribute dom_mutation_attribute_from_name(DomDocument* doc,
             dom_element_is_html_tag(target->as_element(), MARKUP_NAME_SLOT)))) {
         return DOM_JS_MUTATION_ATTRIBUTE_SLOT_DISTRIBUTION;
     }
+    if (doc->js.has_shadow_roots && name && str_ieq_cstr(name, "style")) {
+        DomElement* element = target ? target->as_element() : nullptr;
+        if (element && radiant_css_shadow_style_selector_changes(doc, old_value, element->get_attribute_view(name)))
+            return DOM_JS_MUTATION_ATTRIBUTE_SHADOW_SELECTOR;
+    }
     // data/ARIA and inline-style writes cannot change native pseudo states; only an attribute
     // reference inside :has() can make their cascade escape the local subtree.
     if (name && (strncmp(name, "data-", 5) == 0 || strncmp(name, "aria-", 5) == 0 ||

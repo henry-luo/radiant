@@ -64,6 +64,40 @@ static void flex_prepare_auto_container_height(LayoutContext* lycon, ViewBlock* 
     }
 }
 
+static void flex_resolve_ratio_container_height(LayoutContext* lycon, ViewBlock* container,
+    FlexContainerLayout* flex, int item_count) {
+    if (!flex || !container->blk || !container->block()->rare().aspect_ratio_auto_height ||
+        !layout_axis_has_given_size(container, false) ||
+        lycon->natural_flex_height_root == container) return;
+
+    bool column = !is_main_axis_horizontal(flex);
+    float height = layout_css_size_to_border_box(container->bound, layout_box_sizing(container),
+        container->block()->given_height, false);
+    CssDeclaration* minimum = layout_specified_physical_minmax_size_declaration(
+        container->as_element(), false, true);
+    bool automatic_minimum = !minimum || !minimum->value ||
+        (minimum->value->type == CSS_VALUE_TYPE_KEYWORD && minimum->value->data.keyword == CSS_VALUE_AUTO);
+    bool scrolls = container->scroller && layout_is_scrollable_overflow(container->scroll()->overflow_y);
+    if (automatic_minimum && !scrolls) {
+        float natural = flex_auto_container_content_extent(
+            lycon, container, flex, item_count, LAYOUT_AXIS_Y, column);
+        height = max(height, layout_axis_border_box_extent(container, LAYOUT_AXIS_Y, natural));
+    }
+    height = layout_apply_min_max_axis(container, height, false, true);
+    container->height = height;
+    float content = layout_content_size_from_border_box(container, height, false);
+    // The definite width transfers through the ratio before flexing. Natural
+    // flow can raise its automatic minimum without replacing that height.
+    if (column) {
+        flex->main_axis_size = content;
+        flex->main_axis_is_indefinite = false;
+        flex->main_axis_available_size_is_definite = true;
+    } else {
+        flex->cross_axis_size = content;
+        flex->has_definite_cross_size = true;
+    }
+}
+
 static bool flex_container_has_only_direct_text_and_br(ViewBlock* flex_container) {
     if (!flex_container) return false;
 
@@ -879,6 +913,8 @@ void layout_flex_container_with_nested_content(LayoutContext* lycon, ViewBlock* 
     if (!has_explicit_height) {
         flex_prepare_auto_container_height(lycon, flex_container, item_count);
     }
+    if (!is_actually_grid_item && !flex_height_is_parent_constrained(lycon, flex_container, true, true, pa_flex))
+        flex_resolve_ratio_container_height(lycon, flex_container, flex_layout, item_count);
 
     bool has_explicit_width = layout_axis_has_given_size(flex_container, true);
     bool has_flex_basis_width = flex_container->fi && flex_container->fi->flex_basis >= 0;  // non-auto flex-basis
@@ -1956,21 +1992,12 @@ void layout_final_flex_content(LayoutContext* lycon, ViewBlock* flex_container) 
             });
 
         if (fabsf(y_shift) > FLEX_CONTENT_EPSILON) {
-            bool has_explicit_height = layout_axis_has_given_size(flex_container, false);
-            // CRITICAL FIX: Also check if this container is a flex item whose height was
-            bool is_flex_item = has_flex_item_prop(flex_container) ||
-                                (flex_container->form_control());
-            if (!has_explicit_height && lycon->natural_flex_height_root != flex_container &&
-                is_flex_item && flex_container->height > 0 &&
-                has_flex_item_prop(flex_container)) {
-                float fg = get_item_flex_grow(flex_container);
-                if (flex_container->fi->main_size_from_flex && fg > 0.0f &&
-                    !flex->block_size_is_provisional) {
-                    has_explicit_height = true;  // Height was set by parent flex
-                }
-            }
-
-            if (!has_explicit_height) {
+            // Late child flow can refine an auto column. A parent-assigned
+            // ratio height remains authoritative through the same final pass.
+            bool has_fixed_height = layout_axis_has_given_size(flex_container, false) ||
+                (!flex->block_size_is_provisional &&
+                 flex_container_axis_is_fixed(flex, flex_container, LAYOUT_AXIS_Y));
+            if (!has_fixed_height) {
                 float recomputed_content_height = 0.0f;
                 int recomputed_count = 0;
                 auto add_extent = [&](float extent) {

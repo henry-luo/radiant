@@ -1,4 +1,5 @@
 #include "css_mutation_queries.hpp"
+#include "stylesheet_sync.hpp"
 #include "lambda/input/css/dom_element.hpp"
 #include "lambda/input/css/css_parser.hpp"
 #include "lambda/input/css/selector_matcher.hpp"
@@ -195,6 +196,39 @@ bool radiant_css_document_rule_tree_has_match(DomDocument* doc,
                 predicate, context)) return true;
     }
     return false;
+}
+
+static bool shadow_rule_tree_has_match(DomElement* tree, RadiantCssRulePredicate predicate, void* context) {
+    for (DomNode* node = tree; node; node = dom_source_next_in_tree(tree, node)) {
+        DomElement* element = node->as_element();
+        DomElement* root = element ? element->shadow_root_element() : nullptr;
+        if (!root) continue;
+        // query the same connected stylesheet list the shadow cascade consumes.
+        for (CssStylesheet* sheet = radiant_next_shadow_stylesheet(root, nullptr); sheet;
+             sheet = radiant_next_shadow_stylesheet(root, sheet->owner_element)) {
+            if (radiant_css_stylesheet_tree_has_match(sheet, predicate, context)) return true;
+        }
+        if (shadow_rule_tree_has_match(root, predicate, context)) return true;
+    }
+    return false;
+}
+
+bool radiant_css_shadow_rule_tree_has_match(DomDocument* doc, RadiantCssRulePredicate predicate, void* context) {
+    return doc && doc->js.has_shadow_roots && doc->root && shadow_rule_tree_has_match(doc->root, predicate, context);
+}
+
+bool radiant_css_shadow_style_selector_changes(DomDocument* doc, StrView before, StrView after) {
+    AttributeMatchChange change = {};
+    change.before = before;
+    change.after = after;
+    change.matcher.case_sensitive_attrs = true;
+    return radiant_css_shadow_rule_tree_has_match(doc, [](CssRule* rule, void* data) {
+        // style-dependent scope boundaries can reach outside a local recascade.
+        return rule->type == CSS_RULE_SCOPE || radiant_css_rule_selector_has_match(rule,
+            [](CssSelector* selector, void* context) {
+                return selector_mentions_mutation_attribute(selector, "style", (AttributeMatchChange*)context);
+            }, data);
+    }, before.str && after.str ? &change : nullptr);
 }
 
 struct RelationalAttributeDependency {

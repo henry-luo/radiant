@@ -194,7 +194,7 @@ void rc_save_backdrop(RasterRenderContext* rdcon, int x0, int y0, int w, int h) 
 }
 
 void rc_composite_opacity(RasterRenderContext* rdcon, int x0, int y0, int w, int h,
-                          float opacity, bool premultiplied_source, const RadialMaskPaint* mask) {
+                          float opacity, bool premultiplied_source, const CssMaskPaint* mask) {
     PaintRecordTarget target = rc_record_target(rdcon);
     paint_record_composite_opacity(&target, "rc_composite_opacity", x0, y0, w, h,
                                    opacity, premultiplied_source, mask);

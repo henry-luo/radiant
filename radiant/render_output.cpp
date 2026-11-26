@@ -1557,7 +1557,7 @@ static unsigned render_output_cuts_validate(const ValidatedDisplayList& recordin
             NativeGlPresentLayer* layer = passed == group.cuts + 1 ? &frame->viewports[group.cuts].layer : nullptr;
             const DlCompositeOpacity& composite = item->composite_opacity;
             // the group's region must hold the whole viewport, or the CPU would draw part of it ungrouped
-            if (layer && drawn == group.drawn && item->op == DL_COMPOSITE_OPACITY && !composite.mask.gradient &&
+            if (layer && drawn == group.drawn && item->op == DL_COMPOSITE_OPACITY && !composite.mask.active() &&
                 (float)composite.x0 <= layer->clip_left && (float)composite.y0 <= layer->clip_top &&
                 (float)(composite.x0 + composite.w) >= layer->clip_right &&
                 (float)(composite.y0 + composite.h) >= layer->clip_bottom) {

@@ -1,9 +1,15 @@
 #include "view.hpp"
 #include "layout.hpp"
 #include "radiant.hpp"
+#include "document_font_load.hpp"
+#include "network_integration.h"
+#include "resource_loaders.h"
 #include "lib/font/font.h"  // unified font module — font_face_register, font_family_exists
+#include "lib/font/font_weight.h"
 #include "lambda/input/css/css_style.hpp"
+#include "lambda/input/css/css_parser.hpp"
 #include "lambda/input/css/css_font_face.hpp"
+#include "lambda/network/network_downloader.h"
 #include "lambda/network/network_resource_manager.h"
 extern "C" {
 #include "lib/url.h"
@@ -14,6 +20,9 @@ extern "C" {
 #include <string.h>
 #include <stdlib.h>
 #include "lib/file.h"
+#include "lib/strbuf.h"
+#include "lib/arraylist.hpp"
+#include "lib/mem_grow.hpp"
 
 bool radiant_is_supported_web_font_source(const char* url, const char* format) {
     if (format && *format) {
@@ -298,4 +307,231 @@ void process_document_font_faces(UiContext* uicon, DomDocument* doc) {
             doc->resource_manager);
     }
     doc->font_faces_processed = true;
+}
+
+struct CssFontLoadFace {
+    const CssFontFaceDescriptor* descriptor;
+    int source_index;
+    bool source_requested;
+    bool loaded;
+};
+
+struct CssFontLoad {
+    Pool* pool;
+    CssFontLoadFace* faces;
+    size_t count;
+    size_t capacity;
+    FontWeight weight;
+};
+
+static const char* font_load_family_name(Pool* pool, const CssValue* value) {
+    if (!value || value->type != CSS_VALUE_TYPE_LIST)
+        return css_font_family_name_from_value(value);
+    StrBuf* buffer = strbuf_new();
+    if (!buffer) return nullptr;
+    for (int i = 0; i < value->data.list.count; i++) {
+        const char* part = css_font_family_name_from_value(value->data.list.values[i]);
+        if (!part || !*part) continue;
+        if (buffer->length) strbuf_append_char(buffer, ' ');
+        strbuf_append_str(buffer, part);
+    }
+    const char* family = buffer->length ? pool_dup_n(pool, buffer->str, buffer->length) : nullptr;
+    strbuf_free(buffer);
+    return family;
+}
+
+static bool font_load_covers_text(const CssFontFaceDescriptor* face, const char* text, size_t length) {
+    if (!length) return false;
+    if (!face->unicode_range_count) return true;
+    for (size_t pos = 0; pos < length;) {
+        uint32_t cp = 0;
+        int bytes = str_utf8_decode(text + pos, length - pos, &cp);
+        if (bytes < 1) {
+            cp = 0xfffd;
+            bytes = 1;
+        }
+        for (int i = 0; i < face->unicode_range_count; i++) {
+            const CssFontFaceUnicodeRange& range = face->unicode_ranges[i];
+            if (cp >= range.start_codepoint && cp <= range.end_codepoint) return true;
+        }
+        pos += (size_t)bytes;
+    }
+    return false;
+}
+
+static bool font_load_select_family(CssFontLoad* request,
+    const lam::ArrayList<CssFontFaceDescriptor*>& faces, const char* family,
+    FontSlant slant, const char* text, size_t text_len) {
+    const CssFontFaceDescriptor* best = nullptr;
+    int best_slant = 0;
+    FontWeight best_weight = FONT_WEIGHT_NORMAL;
+    for (size_t i = faces.size(); i > 0; i--) {
+        const CssFontFaceDescriptor* candidate = faces[i - 1];
+        if (str_icmp_cstr(candidate->family_name, family)) continue;
+        int distance = font_face_slant_distance(radiant_font_slant_from_css(candidate->font_style), slant);
+        FontWeight weight = radiant_font_weight_from_css(candidate->font_weight);
+        if (!best || distance < best_slant || (distance == best_slant &&
+            font_css_weight_is_better(request->weight, weight, best_weight))) {
+            best = candidate;
+            best_slant = distance;
+            best_weight = weight;
+        }
+    }
+    if (!best) return true;
+    // Select the family/style first. The sample only filters that selected group.
+    FontSlant matched_slant = radiant_font_slant_from_css(best->font_style);
+    for (const CssFontFaceDescriptor* candidate : faces) {
+        if (str_icmp_cstr(candidate->family_name, family) ||
+            radiant_font_slant_from_css(candidate->font_style) != matched_slant ||
+            radiant_font_weight_from_css(candidate->font_weight) != best_weight ||
+            !font_load_covers_text(candidate, text, text_len)) continue;
+        bool duplicate = false;
+        for (size_t i = 0; !duplicate && i < request->count; i++)
+            duplicate = request->faces[i].descriptor == candidate;
+        if (duplicate) continue;
+        if (!lam::pool_grow_array(request->pool, &request->faces, &request->capacity,
+                request->count + 1, 4)) return false;
+        request->faces[request->count++] = {candidate, 0, false, false};
+    }
+    return true;
+}
+
+CssFontLoad* radiant_css_font_load_begin(DomDocument* doc, const char* font, size_t font_len,
+    const char* text, size_t text_len, CssFontLoadStatus* status) {
+    *status = CSS_FONT_LOAD_FAILED;
+    if (!doc) return nullptr;
+    Pool* pool = pool_create();
+    if (!pool) return nullptr;
+    auto* request = (CssFontLoad*)pool_calloc(pool, sizeof(CssFontLoad));
+    if (!request) {
+        pool_destroy(pool);
+        return nullptr;
+    }
+    request->pool = pool;
+    CssDeclaration* declaration = css_parse_property_value_declaration("font", 4, font, font_len, pool);
+    CssFontShorthandParts parts;
+    if (!declaration || !css_parse_font_shorthand(declaration->value, &parts)) {
+        *status = CSS_FONT_LOAD_SYNTAX;
+        pool_destroy(pool);
+        return nullptr;
+    }
+    const CssValue* families = css_font_shorthand_longhand(declaration->value, "font-family", pool);
+    if (!families) {
+        pool_destroy(pool);
+        return nullptr;
+    }
+    request->weight = parts.weight && parts.weight->type == CSS_VALUE_TYPE_NUMBER
+        ? (FontWeight)parts.weight->data.number.value
+        : radiant_font_weight_from_css(parts.weight ? parts.weight->data.keyword : CSS_VALUE_NORMAL);
+    FontSlant slant = radiant_font_slant_from_css(parts.style ? parts.style->data.keyword : CSS_VALUE_NORMAL);
+    lam::ArrayList<CssFontFaceDescriptor*> faces(MEM_CAT_FONT, 0);
+    lam::Temp<char> document_base(radiant_document_resource_base(doc, MEM_CAT_FONT));
+    for (int i = 0; doc->stylesheets && i < doc->stylesheet_count; i++) {
+        CssStylesheet* sheet = doc->stylesheets[i];
+        if (!sheet || sheet->disabled) continue;
+        int count = 0;
+        CssFontFaceDescriptor** extracted = css_extract_font_faces(sheet,
+            sheet->origin_url ? sheet->origin_url : document_base.get(), pool, &count);
+        for (int j = 0; j < count; j++) {
+            if (faces.push_back(extracted[j])) continue;
+            pool_destroy(pool);
+            return nullptr;
+        }
+    }
+    for (int i = 0; i < css_value_comma_count(families); i++) {
+        const char* family = font_load_family_name(pool, css_value_comma_at(families, i));
+        if (!family || !font_load_select_family(request, faces, family, slant, text, text_len)) {
+            pool_destroy(pool);
+            return nullptr;
+        }
+    }
+    *status = request->count ? CSS_FONT_LOAD_PENDING : CSS_FONT_LOAD_LOADED;
+    return request;
+}
+
+static CssFontLoadStatus font_load_one_face(DomDocument* doc, UiContext* ui, CssFontLoad* request,
+                                            CssFontLoadFace* item) {
+    const CssFontFaceDescriptor* descriptor = item->descriptor;
+    FontStyleDesc style = {};
+    style.family = descriptor->family_name;
+    style.weight = descriptor->font_weight == CSS_VALUE_AUTO
+        ? request->weight : radiant_font_weight_from_css(descriptor->font_weight);
+    style.slant = radiant_font_slant_from_css(descriptor->font_style);
+    // Validation instantiates a scalable face; CSS size does not select its resource.
+    style.size_px = css_font_size_keyword_px(CSS_VALUE_MEDIUM);
+    for (; item->source_index < descriptor->src_count; item->source_index++, item->source_requested = false) {
+        const CssFontFaceSrc& css_source = descriptor->src_urls[item->source_index];
+        if (!css_source.url) continue;
+        FontFaceSource source = {};
+        lam::Temp<char> path;
+        if (css_source.is_local) {
+            source.local_name = css_source.url;
+        } else {
+            if (!document_dependency_admits(doc, css_source.url)) continue;
+            if (!strncmp(css_source.url, "data:", 5)) {
+                source.path = css_source.url;
+            } else if (radiant_url_is_http(css_source.url)) {
+                if (!radiant_is_supported_web_font_source(css_source.url, css_source.format)) continue;
+                if (!doc->resource_manager) {
+                    network_downloader_init_shared();
+                    radiant_init_network_support(doc, nullptr, nullptr);
+                }
+                if (!doc->resource_manager) continue;
+                if (!item->source_requested) {
+                    resource_manager_load(doc->resource_manager, css_source.url, RESOURCE_FONT, PRIORITY_HIGH, nullptr);
+                    item->source_requested = true;
+                }
+                bool pending = false;
+                path = lam::Temp<char>(resource_manager_copy_ready_resource_path(
+                    doc->resource_manager, css_source.url, &pending));
+                if (pending) return CSS_FONT_LOAD_PENDING;
+                // Publish the decoded source through the renderer's own reflow path.
+                if (!radiant_install_downloaded_font_face(ui, doc->resource_manager, path.get(), descriptor)) continue;
+                item->loaded = true;
+                return CSS_FONT_LOAD_LOADED;
+            } else if (!radiant_url_is_http(doc->url ? url_get_href(doc->url) : nullptr)) {
+                lam::Temp<char> base(radiant_document_resource_base(doc, MEM_CAT_FONT));
+                path = lam::Temp<char>(radiant_resolve_resource_path(css_source.url, base.get(), true, MEM_CAT_FONT));
+                source.path = path.get();
+            }
+        }
+        FontHandle* decoded = font_face_load_source(ui->font_ctx, &source, &style);
+        if (!decoded) continue;
+        font_handle_release(decoded);
+        item->loaded = true;
+        return CSS_FONT_LOAD_LOADED;
+    }
+    return CSS_FONT_LOAD_FAILED;
+}
+
+CssFontLoadStatus radiant_css_font_load_poll(DomDocument* doc, UiContext* ui, CssFontLoad* request) {
+    if (!request || !doc || !ui || !ui->font_ctx) return CSS_FONT_LOAD_FAILED;
+    bool pending = false;
+    for (size_t i = 0; i < request->count; i++) {
+        CssFontLoadFace* face = &request->faces[i];
+        if (face->loaded) continue;
+        CssFontLoadStatus status = font_load_one_face(doc, ui, request, face);
+        if (status == CSS_FONT_LOAD_FAILED) return status;
+        pending |= status == CSS_FONT_LOAD_PENDING;
+    }
+    return pending ? CSS_FONT_LOAD_PENDING : CSS_FONT_LOAD_LOADED;
+}
+
+bool radiant_css_font_load_face(const CssFontLoad* request, size_t index, CssFontLoadFaceInfo* result) {
+    if (!request || index >= request->count || !result || !request->faces[index].loaded) return false;
+    const CssFontFaceDescriptor* face = request->faces[index].descriptor;
+    const CssEnumInfo* style = css_enum_info(face->font_style);
+    const char* weight = "normal";
+    FontWeight numeric = radiant_font_weight_from_css(face->font_weight);
+    const char* const weights[] = {"100","200","300","400","500","600","700","800","900"};
+    if (face->font_weight == CSS_VALUE_BOLD) weight = "bold";
+    else if (face->font_weight != CSS_VALUE_NORMAL && face->font_weight != CSS_VALUE_AUTO &&
+        numeric >= FONT_WEIGHT_THIN && numeric <= FONT_WEIGHT_BLACK)
+        weight = weights[(numeric / 100) - 1];
+    *result = {face->family_name, style ? style->name : "normal", weight};
+    return true;
+}
+
+void radiant_css_font_load_destroy(CssFontLoad* request) {
+    if (request) pool_destroy(request->pool);
 }
