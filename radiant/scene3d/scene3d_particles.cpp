@@ -680,22 +680,35 @@ static bool particle_step(Scene3dParticles *state, ParticleEmitter *emitter, dou
             return fail("particles: spawned counter exhausted");
         auto record = particle_spawn(d, sequence);
         record.frame = birth_frame;
+        bool turned = request && request->rotated;
         if (request) {
             record.value.depth = request->depth;
             if (request->positioned) {
                 record.frame.v[12] = request->position.x; record.frame.v[13] = request->position.y;
                 record.frame.v[14] = request->position.z;
             }
+            Scene3dVec local_velocity = scene3d_point(inverse_basis, request->velocity, 0);
+            if (turned) {
+                // a rotation turns this birth's basis about its origin (Rx * Ry * Rz, as the rotation curve),
+                // so shape offsets, authored velocity and the mesh turn together on both backends; the
+                // added velocity stays in simulation axes, so a GPU recipe undoes the turn for it
+                Scene3dMatrix turn = scene3d_transform({}, request->rotation, {1, 1, 1}), unturn;
+                if (!scene3d_inverse_affine(turn, &unturn)) return fail("particle commands: birth rotation is not invertible");
+                record.frame = scene3d_multiply(record.frame, turn);
+                local_velocity = scene3d_point(unturn, local_velocity, 0);
+                record.turned = true;
+            }
             // keep GPU birth recipes immutable while adding velocity in simulation-space axes.
-            if (d.gpu) record.spawn_velocity = scene3d_point(inverse_basis, request->velocity, 0);
+            if (d.gpu) record.spawn_velocity = local_velocity;
         }
         if (d.world && playback.count &&
             (scene3d_determinant(birth_frame.v) < 0) !=
                 (scene3d_determinant(emitter->scratch[playback.head].frame.v) < 0))
             return fail("particles: one emitter batch cannot mix birth-frame winding");
         if (!d.gpu) {
-            if (d.world || (request && request->positioned)) record.value.position = scene3d_point(record.frame, record.value.position);
-            if (d.world) record.value.velocity = scene3d_point(record.frame, record.value.velocity, 0);
+            // a local birth's basis is the identity unless a request turned it
+            if (d.world || (request && request->positioned) || turned) record.value.position = scene3d_point(record.frame, record.value.position);
+            if (d.world || turned) record.value.velocity = scene3d_point(record.frame, record.value.velocity, 0);
             if (request) record.value.velocity = scene3d_add(record.value.velocity, request->velocity);
         }
         record.dynamic_velocity = record.value.velocity;
@@ -953,6 +966,8 @@ static void particle_publish_matrices(ParticleEmitter *emitter) {
         const auto &p = record.value;
         if (!p.size)
             continue;
+        // a turned birth needs the rotation-safe bounds, as a rotation curve does
+        emitter->rotating |= record.turned;
         if (emitter->gpu) {
             emitter->slots[emitter->matrix_count++] =
                 (float)emitter->particles[(emitter->playback.head + i) % emitter->description.capacity].slot;
