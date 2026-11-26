@@ -322,7 +322,6 @@ static bool render_batch_cleanup_doc(UiContext* ui_context) {
 
     font_context_reset_document_fonts(ui_context->font_ctx);
     font_context_reset_glyph_caches(ui_context->font_ctx);
-    ui_context->font_face_count = 0;
 
     image_cache_cleanup(ui_context);
     InputManager::reset_global_inputs();

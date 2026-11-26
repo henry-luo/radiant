@@ -300,7 +300,6 @@ void process_font_resource(NetworkResource* res, const struct CssFontFaceDescrip
     FontSlant fs = radiant_font_slant_from_css(font_face->font_style);
 
     // re-register @font-face with the downloaded local cache path as source
-    // font_face_register() merges sources into existing entries
     FontFaceSource source = {};
     source.path = res->local_path;
     source.format = NULL;

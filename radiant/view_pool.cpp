@@ -358,6 +358,10 @@ static void free_boundary_payload(DomElement* elem, ViewTree* tree) {
     BoundaryProp* boundary = elem->bound;
     free_background_prop(tree, boundary->background);
     view_release_border_image(tree, boundary->border);
+    if (boundary->border) {
+        // the border owns the computed-corner snapshot that paint borrows.
+        view_pool_free_private(tree, boundary->border->radius.expressions.get());
+    }
     view_pool_free(tree, boundary->border);
     if (boundary->mask) free_gradient(tree, boundary->mask->radial_gradient);
     view_pool_free(tree, boundary->mask);
@@ -940,6 +944,11 @@ static void view_teardown_clear_element_scalars(DomElement* elem) {
         elem->display = {CSS_VALUE__UNDEF, CSS_VALUE__UNDEF};
     }
     elem->set_float_prelaid(false);
+    if (CustomLayoutPaintState* paint = elem->custom_layout_paint_prop()) {
+        // the slot is about to be cleared. Release the registered resource
+        // so the replaced SVG layers also lose their GC roots.
+        if (paint->resource) dom_document_release_resource(elem->doc, paint->resource);
+    }
     elem->reset_rare_view_slots();
 }
 

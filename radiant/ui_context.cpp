@@ -24,7 +24,6 @@
 #include "network_integration.h"
 #include "loader_runtime_host.hpp"
 
-void fontface_cleanup(UiContext* uicon);
 char* load_font_path(FontContext *font_ctx, const char* font_name);
 void radiant_register_css_counter_hooks();
 void radiant_register_resource_processor();
@@ -972,7 +971,6 @@ bool UiContext::destroy(bool wait_for_tasks) {
     }
 
     log_debug("cleaning up font resources");
-    fontface_cleanup(this);  // free font cache
     font_prop_release_handle(&default_font);
     font_prop_release_handle(&legacy_default_font);
     if (owned_font_ctx) {

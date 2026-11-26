@@ -2128,8 +2128,9 @@ typedef struct CustomLayoutPaintLayer {
     int order;
 } CustomLayoutPaintLayer;
 
-// tier-3: layout-transient, valid within pass
+// a document resource owns the paint published by the current layout.
 typedef struct CustomLayoutPaintState {
+    lam::Up<DomDocumentResourceData> resource;
     lam::OwnArr<CustomLayoutPaintLayer> layers;
     int layer_count;
     // Package content can share one intrinsic query within a measurement epoch.

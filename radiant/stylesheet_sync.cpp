@@ -7,7 +7,7 @@
 #include "lib/string.h"
 #include <string.h>
 
-static CssStylesheet* stylesheet_parse_inline(DomElement* elem) {
+static CssStylesheet* stylesheet_parse_inline(DomElement* elem, CssStylesheet* previous) {
     if (!elem || !elem->doc || !elem->doc->document_pool) return nullptr;
 
     Pool* pool = elem->doc->document_pool;
@@ -20,21 +20,37 @@ static CssStylesheet* stylesheet_parse_inline(DomElement* elem) {
             strbuf_append_str_n(css_text, text->text, text->length);
         }
     }
+    const char* source = css_text->str ? css_text->str : "";
+    const size_t source_length = strlen(source);
+    const char* media = elem->get_attribute("media");
+    // an unchanged style can return with its retained DOM fragment. CSSOM
+    // handles to a detached sheet must keep their original identity and rules.
+    if (previous && previous->owner_document == elem->doc && !previous->cssom_exposed &&
+        previous->source_text && previous->source_length == source_length &&
+        memcmp(previous->source_text, source, source_length) == 0 &&
+        ((!previous->media && !media) || (previous->media && media &&
+                                        strcmp(previous->media, media) == 0))) {
+        strbuf_free(css_text);
+        return previous;
+    }
 
     // CSSOM exposes the sheet immediately after a style node is connected;
     // the post-script stylesheet rescan happens too late for libraries that
     // insert rules during the same script turn.
     CssEngine* engine = css_engine_create(pool);
     CssStylesheet* sheet = engine
-        ? css_parse_stylesheet(engine, css_text->str ? css_text->str : "", "<inline-style>")
+        ? css_parse_stylesheet(engine, source, "<inline-style>")
         : nullptr;
     if (engine) css_engine_destroy(engine);
+    if (sheet) {
+        sheet->source_text = pool_strdup(pool, source);
+        sheet->source_length = source_length;
+    }
     strbuf_free(css_text);
     if (!sheet) return nullptr;
 
     sheet->owner_element = elem;
     sheet->owner_document = elem->doc;
-    const char* media = elem->get_attribute("media");
     sheet->media = media ? pool_strdup(pool, media) : nullptr;
     return sheet;
 }
@@ -99,6 +115,17 @@ bool radiant_append_document_stylesheet(DomDocument* doc,
     return true;
 }
 
+static void stylesheet_invalidate_dependents(DomDocument* doc, CssStylesheet* sheet) {
+    // both registries consume top-level at-rules. Ordinary style changes only
+    // invalidate the cascade, which otherwise reparses every unrelated keyframe.
+    for (size_t i = 0; i < sheet->rule_count; i++) {
+        const CssRule* rule = sheet->rules[i];
+        if (!rule) continue;
+        if (rule->type == CSS_RULE_KEYFRAMES) doc->services.keyframe_registry = nullptr;
+        if (rule->type == CSS_RULE_FONT_FACE) doc->font_faces_processed = false;
+    }
+}
+
 static bool stylesheet_remove_inline(DomDocument* doc,
                                                 DomElement* elem) {
     if (!doc || !elem) return false;
@@ -108,9 +135,7 @@ static bool stylesheet_remove_inline(DomDocument* doc,
         memmove(&doc->stylesheets[i], &doc->stylesheets[i + 1],
                 (size_t)(doc->stylesheet_count - i - 1) * sizeof(CssStylesheet*));
         doc->stylesheet_count--;
-        // A detached style must stop contributing rules and keyframes immediately.
-        doc->services.keyframe_registry = nullptr;
-        doc->font_faces_processed = false;
+        stylesheet_invalidate_dependents(doc, sheet);
         return true;
     }
     return false;
@@ -123,33 +148,33 @@ bool radiant_sync_inline_stylesheet(DomElement* elem) {
     }
 
     DomDocument* doc = elem->doc;
+    ShadowStyle* state = elem->shadow_style();
+    CssStylesheet* previous = state ? state->inline_stylesheet.get() : nullptr;
     bool connected = dom_element_is_connected(elem);
-    if (connected && dom_shadow_root(elem)) {
+    if (!connected) {
+        if (previous && previous->cssom_exposed) state->inline_stylesheet = nullptr;
+        return stylesheet_remove_inline(doc, elem) || previous;
+    }
+
+    CssStylesheet* sheet = stylesheet_parse_inline(elem, previous);
+    if (!sheet) return false;
+    if (!state) state = elem->ensure_shadow_style();
+    if (state) state->inline_stylesheet = lam::up(sheet);
+    if (dom_shadow_root(elem)) {
         // A sheet inside a shadow root is associated with its owner, outside
         // the Document's ordered sheet list. Moving the owner changes its scope.
-        ShadowStyle* state = elem->ensure_shadow_style();
         if (!state) return false;
-        CssStylesheet* sheet = stylesheet_parse_inline(elem);
-        if (!sheet) return false;
         stylesheet_remove_inline(doc, elem);
-        state->inline_stylesheet = lam::up(sheet);
         return true;
     }
-    ShadowStyle* state = elem->shadow_style();
-    bool detached_shadow_sheet = state && state->inline_stylesheet;
-    if (detached_shadow_sheet) state->inline_stylesheet = nullptr;
-    if (!connected) return stylesheet_remove_inline(doc, elem) || detached_shadow_sheet;
-
-    CssStylesheet* sheet = stylesheet_parse_inline(elem);
-    if (!sheet) return false;
     for (int i = 0; i < doc->stylesheet_count; i++) {
-        if (doc->stylesheets[i] && doc->stylesheets[i]->owner_element == elem) {
+        CssStylesheet* current = doc->stylesheets[i];
+        if (current && current->owner_element == elem) {
+            if (current != sheet) stylesheet_invalidate_dependents(doc, current);
+            // a retained sheet can change precedence when its owner moves.
+            stylesheet_invalidate_dependents(doc, sheet);
             doc->stylesheets[i] = sheet;
             stylesheet_reorder_document(doc);
-            // Keyframes are parsed from stylesheet text, so their cache tracks
-            // the same text-tree update as the style sheet.
-            doc->services.keyframe_registry = nullptr;
-            doc->font_faces_processed = false;
             return true;
         }
     }
@@ -157,8 +182,7 @@ bool radiant_sync_inline_stylesheet(DomElement* elem) {
     if (!radiant_append_document_stylesheet(doc, sheet)) {
         return false;
     }
-    doc->services.keyframe_registry = nullptr;
-    doc->font_faces_processed = false;
+    stylesheet_invalidate_dependents(doc, sheet);
     return true;
 }
 

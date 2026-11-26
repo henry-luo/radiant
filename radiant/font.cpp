@@ -230,29 +230,3 @@ void setup_font(UiContext* uicon, FontBox *fbox, FontProp *fprop) {
     log_error("setup_font: font_resolve failed for '%s' (and all fallbacks)",
               family ? family : "(null)");
 }
-
-void fontface_cleanup(UiContext* uicon) {
-    if (!uicon) return;
-
-    for (int i = 0; i < uicon->font_face_count; i++) {
-        FontFaceDescriptor* descriptor = uicon->font_faces ? uicon->font_faces[i] : NULL;
-        if (!descriptor) continue;
-
-        lam::Temp<FontFaceDescriptor> owned(descriptor);  // the registry releases each descriptor
-        lam::free_owned(descriptor->family_name);
-        lam::free_owned(descriptor->src_local_path);
-        lam::free_owned(descriptor->src_local_name);
-        if (descriptor->src_entries) {
-            for (int j = 0; j < descriptor->src_count; j++) {
-                lam::free_owned(descriptor->src_entries[j].path);
-                lam::free_owned(descriptor->src_entries[j].format);
-            }
-            lam::free_owned(descriptor->src_entries);
-        }
-        lam::free_owned(descriptor->unicode_ranges);
-    }
-
-    lam::free_owned(uicon->font_faces);
-    uicon->font_face_count = 0;
-    uicon->font_face_capacity = 0;
-}
