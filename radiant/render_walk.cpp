@@ -65,7 +65,7 @@ static bool render_walk_blend_mode_effective(CssEnum mode) {
 }
 
 static bool render_walk_block_effect_group(ViewBlock* block, float abs_x, float abs_y,
-                                           PaintEffectGroup* group, float density) {
+                                           PaintEffectGroup* group, UiContext* ui) {
     if (!block || !group) return false;
     *group = {};
     float opacity = render_walk_css_opacity(block->in_line);
@@ -75,12 +75,13 @@ static bool render_walk_block_effect_group(ViewBlock* block, float abs_x, float 
     bool has_filter = render_filter_effective(block->filter_prop());
     bool has_backdrop_filter = render_effect_has_visible_backdrop(block, block->backdrop_filter_prop());
     bool has_shadow = block->bound && block->boundary_mut()->box_shadow;
-    RadialGradient* mask = block->bound && block->boundary()->mask ? block->boundary()->mask->radial_gradient.get() : nullptr;
+    bool has_mask = block->bound && block->boundary()->mask && block->boundary()->mask->active();
     if (opacity >= 0.9995f && !blend && !has_filter &&
-        !has_backdrop_filter && !has_shadow && !mask) {
+        !has_backdrop_filter && !has_shadow && !has_mask) {
         return false;
     }
 
+    float density = ui_context_raster_scale(ui);
     float visual_overflow = render_geometry_block_visual_overflow(block, density);
     group->bounds.left = abs_x - visual_overflow;
     group->bounds.top = abs_y - visual_overflow;
@@ -92,12 +93,10 @@ static bool render_walk_block_effect_group(ViewBlock* block, float abs_x, float 
     group->backdrop = has_backdrop_filter;
     group->backdrop_filter = lam::up(has_backdrop_filter ? block->backdrop_filter_prop() : NULL);
     group->shadow = has_shadow;
-    if (mask) {
+    if (has_mask) {
         // export captures the same subtree mask before opacity composites the flattened children.
-        group->mask.gradient = lam::up(mask);
-        group->mask.rect = {abs_x, abs_y, block->width, block->height};
-        group->mask.inverse = rdt_matrix_scale(1.0f, 1.0f);
-        group->mask.invertible = true;
+        group->mask = render_prepare_css_mask(ui, block, {abs_x, abs_y, block->width, block->height},
+            rdt_matrix_scale(1.0f, 1.0f));
     }
     return true;
 }
@@ -175,7 +174,7 @@ static bool render_walk_block_begin(RenderPaintBlockDriver* ctx, ViewBlock* bloc
 
     PaintEffectGroup group = {};
     bool has_effect_group = render_walk_block_effect_group(block, state->x, state->y, &group,
-        ui_context_raster_scale(state->ui_context));
+        state->ui_context);
     p->opened_effect_group = has_effect_group &&
                              backend->begin_effect_group && backend->end_effect_group;
     if (p->opened_effect_group) {

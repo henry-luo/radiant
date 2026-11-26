@@ -23,7 +23,7 @@ bool transform_preserves_3d(DomElement* elem) {
         !(inline_prop->opacity >= 0.0f && inline_prop->opacity < 1.0f) &&
         (!inline_prop->mix_blend_mode || inline_prop->mix_blend_mode == CSS_VALUE_NORMAL) &&
         !elem->filterp()->functions &&
-        !(elem->boundary()->mask && elem->boundary()->mask->radial_gradient) &&
+        !(elem->boundary()->mask && elem->boundary()->mask->active()) &&
         !elem->block()->containment().contain_paint && !elem->block()->containment().content_visibility_skipped;
 }
 

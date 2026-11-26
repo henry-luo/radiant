@@ -2187,7 +2187,7 @@ void document_apply_js_host_config(DomDocument* doc,
 }
 
 // Script realms stay on the host thread; async loaders transfer only the parsed DOM.
-static void run_html_document_scripts(DomDocument* dom_doc, Pool* pool,
+static bool run_html_document_scripts(DomDocument* dom_doc, Pool* pool,
     HtmlLoadPhaseTiming* timing, DocumentScriptPhaseTiming* script_timing,
     bool profile_recascade_completed, int script_prefetch_count,
     uint64_t script_prefetch_start_ns, uint64_t initial_cascade_ns,
@@ -2206,7 +2206,10 @@ static void run_html_document_scripts(DomDocument* dom_doc, Pool* pool,
                  time_elapsed_ms_f(script_prefetch_start_ns, time_now_ns()));
     }
     log_mem_stage("load_html: before_scripts");
-    radiant_loader_execute_html_scripts(html_root, dom_doc, pool, dom_doc->url, script_timing);
+    if (!radiant_loader_execute_html_scripts(html_root, dom_doc, pool, dom_doc->url, script_timing)) {
+        log_error("load_html: document script runtime is unusable after an unrecoverable failure");
+        return false;
+    }
     log_mem_stage("load_html: after_scripts");
     // The retained JS runtime is process-root-owned, so capture it before
     // the post-script cascade can obscure script allocation attribution.
@@ -2291,23 +2294,32 @@ static void run_html_document_scripts(DomDocument* dom_doc, Pool* pool,
     }
 
     if (post_script_ns) *post_script_ns = t_post_script;
+    return true;
 }
 
-static void complete_document_scripts(DomDocument* doc, Pool* pool) {
+static bool complete_document_scripts(DomDocument* doc, Pool* pool) {
     uint64_t script_start_ns = time_now_ns();
-    if (!doc->scripting_disabled) run_html_document_scripts(doc, pool, nullptr, nullptr,
-                                                            false, 0, 0, script_start_ns, nullptr);
+    if (!doc->scripting_disabled && !run_html_document_scripts(doc, pool, nullptr, nullptr,
+            false, 0, 0, script_start_ns, nullptr)) return false;
     populate_layout_document(doc, doc->root, doc->html_root,
                              (HtmlVersion)doc->html_version, doc->url);
     extract_body_transform_scale(doc->root, doc);
     dom_js_mutation_records_reset(doc);
+    return true;
 }
 
-void complete_deferred_html_scripts(DomDocument* doc) {
+bool complete_deferred_html_scripts(DomDocument* doc) {
     if (!doc || !doc->html_scripts_deferred || !doc->html_root ||
-        !doc->document_pool || !doc->services.cached_css_engine) return;
+        !doc->document_pool || !doc->services.cached_css_engine) return doc != nullptr;
     doc->html_scripts_deferred = false;
-    complete_document_scripts(doc, doc->document_pool);
+    return complete_document_scripts(doc, doc->document_pool);
+}
+
+static DomDocument* discard_unusable_script_document(DomDocument* doc, Url* caller_url) {
+    // a failed load leaves its input URL and parser pool with the caller.
+    if (doc->url == caller_url) doc->url = nullptr;
+    free_document(doc);
+    return nullptr;
 }
 
 static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css_filename,
@@ -2667,10 +2679,11 @@ static DomDocument* load_lambda_html_doc_profiled(Url* html_url, const char* css
 
     if (execute_scripts && !cascade_only) {
         dom_doc->html_root = lam::up(html_root);
-        run_html_document_scripts(dom_doc, pool, timing, script_timing,
+        if (!run_html_document_scripts(dom_doc, pool, timing, script_timing,
                                   profile_recascade_completed, script_prefetch_count,
                                   script_prefetch_start_ns, t_initial_cascade,
-                                  &t_post_script);
+                                  &t_post_script))
+            return discard_unusable_script_document(dom_doc, html_url);
         dom_root = dom_doc->root;
         html_root = dom_doc->html_root;
     }
@@ -2963,7 +2976,8 @@ static DomDocument* load_layout_special_file(Url* url, const char* path,
             // generated HTML needs the same script lifecycle, after its host is bound.
             document_apply_js_host_config(document, host_config);
             if (defer_html_scripts) document->html_scripts_deferred = true;
-            else complete_document_scripts(document, pool);
+            else if (!complete_document_scripts(document, pool))
+                return discard_unusable_script_document(document, url);
         }
         return document;
     }

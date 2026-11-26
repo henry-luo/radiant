@@ -266,6 +266,8 @@ static void apply_rule_to_element(DomElement* element, CssRule* rule,
     if (rule->type != CSS_RULE_STYLE &&
         rule->type != CSS_RULE_NESTED_DECLARATIONS) return;
 
+    CssCascadeScope scope = {scope_proximity,
+        matcher->shadow_tree && matcher->shadow_tree->shadow_host_element() == element};
     CssSelector* selector = rule->data.style_rule.selector;
     CssSelectorGroup* group = rule->data.style_rule.selector_group;
     if (group && group->selector_count > 0) {
@@ -286,7 +288,7 @@ static void apply_rule_to_element(DomElement* element, CssRule* rule,
             if (result.pseudo_element != PSEUDO_ELEMENT_NONE) {
                 if (rule->data.style_rule.declaration_count > 0) {
                     dom_element_apply_pseudo_element_rule(element, rule,
-                        result.specificity, (int)result.pseudo_element, scope_proximity, candidate);
+                        result.specificity, (int)result.pseudo_element, scope, candidate);
                 }
             } else if (!matched_selector ||
                        css_specificity_compare(result.specificity, best_specificity) > 0) {
@@ -296,7 +298,7 @@ static void apply_rule_to_element(DomElement* element, CssRule* rule,
             }
         }
         if (matched_selector && rule->data.style_rule.declaration_count > 0) {
-            dom_element_apply_rule(element, rule, best_specificity, scope_proximity);
+            dom_element_apply_rule(element, rule, best_specificity, scope);
         }
         return;
     }
@@ -314,9 +316,9 @@ static void apply_rule_to_element(DomElement* element, CssRule* rule,
     if (result.pseudo_element != PSEUDO_ELEMENT_NONE) {
         dom_element_apply_pseudo_element_rule(element, rule,
                                               result.specificity,
-                                              (int)result.pseudo_element, scope_proximity, selector);
+                                              (int)result.pseudo_element, scope, selector);
     } else {
-        dom_element_apply_rule(element, rule, result.specificity, scope_proximity);
+        dom_element_apply_rule(element, rule, result.specificity, scope);
     }
 }
 
@@ -647,10 +649,50 @@ static uint32_t cascade_rule_index_candidates(CascadeRuleIndex* index, DomElemen
     return count;
 }
 
+struct CascadeShadowTree {
+    SelectorMatcher* matcher;
+    DomElement* previous;
+
+    CascadeShadowTree(SelectorMatcher* matcher, DomElement* tree)
+        : matcher(matcher), previous(matcher->shadow_tree) { matcher->shadow_tree = tree; }
+    ~CascadeShadowTree() { matcher->shadow_tree = previous; }
+};
+
+static void cascade_collect_shadow_stylesheets(DomElement* root, lam::ArrayList<CssStylesheet*>& sheets) {
+    for (CssStylesheet* sheet = radiant_next_shadow_stylesheet(root, nullptr); sheet;
+         sheet = radiant_next_shadow_stylesheet(root, sheet->owner_element)) {
+        sheets.push_back(sheet);
+    }
+}
+
+static void apply_stylesheet_rules_to_element(DomElement* element, CssStylesheet** sheets,
+                                              int sheet_count, SelectorMatcher* matcher,
+                                              Pool* pool, CssEngine* engine, bool include_import_child = false) {
+    for (int sheet = 0; sheet < sheet_count; sheet++) {
+        CssStylesheet* stylesheet = sheets[sheet];
+        if (!cascade_stylesheet_is_active(stylesheet, engine, include_import_child)) continue;
+        for (size_t i = 0; i < stylesheet->rule_count; i++) {
+            apply_rule_to_element_with_nested(element, stylesheet->rules[i], matcher, pool, engine, 0);
+        }
+    }
+}
+
+static void apply_shadow_host_rules(DomElement* host, SelectorMatcher* matcher, Pool* pool, CssEngine* engine) {
+    DomElement* tree = host->shadow_root_element();
+    if (!tree) return;
+    lam::ArrayList<CssStylesheet*> sheets(MEM_CAT_LAYOUT, 0);
+    cascade_collect_shadow_stylesheets(tree, sheets);
+    int count = (int)sheets.size(); // INT_CAST_OK: stylesheet count.
+    css_layer_rank_stylesheets(host->doc, sheets.data(), count, engine);
+    // Complete the host's cascade before resolving descendants against it.
+    CascadeShadowTree scope(matcher, tree);
+    apply_stylesheet_rules_to_element(host, sheets.data(), count, matcher, pool, engine);
+}
+
 static void apply_active_rules_to_tree(DomElement* root, CssRule** rules,
                                        size_t rule_count, SelectorMatcher* matcher,
                                        Pool* pool, CssEngine* engine, int depth,
-                                       CascadeRuleIndex* index) {
+                                       CascadeRuleIndex* index, bool include_shadow_hosts) {
     if (!root || !rules || !matcher || !pool || depth > MAX_RADIANT_CSS_TREE_DEPTH) return;
 
     // generated boxes read their host cascade rather than matching authored selectors.
@@ -665,12 +707,14 @@ static void apply_active_rules_to_tree(DomElement* root, CssRule** rules,
                 apply_rule_to_element(root, rules[i], matcher, pool, engine);
             }
         }
+        if (include_shadow_hosts) apply_shadow_host_rules(root, matcher, pool, engine);
     }
 
     for (DomNode* child = root->first_child; child; child = child->next_sibling) {
         if (child->is_element()) {
             apply_active_rules_to_tree(lam::dom_require_element(child), rules,
-                                       rule_count, matcher, pool, engine, depth + 1, index);
+                                       rule_count, matcher, pool, engine, depth + 1, index,
+                                       include_shadow_hosts);
         }
     }
 }
@@ -679,32 +723,27 @@ static void apply_stylesheets_reference_to_tree(DomElement* root,
                                                CssStylesheet** sheets, int sheet_count,
                                                SelectorMatcher* matcher,
                                                Pool* pool, CssEngine* engine,
-                                               int depth, bool include_import_child) {
+                                               int depth, bool include_import_child,
+                                               bool include_shadow_hosts) {
     if (!root || !sheets || !matcher || !pool ||
         depth > MAX_RADIANT_CSS_TREE_DEPTH) return;
 
     if (!root->is_synthetic() && !root->shadow_host_element()) {
-        for (int sheet = 0; sheet < sheet_count; sheet++) {
-            CssStylesheet* stylesheet = sheets[sheet];
-            if (!cascade_stylesheet_is_active(stylesheet, engine, include_import_child)) continue;
-            for (size_t i = 0; i < stylesheet->rule_count; i++) {
-                apply_rule_to_element_with_nested(root, stylesheet->rules[i], matcher,
-                                                   pool, engine, 0);
-            }
-        }
+        apply_stylesheet_rules_to_element(root, sheets, sheet_count, matcher, pool, engine, include_import_child);
+        if (include_shadow_hosts) apply_shadow_host_rules(root, matcher, pool, engine);
     }
     for (DomNode* child = root->first_child; child; child = child->next_sibling) {
         if (child->is_element()) {
             apply_stylesheets_reference_to_tree(lam::dom_require_element(child),
                                                sheets, sheet_count, matcher, pool, engine,
-                                               depth + 1, include_import_child);
+                                               depth + 1, include_import_child, include_shadow_hosts);
         }
     }
 }
 
 static void apply_stylesheets_to_tree(DomElement* root, CssStylesheet** sheets, int sheet_count,
                                      SelectorMatcher* matcher, Pool* pool,
-                                     CssEngine* engine, int depth, bool include_import_child = false) {
+                                     CssEngine* engine, bool include_import_child, bool include_shadow_hosts) {
     if (!root || !sheets || !matcher || !pool || !engine) return;
     size_t count = 0;
     for (int sheet = 0; sheet < sheet_count; sheet++) {
@@ -714,13 +753,13 @@ static void apply_stylesheets_to_tree(DomElement* root, CssStylesheet** sheets, 
             count += active_rule_count(stylesheet->rules[i], engine);
         }
     }
-    if (count == 0) return;
+    if (count == 0 && !include_shadow_hosts) return;
     MemContext* context = root->doc ? (MemContext*)root->doc->services.mem_ctx : nullptr;
-    Arena* scratch = mem_arena_create(context, MEM_ROLE_TEMP, "css.active_rule_program");
+    Arena* scratch = count ? mem_arena_create(context, MEM_ROLE_TEMP, "css.active_rule_program") : nullptr;
     if (!scratch) {
         // Allocation pressure must preserve the reference cascade semantics.
         apply_stylesheets_reference_to_tree(root, sheets, sheet_count, matcher, pool, engine,
-                                           depth, include_import_child);
+                                           0, include_import_child, include_shadow_hosts);
         return;
     }
     CssRule** rules = (CssRule**)arena_alloc(scratch, count * sizeof(CssRule*));
@@ -728,7 +767,7 @@ static void apply_stylesheets_to_tree(DomElement* root, CssStylesheet** sheets, 
         mem_arena_destroy(scratch);
         // The optimized rule program is optional scratch storage.
         apply_stylesheets_reference_to_tree(root, sheets, sheet_count, matcher, pool, engine,
-                                           depth, include_import_child);
+                                           0, include_import_child, include_shadow_hosts);
         return;
     }
     size_t written = 0;
@@ -742,7 +781,7 @@ static void apply_stylesheets_to_tree(DomElement* root, CssStylesheet** sheets, 
     // an index allocation failure keeps the unindexed program walk.
     CascadeRuleIndex* index = cascade_rule_index_build(scratch, rules, written);
     // finish every ancestor's cascade before a descendant reads its query font or variables.
-    apply_active_rules_to_tree(root, rules, written, matcher, pool, engine, depth, index);
+    apply_active_rules_to_tree(root, rules, written, matcher, pool, engine, 0, index, include_shadow_hosts);
     cascade_rule_index_free(index);
     mem_arena_destroy(scratch);
 }
@@ -758,7 +797,8 @@ void radiant_apply_css_stylesheet_to_tree(DomElement* root,
 
     css_layer_rank_stylesheets(root->doc, &stylesheet, 1, engine);
     bool epoch_scope = style_epoch_cascade_begin_extend(root->doc, root, engine);
-    apply_stylesheets_to_tree(root, &stylesheet, 1, matcher, pool, engine, 0, true);
+    apply_stylesheets_to_tree(root, &stylesheet, 1, matcher, pool, engine,
+                             /*include_import_child=*/true, /*include_shadow_hosts=*/false);
     if (epoch_scope) style_epoch_cascade_end(root->doc);
 }
 
@@ -780,13 +820,6 @@ CssStylesheet* radiant_ua_stylesheet(DomDocument* doc, CssEngine* engine) {
     return doc->services.ua_stylesheet;
 }
 
-static void cascade_collect_shadow_stylesheets(DomElement* root, lam::ArrayList<CssStylesheet*>& sheets) {
-    for (CssStylesheet* sheet = radiant_next_shadow_stylesheet(root, nullptr); sheet;
-         sheet = radiant_next_shadow_stylesheet(root, sheet->owner_element)) {
-        sheets.push_back(sheet);
-    }
-}
-
 void radiant_apply_css_stylesheets_to_tree(DomDocument* doc, DomElement* root,
                                            CssStylesheet** stylesheets, int count,
                                            Pool* pool, CssEngine* engine,
@@ -804,7 +837,8 @@ void radiant_apply_css_stylesheets_to_tree(DomDocument* doc, DomElement* root,
     // Each tree contributes author sheets independently, even during a
     // localized refresh that starts below the tree's boundary.
     lam::ArrayList<CssStylesheet*> scoped(MEM_CAT_LAYOUT, 0);
-    if (DomElement* shadow = dom_shadow_root(root)) {
+    DomElement* shadow = dom_shadow_root(root);
+    if (shadow) {
         cascade_collect_shadow_stylesheets(shadow, scoped);
         stylesheets = scoped.data();
         count = (int)scoped.size(); // INT_CAST_OK: stylesheet count.
@@ -816,8 +850,12 @@ void radiant_apply_css_stylesheets_to_tree(DomDocument* doc, DomElement* root,
     if (count > 0) memcpy(combined.get() + 1, stylesheets, (size_t)count * sizeof(CssStylesheet*));
     css_layer_rank_stylesheets(doc, combined.get(), count + 1, engine);
     bool epoch_scope = style_epoch_cascade_begin_replace(doc, root, engine);
-    // Finish UA and author rules together before descendants cache inherited variables.
-    apply_stylesheets_to_tree(root, combined.get(), count + 1, matcher, pool, engine, 0);
+    {
+        CascadeShadowTree scope(matcher, shadow);
+        // Finish UA and author rules together before descendants cache inherited variables.
+        apply_stylesheets_to_tree(root, combined.get(), count + 1, matcher, pool, engine,
+                                 /*include_import_child=*/false, doc->js.has_shadow_roots);
+    }
     if (epoch_scope) style_epoch_cascade_end(doc);
     if (doc->js.has_shadow_roots) {
         for (DomNode* node = root; node; node = dom_source_next_in_tree(root, node)) {
@@ -874,7 +912,8 @@ void radiant_cascade_styles_for_element_with_matcher(DomElement* element,
     lam::ArrayList<CssStylesheet*> scoped(MEM_CAT_LAYOUT, 0);
     CssStylesheet** sheets = doc->stylesheets;
     int count = doc->stylesheet_count;
-    if (DomElement* shadow = dom_shadow_root(element)) {
+    DomElement* shadow = dom_shadow_root(element);
+    if (shadow) {
         cascade_collect_shadow_stylesheets(shadow, scoped);
         sheets = scoped.data();
         count = (int)scoped.size(); // INT_CAST_OK: stylesheet count.
@@ -882,19 +921,12 @@ void radiant_cascade_styles_for_element_with_matcher(DomElement* element,
     css_layer_rank_stylesheets(doc, sheets, count, engine);
     // CSSOM reads must see the same live form and interaction state as layout.
     state_configure_selector_matcher((DocState*)doc->state, matcher);
+    CascadeShadowTree scope(matcher, shadow);
 
     CssStylesheet* defaults = radiant_ua_stylesheet(doc, engine);
-    for (size_t i = 0; defaults && i < defaults->rule_count; i++)
-        apply_rule_to_element(element, defaults->rules[i], matcher, pool, engine);
-
-    for (int i = 0; i < count; i++) {
-        CssStylesheet* stylesheet = sheets[i];
-        if (!cascade_stylesheet_is_active(stylesheet, engine)) continue;
-        for (size_t j = 0; j < stylesheet->rule_count; j++) {
-            CssRule* rule = stylesheet->rules[j];
-            if (rule) apply_rule_to_element(element, rule, matcher, pool, engine);
-        }
-    }
+    apply_stylesheet_rules_to_element(element, &defaults, 1, matcher, pool, engine);
+    apply_stylesheet_rules_to_element(element, sheets, count, matcher, pool, engine);
+    apply_shadow_host_rules(element, matcher, pool, engine);
 }
 
 void radiant_cascade_styles_for_element(DomElement* element) {

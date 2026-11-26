@@ -648,7 +648,7 @@ bool layout_svg_percentage_attribute(DomElement* element, bool horizontal, float
 bool layout_svg_percentage_axis_content_size(LayoutContext* context, ViewBlock* view,
     DomElement* element, bool horizontal, float* out_size);
 ReplacedSvgIntrinsicSize layout_replaced_svg_intrinsic_size(DomElement* element,
-                                                            float constrained_width = -1.0f);
+    float constrained_width = -1.0f, bool has_definite_width = false);
 IntrinsicSize layout_measure_replaced(LayoutContext* lycon, ViewBlock* block, AvailableSpace space);
 IntrinsicSize layout_measure_form_control(LayoutContext* lycon, ViewBlock* block, AvailableSpace space);
 IntrinsicSize layout_measure_native_control_intrinsics(LayoutContext* lycon, ViewBlock* block);

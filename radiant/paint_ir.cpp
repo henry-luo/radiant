@@ -934,10 +934,10 @@ void paint_save_backdrop(PaintList* pl, int x0, int y0, int w, int h) {
 }
 
 void paint_composite_opacity(PaintList* pl, int x0, int y0, int w, int h,
-                             float opacity, bool premultiplied_source, const RadialMaskPaint* mask) {
+                             float opacity, bool premultiplied_source, const CssMaskPaint* mask) {
     PaintCmd* cmd = paint_alloc_cmd(pl, PAINT_COMPOSITE_OPACITY);
     if (!cmd) return;
-    cmd->composite_opacity = { x0, y0, w, h, opacity, premultiplied_source, mask ? *mask : RadialMaskPaint{} };
+    cmd->composite_opacity = { x0, y0, w, h, opacity, premultiplied_source, mask ? *mask : CssMaskPaint{} };
 }
 
 void paint_apply_blend_mode(PaintList* pl, int x0, int y0, int w, int h, int blend_mode) {
@@ -1148,14 +1148,14 @@ static void paint_ir_lower_raster_effect_begin(const PaintEffectGroup* group,
                         group->backdrop_filter,
                         paint_optional_clip(group->has_clip, &clip));
     }
-    if (group->isolation && !group->blend_mode && group->opacity >= 0.9995f && !group->backdrop && !group->mask.gradient) {
+    if (group->isolation && !group->blend_mode && group->opacity >= 0.9995f && !group->backdrop && !group->mask.active()) {
         // a pure isolated group also clears the parent backdrop before its children paint.
         dl_save_backdrop(dl, region.x, region.y, region.w, region.h);
     }
     if (group->blend_mode) {
         dl_save_backdrop(dl, region.x, region.y, region.w, region.h);
     }
-    if (group->opacity < 0.9995f || group->mask.gradient) {
+    if (group->opacity < 0.9995f || group->mask.active()) {
         dl_save_backdrop(dl, region.x, region.y, region.w, region.h);
     }
     if (group->backdrop) {
@@ -1186,13 +1186,13 @@ static void paint_ir_lower_raster_effect_finish(const PaintEffectGroup* group,
         // vector replay stores premultiplied foreground pixels in its isolated region.
         dl_composite_opacity(dl, region.x, region.y, region.w, region.h, 1.0f, true);
     }
-    if (group->opacity < 0.9995f || group->mask.gradient) {
-        dl_composite_opacity(dl, region.x, region.y, region.w, region.h, group->opacity, true, group->mask.gradient ? &group->mask : nullptr);
+    if (group->opacity < 0.9995f || group->mask.active()) {
+        dl_composite_opacity(dl, region.x, region.y, region.w, region.h, group->opacity, true, group->mask.active() ? &group->mask : nullptr);
     }
     if (group->blend_mode) {
         dl_apply_blend_mode(dl, region.x, region.y, region.w, region.h, group->blend_mode);
     }
-    if (group->isolation && !group->blend_mode && group->opacity >= 0.9995f && !group->backdrop && !group->mask.gradient) {
+    if (group->isolation && !group->blend_mode && group->opacity >= 0.9995f && !group->backdrop && !group->mask.active()) {
         dl_composite_opacity(dl, region.x, region.y, region.w, region.h, 1.0f, true);
     }
 }
@@ -1286,7 +1286,7 @@ static void paint_raster_transform_command(PaintCmd* cmd, const RdtMatrix* trans
     case PAINT_BEGIN_EFFECT_GROUP:
         cmd->effect_group.bounds = paint_raster_transform_bounds(cmd->effect_group.bounds, transform);
         paint_raster_concat_transform(&cmd->effect_group, transform);
-        if (cmd->effect_group.mask.gradient) {
+        if (cmd->effect_group.mask.active()) {
             RdtMatrix inverse;
             cmd->effect_group.mask.invertible = cmd->effect_group.mask.invertible && rdt_matrix_inverse(transform, &inverse);
             if (cmd->effect_group.mask.invertible)
@@ -1744,7 +1744,7 @@ static bool paint_svg_caps_allow_opacity_group(const RenderExportTargetCaps* cap
            !group->backdrop &&
            group->backdrop_filter == nullptr &&
            !group->shadow &&
-           !group->isolation && !group->mask.gradient;
+           !group->isolation && !group->mask.active();
 }
 
 static void paint_svg_append_gradient_stops(StrBuf* out,

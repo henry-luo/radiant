@@ -184,27 +184,6 @@ void render_background(RasterRenderContext* rdcon, ViewBlock* view, Rect rect, b
     if (clip) rdt_path_free(clip);
 }
 
-static Color gradient_image_average_color(const RdtGradientStop* stops, int count) {
-    double extent = (double)stops[count - 1].offset - stops[0].offset;
-    double red = 0.0, green = 0.0, blue = 0.0, alpha = 0.0;
-    for (int index = 1; index < count; index++) {
-        const RdtGradientStop& before = stops[index - 1];
-        const RdtGradientStop& after = stops[index];
-        // CSS Images 3 §3.3 spaces zero-period stops equally before premultiplied averaging.
-        double weight = extent > 0.0 ? ((double)after.offset - before.offset) / (2.0 * extent)
-            : 0.5 / (count - 1);
-        alpha += weight * (before.a + after.a);
-        red += weight * ((double)before.r * before.a + (double)after.r * after.a);
-        green += weight * ((double)before.g * before.a + (double)after.g * after.a);
-        blue += weight * ((double)before.b * before.a + (double)after.b * after.a);
-    }
-    return Color{render_pixel_pack_abgr(
-        clamp_byte_round(alpha > 0.0 ? (float)(red / alpha) : 0.0f),
-        clamp_byte_round(alpha > 0.0 ? (float)(green / alpha) : 0.0f),
-        clamp_byte_round(alpha > 0.0 ? (float)(blue / alpha) : 0.0f),
-        clamp_byte_round((float)alpha))};
-}
-
 static lam::Temp<RdtGradientStop> background_repeat_linear_stops(
         const RdtGradientStop* stops, int count, float physical_length, int* expanded_count) {
     if (!stops || count < 2 || !expanded_count) return {};
@@ -214,7 +193,7 @@ static lam::Temp<RdtGradientStop> background_repeat_linear_stops(
     if (period <= 0.0f || (isfinite(physical_length) && period * physical_length < 1.0f)) {
         lam::Temp<RdtGradientStop> solid = lam::temp_array<RdtGradientStop>(2, MEM_CAT_RENDER);
         if (!solid) return {};
-        Color average = gradient_image_average_color(stops, count);
+        Color average = render_gradient_average_color(stops, count);
         render_set_uniform_gradient_stops(solid.get(), average);
         *expanded_count = 2;
         return solid;
@@ -255,7 +234,7 @@ static void gradient_image_sample_pixels(uint32_t* pixels, int width, int height
     // radial repeats wrap in used length space, avoiding cancellation around coincident px stops.
     float stop_scale = conic ? 1.0f : rx;
     float first = stops[0].offset * stop_scale, period = stops[count - 1].offset * stop_scale - first;
-    Color average = repeating && period <= 0.0f ? gradient_image_average_color(stops, count) : Color{};
+    Color average = repeating && period <= 0.0f ? render_gradient_average_color(stops, count) : Color{};
     for (int row = 0; row < height; row++) {
         for (int column = 0; column < width; column++) {
             float dx = (float)column / density - cx;
@@ -1468,9 +1447,9 @@ bool render_paint_inset_shadows(PaintList* paint, UiContext* ui, ViewBlock* view
  * Compute background image dimensions based on background-size property.
  * Returns the computed width and height of the background image in physical pixels.
  */
-static bool background_size_unspecified(BackgroundGeometry* bg);
+static bool background_size_unspecified(const BackgroundGeometry* bg);
 
-static void compute_bg_image_size(BackgroundGeometry* bg, float img_w, float img_h,
+static void compute_bg_image_size(const BackgroundGeometry* bg, float img_w, float img_h,
                                    float box_w, float box_h, float* out_w, float* out_h,
                                    float raster_scale, bool intrinsic_ratio) {
     float aspect = (img_h > 0) ? img_w / img_h : 1.0f;
@@ -1533,7 +1512,7 @@ static void compute_bg_image_size(BackgroundGeometry* bg, float img_w, float img
  * Compute background image position based on background-position property.
  * Per CSS spec: percentage position = (container_size - image_size) * percentage / 100
  */
-static void compute_bg_image_position(BackgroundGeometry* bg, float img_w, float img_h,
+static void compute_bg_image_position(const BackgroundGeometry* bg, float img_w, float img_h,
                                        float box_w, float box_h, float* out_x, float* out_y, float raster_scale) {
     if (!bg->bg_position_set) {
         // Default: 0% 0% (top-left)
@@ -1546,7 +1525,7 @@ static void compute_bg_image_position(BackgroundGeometry* bg, float img_w, float
     *out_y = background_position_offset(bg, false, box_h - img_h, raster_scale);
 }
 
-static bool background_size_unspecified(BackgroundGeometry* bg) {
+static bool background_size_unspecified(const BackgroundGeometry* bg) {
     return !bg->bg_size_set && !bg->bg_size_type &&
            !bg->bg_size_width_auto &&
            !bg->bg_size_height_auto &&
@@ -1556,24 +1535,9 @@ static bool background_size_unspecified(BackgroundGeometry* bg) {
            bg->bg_size_height == 0.0f;
 }
 
-typedef struct {
-    float origin_x;
-    float origin_y;
-    float tile_w;
-    float tile_h;
-    int start_col;
-    int end_col;
-    int start_row;
-    int end_row;
-    float space_gap_x;
-    float space_gap_y;
-    CssEnum repeat_x;
-    CssEnum repeat_y;
-} BackgroundTilePlan;
-
-static bool compute_background_tile_plan(BackgroundGeometry* bg, Rect position_rect, Rect coverage_rect,
-                                         float intrinsic_w, float intrinsic_h,
-                                         BackgroundTilePlan* plan, float raster_scale, bool intrinsic_ratio = true) {
+bool compute_background_tile_plan(const BackgroundGeometry* bg, Rect position_rect, Rect coverage_rect,
+                                  float intrinsic_w, float intrinsic_h, BackgroundTilePlan* plan,
+                                  float raster_scale, bool intrinsic_ratio) {
     if (!bg || !plan ||
         position_rect.width < 0.0f || position_rect.height < 0.0f ||
         coverage_rect.width <= 0.0f || coverage_rect.height <= 0.0f) {

@@ -356,6 +356,47 @@ static void test_finish_fn(AnimationInstance* anim) {
     g_finish_count++;
 }
 
+TEST_F(AnimationSchedulerTest, LoadingHostFramesPreserveCssAgeOnly) {
+    const AnimationType types[] = {ANIM_CSS_ANIMATION, ANIM_CSS_TRANSITION, ANIM_TIMELINE, ANIM_GIF};
+    AnimationInstance* animations[4];
+    for (unsigned i = 0; i < 4; i++) {
+        animations[i] = animation_instance_create(scheduler);
+        ASSERT_NE(animations[i], nullptr);
+        animations[i]->type = types[i];
+        animations[i]->duration = 2.0;
+        animations[i]->tick = test_tick_fn;
+        animation_scheduler_add(scheduler, animations[i]);
+    }
+    animation_scheduler_anchor_host_time(scheduler, 100.0);
+    animation_scheduler_anchor_host_time(scheduler, 101.0, true);
+    for (unsigned i = 0; i < 4; i++) {
+        g_last_tick_value = -1.0f;
+        animation_scheduler_tick(scheduler, 101.5, nullptr, false, animations[i]);
+        EXPECT_NEAR(g_last_tick_value, i < 2 ? 0.25f : 0.75f, 0.001f);
+    }
+    // normal host sampling resumes the same CSS timeline after the loading hold.
+    animation_scheduler_anchor_host_time(scheduler, 102.0);
+    animation_scheduler_tick(scheduler, 102.0, nullptr, false, animations[0]);
+    EXPECT_NEAR(g_last_tick_value, 0.5f, 0.001f);
+}
+
+TEST_F(AnimationSchedulerTest, LoadingHostFramesPreserveAuthoredCssPause) {
+    AnimationInstance* anim = animation_instance_create(scheduler);
+    ASSERT_NE(anim, nullptr);
+    anim->type = ANIM_CSS_ANIMATION;
+    anim->duration = 2.0;
+    anim->play_state = ANIM_PLAY_PAUSED;
+    anim->pause_time = 0.5;
+    anim->tick = test_tick_fn;
+    animation_scheduler_add(scheduler, anim);
+    animation_scheduler_anchor_host_time(scheduler, 100.0);
+    animation_scheduler_anchor_host_time(scheduler, 101.0, true);
+    g_last_tick_value = -1.0f;
+    animation_scheduler_tick(scheduler, 102.0, nullptr, true, anim);
+    EXPECT_EQ(anim->play_state, ANIM_PLAY_PAUSED);
+    EXPECT_NEAR(g_last_tick_value, 0.25f, 0.001f);
+}
+
 TEST_F(AnimationSchedulerTest, TickLinearAnimation) {
     g_last_tick_value = -1.0f;
     g_tick_count = 0;

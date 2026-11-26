@@ -321,14 +321,15 @@ static FlexChildExplicitSizes flex_measure_child_explicit_sizes(LayoutContext* l
     return sizes;
 }
 
-static float flex_child_height_fallback_available_width(LayoutContext* lycon,
+static float flex_measure_child_height_fallback(LayoutContext* lycon,
                                                         ViewElement* item,
                                                         ViewElement* child_view,
                                                         FlexContainerLayout* flex_layout,
                                                         bool is_row_flex_container,
                                                         bool resolve_percent_width) {
     float available_width = 10000.0f;
-    if (is_row_flex_container || !item) return available_width;
+    if (is_row_flex_container || !item)
+        return flex_measure_intrinsic_max_height(lycon, child_view, available_width);
 
     float parent_cw = -1.0f;
     if (layout_axis_has_given_size(item, true)) {
@@ -363,7 +364,8 @@ static float flex_child_height_fallback_available_width(LayoutContext* lycon,
         float child_margins = get_child_axis_margins(lycon, child_view, true, parent_cw);
         available_width = fmax(parent_cw - child_margins, 0.0f);
     }
-    return available_width;
+    // the child's percentage width belongs to this parent, even before its view is initialized.
+    return flex_measure_intrinsic_max_height(lycon, child_view, available_width, parent_cw);
 }
 
 static float flex_measure_zero_child_height_fallback(DomNode* child,
@@ -379,9 +381,8 @@ static float flex_measure_zero_child_height_fallback(DomNode* child,
     }
     // intrinsic sizing owns flex-container height; keeping a local recursive
     // classifier here caused stale row/column and out-of-flow policy drift.
-    float available_width = flex_child_height_fallback_available_width(
+    return flex_measure_child_height_fallback(
         lycon, item, child_view, flex_layout, is_row_flex_container, nested_flex);
-    return flex_measure_intrinsic_max_height(lycon, child, available_width);
 }
 
 static float flex_measure_row_child_height_at_estimated_share(LayoutContext* lycon,
@@ -1290,13 +1291,11 @@ void calculate_item_intrinsic_sizes(ViewElement* item, FlexContainerLayout* flex
                                     child_height = flex_measure_intrinsic_max_height(lycon, c, child_max_width);
                                 }
                             } else if (child_display.inner == CSS_VALUE_FLEX && lycon) {
-                                float available_width = flex_child_height_fallback_available_width(
-                                    lycon, item, child_view, flex_layout, is_row_flex_container, true);
                                 // nested flex children may be measured before their own
                                 // stretched width is assigned; use the parent's constrained
                                 // content width so auto-min height sees wrapped text.
-                                child_height = flex_measure_intrinsic_max_height(
-                                    lycon, c, available_width);
+                                child_height = flex_measure_child_height_fallback(
+                                    lycon, item, child_view, flex_layout, is_row_flex_container, true);
                             }
                             // A retained child FlexItemProp height is skipped for the
                             // same reason as its width; the fallback below measures it.

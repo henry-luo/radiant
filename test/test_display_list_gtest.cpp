@@ -1278,9 +1278,14 @@ static void expect_item_eq(const DisplayItem& a, const DisplayItem& b) {
         EXPECT_EQ(left.w, right.w); EXPECT_EQ(left.h, right.h);
         EXPECT_FLOAT_EQ(left.opacity, right.opacity);
         EXPECT_EQ(left.premultiplied_source, right.premultiplied_source);
-        EXPECT_EQ(left.mask.gradient, right.mask.gradient);
-        EXPECT_FLOAT_EQ(left.mask.rect.x, right.mask.rect.x); EXPECT_FLOAT_EQ(left.mask.rect.y, right.mask.rect.y);
-        EXPECT_FLOAT_EQ(left.mask.rect.width, right.mask.rect.width); EXPECT_FLOAT_EQ(left.mask.rect.height, right.mask.rect.height);
+        EXPECT_EQ(left.mask.style, right.mask.style);
+        auto expect_rect = [](Rect a, Rect b) {
+            EXPECT_FLOAT_EQ(a.x, b.x); EXPECT_FLOAT_EQ(a.y, b.y);
+            EXPECT_FLOAT_EQ(a.width, b.width); EXPECT_FLOAT_EQ(a.height, b.height);
+        };
+        expect_rect(left.mask.border_box, right.mask.border_box);
+        expect_rect(left.mask.padding_box, right.mask.padding_box);
+        expect_rect(left.mask.content_box, right.mask.content_box);
         expect_matrix_eq(left.mask.inverse, right.mask.inverse);
         EXPECT_EQ(left.mask.invertible, right.mask.invertible);
         break;
@@ -1495,8 +1500,16 @@ TEST_F(PaintIrParityTest, ClipPushPopMatchesDirect) {
 TEST_F(PaintIrParityTest, RasterEffectOpsMatchDirect) {
     char filter_token = 0;
     Bound clip = {1, 2, 30, 40};
-    RadialGradient gradient = {};
-    RadialMaskPaint mask = {lam::up(&gradient), {2.5f, 3.25f, 20.0f, 30.0f}, rdt_matrix_identity(), true};
+    MaskProp mask_style = {};
+    mask_style.image_count = 1;
+    mask_style.first.has_image = true;
+    CssMaskPaint mask = {};
+    mask.style = lam::up(&mask_style);
+    mask.border_box = {2.5f, 3.25f, 20.0f, 30.0f};
+    mask.padding_box = {3.5f, 4.25f, 18.0f, 28.0f};
+    mask.content_box = {4.5f, 5.25f, 16.0f, 26.0f};
+    mask.inverse = rdt_matrix_identity();
+    mask.invertible = true;
     mask.inverse.e13 = 7.0f;
 
     paint_save_backdrop(&pl, 2, 3, 20, 30);

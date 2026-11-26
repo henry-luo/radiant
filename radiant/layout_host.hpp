@@ -25,4 +25,6 @@ void radiant_layout_restore_iframe_context(UiContext* ui, DomDocument* parent, v
 bool radiant_layout_defer_iframe_load();
 void radiant_layout_iframe_load_complete(DomDocument* parent, DomElement* frame);
 
+// rebuild retained views after a broad host recascade.
+void layout_rebuild_document(UiContext* ui, DomDocument* doc);
 float radiant_layout_geometry_fallback_dimension(DomElement* element, bool width_axis);

@@ -96,11 +96,12 @@ const LambdaDocumentTransformConfig* radiant_loader_transform_for_type(const cha
     return operations ? operations->transform_for_type(input_type) : nullptr;
 }
 
-void radiant_loader_execute_html_scripts(Element* root, DomDocument* document, Pool* pool,
+bool radiant_loader_execute_html_scripts(Element* root, DomDocument* document, Pool* pool,
                                          Url* base_url, DocumentScriptPhaseTiming* timing) {
     const RadiantLoaderRuntimeHostOps* operations = lambda_provider_load(&loader_runtime_host_ops);
-    if (operations) operations->execute_html_scripts(root, document, pool, base_url, timing);
-    else log_info("document-load: HTML scripting is unavailable without a host");
+    if (operations) return operations->execute_html_scripts(root, document, pool, base_url, timing);
+    log_info("document-load: HTML scripting is unavailable without a host");
+    return true;
 }
 
 void radiant_loader_compile_html_handlers(DomDocument* document) {

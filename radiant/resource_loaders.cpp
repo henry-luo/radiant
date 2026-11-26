@@ -278,69 +278,58 @@ static void request_network_layout_update(NetworkResourceManager* mgr,
     }
 }
 
-// Font resource handler
-void process_font_resource(NetworkResource* res, const struct CssFontFaceDescriptor* font_face) {
-    if (!res || (res->state != STATE_COMPLETED && res->state != STATE_CACHED) || !font_face) return;
+bool radiant_install_downloaded_font_face(UiContext* ui, NetworkResourceManager* manager,
+    const char* local_path, const CssFontFaceDescriptor* font_face) {
+    if (!ui || !ui->font_ctx || !local_path || !font_face || !font_face->family_name) return false;
 
-    log_debug("network: processing font resource %s from %s", res->url, res->local_path);
-
-    // need UiContext for font system access
-    if (!res->manager || !res->manager->ui_context) {
-        log_error("network: no UI context available for font loading");
-        return;
-    }
-
-    UiContext* uicon = (UiContext*)res->manager->ui_context;
-    if (!uicon->font_ctx) {
-        log_error("network: no font context available");
-        return;
-    }
-
-    FontWeight fw = radiant_font_weight_from_css(font_face->font_weight);
-    FontSlant fs = radiant_font_slant_from_css(font_face->font_style);
-
-    // re-register @font-face with the downloaded local cache path as source
-    // font_face_register() merges sources into existing entries
+    FontWeight weight = font_face->font_weight == CSS_VALUE_AUTO
+        ? FONT_WEIGHT_AUTO : radiant_font_weight_from_css(font_face->font_weight);
+    FontSlant slant = radiant_font_slant_from_css(font_face->font_style);
     FontFaceSource source = {};
-    source.path = res->local_path;
-    source.format = NULL;
+    source.path = local_path;
+    // An HTTP success can contain invalid bytes. Publishing it as the newest
+    // matching entry would shadow a decoded fallback from the same rule.
+    FontStyleDesc probe = {};
+    probe.family = font_face->family_name;
+    probe.weight = weight == FONT_WEIGHT_AUTO ? FONT_WEIGHT_NORMAL : weight;
+    probe.slant = slant;
+    probe.size_px = css_font_size_keyword_px(CSS_VALUE_MEDIUM);
+    FontHandle* decoded = font_face_load_source(ui->font_ctx, &source, &probe);
+    if (!decoded) return false;
+    font_handle_release(decoded);
 
     lam::Temp<FontFaceUnicodeRange> unicode_ranges;
     if (font_face->unicode_range_count > 0 && font_face->unicode_ranges) {
         unicode_ranges = lam::temp_array_zero<FontFaceUnicodeRange>(
             (size_t)font_face->unicode_range_count, MEM_CAT_NETWORK);
-        if (unicode_ranges) {
-            for (int i = 0; i < font_face->unicode_range_count; i++) {
-                unicode_ranges[i].start_codepoint = font_face->unicode_ranges[i].start_codepoint;
-                unicode_ranges[i].end_codepoint = font_face->unicode_ranges[i].end_codepoint;
-            }
+        if (!unicode_ranges) return false;
+        for (int i = 0; i < font_face->unicode_range_count; i++) {
+            unicode_ranges[i].start_codepoint = font_face->unicode_ranges[i].start_codepoint;
+            unicode_ranges[i].end_codepoint = font_face->unicode_ranges[i].end_codepoint;
         }
     }
 
     FontFaceDesc face_desc = {};
-    face_desc.family = font_face->family_name ? font_face->family_name : "unknown";
-    face_desc.weight = fw;
-    face_desc.slant = fs;
+    face_desc.family = font_face->family_name;
+    face_desc.weight = weight;
+    face_desc.slant = slant;
     face_desc.sources = &source;
     face_desc.source_count = 1;
     face_desc.unicode_ranges = unicode_ranges.get();
     face_desc.unicode_range_count = unicode_ranges ? font_face->unicode_range_count : 0;
 
-    if (font_face_register(uicon->font_ctx, &face_desc)) {
-        log_debug("network: registered font local path for '%s': %s",
-                  face_desc.family, res->local_path);
-    }
+    if (!font_face_register(ui->font_ctx, &face_desc)) return false;
 
-    // schedule reflow for document to apply new font
-    if (res->manager && res->manager->document) {
-        DomDocument* doc = (DomDocument*)res->manager->document;
-        if (doc->root) {
-            resource_manager_schedule_reflow(res->manager, doc->root);
-        }
-    }
+    auto* doc = manager ? (DomDocument*)manager->document : nullptr;
+    if (doc && doc->root) resource_manager_schedule_reflow(manager, doc->root);
+    log_debug("network: registered font local path for '%s': %s", face_desc.family, local_path);
+    return true;
+}
 
-    log_debug("network: font resource processed successfully: %s (family: %s)",
-              res->url, font_face->family_name ? font_face->family_name : "(unknown)");
+void process_font_resource(NetworkResource* res, const CssFontFaceDescriptor* font_face) {
+    if (!res || (res->state != STATE_COMPLETED && res->state != STATE_CACHED) || !res->manager) return;
+    radiant_install_downloaded_font_face((UiContext*)res->manager->ui_context,
+        res->manager, res->local_path, font_face);
 }
 
 // SVG resource handler (for <use xlink:href="external.svg#id">)

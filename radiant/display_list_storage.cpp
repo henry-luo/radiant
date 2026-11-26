@@ -1144,7 +1144,7 @@ bool dl_item_is_retainable_for_fragment(const DisplayItem* item) {
             }
             break;
         case DL_COMPOSITE_OPACITY:
-            if (item->composite_opacity.mask.gradient) return false;
+            if (item->composite_opacity.mask.active()) return false;
             break;
         default:
             break;

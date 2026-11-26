@@ -3224,18 +3224,18 @@ bool layout_svg_percentage_axis_content_size(LayoutContext* context,
 
 static bool intrinsic_replaced_height_from_shared_facts(
         LayoutContext* lycon, ViewBlock* view, DomElement* element,
-        float query_width, float* out_height) {
+        float query_width, bool has_definite_width, float* out_height) {
     if (!element || !out_height) return false;
     if (layout_is_svg_viewport(element->tag())) {
         if (layout_svg_percentage_axis_content_size(
                 lycon, view, element, false, out_height)) return true;
-        (void)layout_svg_percentage_axis_content_size(
-            lycon, view, element, true, &query_width);
+        if (layout_svg_percentage_axis_content_size(lycon, view, element, true, &query_width))
+            has_definite_width = true;
         if (intrinsic_svg_is_ratio_only(element, view) && query_width <= 0.0f) {
             *out_height = 0.0f;
             return true;
         }
-        *out_height = layout_replaced_svg_intrinsic_size(element, query_width).height;
+        *out_height = layout_replaced_svg_intrinsic_size(element, query_width, has_definite_width).height;
         return *out_height >= 0.0f;
     }
     if (element->tag() == MARKUP_NAME_AUDIO) {
@@ -3243,6 +3243,17 @@ static bool intrinsic_replaced_height_from_shared_facts(
     }
     return layout_replaced_intrinsic_axis_size(
         lycon, view, element, false, query_width, out_height);
+}
+
+static float intrinsic_definite_preferred_width(LayoutContext* lycon, ViewBlock* view,
+    DomElement* element) {
+    CssDeclaration* declaration = layout_specified_physical_size_declaration(element, true);
+    if (!declaration || !declaration->value ||
+            layout_intrinsic_preferred_size_keyword(view, true) != CSS_VALUE__UNDEF) return NAN;
+    LayoutCssSizeFacts facts = layout_css_size_facts(lycon, element, declaration);
+    if (facts.automatic || (facts.percentage && intrinsic_percentage_width_is_indefinite(lycon, element)))
+        return NAN;
+    return resolve_element_length_value(lycon, element, CSS_PROPERTY_WIDTH, declaration->value);
 }
 
 static float intrinsic_replaced_max_height(LayoutContext* lycon, DomElement* element,
@@ -7550,22 +7561,18 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
 
     // ratio and replaced-height contributions use the resolved child width, not parent free space.
     float content_w = width;
+    bool is_svg = layout_is_svg_viewport(element->tag());
+    float preferred_width = !width_is_used_size || is_svg
+        ? intrinsic_definite_preferred_width(lycon, view, element) : NAN;
+    bool has_definite_preferred_width = isfinite(preferred_width) && preferred_width >= 0.0f;
     if (!width_is_used_size) {
         // preferred expressions and clamps use this element's containing block;
         // assigned flex/grid queries already supply the final content width.
         float border_width = width >= 0.0f
             ? layout_border_size_from_content_box(view, width, true) : -1.0f;
-        CssDeclaration* declaration = layout_specified_physical_size_declaration(element, true);
-        LayoutCssSizeFacts facts = layout_css_size_facts(lycon, element, declaration);
-        if (declaration && declaration->value && !facts.automatic &&
-            layout_intrinsic_preferred_size_keyword(view, true) == CSS_VALUE__UNDEF &&
-            !(facts.percentage && intrinsic_percentage_width_is_indefinite(lycon, element))) {
-            float preferred = resolve_element_length_value(
-                lycon, element, CSS_PROPERTY_WIDTH, declaration->value);
-            if (isfinite(preferred) && preferred >= 0.0f) {
-                border_width = layout_css_size_to_border_box(
-                    view->bound, layout_box_sizing(view), preferred, true);
-            }
+        if (has_definite_preferred_width) {
+            border_width = layout_css_size_to_border_box(
+                view->bound, layout_box_sizing(view), preferred_width, true);
         }
         if (border_width >= 0.0f) {
             border_width = layout_apply_min_max_border_box_axis(view, border_width, true);
@@ -7672,18 +7679,18 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
                   layout_object_uses_default_size(element))) {
             float replaced_height = 0.0f;
             if (intrinsic_replaced_height_from_shared_facts(
-                    lycon, view, element, replaced_query_width, &replaced_height)) {
+                    lycon, view, element, replaced_query_width, has_definite_preferred_width, &replaced_height)) {
                 return replaced_height;
             }
         }
     }
 
     // SVG fallback: handle SVG elements even when display.inner is not yet resolved
-    if (layout_is_svg_viewport(element->tag()) && !has_empty_size_containment &&
+    if (is_svg && !has_empty_size_containment &&
         !has_contain_intrinsic_height) {
         float svg_height = 0.0f;
         if (intrinsic_replaced_height_from_shared_facts(
-                lycon, view, element, replaced_query_width, &svg_height)) {
+                lycon, view, element, replaced_query_width, has_definite_preferred_width, &svg_height)) {
             return svg_height;
         }
     }

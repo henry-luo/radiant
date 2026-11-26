@@ -2252,7 +2252,7 @@ AnimationInstance* css_animation_create(AnimationScheduler* scheduler,
 
 static void css_web_animation_request_sampling(CssWebAnimationState* state) {
     DomElement* element = state ? state->element : nullptr;
-    if (!element) return;
+    if (!element || element->doc != state->document) return;
     // effect changes require computed style without fabricating a DOM mutation.
     dom_invalidate_layout_subtree(element);
     if (element->doc) doc_state_request_reflow(element->doc->state);
@@ -2260,107 +2260,196 @@ static void css_web_animation_request_sampling(CssWebAnimationState* state) {
 
 CssWebAnimationState* css_web_animation_create(DomElement* element,
                                                 CssKeyframes* keyframes,
-                                                double duration_ms,
-                                                const TimingFunction* timing,
+                                                const CssWebAnimationTiming* timing,
                                                 Pool* pool) {
-    if (!element || !keyframes || !pool) return NULL;
+    if (!element || !keyframes || !timing || !pool) return nullptr;
 
     CssWebAnimationState* state = (CssWebAnimationState*)pool_calloc(
         pool, sizeof(CssWebAnimationState));
     if (!state) return NULL;
     state->element = element;
-    state->duration_ms = duration_ms >= 0.0 ? duration_ms : 0.0;
-    state->current_time_ms = 0.0;
-    state->current_time_resolved = true;
-    if (timing) {
-        if (!timing_function_assign(pool, &state->timing, timing)) {
-            pool_free(pool, state);
-            return nullptr;
-        }
+    state->document = element->doc;
+    state->timing = *timing;
+    state->timing.easing = {};
+    if (!timing_function_assign(pool, &state->timing.easing, &timing->easing)) {
+        pool_free(pool, state);
+        return nullptr;
     }
-    else state->timing.type = TIMING_LINEAR;
     state->sample.keyframes = keyframes;
     state->sample.element = element;
     state->sample.pool = pool;
     state->sample.event_iteration = -1;
     state->sample.suppress_events = true;
-    state->underlying_captured = false;
 
-    state->next = (CssWebAnimationState*)element->web_animation_state();
-    element->set_web_animation_state(state);
-    css_web_animation_request_sampling(state);
-    log_debug("web-anim: created effect for <%s> duration=%.1fms",
-              element->tag_name() ? element->tag_name() : "?", state->duration_ms);
+    CssWebAnimationState* first = element->web_animation_state();
+    if (!first) {
+        element->set_web_animation_state(state);
+    } else {
+        // Later-created effects composite after earlier effects on the same target.
+        auto* last = first;
+        while (last->next) last = last->next;
+        last->next = state;
+    }
     return state;
+}
+
+static AnimationScheduler* css_web_animation_scheduler(const CssWebAnimationState* state) {
+    return state->document->state ? state->document->state->animation_scheduler : nullptr;
+}
+
+static double css_web_animation_end(const CssWebAnimationState* state) {
+    const auto& timing = state->timing;
+    double active = timing.duration_ms && timing.iterations
+        ? timing.duration_ms * timing.iterations : 0.0;
+    return fmax(0.0, timing.delay_ms + active);
+}
+
+double css_web_animation_current_time(const CssWebAnimationState* state) {
+    if (!state->driver) return state->current_time_ms;
+    double time_ms = state->current_time_ms + 1000.0 *
+        animation_clock_time(css_web_animation_scheduler(state), state->driver, 0.0);
+    return fmin(time_ms, css_web_animation_end(state));
+}
+
+static float css_web_animation_progress(const CssWebAnimationState* state, AnimationInstance* sample) {
+    sample->duration = state->timing.duration_ms / 1000.0;
+    sample->delay = state->timing.delay_ms / 1000.0;
+    sample->iteration_count = isinf(state->timing.iterations) ? -1.0 : state->timing.iterations;
+    sample->fill_mode = state->timing.fill;
+    return animation_effect_progress(sample, css_web_animation_current_time(state) / 1000.0);
+}
+
+bool css_web_animation_is_relevant(const CssWebAnimationState* state) {
+    if (!state || !state->current_time_resolved) return false;
+    AnimationInstance sample = {};
+    return state->driver || css_web_animation_progress(state, &sample) >= 0.0f;
+}
+
+static void css_web_animation_clear_sample(CssWebAnimationState* state) {
+    if (!state->sample_applied) return;
+    state->sample_applied = false;
+    state->underlying_captured = false;
+    state->sample.presentation_sample_count = 0;
+    if (state->element->doc != state->document) return;
+    css_animation_restore_underlying_transform(&state->sample);
+    dom_element_clear_animation_custom_properties(state->element, &state->sample);
+    if (dom_element_is_svg(state->element)) dom_svg_invalidate_presentation(state->element);
+    css_web_animation_request_sampling(state);
+}
+
+static void css_web_animation_apply(CssWebAnimationState* state, LayoutContext* lycon,
+                                    AnimationInstance* driver) {
+    AnimationInstance sample = {};
+    float progress = css_web_animation_progress(state, &sample);
+    if (lycon) {
+        css_animation_refresh_priority(&state->sample);
+        css_animation_refresh_value_samples(&state->sample, lycon);
+    }
+    if (progress < 0.0f) {
+        css_web_animation_clear_sample(state);
+        return;
+    }
+    if (!state->underlying_captured) {
+        capture_animation_underlying(&state->sample);
+        state->underlying_captured = true;
+    }
+    sample.type = ANIM_WEB_ANIMATION;
+    sample.state = &state->sample;
+    sample.target = state->element;
+    float eased = timing_function_eval(&state->timing.easing, progress, animation_easing_before(&sample));
+    css_animation_tick(&sample, eased);
+    state->sample_applied = true;
+    if (driver) {
+        driver->layout_changed |= sample.layout_changed;
+        memcpy(driver->bounds, sample.bounds, sizeof(sample.bounds));
+    }
+}
+
+static void css_web_animation_composite(DomElement* element, LayoutContext* lycon,
+    AnimationInstance* driver) {
+    auto* first = element->web_animation_state();
+    if (!first) return;
+    if (driver) {
+        // Every active driver on this target sees the same timeline time. Sample
+        // the whole effect stack once, including paused and filled effects.
+        if (first->composited && first->last_composite_time == driver->sample_time) return;
+        first->composited = true;
+        first->last_composite_time = driver->sample_time;
+    }
+    for (auto* state = first; state; state = state->next) {
+        if (!state->current_time_resolved || state->document != element->doc) continue;
+        css_web_animation_apply(state, lycon, driver);
+        if (lycon && element->blk) {
+            // The sizing pass consumes this snapshot of the resolved block properties.
+            lycon->block.given_width = element->block()->given_width;
+            lycon->block.given_height = element->block()->given_height;
+        }
+    }
+}
+
+static void css_web_animation_driver_released(AnimationInstance* driver) {
+    ((CssWebAnimationState*)driver->target)->driver = nullptr;
+}
+
+static void css_web_animation_driver_tick(AnimationInstance* driver, float) {
+    auto* state = (CssWebAnimationState*)driver->target;
+    DomElement* element = state->element;
+    if (element->doc == state->document && dom_node_is_connected(element) &&
+        element->view_type != RDT_VIEW_NONE && !state->document->disable_css_animations) {
+        css_web_animation_composite(element, nullptr, driver);
+    }
+    double time_ms = css_web_animation_current_time(state);
+    if (time_ms >= css_web_animation_end(state)) {
+        state->current_time_ms = time_ms;
+        driver->play_state = ANIM_PLAY_FINISHED;
+    }
+}
+
+void css_web_animation_play(CssWebAnimationState* state) {
+    if (!state || state->driver || state->element->doc != state->document) return;
+    if (!state->document->state && !state_store_create(state->document)) return;
+    if (!state->current_time_resolved || state->current_time_ms < 0.0 ||
+        state->current_time_ms >= css_web_animation_end(state)) state->current_time_ms = 0.0;
+    state->driver = animation_clock_driver_start(css_web_animation_scheduler(state),
+        ANIM_WEB_ANIMATION, state, css_web_animation_driver_tick, css_web_animation_driver_released);
+    if (state->driver) {
+        state->current_time_resolved = true;
+        css_web_animation_request_sampling(state);
+    }
+}
+
+void css_web_animation_pause(CssWebAnimationState* state) {
+    if (!state) return;
+    if (state->driver) {
+        state->current_time_ms = css_web_animation_current_time(state);
+        animation_scheduler_cancel(css_web_animation_scheduler(state), state->driver);
+    } else if (!state->current_time_resolved) {
+        state->current_time_ms = 0.0;
+        state->current_time_resolved = true;
+        css_web_animation_request_sampling(state);
+    }
 }
 
 void css_web_animation_set_current_time(CssWebAnimationState* state,
                                          double current_time_ms) {
-    if (!state) return;
-    if (!isfinite(current_time_ms) || current_time_ms < 0.0) {
-        current_time_ms = 0.0;
-    }
-    if (state->current_time_resolved && state->current_time_ms == current_time_ms) return;
+    if (!state || !isfinite(current_time_ms)) return;
+    if (state->current_time_resolved && css_web_animation_current_time(state) == current_time_ms) return;
     state->current_time_ms = current_time_ms;
+    if (state->driver) state->driver->start_time = css_web_animation_scheduler(state)->current_time;
     state->current_time_resolved = true;
     css_web_animation_request_sampling(state);
 }
 
 void css_web_animation_cancel(CssWebAnimationState* state) {
     if (!state || !state->current_time_resolved) return;
-    // unresolved time removes the effect; retain its document-owned state for later seeks.
+    if (state->driver) animation_scheduler_cancel(css_web_animation_scheduler(state), state->driver);
     state->current_time_resolved = false;
-    state->underlying_captured = false;
-    // absent transform declarations leave the sampled borrow in the retained view.
-    css_animation_restore_underlying_transform(&state->sample);
-    css_web_animation_request_sampling(state);
+    css_web_animation_clear_sample(state);
 }
 
 void css_web_animation_resolve(DomElement* element, LayoutContext* lycon) {
-    if (!element) return;
-    if (lycon && lycon->ui_context && lycon->ui_context->document &&
-        lycon->ui_context->document->disable_css_animations) {
-        return;
-    }
-
-    CssWebAnimationState* state =
-        (CssWebAnimationState*)element->web_animation_state();
-    while (state) {
-        if (!state->current_time_resolved) {
-            state = state->next;
-            continue;
-        }
-        css_animation_refresh_priority(&state->sample);
-        css_animation_refresh_value_samples(&state->sample, lycon);
-        if (!state->underlying_captured) {
-            capture_animation_underlying(&state->sample);
-            state->underlying_captured = true;
-        }
-
-        float progress = state->duration_ms > 0.0
-            ? (float)(state->current_time_ms / state->duration_ms) : 1.0f;
-        float eased = timing_function_eval(&state->timing, progress);
-        log_debug("web-anim: sample <%s> current=%.1fms progress=%.3f eased=%.3f underlying=%d",
-                  element->tag_name() ? element->tag_name() : "?",
-                  state->current_time_ms, progress, eased,
-                  state->sample.underlying_count);
-        AnimationInstance sample = {};
-        sample.type = ANIM_CSS_ANIMATION;
-        sample.target = element;
-        sample.state = &state->sample;
-        sample.duration = state->duration_ms / 1000.0;
-        sample.current_iteration = 0;
-        sample.play_state = ANIM_PLAY_RUNNING;
-        sample.timing.type = TIMING_LINEAR;
-        css_animation_tick(&sample, eased);
-        if (lycon && element->blk) {
-            // block layout consumes the context snapshot, so copy the sampled
-            // effect after applying it to the element's resolved BlockProp.
-            lycon->block.given_width = element->block()->given_width;
-            lycon->block.given_height = element->block()->given_height;
-        }
-        state = state->next;
-    }
+    if (!element || !element->doc || element->doc->disable_css_animations) return;
+    css_web_animation_composite(element, lycon, nullptr);
 }
 
 // ============================================================================
@@ -2574,7 +2663,7 @@ bool css_animation_needs_computed_sample(DomElement* element, CssPropertyCode pr
     DomDocument* doc = element->doc;
     if (doc->disable_css_animations) return false;
     for (CssWebAnimationState* effect = element->web_animation_state(); effect; effect = effect->next) {
-        if (effect->current_time_resolved &&
+        if (css_web_animation_is_relevant(effect) &&
             css_keyframes_animates_property(effect->sample.keyframes, property)) return true;
     }
     DocState* state = (DocState*)doc->state;

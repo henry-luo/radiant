@@ -353,13 +353,19 @@ void view_release_border_image(ViewTree* tree, BorderProp* border) {
     border->border_image_resolution = 0.0f;
 }
 
+void view_release_mask_images(ViewTree* tree, MaskProp* mask) {
+    if (!mask) return;
+    view_release_background_images(tree, &mask->images);
+    view_pool_free(tree, mask->layers);
+}
+
 static void free_boundary_payload(DomElement* elem, ViewTree* tree) {
     if (!elem || !elem->bound) return;
     BoundaryProp* boundary = elem->bound;
     free_background_prop(tree, boundary->background);
     view_release_border_image(tree, boundary->border);
     view_pool_free(tree, boundary->border);
-    if (boundary->mask) free_gradient(tree, boundary->mask->radial_gradient);
+    view_release_mask_images(tree, boundary->mask);
     view_pool_free(tree, boundary->mask);
     view_pool_free_list(tree, boundary->box_shadow);
     view_pool_free(tree, boundary->outline);

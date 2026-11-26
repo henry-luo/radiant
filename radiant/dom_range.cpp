@@ -1648,7 +1648,10 @@ bool dom_range_insert_node(DomRange* r, DomNode* node, const char** out_exceptio
     }
     DomNode* sn = r->start.node;
     if (!sn) { if (out_exception) *out_exception = "InvalidStateError"; return false; }
-    if (sn == node) { if (out_exception) *out_exception = "HierarchyRequestError"; return false; }
+    if (dom_host_including_contains(node, sn)) {
+        if (out_exception) *out_exception = "HierarchyRequestError";
+        return false;
+    }
     // Text starts must have a parent for insertion to make sense.
     if (sn->is_text() && !sn->parent) {
         if (out_exception) *out_exception = "HierarchyRequestError";

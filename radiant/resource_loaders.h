@@ -13,6 +13,7 @@ extern "C" {
 // Forward declarations
 struct DomDocument;
 struct DomElement;
+struct UiContext;
 struct CssStylesheet;
 struct CssFontFaceDescriptor;
 struct CssValue;
@@ -25,6 +26,8 @@ char* radiant_read_resource_file(const char* path, size_t* out_size);
 void process_css_resource(NetworkResource* res, struct DomDocument* doc);
 void process_image_resource(NetworkResource* res, struct DomElement* img_element);
 void process_font_resource(NetworkResource* res, const struct CssFontFaceDescriptor* font_face);
+bool radiant_install_downloaded_font_face(struct UiContext* ui, NetworkResourceManager* manager,
+    const char* local_path, const struct CssFontFaceDescriptor* font_face);
 void process_svg_resource(NetworkResource* res, struct DomElement* use_element);
 void process_html_resource(NetworkResource* res, struct DomDocument* doc);
 void process_script_resource(NetworkResource* res, struct DomDocument* doc);

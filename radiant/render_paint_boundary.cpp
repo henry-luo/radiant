@@ -447,6 +447,27 @@ Color render_sample_gradient_stops(const RdtGradientStop* stops, int count, floa
     return render_gradient_stop_color(stops[count - 1]);
 }
 
+Color render_gradient_average_color(const RdtGradientStop* stops, int count) {
+    double extent = (double)stops[count - 1].offset - stops[0].offset;
+    double red = 0.0, green = 0.0, blue = 0.0, alpha = 0.0;
+    for (int index = 1; index < count; index++) {
+        const RdtGradientStop& before = stops[index - 1];
+        const RdtGradientStop& after = stops[index];
+        // CSS Images 3 §3.3 spaces zero-period stops equally before premultiplied averaging.
+        double weight = extent > 0.0 ? ((double)after.offset - before.offset) / (2.0 * extent)
+            : 0.5 / (count - 1);
+        alpha += weight * (before.a + after.a);
+        red += weight * ((double)before.r * before.a + (double)after.r * after.a);
+        green += weight * ((double)before.g * before.a + (double)after.g * after.a);
+        blue += weight * ((double)before.b * before.a + (double)after.b * after.a);
+    }
+    return Color{render_pixel_pack_abgr(
+        clamp_byte_round(alpha > 0.0 ? (float)(red / alpha) : 0.0f),
+        clamp_byte_round(alpha > 0.0 ? (float)(green / alpha) : 0.0f),
+        clamp_byte_round(alpha > 0.0 ? (float)(blue / alpha) : 0.0f),
+        clamp_byte_round((float)alpha))};
+}
+
 bool render_normalize_linear_gradient_range(RadiantGradientLine* line,
         RdtGradientStop* stops, int count) {
     if (!line || !stops || count < 2) return false;

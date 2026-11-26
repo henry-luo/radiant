@@ -1,5 +1,6 @@
 #include "render.hpp"
 
+#include "lib/math_checked.hpp"
 #include "lib/math_utils.h"
 #include <math.h>
 #include <string.h>
@@ -144,24 +145,179 @@ uint32_t render_composite_blend_pixel(uint32_t backdrop, uint32_t source, CssEnu
     return render_pixel_pack_abgr(rr, rg, rb, new_a);
 }
 
-static float render_radial_mask_alpha(const RadialMaskPaint* mask, const RadiantRadialGeometry& geometry,
-        const RdtGradientStop* stops, int count, float x, float y) {
-    if (!mask || !mask->gradient) return 1.0f;
-    if (!stops || count < 2 || !mask->invertible || !rdt_matrix_project_point(&mask->inverse, x, y, &x, &y)) return 0.0f;
-    Rect rect = mask->rect;
-    if (x < rect.x || y < rect.y || x >= rect.x + rect.width || y >= rect.y + rect.height) return 0.0f;
-    if (geometry.rx <= 0.0f || geometry.ry <= 0.0f) return stops[count - 1].a / 255.0f;
-    float distance = hypotf((x - geometry.cx) / geometry.rx, (y - geometry.cy) / geometry.ry);
-    float first = stops[0].offset, last = stops[count - 1].offset;
-    if (mask->gradient->is_repeating && last > first) distance = first + (distance - first - floorf((distance - first) / (last - first)) * (last - first));
-    float previous = first;
-    float alpha = stops[0].a / 255.0f;
-    if (distance < first) return alpha;
-    for (int index = 1; index < count; index++) {
-        float next = stops[index].offset;
-        float target = stops[index].a / 255.0f;
-        if (distance < next) return alpha + (target - alpha) * (distance - previous) / (next - previous);
-        previous = next; alpha = target;
+struct MaskLayerSampling {
+    const ImageSurface* image;
+    int width, height;
+    BackgroundTilePlan tiles;
+    Rect clip;
+    MaskLayerOptions options;
+    const RdtGradientStop* stops;
+    int stop_count;
+    GradientType gradient;
+    RadiantGradientLine line;
+    RadiantRadialGeometry radial;
+    RadiantGradientCenter center;
+    float angle;
+    float first_stop;
+    float period;
+    bool solid_gradient;
+    float solid_alpha;
+};
+
+static Rect mask_box(const CssMaskPaint& mask, CssEnum box) {
+    if (box == CSS_VALUE_CONTENT_BOX) return mask.content_box;
+    if (box == CSS_VALUE_PADDING_BOX) return mask.padding_box;
+    return mask.border_box;
+}
+
+static float mask_color_alpha(uint32_t color, bool luminance, bool premultiplied) {
+    float alpha = (color >> 24) / 255.0f;
+    if (!luminance) return alpha;
+    float luma = (0.2125f * (color & 255u) + 0.7154f * ((color >> 8) & 255u) +
+        0.0721f * ((color >> 16) & 255u)) / 255.0f;
+    return premultiplied ? luma : luma * alpha;
+}
+
+struct MaskGradientSource {
+    const GradientStop* stops;
+    int count;
+    bool repeat;
+};
+
+static MaskGradientSource mask_gradient_source(const BackgroundLayer& layer) {
+    if (layer.linear_gradient) return {layer.linear_gradient->stops.get(), layer.linear_gradient->stop_count, layer.linear_gradient->is_repeating};
+    if (layer.radial_gradient) return {layer.radial_gradient->stops.get(), layer.radial_gradient->stop_count, layer.radial_gradient->is_repeating};
+    if (layer.conic_gradient) return {layer.conic_gradient->stops.get(), layer.conic_gradient->stop_count, layer.conic_gradient->is_repeating};
+    return {};
+}
+
+static void prepare_mask_gradient(MaskLayerSampling* sample, const BackgroundLayer& layer,
+        MaskGradientSource gradient, RdtGradientStop* stops) {
+    if (!gradient.stops || gradient.count < 2) return;
+    const Rect tile = {0, 0, sample->tiles.tile_w, sample->tiles.tile_h};
+    float length = 1.0f;
+    if (layer.linear_gradient) {
+        sample->gradient = GRADIENT_LINEAR;
+        sample->line = radiant_linear_gradient_line(tile, radiant_linear_gradient_used_angle(layer.linear_gradient, tile));
+        length = hypotf(sample->line.x2 - sample->line.x1, sample->line.y2 - sample->line.y1);
+    } else if (layer.radial_gradient) {
+        sample->gradient = GRADIENT_RADIAL;
+        sample->radial = radiant_radial_gradient_geometry(layer.radial_gradient, tile);
+        length = sample->radial.rx;
+    } else {
+        sample->gradient = GRADIENT_CONIC;
+        sample->center = radiant_gradient_center(layer.conic_gradient.get(), tile);
+        sample->angle = math_degrees_to_radians(layer.conic_gradient->from_angle - 90.0f);
+    }
+    if (!render_copy_gradient_stops(gradient.stops, gradient.count, length, stops, gradient.count, &sample->stop_count)) return;
+    sample->stops = stops;
+    sample->first_stop = stops[0].offset;
+    sample->period = gradient.repeat ? stops[sample->stop_count - 1].offset - sample->first_stop : 0.0f;
+    Color first = render_gradient_stop_color(stops[0]);
+    sample->solid_gradient = true;
+    for (int index = 1; index < sample->stop_count; ++index) {
+        if (render_gradient_stop_color(stops[index]).c != first.c) { sample->solid_gradient = false; break; }
+    }
+    if (gradient.repeat && sample->period <= 0.0f) {
+        first = render_gradient_average_color(stops, sample->stop_count);
+        sample->solid_gradient = true;
+    }
+    if (sample->solid_gradient) sample->solid_alpha = mask_color_alpha(first.c, sample->options.luminance, false);
+}
+
+static MaskLayerSampling prepare_mask_layer(const CssMaskPaint& mask, int index, RdtGradientStop* stops) {
+    MaskLayerSampling sample = {};
+    const BackgroundLayer& layer = mask.style->image(index);
+    sample.options = mask.style->options(index);
+    const ImageSurface* image = image_surface_lookup(sample.options.prepared_image);
+    if (image && image->pixels) {
+        sample.width = image->decoded_width > 0 ? image->decoded_width : image->width;
+        sample.height = image->decoded_height > 0 ? image->decoded_height : image->height;
+    }
+    bool bitmap = sample.width > 0 && sample.height > 0;
+    MaskGradientSource gradient = mask_gradient_source(layer);
+    if (!bitmap && (!gradient.stops || !stops)) return sample;
+    Rect origin = mask_box(mask, layer.bg_origin);
+    sample.clip = mask_box(mask, layer.bg_clip);
+    float density = bitmap ? layout_css_image_density(image, layer.image_resolution) : 1.0f;
+    if (!compute_background_tile_plan(&layer, origin, sample.options.no_clip ? origin : sample.clip,
+            bitmap ? image->width / density : origin.width, bitmap ? image->height / density : origin.height,
+            &sample.tiles, 1.0f, bitmap)) return sample;
+    // spaced repeats are anchored at the origin once more than one tile fits.
+    if (sample.tiles.repeat_x == CSS_VALUE_SPACE && sample.tiles.end_col > 0) sample.tiles.origin_x = origin.x;
+    if (sample.tiles.repeat_y == CSS_VALUE_SPACE && sample.tiles.end_row > 0) sample.tiles.origin_y = origin.y;
+    if (bitmap) sample.image = image;
+    else prepare_mask_gradient(&sample, layer, gradient, stops);
+    return sample;
+}
+
+static float mask_tile_coordinate(float coordinate, float origin, float extent,
+                                  float gap, CssEnum repeat, int last_tile) {
+    float offset = coordinate - origin;
+    if (repeat == CSS_VALUE_SPACE && last_tile > 0) {
+        float step = extent + gap;
+        float tile = floorf(offset / step);
+        if (tile < 0.0f || tile > last_tile) return -1.0f;
+        offset -= tile * step;
+    } else if (repeat != CSS_VALUE_NO_REPEAT && repeat != CSS_VALUE_SPACE) {
+        offset -= floorf(offset / extent) * extent;
+    }
+    return offset >= 0.0f && offset < extent ? offset / extent : -1.0f;
+}
+
+static float mask_gradient_position(const MaskLayerSampling& sample, float x, float y) {
+    if (sample.gradient == GRADIENT_LINEAR) {
+        const RadiantGradientLine& line = sample.line;
+        float dx = line.x2 - line.x1, dy = line.y2 - line.y1;
+        float length_squared = dx * dx + dy * dy;
+        return length_squared > 0.0f ? ((x - line.x1) * dx + (y - line.y1) * dy) / length_squared : 1.0f;
+    }
+    if (sample.gradient == GRADIENT_CONIC) return math_wrap_positive_f(
+        atan2f(y - sample.center.y, x - sample.center.x) - sample.angle, math_tau_f()) / math_tau_f();
+    const RadiantRadialGeometry& radial = sample.radial;
+    return radial.rx > 0.0f && radial.ry > 0.0f
+        ? hypotf((x - radial.cx) / radial.rx, (y - radial.cy) / radial.ry)
+        : sample.stops[sample.stop_count - 1].offset;
+}
+
+static float mask_layer_alpha(const MaskLayerSampling& sample, float x, float y) {
+    if (!sample.image && !sample.stops) return 0.0f;
+    const Rect& clip = sample.clip;
+    if (!sample.options.no_clip &&
+        (x < clip.x || y < clip.y || x >= clip.x + clip.width || y >= clip.y + clip.height)) return 0.0f;
+    const BackgroundTilePlan& tiles = sample.tiles;
+    float u = mask_tile_coordinate(x, tiles.origin_x, tiles.tile_w, tiles.space_gap_x, tiles.repeat_x, tiles.end_col);
+    float v = mask_tile_coordinate(y, tiles.origin_y, tiles.tile_h, tiles.space_gap_y, tiles.repeat_y, tiles.end_row);
+    if (u < 0.0f || v < 0.0f) return 0.0f;
+    bool luminance = sample.options.luminance;
+    if (sample.image) {
+        // convert a straight source before filtering so luminance includes alpha exactly once.
+        uint32_t pixel = render_pixel_sample_bilinear((const uint8_t*)sample.image->pixels,
+            sample.width, sample.height, sample.image->pitch, u * sample.width - 0.5f, v * sample.height - 0.5f,
+            false, true, luminance && sample.image->alpha_mode == IMAGE_ALPHA_STRAIGHT);
+        return mask_color_alpha(pixel, luminance, true);
+    }
+    if (sample.solid_gradient) return sample.solid_alpha;
+    float position = mask_gradient_position(sample, u * tiles.tile_w, v * tiles.tile_h);
+    if (sample.period > 0.0f)
+        position = sample.first_stop + math_wrap_positive_f(position - sample.first_stop, sample.period);
+    Color color = render_sample_gradient_stops(sample.stops, sample.stop_count, position, 1.0f);
+    return mask_color_alpha(color.c, luminance, false);
+}
+
+static float composite_mask_alpha(const CssMaskPaint& mask, const MaskLayerSampling* layers, float x, float y) {
+    if (!layers || !rdt_matrix_project_point(&mask.inverse, x, y, &x, &y)) return 0.0f;
+    int bottom = mask.style->image_count - 1;
+    float alpha = mask_layer_alpha(layers[bottom], x, y);
+    // the last layer has no destination. Each layer above it sees the isolated result so far.
+    for (int index = bottom - 1; index >= 0; --index) {
+        float source = mask_layer_alpha(layers[index], x, y);
+        switch (layers[index].options.composite) {
+            case CssMaskComposite::Add: alpha = source + alpha * (1.0f - source); break;
+            case CssMaskComposite::Subtract: alpha = source * (1.0f - alpha); break;
+            case CssMaskComposite::Intersect: alpha *= source; break;
+            case CssMaskComposite::Exclude: alpha = source * (1.0f - alpha) + alpha * (1.0f - source); break;
+        }
     }
     return alpha;
 }
@@ -172,15 +328,31 @@ void render_composite_apply_region(ImageSurface* surface, const uint32_t* backdr
                                    CssEnum blend_mode, uint8_t opacity,
                                    const ClipShape* exclude_shape,
                                    const ClipShape* include_shape,
-                                   const RadialMaskPaint* mask, float offset_x, float offset_y) {
+                                   const CssMaskPaint* mask, float offset_x, float offset_y) {
     if (!surface || !surface->pixels || !backdrop || width <= 0 || height <= 0) return;
-    RadialGradient* gradient = mask ? mask->gradient.get() : nullptr;
-    int stop_count = gradient ? gradient->stop_count : 0;
-    lam::Temp<RdtGradientStop> stops = stop_count > 0 ? lam::temp_array<RdtGradientStop>(stop_count, MEM_CAT_RENDER) : lam::Temp<RdtGradientStop>();
-    RadiantRadialGeometry geometry = gradient ? radiant_radial_gradient_geometry(gradient, mask->rect) : RadiantRadialGeometry{};
-    // one prepared stop list serves every masked pixel in this region.
-    if (gradient && (!stops || !render_copy_gradient_stops(gradient->stops, stop_count, geometry.rx, stops.get(), stop_count, nullptr)))
-        stops.reset(); // an invalid mask supplies zero coverage through the existing sampler.
+    ImageSurfaceReadScope mask_reads;
+    bool masked = mask && mask->active();
+    lam::Temp<MaskLayerSampling> layers;
+    lam::Temp<RdtGradientStop> stops;
+    if (masked && mask->invertible) {
+        const MaskProp& style = *mask->style;
+        size_t total = 0;
+        bool valid = true;
+        for (int index = 0; valid && index < style.image_count; ++index) {
+            int count = mask_gradient_source(style.image(index)).count;
+            valid = count >= 0 && math_checked_add(total, (size_t)count, &total);
+        }
+        if (valid && total) stops = lam::temp_array<RdtGradientStop>(total, MEM_CAT_RENDER);
+        if (valid) layers = lam::temp_array<MaskLayerSampling>((size_t)style.image_count, MEM_CAT_RENDER);
+        if (layers) {
+            size_t start = 0;
+            for (int index = 0; index < style.image_count; ++index) {
+                int count = mask_gradient_source(style.image(index)).count;
+                layers.get()[index] = prepare_mask_layer(*mask, index, stops && count ? stops.get() + start : nullptr);
+                start += (size_t)count;
+            }
+        }
+    }
     uint32_t* pixels = (uint32_t*)surface->pixels;
     int pitch = surface->pitch / 4;
     for (int row = 0; row < height; row++) {
@@ -195,8 +367,12 @@ void render_composite_apply_region(ImageSurface* surface, const uint32_t* backdr
             }
             uint32_t* pixel = &pixels[(y0 + row) * pitch + (x0 + col)];
             uint32_t source = backdrop[row * width + col];
-            uint8_t coverage = mask && mask->gradient ? clamp_byte_round(opacity * render_radial_mask_alpha(mask, geometry, stops.get(), stop_count,
-                x0 + col + offset_x + 0.5f, y0 + row + offset_y + 0.5f)) : opacity;
+            uint8_t coverage = opacity;
+            if (masked) {
+                float x = x0 + col + offset_x + 0.5f;
+                float y = y0 + row + offset_y + 0.5f;
+                coverage = clamp_byte_round(opacity * composite_mask_alpha(*mask, layers.get(), x, y));
+            }
             if (mode == RENDER_COMPOSITE_REGION_BLEND) {
                 // blend functions use straight channels; native opacity groups retain premultiplied pixels.
                 bool premultiplied = surface->alpha_mode == IMAGE_ALPHA_PREMULTIPLIED;

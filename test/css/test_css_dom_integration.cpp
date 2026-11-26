@@ -1496,7 +1496,7 @@ TEST_F(DomIntegrationTest, AdoptedNodesKeepOneBackingIdentityAcrossUiRelinking) 
         MatchResult match = {};
         ASSERT_TRUE(selector_matcher_matches(matcher, selector, origins[index], &match));
         ASSERT_EQ(dom_element_apply_pseudo_element_rule(origins[index], rule,
-            match.specificity, match.pseudo_element, 0, selector), 1);
+            match.specificity, match.pseudo_element, {}, selector), 1);
         EXPECT_FALSE(origins[index]->pseudo_style_group());
     }
     StyleTree* source_reset = child->pseudo_style(PSEUDO_STYLE_BEFORE);
