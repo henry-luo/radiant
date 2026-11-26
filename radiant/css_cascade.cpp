@@ -787,6 +787,60 @@ static void cascade_collect_shadow_stylesheets(DomElement* root, lam::ArrayList<
     }
 }
 
+struct CascadeViewportChange {
+    CssEngine* engine;
+    double old_width, old_height;
+
+    bool media_changed(const char* condition) const {
+        if (!condition || !*condition) return false;
+        bool current = css_evaluate_media_query(engine, condition);
+        double width = engine->context.viewport_width, height = engine->context.viewport_height;
+        css_engine_set_viewport(engine, old_width, old_height);
+        bool previous = css_evaluate_media_query(engine, condition);
+        css_engine_set_viewport(engine, width, height);
+        return current != previous;
+    }
+
+    bool rules_changed(CssRule* const* rules, size_t count, size_t depth) const {
+        if (depth > 128) return true;
+        for (size_t i = 0; i < count; i++) {
+            CssRule* rule = rules[i];
+            if (!rule) continue;
+            if (rule->type == CSS_RULE_IMPORT && !rule->data.import_rule.invalid &&
+                (media_changed(rule->data.import_rule.media) ||
+                 sheet_changed(rule->data.import_rule.stylesheet, depth + 1))) return true;
+            if (rule->type == CSS_RULE_MEDIA && media_changed(rule->data.conditional_rule.condition))
+                return true;
+            CssRuleChildList children = css_rule_child_list(rule);
+            if (children.count && rules_changed(*children.rules, *children.count, depth + 1))
+                return true;
+        }
+        return false;
+    }
+
+    bool sheet_changed(CssStylesheet* sheet, size_t depth) const {
+        return sheet && !sheet->disabled &&
+            (media_changed(sheet->media) || rules_changed(sheet->rules, sheet->rule_count, depth));
+    }
+};
+
+bool radiant_update_stylesheet_viewport(DomDocument* doc, CssEngine* engine,
+                                       float width, float height) {
+    CascadeViewportChange change = {engine, engine->context.viewport_width, engine->context.viewport_height};
+    if (change.old_width == width && change.old_height == height) return false;
+    css_engine_set_viewport(engine, width, height);
+    // Viewport-dependent used values are refreshed by layout. A full rematch
+    // is only needed when the media branches supplying declarations change.
+    if (!doc->view_tree || !doc->view_tree->root || doc->js.has_shadow_roots ||
+        engine->container_dependencies) return true;
+    if (change.sheet_changed(radiant_ua_stylesheet(doc, engine), 0)) return true;
+    for (int i = 0; i < doc->stylesheet_count; i++) {
+        CssStylesheet* sheet = doc->stylesheets[i];
+        if (sheet && !sheet->is_import_child && change.sheet_changed(sheet, 0)) return true;
+    }
+    return false;
+}
+
 void radiant_apply_css_stylesheets_to_tree(DomDocument* doc, DomElement* root,
                                            CssStylesheet** stylesheets, int count,
                                            Pool* pool, CssEngine* engine,

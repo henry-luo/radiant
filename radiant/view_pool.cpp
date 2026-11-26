@@ -442,13 +442,7 @@ static void release_media_prop(EmbedStyle* embed) {
     embed->video = nullptr;
 }
 
-static void release_grid_prop(Pool* pool, GridProp* grid) {
-    if (!grid) {
-        return;
-    }
-    lam::free_owned(pool, grid->used_track_text);
-    grid->used_columns_offset = 0;
-
+static void release_grid_track_style(Pool* pool, GridProp* grid) {
     destroy_grid_track_list(pool, grid->grid_template_rows);
     grid->grid_template_rows = nullptr;
     destroy_grid_track_list(pool, grid->grid_template_columns);
@@ -465,6 +459,13 @@ static void release_grid_prop(Pool* pool, GridProp* grid) {
         grid->area_count = 0;
         grid->allocated_areas = 0;
     }
+}
+
+static void release_grid_prop(Pool* pool, GridProp* grid) {
+    if (!grid) return;
+    lam::free_owned(pool, grid->used_track_text);
+    grid->used_columns_offset = 0;
+    release_grid_track_style(pool, grid);
 }
 
 // the grid's track graph lives in the view tree's prop pool
@@ -1067,21 +1068,23 @@ FontProp* alloc_font_prop(LayoutContext* lycon) {
     return prop;
 }
 
-// alloc flex container blk
+static FlexProp flex_prop_defaults(ViewSpan* span) {
+    FlexProp prop = {};
+    prop.direction = DIR_ROW;
+    prop.wrap = WRAP_NOWRAP;
+    prop.justify = JUSTIFY_START;
+    prop.align_items = ALIGN_STRETCH;
+    prop.align_content = ALIGN_STRETCH;
+    // writing mode may have been resolved independently of display.
+    prop.writing_mode = span->blk ? span->block()->writing_mode : WM_HORIZONTAL_TB;
+    return prop;
+}
+
 void alloc_flex_prop(LayoutContext* lycon, ViewBlock* block) {
     EmbedStyle* embed = block->ensure_embed();
     if (embed && !embed->flex) {
         FlexProp* prop = (FlexProp*)alloc_prop(lycon, sizeof(FlexProp));
-        prop->direction = DIR_ROW;
-        prop->wrap = WRAP_NOWRAP;
-        prop->justify = JUSTIFY_START;
-        prop->align_items = ALIGN_STRETCH;
-        prop->align_content = ALIGN_STRETCH;  // CSS spec default for multi-line flex
-        prop->row_gap = 0;  prop->column_gap = 0;
-        prop->row_gap_is_percent = false;  prop->column_gap_is_percent = false;
-        // Writing-mode resolves independently of display order; preserve the
-        // block axis already resolved before flex properties allocate this prop.
-        prop->writing_mode = block->blk ? block->block()->writing_mode : WM_HORIZONTAL_TB;
+        *prop = flex_prop_defaults(block);
         embed->flex = lam::own(prop);
     }
 }
@@ -1120,24 +1123,42 @@ void alloc_flex_item_prop(LayoutContext* lycon, ViewSpan* span) {
     }
 }
 
-// alloc grid container prop
+static GridProp grid_prop_defaults() {
+    GridProp grid = {};
+    grid.justify_content = CSS_VALUE_NORMAL;
+    grid.align_content = CSS_VALUE_NORMAL;
+    // normal and explicit stretch differ for items with an aspect ratio.
+    grid.justify_items = CSS_VALUE_NORMAL;
+    grid.justify_items_detail.value = CSS_VALUE_NORMAL;
+    grid.align_items = CSS_VALUE_NORMAL;
+    grid.grid_auto_flow = CSS_VALUE_ROW;
+    return grid;
+}
+
 void alloc_grid_prop(LayoutContext* lycon, ViewBlock* block) {
     EmbedStyle* embed = block->ensure_embed();
     if (embed && !embed->grid) {
         GridProp* grid = (GridProp*)alloc_prop(lycon, sizeof(GridProp));
-        // Set default values using enum names that align with Lexbor constants
-        grid->justify_content = CSS_VALUE_NORMAL;
-        grid->align_content = CSS_VALUE_NORMAL;
-        // CSS Grid initial self-alignment is normal; aspect-ratio sizing must
-        // distinguish it from an explicitly requested stretch.
-        grid->justify_items = CSS_VALUE_NORMAL;
-        grid->justify_items_detail.value = CSS_VALUE_NORMAL;
-        grid->align_items = CSS_VALUE_NORMAL;
-        grid->grid_auto_flow = CSS_VALUE_ROW;
-        // Initialize gaps
-        grid->row_gap = 0;
-        grid->column_gap = 0;
+        *grid = grid_prop_defaults();
         embed->grid = lam::own(grid);
+    }
+}
+
+void reset_layout_container_styles(LayoutContext* lycon, ViewSpan* span) {
+    if (!span->embed) return;
+    EmbedStyle* embed = span->embed;
+    // rules that leave the cascade must lose their layout inputs. Committed
+    // baselines and used track text remain available until layout publishes them.
+    if (embed->flex) {
+        FlexProp defaults = flex_prop_defaults(span);
+        memcpy(embed->flex.get(), &defaults, offsetof(FlexProp, first_baseline));
+    }
+    if (GridProp* grid = embed->grid) {
+        release_grid_track_style(layout_prop_pool(lycon), grid);
+        GridProp defaults = grid_prop_defaults();
+        defaults.used_track_text = grid->used_track_text;
+        defaults.used_columns_offset = grid->used_columns_offset;
+        *grid = defaults;
     }
 }
 

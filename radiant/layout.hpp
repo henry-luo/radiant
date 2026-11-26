@@ -4771,6 +4771,7 @@ void resolve_css_axis_size(LayoutContext* lycon, ViewBlock* block,
 void resolve_css_dimension_constraint(LayoutContext* lycon, ViewBlock* block,
                                        CssPropertyCode property, const CssValue* value);
 FontProp* alloc_font_prop(LayoutContext* lycon);
+void reset_layout_container_styles(LayoutContext* lycon, ViewSpan* span);
 void alloc_flex_prop(LayoutContext* lycon, ViewBlock* block);
 void alloc_flex_item_prop(LayoutContext* lycon, ViewSpan* block);
 void reset_flex_item_prop_for_style(LayoutContext* lycon, ViewSpan* block);

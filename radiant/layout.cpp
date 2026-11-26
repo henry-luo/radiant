@@ -1018,6 +1018,8 @@ void layout_reset_boundary_flow_state(BoundaryProp* boundary) {
 static void reset_non_inherited_style_cache(LayoutContext* lycon, ViewSpan* view) {
     if (!lycon || !view) return;
 
+    reset_layout_container_styles(lycon, view);
+
     if (view->in_line) {
         // an expired effect or removed declaration must not retain sampled opacity.
         InlineProp* inline_prop = view->ensure_inline(lycon);
@@ -5963,10 +5965,7 @@ void layout_init(LayoutContext* lycon, DomDocument* doc, UiContext* uicon) {
     lycon->height = viewport.height;
 
     CssEngine* css_engine = (CssEngine*)doc->services.cached_css_engine;
-    if (css_engine && (css_engine->context.viewport_width != lycon->width ||
-                       css_engine->context.viewport_height != lycon->height)) {
-        // media declarations must change with geometry on native and synthetic resize.
-        css_engine_set_viewport(css_engine, lycon->width, lycon->height);
+    if (css_engine && radiant_update_stylesheet_viewport(doc, css_engine, lycon->width, lycon->height)) {
         radiant_recascade_document(doc);
     }
 
@@ -6468,17 +6467,15 @@ void layout_html_doc(UiContext* uicon, DomDocument *doc, bool is_reflow, PagedFl
         engine->container_provider = layout_provide_size_container;
         engine->container_context = doc;
         radiant::SizeF viewport = layout_host_viewport_size(uicon);
-        bool environment_changed = engine->context.viewport_width != viewport.width ||
-            engine->context.viewport_height != viewport.height;
-        environment_changed = css_engine_set_input_capabilities(engine, &uicon->input_capabilities) || environment_changed;
+        bool environment_changed = css_engine_set_input_capabilities(engine, &uicon->input_capabilities);
         // resolution media queries follow the window's backing scale; the engine is created at 1x.
         double density = uicon->device_scale > 0 ? uicon->device_scale : 1.0;
         if (engine->context.device_pixel_ratio != density) {
             engine->context.device_pixel_ratio = density;
             environment_changed = true;
         }
-        css_engine_set_viewport(engine, viewport.width, viewport.height);
-        if (environment_changed) {
+        bool media_changed = radiant_update_stylesheet_viewport(doc, engine, viewport.width, viewport.height);
+        if (environment_changed || media_changed) {
             radiant_recascade_document_styles(doc, doc->root);
         }
     }

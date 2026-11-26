@@ -142,6 +142,8 @@ String* css_prop_serialize_custom_property(Pool* pool, DomElement* element,
 bool radiant_clear_cascaded_styles_visitor(DomNode* node, void* context);
 void radiant_recascade_document_styles(DomDocument* document, DomElement* root,
                                       SelectorMatcher* matcher = nullptr);
+bool radiant_update_stylesheet_viewport(DomDocument* document, CssEngine* engine,
+                                       float width, float height);
 void radiant_cascade_styles_for_element(DomElement* element);
 // Reuse a caller-owned matcher for repeated element-local recascades.
 void radiant_cascade_styles_for_element_with_matcher(DomElement* element,
