@@ -25,21 +25,25 @@ char* radiant_read_resource_file(const char* path, size_t* out_size) {
 
 struct CssResourceCompletion {
     NetworkResource* resource;
+    DomDocument* document;
     bool loaded = false;
     ~CssResourceCompletion() {
         // completion follows stylesheet publication and runs through the host's pinned task queue.
-        radiant_resource_complete(resource->owner_element, loaded);
+        radiant_resource_complete(network_resource_owner(resource, document), loaded);
     }
 };
 
 void process_css_resource(NetworkResource* res, struct DomDocument* doc) {
     if (!res || (res->state != STATE_COMPLETED && res->state != STATE_CACHED) || !doc) return;
-    CssResourceCompletion completion{res};
+    DomElement* owner = network_resource_owner(res, doc);
+    // A retired link cannot turn its downloaded sheet into a document-wide rule source.
+    if (res->owner_node.address && !owner) return;
+    CssResourceCompletion completion{res, doc};
 
     // the initial loader already parsed prefetched links; deliver completion without a second sheet.
-    for (int i = 0; res->owner_element && i < doc->stylesheet_count; i++) {
+    for (int i = 0; owner && i < doc->stylesheet_count; i++) {
         CssStylesheet* sheet = doc->stylesheets[i];
-        if (sheet && sheet->owner_element == res->owner_element && !sheet->is_import_child &&
+        if (sheet && sheet->owner_element == owner && !sheet->is_import_child &&
             sheet->origin_url && strcmp(sheet->origin_url, res->url) == 0) {
             completion.loaded = true;
             return;
@@ -86,8 +90,7 @@ void process_css_resource(NetworkResource* res, struct DomDocument* doc) {
     log_debug("network: parsed CSS stylesheet with %zu rules", sheet->rule_count);
 
     // completion order must not override the link's position in the cascade.
-    sheet->owner_element = res->owner_element;
-    DomElement* owner = res->owner_element;
+    sheet->owner_element = owner;
     if (owner && owner->tag_name() && str_icmp_cstr(owner->tag_name(), "link") == 0) {
         // asynchronously inserted theme links keep their activation conditions;
         // a completed download alone does not make its rules applicable.

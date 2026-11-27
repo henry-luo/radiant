@@ -447,31 +447,22 @@ void handle_resource_failure(NetworkResource* res, struct DomDocument* doc) {
 
         case RESOURCE_CSS:
             log_warn("network: CSS load failed: %s (continuing without stylesheet)", res->url);
-            radiant_resource_complete(res->owner_element, false);
+            radiant_resource_complete(network_resource_owner(res, doc), false);
             // document continues rendering without this stylesheet
             // styles will use defaults or other available stylesheets
             break;
 
         case RESOURCE_IMAGE:
-            log_warn("network: Image load failed: %s", res->url);
-            // schedule repaint to show broken image indicator
-            if (res->owner_element && res->manager) {
-                resource_manager_schedule_repaint(res->manager, (DomElement*)res->owner_element);
-            }
+        case RESOURCE_SVG:
+            log_warn("network: %s load failed: %s", res->type == RESOURCE_IMAGE ? "Image" : "SVG", res->url);
+            // schedule repaint for the still-live owner to show its fallback
+            resource_manager_schedule_repaint(res->manager, network_resource_owner(res, doc));
             break;
 
         case RESOURCE_FONT:
             log_warn("network: Font load failed: %s (using fallback)", res->url);
             // fallback font will be used automatically by font matching
             // no need to explicitly schedule reflow - current font cascade handles this
-            break;
-
-        case RESOURCE_SVG:
-            log_warn("network: SVG load failed: %s", res->url);
-            // <use> element remains empty or shows fallback
-            if (res->owner_element && res->manager) {
-                resource_manager_schedule_repaint(res->manager, (DomElement*)res->owner_element);
-            }
             break;
 
         case RESOURCE_SCRIPT:

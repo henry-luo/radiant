@@ -188,7 +188,7 @@ void radiant_request_live_image(DomDocument* doc, UiContext* ui, const char* sou
         source, RESOURCE_IMAGE, radiant_html_fetch_priority(
             owner ? owner->get_attribute("fetchpriority") : nullptr, PRIORITY_NORMAL), nullptr);
     // Existing element/font callbacks already arrange their own layout updates.
-    if (resource && !resource->owner_element && !resource->on_complete && !resource->processed) {
+    if (resource && !resource->on_complete && !resource->processed && !network_resource_owner(resource, doc)) {
         resource->on_complete = live_image_complete;
     }
 }

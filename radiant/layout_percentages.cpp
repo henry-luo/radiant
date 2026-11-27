@@ -231,17 +231,18 @@ bool layout_percentage_height_basis_is_algorithmically_definite(ViewBlock* conta
     const BlockContext* parent_context = context ? context->block.parent.get() : nullptr;
     FlexContainerLayout* flex = context ? context->flex_container.get() : nullptr;
     if (parent_context && parent_context->flow_box == containing_block &&
-        parent_context->given_height >= 0.0f &&
-        containing_block->parent_item_kind() != DomElement::PARENT_ITEM_FLEX &&
-        (parent_context->used_size_owner == containing_block ||
-         layout_block_inline_axis_is_vertical(containing_block))) {
-        // resolved inline space stays definite in vertical writing; an automatic
-        // block-size's empty/substitute result does not supply an assigned constraint.
-        return true;
+        parent_context->given_height >= 0.0f) {
+        // aspect-ratio can provisionally allocate a flex item slot outside flex flow.
+        bool real_flex_item = containing_block->flex_item() &&
+            layout_is_flex_container(layout_nearest_block_ancestor(containing_block->parent_view()));
+        if (!real_flex_item && (parent_context->used_size_owner == containing_block ||
+            layout_block_inline_axis_is_vertical(containing_block) ||
+            layout_axis_size_is_percentage(containing_block, false))) {
+            // normal flow clears cyclic percentages before laying out their children.
+            return true;
+        }
+        if (layout_used_preferred_aspect_ratio(containing_block) > 0.0f) return true;
     }
-    if (parent_context && parent_context->flow_box == containing_block &&
-        parent_context->given_height >= 0.0f &&
-        layout_used_preferred_aspect_ratio(containing_block) > 0.0f) return true;
     if (containing_block->flex_item() &&
         !layout_view_is_abs_or_fixed(containing_block) && flex && parent_context &&
         parent_context->flow_box == containing_block && parent_context->given_height >= 0.0f &&

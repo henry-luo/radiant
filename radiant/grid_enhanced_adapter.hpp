@@ -818,13 +818,10 @@ inline void run_enhanced_track_sizing(
         // max-content track size needed before cyclic item percentages resolve.
         maximize_tracks(row_tracks, row_available, row_percentage_base);
 
-        // Expansion and stretch distribute definite free space only.
+        // 11.7 Indefinite rows still get a flex fraction from their content contributions.
+        expand_flexible_tracks(row_tracks, 0.0f, row_available, row_percentage_base,
+                               row_contributions, grid_layout->row_gap);
         if (row_available > 0) {
-
-            // 11.7 Expand Flexible Tracks
-            expand_flexible_tracks(row_tracks, 0.0f, row_available, row_percentage_base,
-                                   row_contributions, grid_layout->row_gap);
-
             // 11.8 Stretch auto Tracks
             stretch_auto_tracks(row_tracks, 0.0f, row_available, grid_layout->align_content);
         }

@@ -7613,6 +7613,8 @@ static float calculate_max_content_height_uncached(LayoutContext* lycon, DomNode
     if (child_height_basis >= 0.0f)
         child_height_basis = layout_content_size_if_border_box(view, child_height_basis, false);
     LayoutContainingBlockScope child_height_scope(lycon, LAYOUT_AXIS_Y, child_height_basis);
+    // name the owner of the ratio's transferred height so descendant percentages can use it.
+    child_height_scope.containing_block.flow_box = lam::up(view);
 
     float contain_intrinsic_width = -1.0f;
     float contain_intrinsic_height = -1.0f;
