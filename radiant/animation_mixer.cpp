@@ -57,6 +57,12 @@ static void animation_properties_prune(AnimationMixerState* mixer) {
         else link = &property->next;
     }
 }
+static void animation_action_free(AnimationActionState* action) {
+    mem_free(action->bindings);
+    mem_free(action->channels);
+    mem_free(action->markers);
+    mem_free(action);
+}
 AnimationMixerState* animation_mixer_create(void* owner, AnimationBindingOps ops) {
     if (!ops.read || !ops.write) return nullptr;
     auto* mixer = (AnimationMixerState*)mem_calloc(1, sizeof(AnimationMixerState), MEM_CAT_RENDER);
@@ -77,9 +83,7 @@ void animation_mixer_destroy(AnimationMixerState* mixer) {
     while (mixer->actions) {
         auto* action = mixer->actions;
         mixer->actions = action->next;
-        mem_free(action->channels);
-        mem_free(action->markers);
-        mem_free(action);
+        animation_action_free(action);
     }
     while (mixer->properties) { auto* property = mixer->properties; mixer->properties = property->next;
         if (property->active) mixer->ops.write(mixer->owner, property->identity, &property->base);
@@ -203,7 +207,8 @@ AnimationActionState* animation_mixer_action(AnimationMixerState* mixer, const A
     if (new_root && mixer->motion_epoch == UINT64_MAX) {
         return nullptr;
     }
-    // prepare all bindings before linking an action; failed preparation leaves no playable partial action.
+    // resolve each immutable channel once; the action's references keep its binding alive.
+    AnimationPropertyState* bindings[ANIMATION_CHANNEL_LIMIT];
     for (unsigned i = 0; i < clip.count; i++) {
         const auto& channel = clip.channels[i]; auto* property = animation_property(mixer, channel.property);
         if (!property) {
@@ -224,20 +229,22 @@ AnimationActionState* animation_mixer_action(AnimationMixerState* mixer, const A
                    property->root_motion != channel.root_motion) {
             animation_properties_prune(mixer); return nullptr;
         }
+        bindings[i] = property;
     }
     auto* action = (AnimationActionState*)mem_calloc(1, sizeof(AnimationActionState), MEM_CAT_RENDER);
     if (!action) { animation_properties_prune(mixer); return nullptr; }
-    if (!animation_channels_copy(clip, nullptr, &action->channels)) {
-        mem_free(action);
+    action->bindings = (AnimationPropertyState**)mem_alloc(clip.count * sizeof(*bindings), MEM_CAT_RENDER);
+    if (!action->bindings || !animation_channels_copy(clip, nullptr, &action->channels)) {
+        animation_action_free(action);
         animation_properties_prune(mixer);
         return nullptr;
     }
+    memcpy(action->bindings, bindings, clip.count * sizeof(*bindings));
     if (clip.marker_count) {
         action->markers =
             (AnimationMarkerState*)mem_calloc(clip.marker_count, sizeof(AnimationMarkerState), MEM_CAT_RENDER);
         if (!action->markers) {
-            mem_free(action->channels);
-            mem_free(action);
+            animation_action_free(action);
             animation_properties_prune(mixer);
             return nullptr;
         }
@@ -260,7 +267,7 @@ AnimationActionState* animation_mixer_action(AnimationMixerState* mixer, const A
     if (new_root) {
         mixer->motion_epoch++;
     }
-    for (unsigned i = 0; i < clip.count; i++) animation_property(mixer, clip.channels[i].property)->references++;
+    for (unsigned i = 0; i < clip.count; i++) bindings[i]->references++;
     return action;
 }
 static bool animation_property_activate(AnimationActionState* action, bool active) {
@@ -268,7 +275,7 @@ static bool animation_property_activate(AnimationActionState* action, bool activ
     if (action->active == active) return true;
     // validate every newly active target before changing any reference count.
     if (active) for (unsigned i = 0; i < action->clip.count; i++) {
-        auto* property = animation_property(action->mixer, action->clip.channels[i].property);
+        auto* property = action->bindings[i];
         if (!property->active) {
             AnimationValue base = {};
             if (!action->mixer->ops.read(action->mixer->owner, property->identity, &base) ||
@@ -278,7 +285,7 @@ static bool animation_property_activate(AnimationActionState* action, bool activ
     }
     bool valid = true;
     for (unsigned i = 0; i < action->clip.count; i++) {
-        auto* property = animation_property(action->mixer, action->clip.channels[i].property);
+        auto* property = action->bindings[i];
         if (active) property->active++;
         else if (--property->active == 0) {
             valid = action->mixer->ops.write(action->mixer->owner, property->identity, &property->base) && valid;
@@ -709,7 +716,7 @@ static bool animation_root_drafts(AnimationMixerState* mixer, const AnimationAdv
             if (!animation_action_traverse(action, advances[i], &traversal, AnimationRootTraversal::visit)) {
                 return false;
             }
-            auto* property = animation_property(mixer, channel.property);
+            auto* property = action->bindings[index];
             unsigned draft = 0;
             while (draft < *count && drafts[draft].property != property) {
                 draft++;
@@ -851,7 +858,8 @@ static bool animation_mixer_sample(AnimationMixerState* mixer, double delta, boo
                 continue;
             }
             track.ending_start = action->ending_start; track.ending_end = action->ending_end;
-            auto* property = animation_property(mixer, channel.property); AnimationValue value = property->base;
+            auto* property = action->bindings[i];
+            AnimationValue value = property->base;
             const char* text = nullptr;
             valid = animation_track_sample(track, time, value.numbers, &text);
             if (!valid) break;
@@ -971,8 +979,8 @@ bool animation_mixer_uncache(AnimationMixerState* mixer, AnimationActionState* a
     bool removes_root = false;
     for (unsigned i = 0; i < action->clip.count; i++) {
         const auto& channel = action->clip.channels[i];
-        auto* property = animation_property(mixer, channel.property);
-        removes_root = removes_root || (channel.root_motion && property && property->references == 1);
+        auto* property = action->bindings[i];
+        removes_root = removes_root || (channel.root_motion && property->references == 1);
     }
     if (removes_root && mixer->motion_epoch == UINT64_MAX) {
         return false;
@@ -981,14 +989,12 @@ bool animation_mixer_uncache(AnimationMixerState* mixer, AnimationActionState* a
     auto** link = &mixer->actions; while (*link && *link != action) link = &(*link)->next;
     if (!*link) return false; *link = action->next;
     for (unsigned i = 0; i < action->clip.count; i++)
-        animation_property(mixer, action->clip.channels[i].property)->references--;
+        action->bindings[i]->references--;
     animation_properties_prune(mixer);
     if (removes_root) {
         mixer->motion_epoch++;
     }
-    mem_free(action->channels);
-    mem_free(action->markers);
-    mem_free(action); mixer->action_count--; return true;
+    animation_action_free(action); mixer->action_count--; return true;
 }
 
 bool animation_mixer_rebind(AnimationMixerState* mixer, void* owner, const AnimationBindingOps* ops) {
@@ -1080,8 +1086,7 @@ static AnimationPropertyState* animation_root_previous(AnimationPropertyState* p
                 continue;
             }
             unsigned previous_channel = animation_pair_channel(pairs[i], c);
-            auto* before =
-                animation_property(pairs[i].source->mixer, pairs[i].source->clip.channels[previous_channel].property);
+            auto* before = pairs[i].source->bindings[previous_channel];
             if (!before || !before->root_motion || (previous && previous != before)) {
                 return nullptr;
             }

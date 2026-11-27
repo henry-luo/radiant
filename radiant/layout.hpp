@@ -4232,7 +4232,8 @@ CssEnum layout_block_used_css_writing_mode(ViewBlock* block);
 CssEnum layout_block_used_css_direction(ViewBlock* block);
 bool layout_text_uses_upright_orientation(DomNode* node);
 TextOrientationPolicy layout_text_orientation_policy(DomNode* node);
-TextGlyphOrientation layout_text_glyph_orientation(LayoutContext* lycon, uint32_t codepoint);
+TextGlyphOrientation layout_text_glyph_orientation(LayoutContext* lycon, uint32_t codepoint,
+    DomNode* owner = nullptr);
 CssEnum layout_text_used_direction(DomNode* node);
 WritingMode layout_writing_mode_from_css(CssEnum writing_mode);
 // CSS Align uses the container's logical axis, then maps it to physical layout

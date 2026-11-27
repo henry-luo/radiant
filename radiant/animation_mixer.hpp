@@ -55,6 +55,7 @@ struct AnimationEnvelope { double begin, end, from, to; bool active; };
 struct AnimationMixerState;
 struct AnimationChannelState;
 struct AnimationMarkerState;
+struct AnimationPropertyState;
 struct AnimationActionPlayback {
     double time, time_scale, weight, effective_weight, effective_time_scale;
     double repetitions, loop_count, scheduled_start;
@@ -73,6 +74,7 @@ struct AnimationActionState : AnimationActionPlayback {
     bool active;
     AnimationChannelState* channels; // copied masks/reference poses; null uses legacy defaults
     AnimationMarkerState* markers;   // copied marker names/times; independent of descriptor storage
+    AnimationPropertyState** bindings; // one referenced property per immutable clip channel
     unsigned root_channels[ANIMATION_ROOT_CHANNEL_LIMIT]; // one-based translation/rotation indices; zero if absent
 };
 struct AnimationActionPair {

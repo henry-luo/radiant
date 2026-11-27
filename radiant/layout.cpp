@@ -2104,6 +2104,8 @@ bool layout_text_combine_upright_applies(DomNode* text_node) {
     if (!text_node || !text_node->is_text()) return false;
     DomElement* parent = view_geometry_nearest_dom_element(text_node, 0);
     if (!parent) return false;
+    // A current inheritance mask can prove that every ancestor uses the default.
+    if (layout_cached_inheritance_excludes(parent, CSS_PROPERTY_TEXT_COMBINE_UPRIGHT)) return false;
     float limit = 2.0f;
     CssEnum mode = css_prop_compute_cascaded_text_combine(parent, &limit);
     if (mode != CSS_VALUE_ALL && mode != CSS_VALUE_DIGITS) return false;

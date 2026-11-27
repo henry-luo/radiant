@@ -901,7 +901,8 @@ bool layout_measure_grapheme_cluster_advance(
     const unsigned char* unit_cursor = cluster_start;
     if (!layout_utf8_next_codepoint(&unit_cursor, text_end, &unit_first)) return false;
     DomNode* owner = text_node ? text_node : lycon->elmt.get();
-    if (text_glyph_orientation(layout_text_orientation_policy(owner), unit_first) == TEXT_GLYPH_UPRIGHT) {
+    // All graphemes in this run share the same orientation cache and owner.
+    if (layout_text_glyph_orientation(lycon, unit_first, owner) == TEXT_GLYPH_UPRIGHT) {
         if (unit_first == 0) return false;  // measure a NUL in the scalar glyph path.
         // vertical metrics and isolated shaping belong to the whole typographic unit, including its marks.
         return text_visit_glyph_unit(&lycon->font, cluster_start, text_end, TEXT_SHAPE_UPRIGHT_UNIT, true,
