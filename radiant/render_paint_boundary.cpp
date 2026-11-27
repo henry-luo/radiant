@@ -427,7 +427,8 @@ void render_set_uniform_gradient_stops(RdtGradientStop* stops, Color color) {
     stops[1] = stops[0]; stops[1].offset = 1.0f;
 }
 
-Color render_sample_gradient_stops(const RdtGradientStop* stops, int count, float position, float stop_scale) {
+Color render_sample_gradient_stops(const RdtGradientStop* stops, int count, float position,
+                                   float stop_scale, bool premultiply_alpha) {
     if (!stops || count < 1) return Color{};
     if (position < stops[0].offset * stop_scale) return render_gradient_stop_color(stops[0]);
     // fixed-up stops are ordered; upper-bound lookup preserves the following hard-stop color.
@@ -442,7 +443,17 @@ Color render_sample_gradient_stops(const RdtGradientStop* stops, int count, floa
         const RdtGradientStop& after = stops[first];
         float start = before.offset * stop_scale, extent = (after.offset - before.offset) * stop_scale;
         float fraction = extent > 0.0f ? (position - start) / extent : 0.0f;
-        return css_interpolate_color(render_gradient_stop_color(before), render_gradient_stop_color(after), fraction);
+        if (premultiply_alpha) {
+            return css_interpolate_color(render_gradient_stop_color(before),
+                                         render_gradient_stop_color(after), fraction);
+        }
+        // Canvas interpolates each unpremultiplied sRGB component before compositing.
+        auto interpolate = [fraction](uint8_t from, uint8_t to) {
+            return clamp_byte_round(from + fraction * (to - from));
+        };
+        return Color{render_pixel_pack_abgr(interpolate(before.r, after.r),
+            interpolate(before.g, after.g), interpolate(before.b, after.b),
+            interpolate(before.a, after.a))};
     }
     return render_gradient_stop_color(stops[count - 1]);
 }

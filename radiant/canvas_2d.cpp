@@ -1,6 +1,7 @@
 #include "render.hpp"
 #include "radiant.hpp"
 #include "glyph_sampling.hpp"
+#include "render_row_jobs.hpp"
 #include "gl_core.hpp"
 #include "event.hpp"
 
@@ -392,39 +393,130 @@ static void canvas_pop_clips(RdtVector* vector, int pushed, int saved_clip_depth
     rdt_clip_restore_depth(saved_clip_depth);
 }
 
-static bool canvas_draw_path_with(CanvasEntry* entry, RdtPath* path, bool stroke) {
-    if (!entry || !path || !entry->surface) return entry != nullptr;
+struct CanvasRadialSampler {
+    RdtMatrix inverse;
+    double x0, y0, r0;
+    double dx, dy, dr;
+    double scale;
+    double quadratic;
+};
+
+static bool canvas_radial_sampler(const CanvasState& state,
+        const RadiantCanvasRadialGradient& gradient, CanvasRadialSampler* sampler) {
+    if (!gradient.stops || gradient.stop_count <= 0 || state.global_alpha == 0.0f ||
+            !rdt_matrix_invert_affine(&state.transform, &sampler->inverse)) return false;
+    // Scale the circles before forming the quadratic to avoid squaring large coordinates.
+    sampler->scale = fmax(1.0, fmax(fmax(fabs(gradient.x0), fabs(gradient.y0)),
+        fmax(fmax(fabs(gradient.x1), fabs(gradient.y1)), fmax(gradient.r0, gradient.r1))));
+    sampler->x0 = gradient.x0 / sampler->scale;
+    sampler->y0 = gradient.y0 / sampler->scale;
+    sampler->r0 = gradient.r0 / sampler->scale;
+    sampler->dx = gradient.x1 / sampler->scale - sampler->x0;
+    sampler->dy = gradient.y1 / sampler->scale - sampler->y0;
+    sampler->dr = gradient.r1 / sampler->scale - sampler->r0;
+    sampler->quadratic = sampler->dx * sampler->dx + sampler->dy * sampler->dy -
+                         sampler->dr * sampler->dr;
+    return sampler->dx != 0.0 || sampler->dy != 0.0 || sampler->dr != 0.0;
+}
+
+static double canvas_radial_position(const CanvasRadialSampler& sampler, double x, double y) {
+    const RdtMatrix& inverse = sampler.inverse;
+    double px = (inverse.e11 * x + inverse.e12 * y + inverse.e13) / sampler.scale - sampler.x0;
+    double py = (inverse.e21 * x + inverse.e22 * y + inverse.e23) / sampler.scale - sampler.y0;
+    if (sampler.dx == 0.0 && sampler.dy == 0.0) {
+        return (sqrt(px * px + py * py) - sampler.r0) / sampler.dr;
+    }
+    double a = sampler.quadratic;
+    double b = px * sampler.dx + py * sampler.dy + sampler.r0 * sampler.dr;
+    double c = px * px + py * py - sampler.r0 * sampler.r0;
+    double discriminant = fma(-a, c, b * b);
+    if (discriminant < 0.0 || (a == 0.0 && b == 0.0)) return NAN;
+    double q = b + copysign(sqrt(discriminant), b);
+    double first = a != 0.0 ? q / a : c / (2.0 * b);
+    if (!(sampler.r0 + first * sampler.dr > 0.0)) first = -INFINITY;
+    // The frontmost circumference corresponds to the greatest valid parameter.
+    if (a != 0.0 && q != 0.0) {
+        double second = c / q;
+        if (sampler.r0 + second * sampler.dr > 0.0) first = fmax(first, second);
+    }
+    return first;
+}
+
+static void canvas_paint_radial_mask(ImageSurface* surface, const CanvasRadialSampler& sampler,
+        const RadiantCanvasRadialGradient& gradient, float opacity, const uint32_t* mask) {
+    uint32_t* pixels = (uint32_t*)surface->pixels;
+    size_t stride = (size_t)surface->pitch / sizeof(uint32_t);
+    auto rows = [&](int begin, int end) {
+        for (int y = begin; y < end; y++) {
+            const uint32_t* coverage = mask + (size_t)y * surface->width;
+            uint32_t* destination = pixels + (size_t)y * stride;
+            for (int x = 0; x < surface->width; x++) {
+                uint8_t alpha = (uint8_t)(coverage[x] >> 24);
+                if (!alpha) continue;
+                double position = canvas_radial_position(sampler, x + 0.5, y + 0.5);
+                if (!isfinite(position)) continue;
+                Color color = render_sample_gradient_stops(gradient.stops, gradient.stop_count,
+                    (float)position, 1.0f, false);
+                uint32_t source = render_pixel_scale_premultiplied(render_pixel_premultiply_abgr(color.c),
+                    clamp_byte_round(alpha * opacity));
+                destination[x] = render_pixel_source_over_premultiplied_pair(destination[x], source);
+            }
+        }
+    };
+    render_parallel_rows(surface->width, surface->height, rows);
+}
+
+template<class Draw>
+static bool canvas_paint(CanvasEntry* entry, const RadiantCanvasRadialGradient* gradient, Draw draw) {
+    ImageSurface* surface = entry->surface;
+    CanvasRadialSampler sampler = {};
+    lam::Temp<uint32_t> mask;
+    if (gradient) {
+        if (!canvas_radial_sampler(entry->state, *gradient, &sampler)) return true;
+        size_t count = (size_t)surface->width * (size_t)surface->height;
+        if (!render_memory_allow_allocation(nullptr, count * sizeof(uint32_t))) return false;
+        mask = lam::temp_array_zero<uint32_t>(count, MEM_CAT_LAYOUT);
+        if (!mask) return false;
+    }
+
     RdtVector vector = {};
-    int stride = entry->surface->pitch / 4;
-    rdt_vector_init(&vector, (uint32_t*)entry->surface->pixels,
-                    entry->surface->width, entry->surface->height, stride);
+    rdt_vector_init(&vector, mask ? mask.get() : (uint32_t*)surface->pixels,
+        surface->width, surface->height, mask ? surface->width : surface->pitch / 4);
+    if (!vector.impl) return false;
     int saved_clip_depth = 0;
     int pushed_clips = canvas_push_clips(entry, &vector, &saved_clip_depth);
-    if (stroke) {
-        rdt_stroke_path(&vector, path,
-                        canvas_effective_color(entry->state.stroke_color,
-                                               entry->state.global_alpha),
-                        entry->state.line_width, entry->state.line_cap,
-                        entry->state.line_join,
-                        nullptr, 0, 0.0f, &entry->state.transform);
-    } else {
-        rdt_fill_path(&vector, path,
-                      canvas_effective_color(entry->state.fill_color,
-                                             entry->state.global_alpha),
-                      RDT_FILL_WINDING, &entry->state.transform);
-    }
+    draw(&vector);
     canvas_pop_clips(&vector, pushed_clips, saved_clip_depth);
     rdt_vector_destroy(&vector);
+    // The ordinary clip and stroke rasterizers provide the exact coverage for a gradient.
+    if (mask) canvas_paint_radial_mask(surface, sampler, *gradient, entry->state.global_alpha, mask.get());
     canvas_note_pixels_changed(entry);
     return true;
 }
 
-static bool canvas_draw_path(CanvasEntry* entry, bool stroke) {
-    return canvas_draw_path_with(entry, entry ? entry->path : nullptr, stroke);
+static bool canvas_draw_path_with(CanvasEntry* entry, RdtPath* path, bool stroke,
+        const RadiantCanvasRadialGradient* gradient) {
+    if (!entry || !path || !entry->surface) return entry != nullptr;
+    const CanvasState& state = entry->state;
+    Color color = gradient ? Color{0xffffffffu} : canvas_effective_color(
+        stroke ? state.stroke_color : state.fill_color, state.global_alpha);
+    return canvas_paint(entry, gradient, [&](RdtVector* vector) {
+        if (stroke) {
+            rdt_stroke_path(vector, path, color, state.line_width, state.line_cap, state.line_join,
+                nullptr, 0, 0.0f, &state.transform);
+        } else {
+            rdt_fill_path(vector, path, color, RDT_FILL_WINDING, &state.transform);
+        }
+    });
+}
+
+static bool canvas_draw_path(CanvasEntry* entry, bool stroke, const RadiantCanvasRadialGradient* gradient) {
+    return canvas_draw_path_with(entry, entry ? entry->path : nullptr, stroke, gradient);
 }
 
 static bool canvas_draw_rect(CanvasEntry* entry, float x, float y,
-                             float width, float height, bool stroke) {
+                             float width, float height, bool stroke,
+                             const RadiantCanvasRadialGradient* gradient) {
     if (!entry) return false;
     if (!entry->surface) return true;
     // Canvas normalizes a negative rectangle extent to the opposite edge.
@@ -439,7 +531,7 @@ static bool canvas_draw_rect(CanvasEntry* entry, float x, float y,
     RdtPath* path = rdt_path_new();
     if (!path) return false;
     rdt_path_add_rect(path, x, y, width, height, 0.0f, 0.0f);
-    bool drawn = canvas_draw_path_with(entry, path, stroke);
+    bool drawn = canvas_draw_path_with(entry, path, stroke, gradient);
     rdt_path_free(path);
     return drawn;
 }
@@ -974,24 +1066,24 @@ extern "C" bool radiant_canvas_clip(void* canvas_element) {
     return true;
 }
 
-extern "C" bool radiant_canvas_fill(void* canvas_element) {
-    return canvas_draw_path(canvas_entry_for_element((DomElement*)canvas_element, true), false);
+extern "C" bool radiant_canvas_fill(void* canvas_element, const RadiantCanvasRadialGradient* gradient) {
+    return canvas_draw_path(canvas_entry_for_element((DomElement*)canvas_element, true), false, gradient);
 }
 
-extern "C" bool radiant_canvas_stroke(void* canvas_element) {
-    return canvas_draw_path(canvas_entry_for_element((DomElement*)canvas_element, true), true);
+extern "C" bool radiant_canvas_stroke(void* canvas_element, const RadiantCanvasRadialGradient* gradient) {
+    return canvas_draw_path(canvas_entry_for_element((DomElement*)canvas_element, true), true, gradient);
 }
 
 extern "C" bool radiant_canvas_fill_rect(void* canvas_element,
-                                            float x, float y, float width, float height) {
+        float x, float y, float width, float height, const RadiantCanvasRadialGradient* gradient) {
     return canvas_draw_rect(canvas_entry_for_element((DomElement*)canvas_element, true),
-                            x, y, width, height, false);
+                            x, y, width, height, false, gradient);
 }
 
 extern "C" bool radiant_canvas_stroke_rect(void* canvas_element,
-                                              float x, float y, float width, float height) {
+        float x, float y, float width, float height, const RadiantCanvasRadialGradient* gradient) {
     return canvas_draw_rect(canvas_entry_for_element((DomElement*)canvas_element, true),
-                            x, y, width, height, true);
+                            x, y, width, height, true, gradient);
 }
 
 extern "C" bool radiant_canvas_clear_rect(void* canvas_element,
@@ -1061,7 +1153,8 @@ static void canvas_draw_text_glyph(ImageSurface* surface, const GlyphBitmap* bit
 
 extern "C" bool radiant_canvas_fill_text(void* canvas_element, void* font_handle,
                                             const char* text, int text_len,
-                                            float x, float y, float max_width) {
+                                            float x, float y, float max_width,
+                                            const RadiantCanvasRadialGradient* gradient) {
     CanvasEntry* entry = canvas_entry_for_element((DomElement*)canvas_element, true);
     FontHandle* handle = (FontHandle*)font_handle;
     if (!entry || !handle || !text || text_len < 0) return false;
@@ -1093,7 +1186,7 @@ extern "C" bool radiant_canvas_fill_text(void* canvas_element, void* font_handle
            (size_t)text_surface->pitch * (size_t)text_surface->height);
     Bound surface_clip = {0.0f, 0.0f, (float)text_surface->width,
                            (float)text_surface->height};
-    Color color = entry->state.fill_color;
+    Color color = gradient ? Color{0xffffffffu} : entry->state.fill_color;
     float pen_x = text_x;
     uint32_t previous_index = 0;
     for (int offset = 0; offset < text_len;) {
@@ -1126,24 +1219,15 @@ extern "C" bool radiant_canvas_fill_text(void* canvas_element, void* font_handle
                              0.0f, 1.0f, 0.0f,
                              0.0f, 0.0f, 1.0f};
     RdtMatrix transform = rdt_matrix_multiply(&entry->state.transform, &text_scale);
-    RdtVector vector = {};
-    rdt_vector_init(&vector, (uint32_t*)entry->surface->pixels,
-                    entry->surface->width, entry->surface->height,
-                    entry->surface->pitch / 4);
-    int saved_clip_depth = 0;
-    int pushed_clips = canvas_push_clips(entry, &vector, &saved_clip_depth);
     // The glyph surface keeps text raster local; Rdt applies canvas transform and clips.
-    uint8_t opacity = clamp_byte_round(entry->state.global_alpha * 255.0f);
-    rdt_draw_image(&vector, (const uint32_t*)text_surface->pixels,
-                   text_surface->width, text_surface->height,
-                   text_surface->pitch / 4, 0.0f, 0.0f,
-                   (float)text_surface->width, (float)text_surface->height,
-                   opacity, &transform);
-    canvas_pop_clips(&vector, pushed_clips, saved_clip_depth);
-    rdt_vector_destroy(&vector);
+    uint8_t opacity = gradient ? 255 : clamp_byte_round(entry->state.global_alpha * 255.0f);
+    bool drawn = canvas_paint(entry, gradient, [&](RdtVector* vector) {
+        rdt_draw_image(vector, (const uint32_t*)text_surface->pixels,
+            text_surface->width, text_surface->height, text_surface->pitch / 4, 0.0f, 0.0f,
+            (float)text_surface->width, (float)text_surface->height, opacity, &transform);
+    });
     image_surface_destroy(text_surface);
-    canvas_note_pixels_changed(entry);
-    return true;
+    return drawn;
 }
 
 // fills a deferred snapshot from the presented copy it stands for; one that cannot be read is retired
