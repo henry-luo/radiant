@@ -38,6 +38,8 @@
           "Accelerate",
           "CoreText",
           "AppKit",
+          "QuartzCore",
+          "IOSurface",
           "Carbon",
           "WebKit"
         ]
@@ -77,6 +79,7 @@
             "radiant/clipboard_mac_static.cpp",
             "radiant/ime_mac_static.cpp",
             "radiant/pen_mac_static.cpp",
+            "radiant/platform_present_mac_static.cpp",
             "radiant/webview_child_mac_static.cpp",
             "radiant/webview_layer_mac_static.cpp",
             "radiant/rdt_video_mac_static.cpp",

@@ -142,6 +142,8 @@ String* css_prop_serialize_custom_property(Pool* pool, DomElement* element,
 bool radiant_clear_cascaded_styles_visitor(DomNode* node, void* context);
 void radiant_recascade_document_styles(DomDocument* document, DomElement* root,
                                       SelectorMatcher* matcher = nullptr);
+bool radiant_update_stylesheet_viewport(DomDocument* document, CssEngine* engine,
+                                       float width, float height);
 void radiant_cascade_styles_for_element(DomElement* element);
 // Reuse a caller-owned matcher for repeated element-local recascades.
 void radiant_cascade_styles_for_element_with_matcher(DomElement* element,
@@ -674,8 +676,6 @@ inline T lerp(T a, T b, float t) {
 }
 
 // Forward declarations
-struct FontFaceDescriptor;
-typedef struct FontFaceDescriptor FontFaceDescriptor;
 
 // radiant specific CSS display values
 #define RDT_DISPLAY_TEXT                CSS_VALUE_TEXT
@@ -3643,36 +3643,6 @@ extern "C" {
 struct LayoutContext;
 struct UiContext;
 
-// Maximum number of src entries in a single @font-face rule
-#define FONT_FACE_MAX_SRC 8
-
-// Individual src entry with path and format
-// tier-2: view-pool, rebuilt each relayout
-typedef struct FontFaceSrc {
-    lam::Own<char> path;                  // Resolved local path
-    lam::Own<char> format;                // Format string: "woff", "truetype", "opentype", etc.
-    bool is_local;                       // path is a local font's unique name
-} FontFaceSrc;
-
-// Font face descriptor for @font-face support
-// Descriptors are registered with the unified font module (lib/font) via
-// font_face_register(). Actual font loading is handled entirely by the
-// unified module; this struct only stores the CSS @font-face metadata.
-// tier-2: view-pool, rebuilt each relayout
-typedef struct FontFaceDescriptor {
-    lam::Own<char> family_name;           // font-family value
-    lam::Own<char> src_local_path;        // local font file path (no web URLs) - first/fallback
-    lam::Own<char> src_local_name;        // src: local() font name value
-    lam::OwnArr<FontFaceSrc> src_entries;    // Array of all src entries with formats
-    int src_count;               // Number of entries in src_entries array
-    CssEnum font_style;         // normal, italic, oblique
-    CssEnum font_weight;        // 100-900, normal, bold
-    CssEnum font_display;       // auto, block, swap, fallback, optional
-    lam::OwnArr<FontFaceUnicodeRange> unicode_ranges;
-    int unicode_range_count;
-    bool is_loaded;              // loading state
-} FontFaceDescriptor;
-
 // ============================================================================
 // Text flow logging categories
 // ============================================================================
@@ -3694,10 +3664,6 @@ struct CssStylesheet;
 void parse_font_face_rule(struct LayoutContext* lycon, void* rule);
 
 bool radiant_is_supported_web_font_source(const char* url, const char* format);
-
-// Register a font face descriptor with UiContext (and bridge to unified FontContext)
-void register_font_face(UiContext* uicon, FontFaceDescriptor* descriptor,
-    bool has_pending_sources = false);
 
 // Process all @font-face rules from a stylesheet
 void process_font_face_rules_from_stylesheet(UiContext* uicon, struct CssStylesheet* stylesheet,
@@ -3725,7 +3691,6 @@ struct FontProp;
 
 // Function declarations
 void setup_font(UiContext* uicon, FontBox *fbox, FontProp *fprop);
-void fontface_cleanup(UiContext* uicon);
 
 #ifdef __cplusplus
 }
@@ -4842,11 +4807,6 @@ typedef struct UiContext {
     FontProp legacy_default_font;  // default font style for legacy HTML before HTML5
     float minimum_logical_font_size;  // UA minimum for relative font sizes; zero disables
     lam::Up<char*> fallback_fonts;  // the static fallback font table
-
-    // @font-face support
-    lam::OwnArr<FontFaceDescriptor*> font_faces;    // Array of @font-face declarations
-    int font_face_count;
-    int font_face_capacity;
 
     // image cache
     lam::Own<struct hashmap> image_cache;  // owns every loaded ImageSurface (O2)

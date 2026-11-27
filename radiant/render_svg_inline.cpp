@@ -907,7 +907,6 @@ static FontContext* svg_style_font_context(SvgStyleContext* style, const char* s
         CssStylesheet* sheet = style->document->stylesheets[i];
         if (sheet && !sheet->disabled) process_font_face_rules_from_stylesheet(&bridge, sheet, source_path, image_document);
     }
-    fontface_cleanup(&bridge);
     return fonts;
 }
 

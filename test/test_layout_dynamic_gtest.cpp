@@ -608,6 +608,32 @@ TEST_F(DynamicLayoutTest, DesktopViewportRetainsHostGeometryWithNumericMeta) {
     EXPECT_FLOAT_EQ(element("sample")->height, 300.0f);
 }
 
+TEST_F(DynamicLayoutTest, RetainedResizeRestoresFlexAndGridAfterMediaQueryStopsMatching) {
+    load("<!doctype html><style>body{margin:0}"
+         "#flex{display:flex}#flex>div,#grid>div{width:40px;height:30px}"
+         "#grid{display:grid}"
+         "@media(max-width:700px){#flex{flex-direction:column-reverse;gap:8px}"
+         "#grid{grid-template-columns:50px 50px;column-gap:6px}}</style>"
+         "<div id='flex'><div id='flex-a'></div><div id='flex-b'></div></div>"
+         "<div id='grid'><div id='grid-a'></div><div id='grid-b'></div></div>");
+
+    DomElement* flex_a = element("flex-a");
+    DomElement* flex_b = element("flex-b");
+    DomElement* grid_a = element("grid-a");
+    DomElement* grid_b = element("grid-b");
+    ASSERT_TRUE(flex_a && flex_b && grid_a && grid_b);
+    for (float width : {1200.0f, 640.0f, 620.0f, 1200.0f, 640.0f, 1200.0f}) {
+        SCOPED_TRACE(width);
+        ui.viewport_width = width;
+        ASSERT_TRUE(layout_update_document(&ui, document));
+        bool narrow = width <= 700.0f;
+        EXPECT_FLOAT_EQ(flex_b->x - flex_a->x, narrow ? 0.0f : 40.0f);
+        EXPECT_FLOAT_EQ(flex_b->y - flex_a->y, narrow ? -38.0f : 0.0f);
+        EXPECT_FLOAT_EQ(grid_b->x - grid_a->x, narrow ? 56.0f : 0.0f);
+        EXPECT_FLOAT_EQ(grid_b->y - grid_a->y, narrow ? 0.0f : 30.0f);
+    }
+}
+
 TEST_F(DynamicLayoutTest, DisabledLinkedThemeKeepsItsImportedRulesInactiveUntilEnabled) {
     ASSERT_EQ(write_text_file_atomic("temp/disabled_theme_import.css",
         "#sample{width:8px}"), 0);

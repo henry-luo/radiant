@@ -17,12 +17,12 @@ extern "C" {
 #include "lib/alloca.h"
 #include "lib/str.h"
 }
-#include "lib/mem_grow.hpp"
 #include <string.h>
 #include <stdlib.h>
 #include "lib/file.h"
 #include "lib/strbuf.h"
 #include "lib/arraylist.hpp"
+#include "lib/mem_grow.hpp"
 
 bool radiant_is_supported_web_font_source(const char* url, const char* format) {
     if (format && *format) {
@@ -98,55 +98,50 @@ void init_text_flow_logging(void) {
     }
 }
 
-static FontFaceDescriptor* font_face_descriptor_from_css(CssFontFaceDescriptor* css_desc) {
-    // staged in Temp owners until complete; UiContext owns the result across layout passes
-    lam::Temp<FontFaceDescriptor> descriptor = lam::temp_array_zero<FontFaceDescriptor>(1, MEM_CAT_LAYOUT);
-    if (!descriptor) return nullptr;
-    lam::Temp<char> family_name(css_desc->family_name
-        ? mem_strdup(css_desc->family_name, MEM_CAT_LAYOUT) : nullptr);
-    lam::Temp<char> src_local_path(css_desc->src_url
-        ? mem_strdup(css_desc->src_url, MEM_CAT_LAYOUT) : nullptr);
-    descriptor->font_style = css_desc->font_style;
-    descriptor->font_weight = css_desc->font_weight;
-    descriptor->font_display = css_desc->font_display;
-    if (css_desc->unicode_range_count > 0 && css_desc->unicode_ranges) {
-        descriptor->unicode_ranges = lam::own_arr((FontFaceUnicodeRange*)mem_calloc(
-            (size_t)css_desc->unicode_range_count, sizeof(FontFaceUnicodeRange), MEM_CAT_LAYOUT));
-        if (!descriptor->unicode_ranges) return nullptr;
-        for (int i = 0; i < css_desc->unicode_range_count; i++) {
-            descriptor->unicode_ranges[i].start_codepoint =
-                css_desc->unicode_ranges[i].start_codepoint;
-            descriptor->unicode_ranges[i].end_codepoint =
-                css_desc->unicode_ranges[i].end_codepoint;
-        }
-        descriptor->unicode_range_count = css_desc->unicode_range_count;
+static void register_css_font_face(UiContext* ui, const CssFontFaceDescriptor* css,
+                                   bool has_pending_sources = false) {
+    if (!ui || !ui->font_ctx || !css->family_name) return;
+
+    // FontContext copies the resource synchronously, so the CSS descriptor
+    // can supply borrowed font URLs and names without a second retained copy.
+    FontFaceSource* sources = LAMBDA_ALLOCA(css->src_count > 0 ? css->src_count : 1, FontFaceSource);
+    int source_count = 0;
+    for (int i = 0; css->src_urls && i < css->src_count; i++) {
+        const CssFontFaceSrc* src = &css->src_urls[i];
+        if (!src->url) continue;
+        FontFaceSource& source = sources[source_count++];
+        source = {};
+        if (src->is_local) source.local_name = src->url;
+        else source.path = src->url;
+        source.format = src->format;
     }
-    // keep installed names and URLs in their declared fallback order.
-    if (css_desc->src_urls && css_desc->src_count > 0) {
-        int loadable_src_count = 0;
-        for (int j = 0; j < css_desc->src_count; j++) {
-            if (css_desc->src_urls[j].url) loadable_src_count++;
-        }
-        descriptor->src_entries = lam::own_arr(loadable_src_count > 0
-            ? (FontFaceSrc*)mem_calloc(loadable_src_count, sizeof(FontFaceSrc), MEM_CAT_LAYOUT)
-            : nullptr);
-        if (descriptor->src_entries) {
-            descriptor->src_count = loadable_src_count;
-            int dst = 0;
-            for (int j = 0; j < css_desc->src_count; j++) {
-                if (!css_desc->src_urls[j].url) continue;
-                descriptor->src_entries[dst].path = lam::own(mem_strdup(css_desc->src_urls[j].url, MEM_CAT_LAYOUT));
-                descriptor->src_entries[dst].format = lam::own(css_desc->src_urls[j].format ? mem_strdup(css_desc->src_urls[j].format, MEM_CAT_LAYOUT) : nullptr);
-                descriptor->src_entries[dst].is_local = css_desc->src_urls[j].is_local;
-                dst++;
-            }
-            clog_debug(font_log, "Copied %d src entries for @font-face '%s'",
-                descriptor->src_count, css_desc->family_name);
+    if (source_count == 0 && css->src_url) {
+        sources[source_count++] = {};
+        sources[0].path = css->src_url;
+    }
+
+    lam::Temp<FontFaceUnicodeRange> ranges;
+    if (css->unicode_range_count > 0 && css->unicode_ranges) {
+        ranges = lam::temp_array_zero<FontFaceUnicodeRange>(
+            (size_t)css->unicode_range_count, MEM_CAT_FONT);
+        if (!ranges) return;
+        for (int i = 0; i < css->unicode_range_count; i++) {
+            ranges[i].start_codepoint = css->unicode_ranges[i].start_codepoint;
+            ranges[i].end_codepoint = css->unicode_ranges[i].end_codepoint;
         }
     }
-    descriptor->family_name = lam::own(family_name.release());
-    descriptor->src_local_path = lam::own(src_local_path.release());
-    return descriptor.release();
+
+    FontFaceDesc face = {};
+    face.family = css->family_name;
+    face.weight = css->font_weight == CSS_VALUE_AUTO
+        ? FONT_WEIGHT_AUTO : radiant_font_weight_from_css(css->font_weight);
+    face.slant = radiant_font_slant_from_css(css->font_style);
+    face.sources = sources;
+    face.source_count = source_count;
+    face.unicode_ranges = ranges.get();
+    face.unicode_range_count = ranges ? css->unicode_range_count : 0;
+    face.has_pending_sources = has_pending_sources;
+    font_face_register(ui->font_ctx, &face);
 }
 
 // CSS @font-face parsing integration - uses css_font_face.hpp module
@@ -179,14 +174,7 @@ void parse_font_face_rule(LayoutContext* lycon, void* rule) {
 
     css_font_face_resolve_sources(css_desc, base_path, nullptr);
 
-    // Convert to FontFaceDescriptor and register
-    FontFaceDescriptor* descriptor = font_face_descriptor_from_css(css_desc);
-    if (descriptor) {
-        descriptor->is_loaded = false;
-
-        register_font_face(lycon->ui_context, descriptor);
-    }
-
+    register_css_font_face(lycon->ui_context, css_desc);
     css_font_face_descriptor_free(css_desc);
 }
 
@@ -281,16 +269,7 @@ void process_font_face_rules_from_stylesheet(UiContext* uicon, CssStylesheet* st
             continue;
         }
 
-        // Convert to FontFaceDescriptor and register
-        FontFaceDescriptor* descriptor = font_face_descriptor_from_css(css_desc);
-        if (descriptor) {
-            descriptor->is_loaded = false;
-
-
-
-            register_font_face(uicon, descriptor, has_pending_sources);
-        }
-
+        register_css_font_face(uicon, css_desc, has_pending_sources);
         css_font_face_descriptor_free(css_desc);
     }
 
@@ -328,91 +307,6 @@ void process_document_font_faces(UiContext* uicon, DomDocument* doc) {
             doc->resource_manager);
     }
     doc->font_faces_processed = true;
-}
-
-void register_font_face(UiContext* uicon, FontFaceDescriptor* descriptor, bool has_pending_sources) {
-    if (!uicon || !descriptor) {
-        clog_error(font_log, "Invalid parameters for register_font_face");
-        return;
-    }
-
-    log_debug("register_font_face: registering %s -> %s",
-              descriptor->family_name ? descriptor->family_name : "(null)",
-              descriptor->src_local_path ? descriptor->src_local_path : "(null)");
-
-    // Initialize @font-face storage if needed
-    if (!uicon->font_faces) {
-        uicon->font_face_capacity = 10;
-        uicon->font_faces = lam::own_arr((FontFaceDescriptor**)mem_calloc(uicon->font_face_capacity, sizeof(FontFaceDescriptor*), MEM_CAT_LAYOUT));
-        uicon->font_face_count = 0;
-
-        if (!uicon->font_faces) {
-            clog_error(font_log, "Failed to allocate font_faces array");
-            return;
-        }
-    }
-
-    // Expand array if needed
-    if (uicon->font_face_count >= uicon->font_face_capacity) {
-        if (!lam::mem_grow_array(&uicon->font_faces, &uicon->font_face_capacity,
-                                 uicon->font_face_count + 1, 16, MEM_CAT_LAYOUT)) {
-            clog_error(font_log, "Failed to expand font_faces array");
-            return;
-        }
-    }
-
-    // Store the descriptor
-    uicon->font_faces[uicon->font_face_count] = descriptor;
-    uicon->font_face_count++;
-
-    clog_info(font_log, "Registered @font-face: %s -> %s (total: %d)",
-              descriptor->family_name, descriptor->src_local_path, uicon->font_face_count);
-
-    // ---- Bridge to unified font module ----
-    // Also register with FontContext so that font_resolve() can find @font-face
-    // descriptors directly, without going through load_font_with_descriptors().
-    if (uicon->font_ctx && descriptor->family_name) {
-        FontWeight fw = descriptor->font_weight == CSS_VALUE_AUTO
-            ? FONT_WEIGHT_AUTO : radiant_font_weight_from_css(descriptor->font_weight);
-        FontSlant fs = radiant_font_slant_from_css(descriptor->font_style);
-
-        // build sources array from descriptor's src_entries + src_local_path
-        int src_count = descriptor->src_count;
-        if (!src_count && descriptor->src_local_path) src_count = 1;
-
-        FontFaceSource* sources = nullptr;
-        if (src_count > 0) {
-            sources = LAMBDA_ALLOCA(src_count, FontFaceSource);
-            memset(sources, 0, src_count * sizeof(FontFaceSource));
-
-            if (descriptor->src_entries && descriptor->src_count > 0) {
-                for (int i = 0; i < descriptor->src_count; i++) {
-                    if (descriptor->src_entries[i].is_local)
-                        sources[i].local_name = descriptor->src_entries[i].path;
-                    else sources[i].path = descriptor->src_entries[i].path;
-                    sources[i].format = descriptor->src_entries[i].format;
-                }
-            } else if (descriptor->src_local_path) {
-                sources[0].path   = descriptor->src_local_path;
-                sources[0].format = nullptr;
-            }
-        }
-
-        FontFaceDesc face_desc = {};
-        face_desc.family       = descriptor->family_name;
-        face_desc.weight       = fw;
-        face_desc.slant        = fs;
-        face_desc.sources      = sources;
-        face_desc.source_count = src_count;
-        face_desc.unicode_ranges = descriptor->unicode_ranges;
-        face_desc.unicode_range_count = descriptor->unicode_range_count;
-        face_desc.has_pending_sources = has_pending_sources;
-
-        if (font_face_register(uicon->font_ctx, &face_desc)) {
-            clog_debug(font_log, "register_font_face: bridged to unified font module for '%s'",
-                       descriptor->family_name);
-        }
-    }
 }
 
 struct CssFontLoadFace {

@@ -234,7 +234,13 @@ struct LayoutFlowResult {
     uint32_t style_epoch, mutation_epoch;
 };
 
-static void layout_flow_release_rects(Pool* pool, lam::Own<TextRect>& first) {
+static void layout_flow_release_rects(Pool* pool, lam::Own<TextRect>& first,
+                                      ViewTree* live_tree = nullptr) {
+    if (live_tree) {
+        live_tree->recycle_text_rects(first);
+        first = nullptr;
+        return;
+    }
     while (first) {
         lam::Own<TextRect> next = first->next;
         layout_flow_release_rects(pool, first->bidi_runs);
@@ -243,22 +249,23 @@ static void layout_flow_release_rects(Pool* pool, lam::Own<TextRect>& first) {
     }
 }
 
-static TextRect* layout_flow_clone_rects(Pool* pool, const TextRect* source) {
+static TextRect* layout_flow_clone_rects(Pool* pool, const TextRect* source,
+                                         ViewTree* live_tree = nullptr) {
     lam::Own<TextRect> first = nullptr;
     TextRect* previous = nullptr;
     for (; source; source = source->next) {
-        TextRect* copy = (TextRect*)pool_alloc(pool, sizeof(TextRect));
-        if (!copy) { layout_flow_release_rects(pool, first); return nullptr; }
+        TextRect* copy = live_tree ? live_tree->alloc_text_rect()
+            : (TextRect*)pool_alloc(pool, sizeof(TextRect));
+        if (!copy) { layout_flow_release_rects(pool, first, live_tree); return nullptr; }
         *copy = *source;
         copy->next = nullptr;
-        copy->bidi_runs = lam::own(layout_flow_clone_rects(pool, source->bidi_runs));
-        if (source->bidi_runs && !copy->bidi_runs) {
-            pool_free(pool, copy);
-            layout_flow_release_rects(pool, first);
-            return nullptr;
-        }
+        copy->bidi_runs = lam::own(layout_flow_clone_rects(pool, source->bidi_runs, live_tree));
         if (previous) previous->next = lam::own(copy);
         else first = lam::own(copy);
+        if (source->bidi_runs && !copy->bidi_runs) {
+            layout_flow_release_rects(pool, first, live_tree);
+            return nullptr;
+        }
         previous = copy;
     }
     return first.get();
@@ -425,6 +432,7 @@ bool layout_flow_result_apply(LayoutContext* context, const LayoutFlowResult* re
         (result->root->is_element() && result->input_revision != result->root->as_element()->intrinsic_input_revision))
         return false;
     ScratchScope scratch(&context->scratch);
+    ViewTree* live_tree = context->doc->view_tree;
     // allocate owned payloads before publication; failure leaves live fragments intact.
     struct ReplayPayload { lam::Own<TextRect> rects; lam::Own<char> tracks; ReplayPayload* next; };
     ReplayPayload* first = nullptr;
@@ -435,7 +443,9 @@ bool layout_flow_result_apply(LayoutContext* context, const LayoutFlowResult* re
         ReplayPayload* copy = (ReplayPayload*)scratch.alloc_zero(sizeof(ReplayPayload));
         if (!copy) { complete = false; break; }
         *tail = copy; tail = &copy->next;
-        copy->rects = lam::own(layout_flow_clone_rects(context->pool, output->text_rects));
+        // live rectangles return to this free list. Allocate from it on replay
+        // as well so repeated replacements cannot grow the list indefinitely.
+        copy->rects = lam::own(layout_flow_clone_rects(context->pool, output->text_rects, live_tree));
         if (output->grid_tracks) copy->tracks = lam::own(pool_strdup(context->pool, output->grid_tracks));
         if ((output->text_rects && !copy->rects) || (output->grid_tracks && !copy->tracks)) {
             complete = false; break;
@@ -443,7 +453,7 @@ bool layout_flow_result_apply(LayoutContext* context, const LayoutFlowResult* re
     }
     if (!complete) {
         for (ReplayPayload* copy = first; copy; copy = copy->next) {
-            layout_flow_release_rects(context->pool.get(), copy->rects);
+            layout_flow_release_rects(context->pool.get(), copy->rects, live_tree);
             lam::free_owned(context->pool.get(), copy->tracks);
         }
         return false;
@@ -528,7 +538,7 @@ bool layout_flow_result_apply(LayoutContext* context, const LayoutFlowResult* re
             }
         } else if (node->is_text()) {
             DomText* text = node->as_text();
-            context->doc->view_tree->recycle_text_rects(text->rect);
+            live_tree->recycle_text_rects(text->rect);
             text->rect = lam::view_prop(payload->rects.get());
             text->font = lam::view_ref(output->text_font);
             payload = payload->next;

@@ -96,7 +96,6 @@ void log_mem_stage(const char* stage);  // defined in radiant/window.cpp
 
 // Forward declarations
 Element* get_html_root_element(Input* input);
-extern void fontface_cleanup(UiContext* uicon);
 CssStylesheet** extract_and_collect_css(Element* html_root, DomElement* dom_root,
                                         CssEngine* engine, const char* base_path, Pool* pool,
                                         int* stylesheet_count, int* linked_count_out = nullptr,
@@ -6335,7 +6334,6 @@ static bool layout_single_file(
     radiant_script_window_cleanup_batch(true);
     lambda_uv_cleanup();
 
-    fontface_cleanup(ui_context);
     font_context_reset_document_fonts(ui_context->font_ctx);
     font_context_reset_glyph_caches(ui_context->font_ctx);
     phase_timing.cleanup_runtime_ms = time_elapsed_ms_f(cleanup_runtime_start, time_now_ns());

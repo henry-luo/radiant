@@ -11,6 +11,9 @@
 #include "pen_mac.hpp"
 #include "view.hpp"
 #include "gl_core.hpp"
+#ifdef __APPLE__
+#include "platform_present_mac.hpp"
+#endif
 #include "lib/log.h"
 #include <math.h>
 
@@ -23,6 +26,7 @@
 extern "C" {
 #ifdef __APPLE__
 void* glfwGetCocoaWindow(GLFWwindow* window);       // id (NSWindow*)
+void* glfwGetNSGLContext(GLFWwindow* window);       // id (NSOpenGLContext*)
 #elif defined(_WIN32)
 void* glfwGetWin32Window(GLFWwindow* window);       // HWND
 #else
@@ -116,7 +120,12 @@ static NativeGlContext* glfw_presenter(RadiantWindow* window) {
 void radiant_platform_destroy_window(RadiantWindow* window) {
     if (!window) return;
     // the presenter releases its GL objects while its window's context still exists
-    native_gl_destroy(glfw_presenter(window));
+    NativeGlContext* presenter = glfw_presenter(window);
+#ifdef __APPLE__
+    if (presenter) radiant_mac_present_destroy(glfwGetCocoaWindow(glfw_window(window)),
+                                              glfwGetNSGLContext(glfw_window(window)), presenter);
+#endif
+    native_gl_destroy(presenter);
     glfwSetWindowUserPointer(glfw_window(window), nullptr);
     glfwDestroyWindow(glfw_window(window));
 }
@@ -452,7 +461,9 @@ static NativeGlContext* glfw_presenter_ensure(RadiantWindow* window) {
 bool radiant_platform_present_init(RadiantWindow* window) {
     if (!window) return false;
     glfwMakeContextCurrent(glfw_window(window));
-    glfwSwapInterval(1);  // vsync
+#ifndef __APPLE__
+    glfwSwapInterval(1);  // vsync; Core Animation schedules macOS presentation
+#endif
     return glfw_presenter_ensure(window) != nullptr;
 }
 
@@ -483,9 +494,14 @@ void radiant_platform_present(RadiantWindow* window, const ImageSurface* surface
         frame.page_hidden = composite->surface_hidden;
         frame.reference = composite->reference;
     }
-    if (!native_gl_present(presenter, &frame))
-        log_error("platform: window present failed: %s", native_gl_diagnostic(presenter));
+#ifdef __APPLE__
+    bool presented = radiant_mac_present(glfwGetCocoaWindow(glfw_window(window)),
+                                         glfwGetNSGLContext(glfw_window(window)), presenter, &frame);
+#else
+    bool presented = native_gl_present(presenter, &frame);
     glfwSwapBuffers(glfw_window(window));
+#endif
+    if (!presented) log_error("platform: window present failed: %s", native_gl_diagnostic(presenter));
 }
 
 #endif // LAMBDA_NO_GUI

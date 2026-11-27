@@ -786,6 +786,20 @@ void box_blur_region_inset(ScratchArena* sa, ImageSurface* surface,
 
 }
 
+struct ShadowRepeatSpan {
+    int first;  // representative pixel
+    int skipped;
+};
+
+static ShadowRepeatSpan shadow_repeat_span(int origin, int length, float start, float extent,
+                                           float corner, float support) {
+    // Keep the kernel's full reach away from corners and from the raster boundary.
+    float first = fmaxf(0.0f, ceilf(start + corner - origin)) + support;
+    float end = fminf((float)length, floorf(start + extent - corner - origin)) - support;
+    if (!(end > first + 1.0f)) return {length, 0};
+    return {(int)first, (int)(end - first - 1.0f)}; // INT_CAST_OK: raster indices
+}
+
 /**
  * Software-rasterise a rounded rect into a uint32 buffer at a fixed pixel value.
  * - buf is ew x eh, with origin (ox, oy) in surface coordinates.
@@ -798,7 +812,7 @@ static void rasterise_rounded_rect_into_buffer(
     uint32_t* buf, int ew, int eh, int ox, int oy,
     float sx, float sy, float sw, float sh,
     float sr_tl, float sr_tr, float sr_br, float sr_bl,
-    uint32_t pixel)
+    uint32_t pixel, ShadowRepeatSpan x_repeat, ShadowRepeatSpan y_repeat)
 {
     float x0 = sx, y0 = sy;
     float x1 = sx + sw, y1 = sy + sh;
@@ -809,10 +823,10 @@ static void rasterise_rounded_rect_into_buffer(
     if (sr_br > maxr_x) sr_br = maxr_x;  if (sr_br > maxr_y) sr_br = maxr_y;
     if (sr_bl > maxr_x) sr_bl = maxr_x;  if (sr_bl > maxr_y) sr_bl = maxr_y;
     for (int row = 0; row < eh; row++) {
-        float py = (float)(oy + row) + 0.5f;
+        float py = (float)(oy + row + (row > y_repeat.first ? y_repeat.skipped : 0)) + 0.5f;
         if (py < y0 || py >= y1) continue;
         for (int col = 0; col < ew; col++) {
-            float px = (float)(ox + col) + 0.5f;
+            float px = (float)(ox + col + (col > x_repeat.first ? x_repeat.skipped : 0)) + 0.5f;
             if (px < x0 || px >= x1) continue;
             bool inside = true;
             // corner-region tests
@@ -834,6 +848,26 @@ static void rasterise_rounded_rect_into_buffer(
                 inside = (dx * dx + dy * dy) <= (sr_bl * sr_bl);
             }
             if (inside) buf[row * ew + col] = pixel;
+        }
+    }
+}
+
+static void expand_shadow_pixels(uint32_t* dest, int width, int height,
+    const uint32_t* compact, int compact_width, ShadowRepeatSpan x, ShadowRepeatSpan y) {
+    for (int row = 0; row < height; row++) {
+        uint32_t* out = dest + (size_t)row * width;
+        if (row > y.first && row <= y.first + y.skipped) {
+            memcpy(out, out - width, (size_t)width * sizeof(uint32_t));
+            continue;
+        }
+        int source_row = row > y.first ? row - y.skipped : row;
+        const uint32_t* in = compact + (size_t)source_row * compact_width;
+        memcpy(out, in, (size_t)x.first * sizeof(uint32_t));
+        if (x.skipped) {
+            uint32_t repeated = in[x.first];
+            int tail = x.first + x.skipped;
+            for (int col = x.first; col < tail; col++) out[col] = repeated;
+            memcpy(out + tail, in + x.first, (size_t)(compact_width - x.first) * sizeof(uint32_t));
         }
     }
 }
@@ -932,26 +966,43 @@ static bool build_outer_shadow_image(
         ? (uint32_t*)scratch_scope_alloc(sa, scope, buf_n * sizeof(uint32_t))
         : (uint32_t*)scratch_alloc(sa, buf_n * sizeof(uint32_t));
     if (!shadow_buf) return false;
-    memset(shadow_buf, 0, buf_n * sizeof(uint32_t));
-
     uint32_t sa_b = shadow_color.a;
     uint32_t sr_b = ((uint32_t)shadow_color.r * sa_b + 127) / 255;
     uint32_t sg_b = ((uint32_t)shadow_color.g * sa_b + 127) / 255;
     uint32_t sb_b = ((uint32_t)shadow_color.b * sa_b + 127) / 255;
     uint32_t shadow_px = render_pixel_pack_abgr(sr_b, sg_b, sb_b, sa_b);
 
-    rasterise_rounded_rect_into_buffer(shadow_buf, br_w, br_h, br_x0, br_y0,
+    // Along a straight edge, every pixel beyond the combined three-pass
+    // support has the same input neighborhood. Blur it once at full precision.
+    float support = 3.0f * render_box_blur_half_width(blur_radius);
+    float corner = fmaxf(fmaxf(sr_tl, sr_tr), fmaxf(sr_bl, sr_br));
+    ShadowRepeatSpan x = shadow_repeat_span(br_x0, br_w, shadow_x, shadow_w, corner, support);
+    ShadowRepeatSpan y = shadow_repeat_span(br_y0, br_h, shadow_y, shadow_h, corner, support);
+    ScratchScope compact_scope(sa);
+    int width = br_w - x.skipped, height = br_h - y.skipped;
+    uint32_t* compact = shadow_buf;
+    if (x.skipped || y.skipped) {
+        compact = compact_scope.array<uint32_t>((size_t)width * height);
+        if (!compact) {
+            x = {br_w, 0}; y = {br_h, 0};
+            width = br_w; height = br_h;
+            compact = shadow_buf;
+        }
+    }
+    memset(compact, 0, (size_t)width * height * sizeof(uint32_t));
+    rasterise_rounded_rect_into_buffer(compact, width, height, br_x0, br_y0,
                                         shadow_x, shadow_y, shadow_w, shadow_h,
-                                        sr_tl, sr_tr, sr_br, sr_bl, shadow_px);
+                                        sr_tl, sr_tr, sr_br, sr_bl, shadow_px, x, y);
 
     if (blur_radius >= 1.0f) {
         ImageSurface tmp = {};
-        tmp.pixels = (void*)shadow_buf;
-        tmp.width = br_w;
-        tmp.height = br_h;
-        tmp.pitch = br_w * 4;
-        box_blur_region(sa, &tmp, 0, 0, br_w, br_h, blur_radius);
+        tmp.pixels = compact;
+        tmp.width = width;
+        tmp.height = height;
+        tmp.pitch = width * 4;
+        box_blur_region(sa, &tmp, 0, 0, width, height, blur_radius);
     }
+    if (compact != shadow_buf) expand_shadow_pixels(shadow_buf, br_w, br_h, compact, width, x, y);
 
     image->pixels = shadow_buf;
     image->x = br_x0;
