@@ -996,7 +996,7 @@ void FlexLayoutScope::close() {
     active = false;
 }
 
-void layout_flex_container(LayoutContext* lycon, ViewBlock* container) {
+void layout_flex_container(LayoutContext* lycon, ViewBlock* container, bool resolve_ratio_height) {
     FlexContainerLayout* flex_layout = lycon->flex_container;
     // Set main and cross axis sizes from container dimensions (only if not already set)
     if (flex_layout->main_axis_size == 0.0f || flex_layout->cross_axis_size == 0.0f) {
@@ -1044,6 +1044,7 @@ void layout_flex_container(LayoutContext* lycon, ViewBlock* container) {
     View** items = flex_layout->flex_items;
     int item_count = flex_layout->item_count;
     if (item_count == 0) {
+        if (resolve_ratio_height) flex_resolve_ratio_container_height(lycon, container);
         flex_finalize_auto_axis(flex_layout,container,LAYOUT_AXIS_Y);
         if (layout_block_inline_axis_is_vertical(container))
             flex_finalize_auto_axis(flex_layout,container,LAYOUT_AXIS_X);
@@ -1161,6 +1162,7 @@ void layout_flex_container(LayoutContext* lycon, ViewBlock* container) {
             }
         }
     }
+    if (resolve_ratio_height) flex_resolve_ratio_container_height(lycon, container);
     // Per CSS Flexbox §9.3, when the container has no definite main size but has
     float column_wrap_max_height = layout_positive_max_axis_or(container, false, -1.0f);
     if (!is_main_axis_horizontal(flex_layout) && flex_layout->wrap != WRAP_NOWRAP &&

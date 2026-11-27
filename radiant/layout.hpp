@@ -5053,7 +5053,8 @@ bool layout_block_resolve_intrinsic_axis_constraints(LayoutContext* lycon,
                                                      ViewBlock* block,
                                                      LayoutAxis axis,
                                                      float content_width);
-void layout_flex_container(LayoutContext* lycon, ViewBlock* container);
+void flex_resolve_ratio_container_height(LayoutContext* lycon, ViewBlock* container);
+void layout_flex_container(LayoutContext* lycon, ViewBlock* container, bool resolve_ratio_height = false);
 void layout_html_root(LayoutContext* lycon, DomNode* elmt);
 
 // ===== paged flow hooks (layout_paged.cpp) =====

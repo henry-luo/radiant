@@ -2014,12 +2014,15 @@ SvgIntrinsicSize calculate_svg_intrinsic_size(Element* svg_element) {
         size.has_intrinsic_height = false;
     }
 
-    // calculate aspect ratio
+    // zero natural dimensions cannot transfer a size across axes.
+    float ratio = 0.0f;
     if (vb.has_viewbox && vb.width > 0 && vb.height > 0) {
-        size.aspect_ratio = vb.width / vb.height;
-        size.has_intrinsic_aspect_ratio = true;
+        ratio = vb.width / vb.height;
     } else if (size.has_intrinsic_width && size.has_intrinsic_height && size.height > 0) {
-        size.aspect_ratio = size.width / size.height;
+        ratio = size.width / size.height;
+    }
+    if (isfinite(ratio) && ratio > 0.0f) {
+        size.aspect_ratio = ratio;
         size.has_intrinsic_aspect_ratio = true;
     }
 

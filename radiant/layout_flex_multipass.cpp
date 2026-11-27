@@ -64,8 +64,8 @@ static void flex_prepare_auto_container_height(LayoutContext* lycon, ViewBlock* 
     }
 }
 
-static void flex_resolve_ratio_container_height(LayoutContext* lycon, ViewBlock* container,
-    FlexContainerLayout* flex, int item_count) {
+void flex_resolve_ratio_container_height(LayoutContext* lycon, ViewBlock* container) {
+    FlexContainerLayout* flex = lycon->flex_container;
     if (!flex || !container->blk || !container->block()->rare().aspect_ratio_auto_height ||
         !layout_axis_has_given_size(container, false) ||
         lycon->natural_flex_height_root == container) return;
@@ -73,14 +73,28 @@ static void flex_resolve_ratio_container_height(LayoutContext* lycon, ViewBlock*
     bool column = !is_main_axis_horizontal(flex);
     float height = layout_css_size_to_border_box(container->bound, layout_box_sizing(container),
         container->block()->given_height, false);
+    if (layout_block_has_automatic_size(container, true) &&
+        !flex_container_axis_is_fixed(flex, container, LAYOUT_AXIS_X)) {
+        // a shrink-to-fit flex box gets its ratio from its measured width, not the available width.
+        float width = column ? flex->cross_axis_size : flex->main_axis_size;
+        if (column) width = flex_auto_container_content_extent(
+            lycon, container, flex, flex->item_count, LAYOUT_AXIS_X, false);
+        width = layout_apply_min_max_axis(container,
+            layout_border_size_from_content_box(container, width, true), true, true);
+        bool ratio_uses_border_box = !layout_aspect_ratio_uses_content_box(container) &&
+            layout_uses_border_box(container);
+        height = layout_ratio_transfer_axis(container, width, true,
+            layout_used_preferred_aspect_ratio(container), true, true, ratio_uses_border_box);
+    }
     CssDeclaration* minimum = layout_specified_physical_minmax_size_declaration(
         container->as_element(), false, true);
     bool automatic_minimum = !minimum || !minimum->value ||
         (minimum->value->type == CSS_VALUE_TYPE_KEYWORD && minimum->value->data.keyword == CSS_VALUE_AUTO);
     bool scrolls = container->scroller && layout_is_scrollable_overflow(container->scroll()->overflow_y);
     if (automatic_minimum && !scrolls) {
+        // wrapping columns need room for the tallest item, not the sum of all columns.
         float natural = flex_auto_container_content_extent(
-            lycon, container, flex, item_count, LAYOUT_AXIS_Y, column);
+            lycon, container, flex, flex->item_count, LAYOUT_AXIS_Y, column && flex->wrap == WRAP_NOWRAP);
         height = max(height, layout_axis_border_box_extent(container, LAYOUT_AXIS_Y, natural));
     }
     height = layout_apply_min_max_axis(container, height, false, true);
@@ -913,8 +927,8 @@ void layout_flex_container_with_nested_content(LayoutContext* lycon, ViewBlock* 
     if (!has_explicit_height) {
         flex_prepare_auto_container_height(lycon, flex_container, item_count);
     }
-    if (!is_actually_grid_item && !flex_height_is_parent_constrained(lycon, flex_container, true, true, pa_flex))
-        flex_resolve_ratio_container_height(lycon, flex_container, flex_layout, item_count);
+    bool resolve_ratio_height = !is_actually_grid_item &&
+        !flex_height_is_parent_constrained(lycon, flex_container, true, true, pa_flex);
 
     bool has_explicit_width = layout_axis_has_given_size(flex_container, true);
     bool has_flex_basis_width = flex_container->fi && flex_container->fi->flex_basis >= 0;  // non-auto flex-basis
@@ -931,7 +945,7 @@ void layout_flex_container_with_nested_content(LayoutContext* lycon, ViewBlock* 
         }
     }
 
-    layout_flex_container(lycon, flex_container);
+    layout_flex_container(lycon, flex_container, resolve_ratio_height);
     apply_auto_margin_centering(lycon, flex_container);
 
     layout_final_flex_content(lycon, flex_container);
