@@ -13,6 +13,7 @@
 #include "radiant/resource_loaders.h"
 #include "lambda/network/network_resource_manager.h"
 #include "lambda/input/css/dom_element.hpp"
+#include "lambda/input/css/dom_lifecycle.hpp"
 #include "lambda/input/css/css_engine.hpp"
 #include "lambda/input/input.hpp"
 #include "test_native_input_document.hpp"
@@ -144,10 +145,10 @@ TEST(RadiantInputValueTest, DownloadedStylesheetsUseOwnerOrderAcrossCompletionOr
     resource.url = url;
     resource.local_path = path;
     resource.state = STATE_COMPLETED;
-    resource.owner_element = last;
+    network_resource_set_owner(&resource, last);
     process_css_resource(&resource, document);
     resource.state = STATE_CACHED;
-    resource.owner_element = first;
+    network_resource_set_owner(&resource, first);
     process_css_resource(&resource, document);
     ASSERT_EQ(document->stylesheet_count, 3);
     EXPECT_EQ(document->stylesheets[0]->owner_element, first);
@@ -155,6 +156,31 @@ TEST(RadiantInputValueTest, DownloadedStylesheetsUseOwnerOrderAcrossCompletionOr
     EXPECT_EQ(document->stylesheets[2]->owner_element, last);
     EXPECT_EQ(document->stylesheets[0]->rule_count, 1u);
     EXPECT_EQ(document->stylesheets[2]->rule_count, 1u);
+}
+
+TEST(RadiantInputValueTest, DownloadedStylesheetDoesNotPublishAfterOwnerRetires) {
+    NativeInputDocument fixture;
+    DomDocument* document = fixture.document;
+    ASSERT_NE(document, nullptr);
+    ASSERT_TRUE(css_property_system_init(document->document_pool));
+    DomElement* head = dom_create_backed_element_identity(document, "head", nullptr, false);
+    DomElement* link = dom_create_backed_element_identity(document, "link", nullptr, false);
+    ASSERT_TRUE(head && link);
+    document->root = lam::up(head);
+    ASSERT_TRUE(head->append_child(link));
+
+    NetworkResource resource = {};
+    char url[] = "https://example.test/retired.css";
+    char path[PATH_MAX];
+    ASSERT_TRUE(radiant_test_fixture_path("stylesheet-order.css", path, sizeof(path)));
+    resource.url = url;
+    resource.local_path = path;
+    resource.state = STATE_CACHED;
+    network_resource_set_owner(&resource, link);
+    ASSERT_TRUE(head->remove_child(link));
+    ASSERT_EQ(dom_retire_sweep(document), 1u);
+    process_css_resource(&resource, document);
+    EXPECT_EQ(document->stylesheet_count, 0);
 }
 
 TEST(RadiantInputValueTest, DownloadedStylesheetsRespectLinkMediaAndDisabledState) {
@@ -183,7 +209,7 @@ TEST(RadiantInputValueTest, DownloadedStylesheetsRespectLinkMediaAndDisabledStat
         resource.url = url;
         resource.local_path = local_path;
         resource.state = i % 2 ? STATE_CACHED : STATE_COMPLETED;
-        resource.owner_element = link;
+        network_resource_set_owner(&resource, link);
         process_css_resource(&resource, document);
         ASSERT_EQ(document->stylesheet_count, i + 1);
         CssStylesheet* sheet = document->stylesheets[i];

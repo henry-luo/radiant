@@ -61,6 +61,7 @@ struct ParticleRecord {
     float initial_size;
     unsigned slot, surface_slot;
     bool newborn;
+    bool turned; // born from a rotated request: its basis is no longer axis-aligned for local bounds
 };
 struct ParticleEvent {
     uint64_t sequence, particle, tick, world_identity;
@@ -69,9 +70,9 @@ struct ParticleEvent {
 };
 struct ParticleSpawnRequest {
     uint64_t emitter;
-    Scene3dVec position, velocity;
+    Scene3dVec position, velocity, rotation; // rotation: Euler XYZ radians turning this request's birth basis
     unsigned count, depth;
-    bool positioned;
+    bool positioned, rotated;
 };
 struct ParticleSpawnBatch { unsigned count; ParticleSpawnRequest requests[PARTICLE_COMMAND_LIMIT]; };
 struct ParticleEmitter {

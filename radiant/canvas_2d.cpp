@@ -470,6 +470,14 @@ static void canvas_copy_rgba(ImageSurface* surface, const uint8_t* rgba, uint32_
     }
 }
 
+static bool canvas_write_region(CanvasEntry* entry, const uint8_t* rgba, uint32_t width, uint32_t height,
+                                const int64_t* strides, uint32_t x, uint32_t y) {
+    canvas_copy_rgba(entry->surface, rgba, width, height, strides, x, y);
+    entry->mode = 1;
+    canvas_note_region_changed(entry, x, y, width, height);
+    return true;
+}
+
 // writes a (height, width, 4) array into the existing bitmap at (x, y), leaving other pixels (PE7).
 extern "C" bool radiant_canvas_write_pixels(void* canvas_element, const uint8_t* rgba,
                                             uint32_t width, uint32_t height,
@@ -479,10 +487,28 @@ extern "C" bool radiant_canvas_write_pixels(void* canvas_element, const uint8_t*
     if (!entry || entry->mode == 2 || !entry->surface ||
         (uint64_t)x + width > (uint64_t)entry->surface->width ||
         (uint64_t)y + height > (uint64_t)entry->surface->height) return false;
-    canvas_copy_rgba(entry->surface, rgba, width, height, strides, x, y);
-    entry->mode = 1;
-    canvas_note_region_changed(entry, x, y, width, height);
-    return true;
+    return canvas_write_region(entry, rgba, width, height, strides, x, y);
+}
+
+extern "C" bool radiant_canvas_put_pixels(void* canvas_element, int64_t x, int64_t y,
+        uint32_t width, uint32_t height, const uint8_t* rgba, size_t row_bytes, size_t bytes) {
+    uint64_t written_row = (uint64_t)width * 4;
+    if (!rgba || !width || !height || written_row > bytes || written_row > row_bytes ||
+        row_bytes > INT64_MAX || height - 1 > (bytes - written_row) / row_bytes ||
+        x > INT64_MAX - width || y > INT64_MAX - height) return false;
+    CanvasEntry* entry = canvas_entry_for_element((DomElement*)canvas_element, true);
+    if (!entry || entry->mode == 2) return false;
+    if (!entry->surface) return true;
+    // Clip in device pixels and advance the source by the same amount. Drawing
+    // state never participates in a direct ImageData write.
+    int64_t left = x > 0 ? x : 0, top = y > 0 ? y : 0;
+    int64_t right = x + width < entry->surface->width ? x + width : entry->surface->width;
+    int64_t bottom = y + height < entry->surface->height ? y + height : entry->surface->height;
+    if (left >= right || top >= bottom) return true;
+    const uint8_t* first = rgba + (size_t)(top - y) * row_bytes + (size_t)(left - x) * 4;
+    const int64_t strides[] = {(int64_t)row_bytes, 4, 1};
+    return canvas_write_region(entry, first, (uint32_t)(right - left), (uint32_t)(bottom - top),
+        strides, (uint32_t)left, (uint32_t)top);
 }
 
 extern "C" bool radiant_canvas_set_pixels(void* canvas_element, const uint8_t* rgba,
@@ -1353,6 +1379,8 @@ extern "C" uint64_t radiant_webgl_create(void* canvas, const WebGlOptions* optio
     if (!entry || !options || entry->mode==1) return 0;
     if (entry->graphics) return entry->webgl_id;
     UiContext* ui=element->doc?(UiContext*)element->doc->js.host_ui_context:nullptr;
+    // file export acquires its graphics host when the page first requests a context.
+    if (ui && ui->export_native_graphics && !ui_context_enable_native_graphics(ui)) return 0;
     char diagnostic[2048];
     // one share group per window (Radiant_Design_GPU_Compositor Q7)
     NativeGlContext* graphics=native_gl_create(ui && ui->window,diagnostic,sizeof(diagnostic),ui?ui->window:nullptr);

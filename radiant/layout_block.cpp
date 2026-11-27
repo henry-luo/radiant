@@ -5267,6 +5267,11 @@ void layout_inline_svg(LayoutContext* lycon, ViewBlock* block) {
         (intrinsic.has_intrinsic_aspect_ratio || preferred_aspect_ratio > 0.0f);
     bool width_is_automatic = layout_block_has_automatic_size(block, true);
     bool height_is_automatic = layout_block_has_automatic_size(block, false);
+    if (height_is_automatic && layout_axis_has_given_size(block, false) &&
+        !isnan(block->block()->given_height_percent)) {
+        // the active containing block can make an authored viewport percentage definite.
+        height_is_automatic = layout_percentage_height_is_automatic(block, lycon);
+    }
     float width = (!width_is_automatic && layout_axis_has_given_size(block, true) &&
                    block->block()->given_width_type != CSS_VALUE_AUTO)
         ? block->block()->given_width : -1.0f;

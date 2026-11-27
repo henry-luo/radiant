@@ -1192,12 +1192,13 @@ inline void expand_flexible_tracks(
             }
             intrinsic_total += tracks[i].base_size;
         }
-        intrinsic_total += grid_track_gaps(tracks, 0, tracks.size(), gap);
-
         // --- Pass 2: Re-run with intrinsic total as definite available ---
         // The definite iterative freeze redistributes space with max(sum,1) clamping,
         // which can produce different (smaller) track sizes for sub-1 flex factors.
-        if (out_intrinsic_total) *out_intrinsic_total = intrinsic_total;
+        // Gutters count toward the container extent, outside the space for flexible tracks.
+        if (out_intrinsic_total) {
+            *out_intrinsic_total = intrinsic_total + grid_track_gaps(tracks, 0, tracks.size(), gap);
+        }
         available = intrinsic_total;
         // Restore Phase 3 base_sizes as min floors
         for (size_t i = 0; i < n; ++i) {
