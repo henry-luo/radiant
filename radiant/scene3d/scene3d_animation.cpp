@@ -944,6 +944,8 @@ static bool scene3d_motion_reconcile(Scene3dAnimationState* state) {
 
 static Scene3dTickResult scene3d_animation_tick(void* owner, double timestep) {
     auto* state = (Scene3dAnimationState*)owner;
+    // sample the mixer with one ownership index for all changed bindings.
+    DomNodeValidationScope owners(state->document);
     if (!scene3d_animation_connected(state, state->root) || !state->mixer)
         return SCENE3D_TICK_IDLE;
     // quiet reconstruction samples poses/controllers without spending the host cue budget.
@@ -1301,6 +1303,7 @@ bool scene3d_animation_matches(Scene3dAnimationState* state, DomElement* root) {
         return false;
     if (scene3d_source_unchanged(root, &state->epoch, state->source_generation))
         return true;
+    DomNodeValidationScope owners(root->doc);
     // sibling UI mutations may reproject the scene, but cannot restart an unchanged clip timeline.
     for (auto* binding = state->bindings; binding; binding = binding->next)
         if (!scene3d_animation_connected(state, binding->node))
@@ -1385,6 +1388,7 @@ static const char* scene3d_animation_commands_apply(void* owner, const void* pay
     if (!state->mixer || state->command_revision == UINT64_MAX || state->generation == UINT64_MAX) {
         return "animation commands: unavailable mixer or exhausted playback revision";
     }
+    DomNodeValidationScope owners(state->document);
     lam::ArrayList<Scene3dAnimationBinding> bindings(MEM_CAT_RENDER, 0);
     if (!bindings.reserve(state->binding_count)) {
         return "animation commands: binding scratch allocation failed";

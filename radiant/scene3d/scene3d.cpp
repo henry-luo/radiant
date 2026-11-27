@@ -3509,6 +3509,8 @@ static bool scene3d_refresh_uniforms(Scene3dEntry* entry, DomElement* node, Scen
     return true;
 }
 static bool scene3d_refresh_pose(Scene3dEntry* entry, DomElement* root, bool projected) {
+    // share the ownership index across the source and bone checks for this pose.
+    DomNodeValidationScope owners(root->doc);
     Scene3dProjection* p = &entry->projection;
     // Atmosphere tracks update render uniforms without recompiling the scene.
     if (!scene3d_animated_color(entry, root, p->background, "background", "transparent") ||
