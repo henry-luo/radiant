@@ -57,8 +57,9 @@ Scene3dAnimationClip* scene3d_animation_clip(Scene3dAnimationState* state, const
     }
     return nullptr;
 }
-static bool scene3d_animation_connected(Scene3dAnimationState* state, DomNodeRef ref) {
-    DomNode* node = dom_node_ref_validate(state->document, ref);
+static bool scene3d_animation_connected(Scene3dAnimationState* state, DomNodeRef& ref) {
+    // retain the validated lifetime stamp so a live track skips later ownership walks.
+    DomNode* node = dom_node_ref_refresh(state->document, ref);
     bool in_root = false;
     for (unsigned depth = 0; node && depth < 128; node = node->parent, depth++) {
         if (node == state->root.address)
@@ -944,6 +945,8 @@ static bool scene3d_motion_reconcile(Scene3dAnimationState* state) {
 
 static Scene3dTickResult scene3d_animation_tick(void* owner, double timestep) {
     auto* state = (Scene3dAnimationState*)owner;
+    // after retirement, all sampled bindings share one ownership snapshot.
+    DomNodeValidationScope ownership(state->document);
     if (!scene3d_animation_connected(state, state->root) || !state->mixer)
         return SCENE3D_TICK_IDLE;
     // quiet reconstruction samples poses/controllers without spending the host cue budget.
