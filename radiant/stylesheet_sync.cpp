@@ -127,7 +127,7 @@ static void stylesheet_invalidate_dependents(DomDocument* doc, CssStylesheet* sh
 }
 
 static bool stylesheet_remove_inline(DomDocument* doc,
-                                                DomElement* elem) {
+                                      DomElement* elem, bool retired = false) {
     if (!doc || !elem) return false;
     for (int i = 0; i < doc->stylesheet_count; i++) {
         CssStylesheet* sheet = doc->stylesheets[i];
@@ -136,9 +136,15 @@ static bool stylesheet_remove_inline(DomDocument* doc,
                 (size_t)(doc->stylesheet_count - i - 1) * sizeof(CssStylesheet*));
         doc->stylesheet_count--;
         stylesheet_invalidate_dependents(doc, sheet);
+        if (retired) sheet->owner_element = nullptr;
         return true;
     }
     return false;
+}
+
+void radiant_release_element_stylesheets(DomElement* elem) {
+    // The weak cascade owner must be cleared before the DOM slot can be reused.
+    while (stylesheet_remove_inline(elem->doc, elem, true)) {}
 }
 
 bool radiant_sync_inline_stylesheet(DomElement* elem) {

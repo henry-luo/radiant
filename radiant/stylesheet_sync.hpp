@@ -5,6 +5,7 @@ struct DomElement;
 
 // Reparse connected inline styles and preserve document stylesheet order.
 bool radiant_sync_inline_stylesheet(DomElement* element);
+void radiant_release_element_stylesheets(DomElement* element);
 void radiant_sync_mutated_inline_stylesheets(DomDocument* document);
 
 struct CssStylesheet;

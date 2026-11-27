@@ -2,20 +2,26 @@
 #include "lib/host_paths.h"
 #include "geomap.hpp"
 #include "layout.hpp"
+#include "layout_host.hpp"
 #include "layout_anchor.hpp"
 #include "css_resolved_style.hpp"
 #include "view.hpp"
 #include "render.hpp"
+#include "radiant.hpp"
+#include "script_loop_host.hpp"
+#include "stylesheet_sync.hpp"
 #include "view_tree_model.hpp"
 #include <assert.h>
 #include "event.hpp"
 #include "rdt_video.h"
 #include "lambda/input/css/dom_node.hpp"
+#include "lambda/input/css/style_epoch.hpp"
 #include "svg_geometry_context.hpp"
 #include "tagged.hpp"
 #include "lib/mem_factory.h"
 #include "lib/escape.h"
 #include "lib/str.h"
+#include "lib/uv_loop.h"
 #include <stdlib.h>
 #include <time.h>
 #include <cmath>  // for INFINITY
@@ -141,6 +147,7 @@ typedef enum ViewTeardownFlag {
     VIEW_TEARDOWN_FREE_POOL        = 1 << 2,
     VIEW_TEARDOWN_FREE_NODE        = 1 << 3,
     VIEW_TEARDOWN_RESET_IN_PLACE   = 1 << 4,
+    VIEW_TEARDOWN_RETIRE_STYLES    = 1 << 5,
 } ViewTeardownFlag;
 
 typedef void (*ViewPropReleaseFn)(DomElement* elem, ViewTree* tree);
@@ -417,20 +424,59 @@ static void free_vector_path_payload(DomElement* elem, ViewTree* tree) {
     view_pool_free(tree, path->dash_pattern);
 }
 
+static bool view_can_reclaim_retired_frame(DomDocument* child) {
+    return child && !child->embedded_storage_exposed && !child->embedded_foreign_wrappers &&
+        !child->js_has_dom_realm &&
+        (!child->lambda_runtime || child->owns_script_runtime);
+}
+
 static void release_embedded_document(DomElement* elem) {
     if (!elem || !elem->embed || !elem->embedp()->doc) {
         return;
     }
 
     DomDocument* embedded_doc = elem->embedp()->doc;
-    // adopted nodes and script wrappers can still use the child's arenas after
-    // iframe removal; the parent's resource graph releases them after its views.
+    // Transfer ownership before clearing the host pin. Teardown can need a
+    // different evaluator, so the host drains retired frames between turns.
     if (!dom_document_add_resource(elem->doc, embedded_doc, free_document_resource)) {
         log_error("embedded-document-retire: could not retain child document storage");
         return;
     }
     elem->embed->doc = nullptr;
-    dom_document_clear_embedding(embedded_doc);
+    dom_document_retire_embedding(embedded_doc, elem->doc);
+    if (view_can_reclaim_retired_frame(embedded_doc)) elem->doc->retired_frame_cleanup_pending = true;
+}
+
+void view_tree_collect_retired_frames(UiContext* ui) {
+    DomDocument* owner = ui ? ui->document.get() : nullptr;
+    if (!owner || !owner->retired_frame_cleanup_pending || owner->destroying || ui->input_dispatch_depth ||
+            lambda_uv_is_running() || !radiant_script_window_quiescent()) return;
+    owner->retired_frame_cleanup_pending = false;
+    void* evaluator = nullptr;
+    bool started = false;
+    for (auto* link = &owner->resources; *link;) {
+        DomDocumentResource* resource = *link;
+        DomDocument* child = resource->destroy == free_document_resource
+            ? static_cast<DomDocument*>(resource->data.get()) : nullptr;
+        if (!child || child->retired_frame_owner != owner || !view_can_reclaim_retired_frame(child)) {
+            link = &resource->next;
+            continue;
+        }
+        if (!started) {
+            evaluator = radiant_layout_capture_iframe_context(owner);
+            if (ui->font_ctx) font_context_reset_glyph_caches(ui->font_ctx);
+            started = true;
+        }
+        // A refused cleanup leaves the resource linked for the next idle turn.
+        if (free_document_profiled(child, nullptr)) {
+            *link = resource->next;
+            mem_free(resource);
+        } else {
+            owner->retired_frame_cleanup_pending = true;
+            link = &resource->next;
+        }
+    }
+    if (evaluator) radiant_layout_restore_iframe_context(ui, owner, evaluator);
 }
 
 static void release_detached_embedded_documents(DomNode* node) {
@@ -651,6 +697,10 @@ static void reset_marker_prop(DomElement*, ViewTree*) {
     // a retained ::marker keeps its MarkerProp; list layout refreshes it in place
 }
 
+static void free_marker_payload(DomElement* elem, ViewTree* tree) {
+    if (elem && elem->marker_prop()) view_pool_free(tree, elem->marker_prop()->text_content);
+}
+
 static void reset_pseudo_content_prop(DomElement*, ViewTree*) {
     // Generated nodes remain linked in the retained DOM tree. Their pointers
     // and flags must survive together; clearing only the pointers strands a
@@ -725,7 +775,7 @@ static const ViewPropTeardownEntry VIEW_PROP_TEARDOWN[] = {
     { "inline", nullptr, nullptr, view_prop_get_in_line, view_prop_clear_inline, nullptr, nullptr, free_inline_prop, nullptr, sizeof(InlineProp), reset_inline_prop },
     { "boundary", nullptr, free_boundary_payload, view_prop_get_bound, view_prop_clear_bound, view_prop_free_bound, nullptr, nullptr, &BOUNDARY_PROP_DEFAULT, sizeof(BoundaryProp), nullptr },
     { "block", nullptr, free_block_container_payload, view_prop_get_blk, view_prop_clear_blk, view_prop_free_blk, nullptr, nullptr, &BLOCK_PROP_DEFAULT, sizeof(BlockProp), nullptr },
-    { "marker", nullptr, nullptr, view_prop_get_marker, view_prop_clear_marker, view_prop_free_marker, nullptr, nullptr, nullptr, sizeof(MarkerProp), reset_marker_prop },
+    { "marker", nullptr, free_marker_payload, view_prop_get_marker, view_prop_clear_marker, view_prop_free_marker, nullptr, nullptr, nullptr, sizeof(MarkerProp), reset_marker_prop },
     { "scroll", nullptr, free_scroll_payload, view_prop_get_scroller, view_prop_clear_scroller, view_prop_free_scroller, nullptr, nullptr, &SCROLL_PROP_DEFAULT, sizeof(ScrollProp), nullptr },
     { "embed", release_embed_prop_entry, free_embed_payload, view_prop_get_embed, view_prop_clear_embed, nullptr, nullptr, nullptr, &EMBED_STYLE_DEFAULT, sizeof(EmbedStyle), reset_embed_prop, release_embed_prop_for_reset },
     { "position", nullptr, nullptr, view_prop_get_position, view_prop_clear_position, view_prop_free_position, nullptr, nullptr, &POSITION_PROP_DEFAULT, sizeof(PositionProp), nullptr },
@@ -992,6 +1042,10 @@ static void view_teardown_visit_node(ViewTree* tree,
         DomNode* next = include_siblings ? node->next_sibling : nullptr;
         if (node->is_element()) {
             DomElement* elem = node->as_element();
+            if ((flags & VIEW_TEARDOWN_RETIRE_STYLES) &&
+                (elem->tag() == MARKUP_NAME_STYLE || elem->tag() == MARKUP_NAME_LINK)) {
+                radiant_release_element_stylesheets(elem);
+            }
             PseudoContentProp* pseudo = elem->pseudo_prop();
             DomNode* first_child = elem->first_child;
             view_teardown_visit_pseudo(tree, elem, pseudo, flags);
@@ -1005,6 +1059,11 @@ static void view_teardown_visit_node(ViewTree* tree,
                                          flags, false);
             }
             view_teardown_apply_table(tree, elem, flags);
+            // Generated boxes skip DOM retirement. Release their canonical
+            // style here before the view drops the only path to their binding.
+            if ((flags & VIEW_TEARDOWN_FREE_POOL) && elem->is_synthetic()) {
+                style_epoch_unbind_element(elem);
+            }
             if (flags & (VIEW_TEARDOWN_CLEAR_POINTERS | VIEW_TEARDOWN_RESET_IN_PLACE)) {
                 view_teardown_clear_element_scalars(elem);
             }
@@ -1239,7 +1298,7 @@ void view_tree_release_retired_subtree(ViewTree* tree, DomNode* root) {
     // the pool; reset-only teardown must keep them attached for view reuse.
     view_teardown_visit_node(tree, root,
         VIEW_TEARDOWN_RELEASE_EXTERNAL | VIEW_TEARDOWN_FREE_POOL |
-        VIEW_TEARDOWN_CLEAR_POINTERS,
+        VIEW_TEARDOWN_CLEAR_POINTERS | VIEW_TEARDOWN_RETIRE_STYLES,
         false);
 }
 

@@ -1701,6 +1701,7 @@ double radiant_window_tick(RadiantWindowLoop* loop) {
     if (radiant_event_host_collect_dom(&ui_context, ui_context.document) &&
         wait_timeout > 0.001) wait_timeout = 0.001;
     if (dom_retire_idle(2000) && wait_timeout > 0.001) wait_timeout = 0.001;
+    view_tree_collect_retired_frames(&ui_context);
     if (idle_layer_frame) wait_timeout = 0.0;
     else if (loop->idle_layer_time > 0.0) wait_timeout = fmin(wait_timeout, fmax(0.0, loop->idle_layer_time - currentTime));
     // an unfocused window receives no motion events to wake it, so it samples the pointer.
@@ -2264,6 +2265,7 @@ static int view_doc_in_window_with_events_internal(const char* doc_file,
                 }
                 bool running = event_sim_update(sim_ctx, &ui_context, window, current_time);
                 dom_retire_idle(2000);
+                view_tree_collect_retired_frames(&ui_context);
                 radiant_event_host_collect_dom(&ui_context, ui_context.document);
                 if (!running) break;
                 // Tick the JS event loop between sim events so deferred callbacks
