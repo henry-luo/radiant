@@ -19,6 +19,7 @@
 #include "lambda/core/data.hpp"
 #include "lib/arena.h"
 #include "lib/arraylist.h"
+#include "lib/canvas.h"
 #include "lib/font/font.h"
 #include "lib/hashmap.h"
 #include "lib/image.h"
@@ -185,14 +186,12 @@ typedef enum {
 typedef bool (*RdtPathVisitFn)(void* context, RdtPathCommand command,
                                const float* args, int arg_count);
 
-typedef struct {
-    float offset;          // 0.0 – 1.0
-    uint8_t r, g, b, a;
-} RdtGradientStop;
+using RdtGradientStop = RasterGradientStop;
 
 Color render_gradient_stop_color(const RdtGradientStop& stop);
 void render_set_uniform_gradient_stops(RdtGradientStop* stops, Color color);
-Color render_sample_gradient_stops(const RdtGradientStop* stops, int count, float position, float stop_scale);
+Color render_sample_gradient_stops(const RdtGradientStop* stops, int count, float position,
+                                   float stop_scale, bool premultiply_alpha = true);
 Color render_gradient_average_color(const RdtGradientStop* stops, int count);
 bool render_normalize_linear_gradient_range(RadiantGradientLine* line, RdtGradientStop* stops, int count);
 bool render_normalize_radial_gradient_range(RadiantRadialGeometry* geometry, RdtGradientStop* stops, int* count);
