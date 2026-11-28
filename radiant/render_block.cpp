@@ -284,11 +284,12 @@ static bool render_collapsed_borders(RasterRenderContext* rdcon, ViewBlock* view
         fmaxf(half_edges.top, half_edges.bottom)) * scale;
     Bound ink = view_geometry_rect_to_bound(view_geometry_expand_rect(rect, outset));
     const Bound& clip = rdcon->block.clip;
+    const RdtMatrix* transform = render_state_current_transform(rdcon);
     if (clip.left >= clip.right || clip.top >= clip.bottom ||
-        !view_geometry_bounds_intersect(ink, clip)) return true;
+        (!transform && !view_geometry_bounds_intersect(ink, clip))) return true;
 
     RenderClipScope scope = {};
-    if (ink.left < clip.left || ink.top < clip.top ||
+    if (transform || ink.left < clip.left || ink.top < clip.top ||
         ink.right > clip.right || ink.bottom > clip.bottom) {
         scope = render_clip_push_rect_scope(rdcon, &clip);
         if (!scope.active) {
@@ -296,10 +297,12 @@ static bool render_collapsed_borders(RasterRenderContext* rdcon, ViewBlock* view
             return true;
         }
     }
-    render_paint_boundary_emit_collapsed_borders(rdcon->paint_list, view, rect, scale);
-    // consume each cell fragment once; retaining it replays every earlier border on the next cell.
     PaintRecordTarget target = rc_record_target(rdcon);
     paint_record_lower_pending(&target);
+    render_paint_boundary_emit_collapsed_borders(rdcon->paint_list, view, rect, scale);
+    // collapsed edges share their cell's active CSS transform with text and backgrounds.
+    paint_ir_lower_raster_fragment(rdcon->paint_list, rdcon->dl, transform);
+    paint_list_clear(rdcon->paint_list);
     render_clip_pop_scope(rdcon, &scope);
     return true;
 }

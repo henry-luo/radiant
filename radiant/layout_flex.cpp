@@ -1255,6 +1255,28 @@ void layout_flex_container(LayoutContext* lycon, ViewBlock* container, bool reso
     LayoutAxis cross_axis = axes.cross;
     flex_apply_container_axis_constraint(flex_layout, container, main_axis, true, true);
     flex_apply_container_axis_constraint(flex_layout, container, cross_axis, false, true);
+    if (main_axis == LAYOUT_AXIS_X && flex_layout->main_axis_is_indefinite &&
+        (container->display.outer == CSS_VALUE_INLINE_BLOCK || container->display.outer == CSS_VALUE_INLINE) &&
+        layout_block_has_automatic_size(container, true) &&
+        layout_block_has_automatic_size(container, false)) {
+        float ratio = layout_used_preferred_aspect_ratio(container);
+        float minimum_height = layout_positive_min_axis(container, false);
+        if (ratio > 0.0f && minimum_height > 0.0f) {
+            bool border_ratio = !layout_aspect_ratio_uses_content_box(container) &&
+                layout_uses_border_box(container);
+            float border_height = layout_css_size_to_border_box(container->bound,
+                layout_box_sizing(container), minimum_height, false);
+            float border_width = layout_ratio_transfer_axis(container, border_height, false,
+                ratio, true, true, border_ratio);
+            border_width = layout_apply_min_max_axis(container, border_width, true, true);
+            float content_width = layout_content_size_from_border_box(container, border_width, true);
+            if (content_width > flex_layout->main_axis_size) {
+                // a cross-axis minimum can enlarge an auto inline flex box via its ratio.
+                flex_layout->main_axis_size = content_width;
+                container->width = border_width;
+            }
+        }
+    }
     // Per CSS Flexbox spec §9.9.2: when the container's final main size is definite
     // (e.g., clamped by min-height), flex-grow/shrink should distribute space accordingly.
     // Only re-run when Phase 5b ACTUALLY INCREASED the main_axis_size (meaning min-size

@@ -5409,6 +5409,8 @@ void rebuild_lambda_doc_incremental(UiContext* uicon, RetransformResult* results
         state_configure_selector_matcher((DocState*)doc->state, incremental_matcher);
     }
 
+    // template splices bypass DOM mutation records; invalidate document-scoped caches (D5.5.3).
+    doc->advance_mutation_epoch();
     for (int i = 0; i < result_count; i++) {
         Element* old_elem = results[i].old_result.element;
         Element* new_elem = results[i].new_result.element;

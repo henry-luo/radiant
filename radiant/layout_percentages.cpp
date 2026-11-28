@@ -531,8 +531,10 @@ TextOrientationPolicy layout_text_orientation_policy(DomNode* node) {
         : layout_element_css_writing_mode(element);
     // non-replaced inline writing-mode cannot change its line's typographic mode.
     DomElement* source = flow == element ? layout_block_used_flow_source(flow) : element;
-    policy.text_orientation = css_prop_compute_cascaded_keyword(source,
-        CSS_PROPERTY_TEXT_ORIENTATION, CSS_VALUE_MIXED);
+    if (!layout_cached_inheritance_excludes(source, CSS_PROPERTY_TEXT_ORIENTATION)) {
+        policy.text_orientation = css_prop_compute_cascaded_keyword(source,
+            CSS_PROPERTY_TEXT_ORIENTATION, CSS_VALUE_MIXED);
+    }
     return policy;
 }
 
@@ -543,8 +545,8 @@ bool layout_text_uses_upright_orientation(DomNode* node) {
         policy.text_orientation == CSS_VALUE_UPRIGHT;
 }
 
-TextGlyphOrientation layout_text_glyph_orientation(LayoutContext* lycon, uint32_t codepoint) {
-    DomNode* owner = lycon ? lycon->elmt.get() : nullptr;
+TextGlyphOrientation layout_text_glyph_orientation(LayoutContext* lycon, uint32_t codepoint, DomNode* owner) {
+    if (!owner && lycon) owner = lycon->elmt.get();
     if (!owner && lycon) owner = lycon->view.get();
     DomDocument* doc = lycon ? lycon->doc.get() : nullptr;
     ViewTree* tree = doc ? doc->view_tree.get() : nullptr;

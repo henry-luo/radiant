@@ -3549,6 +3549,11 @@ static void intrinsic_record_first_inline_break(
     *has_forced_break = true;
 }
 
+static bool intrinsic_ratio_width_uses_border_box(ViewBlock* view, DomElement* element) {
+    return !layout_aspect_ratio_uses_content_box(view) &&
+        intrinsic_view_uses_border_box(view, element);
+}
+
 static float intrinsic_store_ratio_width_from_height(
         LayoutContext* lycon, DomElement* element, ViewBlock* view,
         float aspect_ratio, float height, bool height_is_border_box, bool is_scroll_container, bool content_only,
@@ -3576,9 +3581,7 @@ static float intrinsic_store_ratio_width_from_height(
                 view, aspect_width, true, layout_uses_border_box(view));
         }
     }
-    bool width_is_border_box = ratio_uses_border_box ||
-        (!layout_aspect_ratio_uses_content_box(view) &&
-         intrinsic_view_uses_border_box(view, element));
+    bool width_is_border_box = intrinsic_ratio_width_uses_border_box(view, element);
     float padding_border = layout_intrinsic_padding_border_axis(
         lycon, element, true, lycon->block.content_width);
     float aspect_border_width = width_is_border_box
@@ -4395,7 +4398,9 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
         if (facts.has_natural_aspect_ratio) aspect_ratio = facts.natural_aspect_ratio;
     }
     float aspect_ratio_min_width = 0.0f;
-    bool aspect_ratio_width_uses_border_box = false;
+    // a transferred min-height retains the ratio's box model just like a definite height.
+    bool aspect_ratio_width_uses_border_box = intrinsic_ratio_width_uses_border_box(
+        view_block_for_aspect, element);
     float aspect_ratio_max_width = 0.0f;
     bool aspect_ratio_max_width_uses_border_box = false;
     bool aspect_ratio_width_is_intrinsic_keyword = false;
@@ -4503,9 +4508,6 @@ IntrinsicSizes measure_element_intrinsic_widths(LayoutContext* lycon, DomElement
             view_block_for_aspect->scroller &&
             layout_is_scrollable_overflow(view_block_for_aspect->scroll()->overflow_x);
         if (height > 0) {
-            aspect_ratio_width_uses_border_box =
-                !layout_aspect_ratio_uses_content_box(view_block_for_aspect) &&
-                layout_uses_border_box(view_block_for_aspect);
             float ratio_height = layout_apply_min_max_axis(
                 view_block_for_aspect, height, false, layout_uses_border_box(view_block_for_aspect));
             float resolved_min_height = intrinsic_resolved_height_limit_or(
