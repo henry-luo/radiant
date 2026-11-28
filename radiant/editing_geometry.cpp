@@ -219,7 +219,7 @@ bool editing_geometry_textarea_line_destination(UiContext* uicon, DomElement* el
     bool start_op = strcmp(operation, "moveLineStart") == 0;
     bool end_op = strcmp(operation, "moveLineEnd") == 0;
     if (!backward && !forward && !start_op && !end_op) return false;
-    ViewBlock* block = lam::view_require_block(elem);
+    ViewBlock* block = lam::view_as_block(elem);
     if (!block) return false;
     tc_ensure_init(elem);
     const char* value = elem->form_storage()->current_value;
@@ -356,10 +356,11 @@ bool editing_geometry_text_control_offset_for_point(UiContext* uicon,
                                                     float vy,
                                                     uint32_t* out_offset) {
     if (!elem || !tc_is_text_control(elem) || !out_offset) return false;
+    ViewBlock* block = lam::view_as_block(elem);
+    if (!block) return false;
     tc_ensure_init(elem);
     if (!elem->form_storage()) return false;
 
-    ViewBlock* block = lam::view_require_block(elem);
     const char* value = elem->form_storage()->current_value
         ? elem->form_storage()->current_value
         : elem->form_storage()->value;
@@ -627,7 +628,8 @@ bool editing_geometry_text_control_caret_rect_for_value(UiContext* uicon,
     editing_caret_rect_clear(out);
     if (!uicon || !elem || !tc_is_text_control(elem) || !elem->form_storage()) return false;
 
-    ViewBlock* block = lam::view_require_block(elem);
+    // caret state can outlive the layout box or be set while the control is hidden.
+    ViewBlock* block = lam::view_as_block(elem);
     if (!block) return false;
     if (offset > value_len) offset = value_len;
 
@@ -692,7 +694,7 @@ bool editing_geometry_text_control_for_each_selection_rect_for_value(UiContext* 
     if (!uicon || !elem || !tc_is_text_control(elem) || !elem->form_storage() || !cb) return false;
     if (start_offset == end_offset) return true;
 
-    ViewBlock* block = lam::view_require_block(elem);
+    ViewBlock* block = lam::view_as_block(elem);
     if (!block) return false;
     if (!value) value = "";
     if (start_offset > value_len) start_offset = value_len;

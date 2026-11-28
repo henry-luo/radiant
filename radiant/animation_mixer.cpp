@@ -31,11 +31,13 @@ struct AnimationChannelState {
     double reference[ANIMATION_VALUE_COMPONENTS];
     bool has_reference;
 };
+static constexpr unsigned ANIMATION_PROPERTY_CAPACITY = 1024;
 struct AnimationMixerState {
     void* owner;
     AnimationBindingOps ops;
     AnimationActionState* actions;
     AnimationPropertyState* properties;
+    mutable AnimationPropertyState* property_cache[ANIMATION_PROPERTY_CAPACITY];
     double time, time_scale;
     uint64_t next_identity, event_sequence, motion_epoch, sample_sequence;
     unsigned action_count, property_count;
@@ -45,16 +47,37 @@ struct AnimationMixerState {
 };
 
 static AnimationPropertyState* animation_property(const AnimationMixerState* mixer, uint64_t identity) {
-    for (AnimationPropertyState* property = mixer->properties; property; property = property->next)
-        if (property->identity == identity) return property;
+    // dense bindings stay in the cache; sparse or colliding identities use the list.
+    auto& cached = mixer->property_cache[identity % ANIMATION_PROPERTY_CAPACITY];
+    if (cached && cached->identity == identity) {
+        return cached;
+    }
+    for (auto* property = mixer->properties; property; property = property->next) {
+        if (property->identity == identity) {
+            cached = property;
+            return property;
+        }
+    }
     return nullptr;
+}
+static void animation_property_forget(AnimationMixerState* mixer, const AnimationPropertyState* property) {
+    auto& cached = mixer->property_cache[property->identity % ANIMATION_PROPERTY_CAPACITY];
+    if (cached == property) {
+        cached = nullptr;
+    }
 }
 static void animation_properties_prune(AnimationMixerState* mixer) {
     auto** link = &mixer->properties;
     while (*link) {
         auto* property = *link;
-        if (!property->references) { *link = property->next; mem_free(property); mixer->property_count--; }
-        else link = &property->next;
+        if (property->references) {
+            link = &property->next;
+            continue;
+        }
+        animation_property_forget(mixer, property);
+        *link = property->next;
+        mem_free(property);
+        mixer->property_count--;
     }
 }
 static void animation_action_free(AnimationActionState* action) {
@@ -85,7 +108,10 @@ void animation_mixer_destroy(AnimationMixerState* mixer) {
         mixer->actions = action->next;
         animation_action_free(action);
     }
-    while (mixer->properties) { auto* property = mixer->properties; mixer->properties = property->next;
+    while (mixer->properties) {
+        auto* property = mixer->properties;
+        mixer->properties = property->next;
+        animation_property_forget(mixer, property);
         if (property->active) mixer->ops.write(mixer->owner, property->identity, &property->base);
         mem_free(property);
     }
@@ -212,7 +238,7 @@ AnimationActionState* animation_mixer_action(AnimationMixerState* mixer, const A
     for (unsigned i = 0; i < clip.count; i++) {
         const auto& channel = clip.channels[i]; auto* property = animation_property(mixer, channel.property);
         if (!property) {
-            if (mixer->property_count >= 1024) { animation_properties_prune(mixer); return nullptr; }
+            if (mixer->property_count >= ANIMATION_PROPERTY_CAPACITY) { animation_properties_prune(mixer); return nullptr; }
             property = (AnimationPropertyState*)mem_calloc(1, sizeof(AnimationPropertyState), MEM_CAT_RENDER);
             if (!property) { animation_properties_prune(mixer); return nullptr; }
             if (!mixer->ops.read(mixer->owner, channel.property, &property->base) ||

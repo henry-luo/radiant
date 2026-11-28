@@ -289,6 +289,8 @@ bool scene3d_runtime_advance(Scene3dRuntime* runtime, double elapsed) {
     // repeated sampling of one host timestamp must not consume another budget of old debt (D10.1.7).
     if (elapsed == 0 || runtime->stats.paused || runtime->stats.time_scale == 0)
         return true;
+    // commands and fixed substeps in the same presentation share their ownership walk.
+    DomNodeValidationScope owners(runtime->document);
     if (!scene3d_runtime_admit(runtime))
         return false;
     if (!scene3d_runtime_needs_clock(runtime))

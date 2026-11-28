@@ -48,6 +48,7 @@ struct NativeGlDraw {
     NativeGlBinding bindings[NATIVE_GL_BINDING_LIMIT] = {};
     unsigned binding_count = 0;
     bool depth_test = true;
+    bool display_blend = false; // blend encoded sRGB output against the encoded color target
     NativeGlDrawMode mode = NATIVE_GL_DRAW_FILL;
 };
 struct NativeGlUniform { NativeGlResource program; int location; uint64_t generation; };
