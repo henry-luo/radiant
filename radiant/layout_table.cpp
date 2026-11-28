@@ -2877,10 +2877,9 @@ static float process_table_cell(LayoutContext* lycon, ViewTableCell* tcell, View
     float explicit_cell_height = get_explicit_css_size(
         lycon, cell, table_grid_block_size_property(table));
     CssDeclaration* cell_height_declaration = table_grid_size_declaration(table, cell, false);
-    if (cell_height_declaration &&
-        layout_css_value_has_percentage(cell_height_declaration->value)) {
+    if (layout_css_size_facts(lycon, cell->as_element(), cell_height_declaration).percentage) {
         // ROWMIN treats percentage cell heights as auto. They participate in
-        // reference row sizing only after the table height has been determined.
+        // reference row sizing only after substitution and table height determination.
         explicit_cell_height = 0.0f;
     }
     float content_height = measure_cell_content_height(lycon, tcell);

@@ -660,7 +660,8 @@ bool layout_measure_replaced_flex_intrinsic(LayoutContext* lycon,
 bool layout_replaced_flex_intrinsic_dimensions(ViewBlock* block,
                                                FlexContainerLayout* flex_layout,
                                                const ReplacedIntrinsicFacts* facts,
-                                               float* width, float* height);
+                                               float* width, float* height,
+                                               bool ignore_main_preferred = false);
 void layout_form_control(LayoutContext* lycon, ViewBlock* block);
 float layout_text_input_content_width(LayoutContext* lycon, ViewBlock* block,
                                       FormControlProp* form, FontProp* font);
@@ -1540,9 +1541,10 @@ bool layout_prepare_appended_effects(LayoutContext* context, DomNode* first);
 struct CounterCheckpointState;
 // measurement temporarily owns cloned active maps; rollback restores values, frames and quote depth.
 struct CounterCheckpoint {
-    lam::Up<CounterContext> context;
-    lam::Up<CounterCheckpointState> states;
-    lam::Up<CounterScope> current;
+    // detached measurements may have no counter context, so an idle checkpoint stays null.
+    lam::Up<CounterContext> context = nullptr;
+    lam::Up<CounterCheckpointState> states = nullptr;
+    lam::Up<CounterScope> current = nullptr;
     size_t count = 0, frames = 0;
     int quote_depth = 0;
     bool enter(CounterContext* counters, ScratchArena* scratch, ScratchMark* mark);

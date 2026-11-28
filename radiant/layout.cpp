@@ -3726,12 +3726,16 @@ void view_vertical_align(LayoutContext* lycon, View* view) {
             bool preserve_nested_atomic_fragment_geometry =
                 layout_inline_span_has_single_nested_inline_atomic_child_with_font_change(span) &&
                 !has_direct_text;
+            // a later line alignment must retain offsets already applied to this inline chain.
+            auto font_box_y = [&]() {
+                return layout_inline_font_box_y(lycon, span, span->content_height,
+                    span_asc, span_desc, baseline_pos, bt, pt) +
+                    layout_applied_inline_relative_offset(span).y;
+            };
 
             if (materialized_empty_inline) {
                 // CSS 2.1 §10.8.1: an empty inline still has its own font box
-                span->y = layout_inline_font_box_y(
-                    lycon, span, span->content_height,
-                    span_asc, span_desc, baseline_pos, bt, pt);
+                span->y = font_box_y();
             } else if (use_anonymous_table_cell_fragment) {
                 // CSS 2.1 §17.2.1: an improper inline child of a row group is
                 float table_baseline = find_first_baseline_recursive(
@@ -3754,9 +3758,7 @@ void view_vertical_align(LayoutContext* lycon, View* view) {
                 // A shorter atomic child cannot shrink its non-replaced inline
                 // ancestor below the font content area defined by CSS 2.1 §10.6.1.
                 if (!preserve_nested_atomic_fragment_geometry) {
-                    span->y = layout_inline_font_box_y(
-                        lycon, span, span->content_height,
-                        span_asc, span_desc, baseline_pos, bt, pt);
+                    span->y = font_box_y();
                     span->height = expected_height;
                 }
             } else if (!span_is_multi_line && span->height >= expected_height) {
@@ -3766,9 +3768,7 @@ void view_vertical_align(LayoutContext* lycon, View* view) {
                 if (!preserve_anonymous_table_line_origin &&
                     !preserve_inline_atomic_line_origin &&
                     !preserve_nested_atomic_fragment_geometry) {
-                    span->y = layout_inline_font_box_y(
-                        lycon, span, span->content_height,
-                        span_asc, span_desc, baseline_pos, bt, pt);
+                    span->y = font_box_y();
                 }
                 if (!preserve_nested_atomic_fragment_geometry) {
                     span->height = expected_height;

@@ -4682,6 +4682,8 @@ static bool apply_chromium_monospace_font_size_quirk(StyleTree* style_tree,
     bool has_author_size =
         style_tree_get_declaration(style_tree, CSS_PROPERTY_FONT_SIZE) != nullptr ||
         style_tree_get_declaration(style_tree, CSS_PROPERTY_FONT) != nullptr;
+    // a textarea's UA size is already fixed at 13.333px regardless of its family.
+    if (element && element->tag() == MARKUP_NAME_TEXTAREA && !has_author_size) return false;
     if (has_author_font_family && !has_author_size &&
         default_family_is_monospace && !parent_is_mono &&
         span->fontp()->font_size_from_medium) {
@@ -4808,8 +4810,6 @@ static bool preserve_html_ua_font_size(LayoutContext* lycon, DomElement* element
     if (tag == MARKUP_NAME_INPUT || tag == MARKUP_NAME_BUTTON ||
         tag == MARKUP_NAME_SELECT || tag == MARKUP_NAME_TEXTAREA) {
         bool textarea_medium = tag == MARKUP_NAME_TEXTAREA && span->font &&
-            span->fontp()->family &&
-            str_ieq_cstr(span->fontp()->family, "monospace") &&
             span->fontp()->font_size > 0 && span->fontp()->font_size_from_medium;
         return span->font && span->fontp()->font_size > 0 &&
             (!span->fontp()->font_size_from_medium || textarea_medium);

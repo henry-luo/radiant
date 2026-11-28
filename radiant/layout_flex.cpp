@@ -45,10 +45,12 @@ static void flex_resolve_deferred_size_percentage(ViewElement* item,
     if (!props.given_percent || isnan(*props.given_percent)) return;
 
     bool row = is_main_axis_horizontal(flex_layout);
+    // an auto cross-size allocation cannot become a definite block percentage basis.
     bool percentage_basis_indefinite = axis == LAYOUT_AXIS_X
         ? row && (intrinsic_sizing || flex_layout->main_axis_is_indefinite)
-        : (row ? !flex_layout->has_definite_cross_size
-               : flex_layout->main_axis_is_indefinite);
+        : (flex_layout->block_size_is_provisional ||
+           (row ? !flex_layout->has_definite_cross_size
+                : flex_layout->main_axis_is_indefinite));
     LayoutAxisRefs geometry(item, axis);
     if (percentage_basis_indefinite) {
         *props.given = -1.0f;
@@ -2263,6 +2265,16 @@ static float flex_resolve_auto_minimum(ViewElement* item,
     }
     IntrinsicSizes* intrinsic = selected.intrinsic();
     float content_suggestion = intrinsic->min_content;
+    ViewBlock* block = lam::view_as_block(item);
+    if (block && block->display.inner == RDT_DISPLAY_REPLACED && flex_layout->lycon) {
+        ReplacedIntrinsicFacts facts = layout_replaced_intrinsic_facts(flex_layout->lycon, block);
+        bool has_natural_axis = horizontal ? facts.has_natural_width : facts.has_natural_height;
+        float width = 0.0f, height = 0.0f;
+        // keep cross-axis ratio transfers while excluding the authored main-axis basis.
+        if (has_natural_axis && layout_replaced_flex_intrinsic_dimensions(
+                block, flex_layout, &facts, &width, &height, true))
+            content_suggestion = horizontal ? width : height;
+    }
     content_suggestion += layout_axis_box_metrics(
         layout_box_metrics(lam::view_as_block(item)), selected.axis).pad_border;
     content_suggestion = flex_item_clamp_content_suggestion_by_ratio(

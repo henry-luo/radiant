@@ -1285,8 +1285,14 @@ float layout_resolve_intrinsic_margin_side(LayoutContext* lycon,
             inline_base = 0.0f;
             return true;
         }
-        float resolved = intrinsic_resolve_zero_percentage_length(
-            lycon, property, value);
+        // a mixed calc() keeps its percentage term when the containing inline size is known.
+        DomElement* parent = dom_parent_element(element);
+        ViewBlock* parent_block = parent ? lam::view_as_block(parent) : nullptr;
+        LayoutAxis axis = parent_block && layout_block_inline_axis_is_vertical(parent_block)
+            ? LAYOUT_AXIS_Y : LAYOUT_AXIS_X;
+        LayoutContainingBlockScope basis(lycon, axis, inline_base, inline_base >= 0.0f);
+        float resolved = inline_base >= 0.0f ? resolve_length_value(lycon, property, value)
+            : intrinsic_resolve_zero_percentage_length(lycon, property, value);
         if (!isnan(resolved) && resolved >= 0.0f) {
             inline_base = resolved;
             return true;

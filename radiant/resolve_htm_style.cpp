@@ -1432,6 +1432,11 @@ static void apply_element_default_style_impl(LayoutContext* lycon, DomNode* elmt
                 apply_html_background_color(lycon, block, Color{.r=0, .g=0, .b=0, .a=26});
             return;
         }
+        // embedded SVG viewports have hidden overflow; the document root keeps visible overflow.
+        if (elmt_name == MARKUP_NAME_SVG && dom_element_is_svg(dom_elem) &&
+            dom_parent_element(dom_elem)) {
+            apply_html_overflow(lycon, block, CSS_VALUE_HIDDEN);
+        }
         const char* namespace_uri = dom_elem->get_attribute("__lambda_ns_uri");
         if (namespace_uri &&
             strcmp(namespace_uri, "http://www.w3.org/1999/xhtml") != 0) {

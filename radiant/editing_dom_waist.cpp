@@ -222,6 +222,7 @@ struct DomMutationTransaction {
     uint64_t initial_full_repaint_requests;
     ArrayList* range_snapshots;
     ArrayList* node_snapshots;
+    ArrayList* host_attributes;
     ArrayList* backing_snapshots;
     ArrayList* retirements;
     ArrayList* select_snapshots;
@@ -520,6 +521,7 @@ static void editing_dom_transaction_free(DomMutationTransaction* transaction,
                                         transaction->node_snapshots,
                                         release_previous_strings);
     }
+    editing_dom_attribute_snapshots_free(transaction->host_attributes);
     if (transaction->backing_snapshots) {
         for (int i = 0; i < transaction->backing_snapshots->length; i++) {
             DomMutationBackingSnapshot* snapshot = static_cast<DomMutationBackingSnapshot*>(
@@ -613,6 +615,35 @@ static bool editing_dom_snapshot_attributes(DomElement* element,
         }
     }
     *out_attributes = attributes;
+    return true;
+}
+
+static bool editing_dom_restore_attributes(
+        DocState* state, DomElement* element, const ArrayList* expected) {
+    if (!state || !element) return false;
+    ArrayList* current = nullptr;
+    if (!editing_dom_snapshot_attributes(element, &current)) return false;
+    for (int i = 0; current && i < current->length; i++) {
+        DomMutationAttributeSnapshot* attribute =
+            static_cast<DomMutationAttributeSnapshot*>(current->data[i]);
+        if (!attribute || !element->remove_attribute(attribute->name)) {
+            editing_dom_attribute_snapshots_free(current);
+            return false;
+        }
+        editing_dom_notify(element->doc, DOM_JS_MUTATION_ATTRIBUTE, element,
+                           element->parent, attribute->name, attribute->value);
+    }
+    editing_dom_attribute_snapshots_free(current);
+    for (int i = 0; expected && i < expected->length; i++) {
+        DomMutationAttributeSnapshot* attribute =
+            static_cast<DomMutationAttributeSnapshot*>(expected->data[i]);
+        if (!attribute || !element->set_attribute(attribute->name,
+                                                   attribute->value)) {
+            return false;
+        }
+        editing_dom_notify(element->doc, DOM_JS_MUTATION_ATTRIBUTE, element,
+                           element->parent, attribute->name, nullptr);
+    }
     return true;
 }
 
@@ -762,6 +793,15 @@ static void editing_dom_transaction_restore_tree(
             snapshot->text_string = nullptr;
         }
         snapshot->parent->append_child(snapshot->node);
+        if (snapshot->node->is_element() &&
+            !editing_dom_restore_attributes(transaction->state,
+                snapshot->node->as_element(), snapshot->attributes)) {
+            log_error("[EDIT_TX_ROLLBACK] failed to restore descendant attributes");
+        }
+    }
+    if (!editing_dom_restore_attributes(transaction->state, transaction->host,
+                                         transaction->host_attributes)) {
+        log_error("[EDIT_TX_ROLLBACK] failed to restore host attributes");
     }
 }
 
@@ -811,7 +851,9 @@ static DomMutationTransaction* editing_dom_transaction_begin(
         editing_dom_transaction_free(transaction, true);
         return nullptr;
     }
-    if (!editing_dom_transaction_snapshot_tree(
+    if (!editing_dom_snapshot_attributes(transaction->host,
+                                          &transaction->host_attributes) ||
+        !editing_dom_transaction_snapshot_tree(
             transaction, static_cast<DomNode*>(transaction->host))) {
         editing_dom_transaction_free(transaction, true);
         return nullptr;
@@ -1913,35 +1955,6 @@ static bool editing_dom_retained_detach_tree(DocState* state, DomNode* parent) {
     return true;
 }
 
-static bool editing_dom_retained_restore_attributes(
-        DocState* state, DomElement* element, const ArrayList* expected) {
-    if (!state || !element) return false;
-    ArrayList* current = nullptr;
-    if (!editing_dom_snapshot_attributes(element, &current)) return false;
-    for (int i = 0; current && i < current->length; i++) {
-        DomMutationAttributeSnapshot* attribute =
-            static_cast<DomMutationAttributeSnapshot*>(current->data[i]);
-        if (!attribute || !element->remove_attribute(attribute->name)) {
-            editing_dom_attribute_snapshots_free(current);
-            return false;
-        }
-        editing_dom_notify(element->doc, DOM_JS_MUTATION_ATTRIBUTE, element,
-                           element->parent, attribute->name, attribute->value);
-    }
-    editing_dom_attribute_snapshots_free(current);
-    for (int i = 0; expected && i < expected->length; i++) {
-        DomMutationAttributeSnapshot* attribute =
-            static_cast<DomMutationAttributeSnapshot*>(expected->data[i]);
-        if (!attribute || !element->set_attribute(attribute->name,
-                                                   attribute->value)) {
-            return false;
-        }
-        editing_dom_notify(element->doc, DOM_JS_MUTATION_ATTRIBUTE, element,
-                           element->parent, attribute->name, nullptr);
-    }
-    return true;
-}
-
 static bool editing_dom_retained_prepare_text(DomMutationNodeSnapshot* snapshot) {
     if (!snapshot || !snapshot->node || !snapshot->node->is_text() ||
         !snapshot->text_string) {
@@ -1985,7 +1998,7 @@ static bool editing_dom_retained_restore_snapshot(
             return false;
         }
         if (snapshot->node->is_element() &&
-            !editing_dom_retained_restore_attributes(state,
+            !editing_dom_restore_attributes(state,
                 snapshot->node->as_element(), snapshot->attributes)) return false;
         if (snapshot->node->is_text() && snapshot->text_string) {
             DomText* text = snapshot->node->as_text();
