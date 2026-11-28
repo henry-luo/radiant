@@ -118,7 +118,7 @@ struct Scene3dMaterial {
     float outdoor[SCENE_OUTDOOR_COUNT], foliage_color[3];
     float alpha_cutoff; // alpha-mode 'mask': fragments below it are discarded; 0 otherwise
     bool source_transparent;
-    bool lambert, standard, physical, transparent, force_opaque, depth_only;
+    bool lambert, standard, physical, transparent, force_opaque, depth_only, display_blend;
     int side;
     float physical_values[SCENE_PHYSICAL_COUNT], physical_colors[SCENE_PHYSICAL_COLORS][3], dielectric;
     bool transmission; // declared factor/map/track; numeric playback does not change the program key
@@ -251,11 +251,18 @@ struct Scene3dMesh {
     NativeGlResource program; // a shader material's program, linked for this mesh's instance attributes
 };
 enum { SCENE_LAYER_SCENE, SCENE_LAYER_ENVIRONMENT, SCENE_LAYER_UNUSED };
-// The lights of one layer: ambient and hemisphere light outside the quota of 8 others
+// Four RGBA texels per light; four records share a texture row.
+struct Scene3dLight {
+    float direction[4], color[4], position[4], params[4];
+};
 struct Scene3dLights {
-    float ambient[3], directions[8][3], lights[8][3];
-    // per light: world position, and (kind 0 directional/1 point/2 spot, distance, cos outer, cos inner)
-    float light_positions[8][3], light_params[8][4];
+    float ambient[3];
+    Scene3dLight* items;
+    int capacity;
+    float* upload;
+    int upload_capacity;
+    NativeGlResource texture;
+    unsigned texture_rows;
     // the hemisphere light: sky and ground colors times its intensity, and the unit direction toward the sky
     float sky[3], ground[3], hemisphere[3];
     unsigned count;
@@ -356,7 +363,7 @@ struct Scene3dEntry {
     // one shader variant per material model (basic/Lambert, standard) and tone-mapping curve,
     // compiled on first use; each variant tracks which inputs are already bound
     NativeGlResource programs[SCENE_PROGRAM_VARIANTS], target, hdr_target, output_programs[SCENE_TONE_CURVES][3], white,
-        dfg, upscale;
+        upscale;
     Scene3dProgramState program_state[SCENE_PROGRAM_VARIANTS];
     uint64_t frame;
     Scene3dMappedProgram* mapped_programs;
@@ -1691,8 +1698,13 @@ static Scene3dMaterial* scene3d_material(Scene3dBuild* build, Scene3dDefinition*
         return nullptr;
     material->texture_hash = HASH_FNV1A_64_OFFSET_BASIS;
     const char* type = scene3d_text(node, "type");
-    if (type && !strcmp(type, "shader"))
+    if (type && !strcmp(type, "shader")) {
+        if (scene3d_present(node, "blend-space")) {
+            scene3d_fail(build->entry, "blend-space is not supported by shader materials");
+            return nullptr;
+        }
         return scene3d_shader_material(build, definition, material);
+    }
     if (!type ||
         (strcmp(type, "basic") && strcmp(type, "lambert") && strcmp(type, "standard") && strcmp(type, "physical"))) {
         scene3d_fail(build->entry, "unknown material type");
@@ -1724,6 +1736,17 @@ static Scene3dMaterial* scene3d_material(Scene3dBuild* build, Scene3dDefinition*
     if (!scene3d_flag(node, "transparent", false, &material->transparent) ||
         !scene3d_flag(node, "depth_only", false, &material->depth_only)) {
         scene3d_fail(build->entry, "invalid material color or opacity");
+        return nullptr;
+    }
+    const char* blend_space = scene3d_text(node, "blend-space");
+    if (scene3d_present(node, "blend-space") &&
+        (!blend_space || (strcmp(blend_space, "linear") && strcmp(blend_space, "srgb")))) {
+        scene3d_fail(build->entry, "invalid material blend space");
+        return nullptr;
+    }
+    material->display_blend = blend_space && !strcmp(blend_space, "srgb");
+    if (material->display_blend && p->background[3] != 1) {
+        scene3d_fail(build->entry, "sRGB blending requires an opaque scene background");
         return nullptr;
     }
     const char* alpha_mode = scene3d_text(node, "alpha-mode");
@@ -3033,9 +3056,11 @@ static bool scene3d_project_dynamic(Scene3dBuild* build, DomElement* node, const
                 set->ground[c] = ground[c] * intensity;
             }
         } else if (visible) {
-            if (set->count >= 8)
-                return scene3d_fail(build->entry, "light quota exceeded");
+            if (!lam::pool_grow_array(p->pool, &set->items, &set->capacity, (int)set->count + 1, 16))
+                return scene3d_fail(build->entry, "light allocation failed");
             unsigned i = set->count++;
+            Scene3dLight* light = &set->items[i];
+            *light = {};
             Scene3dVec aim = {};
             if (kind != 1) {
                 // directional and spot lights point from their position toward the target.
@@ -3046,19 +3071,19 @@ static bool scene3d_project_dynamic(Scene3dBuild* build, DomElement* node, const
                 Scene3dVec direction = scene3d_sub(origin, aim);
                 if (!scene3d_normalize(&direction))
                     return scene3d_fail(build->entry, "light has zero direction");
-                set->directions[i][0] = direction.x;
-                set->directions[i][1] = direction.y;
-                set->directions[i][2] = direction.z;
+                light->direction[0] = direction.x;
+                light->direction[1] = direction.y;
+                light->direction[2] = direction.z;
             }
-            set->light_positions[i][0] = origin.x;
-            set->light_positions[i][1] = origin.y;
-            set->light_positions[i][2] = origin.z;
+            light->position[0] = origin.x;
+            light->position[1] = origin.y;
+            light->position[2] = origin.z;
             // a hard cone (penumbra 0) keeps smoothstep's edges strictly ordered.
             float outer = cosf(angle), inner = fmaxf(cosf(angle * (1 - penumbra)), outer + 1e-5f);
             float params[4] = {(float)kind, distance, outer, inner};
-            memcpy(set->light_params[i], params, sizeof(params));
+            memcpy(light->params, params, sizeof(params));
             for (unsigned c = 0; c < 3; c++)
-                set->lights[i][c] = color[c] * intensity;
+                light->color[c] = color[c] * intensity;
             if (cast) {
                 if (p->shadows.count + (unsigned)cascades > SCENE_SHADOW_LIMIT)
                     return scene3d_fail(build->entry, "shadow light quota exceeded (cascades share four slots)");
@@ -3397,6 +3422,9 @@ static bool scene3d_project_node(Scene3dBuild* build, DomElement* node, int pare
 
 static void scene3d_projection_destroy(Scene3dEntry* entry) {
     Scene3dProjection* p = &entry->projection;
+    native_gl_release(entry->graphics, p->lights.texture);
+    native_gl_release(entry->graphics, p->environment_lights.texture);
+    native_gl_release(entry->graphics, p->unused_lights.texture);
     for (int i = p->resource_count - 1; i >= 0; i--)
         native_gl_release(entry->graphics, p->resources[i]);
     mem_pool_destroy(p->pool);
@@ -3449,13 +3477,52 @@ static bool scene3d_world(Scene3dEntry* entry, DomElement* node, Scene3dMatrix* 
            scene3d_world_pose(root->as_element(), node, entry->animation, scene3d_override_physics_pose, entry->physics,
                               world, visible, authored);
 }
+static void scene3d_reset_lights(Scene3dLights* lights) {
+    Scene3dLight* items = lights->items;
+    int capacity = lights->capacity;
+    float* upload = lights->upload;
+    int upload_capacity = lights->upload_capacity;
+    NativeGlResource texture = lights->texture;
+    unsigned rows = lights->texture_rows;
+    *lights = {};
+    lights->items = items;
+    lights->capacity = capacity;
+    lights->upload = upload;
+    lights->upload_capacity = upload_capacity;
+    lights->texture = texture;
+    lights->texture_rows = rows;
+}
+
+// Share the DFG sampler with light records to stay within fragment sampler limits.
+static bool scene3d_upload_lights(Scene3dEntry* entry, Scene3dLights* lights) {
+    constexpr unsigned width = 16, table_rows = 16;
+    unsigned rows = table_rows + (lights->count + 3) / 4;
+    if (rows > lights->texture_rows) {
+        NativeGlResource texture = native_gl_data_texture(entry->graphics, width, rows, true);
+        if (!texture.id) return scene3d_fail(entry, native_gl_diagnostic(entry->graphics));
+        native_gl_release(entry->graphics, lights->texture);
+        lights->texture = texture;
+        lights->texture_rows = rows;
+    }
+    int floats = (int)(rows * width * 4);
+    if (!lam::pool_grow_array(entry->projection.pool, &lights->upload, &lights->upload_capacity, floats, 1024))
+        return scene3d_fail(entry, "light upload allocation failed");
+    memcpy(lights->upload, scene3d_dfg_table(), table_rows * width * 4 * sizeof(float));
+    memset(lights->upload + table_rows * width * 4, 0, (floats - table_rows * width * 4) * sizeof(float));
+    if (lights->count)
+        memcpy(lights->upload + table_rows * width * 4, lights->items, lights->count * sizeof(Scene3dLight));
+    if (!native_gl_data_texture_update(entry->graphics, lights->texture, lights->upload, rows))
+        return scene3d_fail(entry, native_gl_diagnostic(entry->graphics));
+    return true;
+}
+
 static bool scene3d_refresh_dynamic(Scene3dEntry* entry, DomElement* root, bool cameras_only) {
     Scene3dProjection* p = &entry->projection;
     p->camera_found = false;
     if (!cameras_only) {
-        p->lights = {};
-        p->environment_lights = {};
-        p->unused_lights = {};
+        scene3d_reset_lights(&p->lights);
+        scene3d_reset_lights(&p->environment_lights);
+        scene3d_reset_lights(&p->unused_lights);
         p->shadows = {};
     }
     Scene3dBuild build = {};
@@ -3486,7 +3553,17 @@ static bool scene3d_refresh_dynamic(Scene3dEntry* entry, DomElement* root, bool 
         if (!scene3d_project_dynamic(&build, source->as_element(), parent, world, visible))
             return false;
     }
-    return p->camera_found;
+    if (!p->camera_found || cameras_only) return p->camera_found;
+    bool scene_needed = p->lights.count != 0, environment_needed = p->environment_lights.count != 0;
+    // Only standard materials need the lookup table when a layer has no lights.
+    for (int i = 0; i < p->mesh_count; i++) {
+        Scene3dMesh* mesh = p->meshes[i];
+        if (!mesh->material->standard || mesh->material->shader) continue;
+        if (mesh->layer == SCENE_LAYER_SCENE) scene_needed = true;
+        if (mesh->layer == SCENE_LAYER_ENVIRONMENT) environment_needed = true;
+    }
+    return (!scene_needed || scene3d_upload_lights(entry, &p->lights)) &&
+           (!environment_needed || scene3d_upload_lights(entry, &p->environment_lights));
 }
 // SH2: each numeric uniform restarts from its authored value, then takes a playing track's `uniforms.<name>`
 static bool scene3d_refresh_uniforms(Scene3dEntry* entry, DomElement* node, Scene3dShaderUniform* uniforms,
@@ -4030,7 +4107,6 @@ void scene3d_context_lost(DomElement* root) {
         for (auto& program : variants)
             program = {};
     e->white = {};
-    e->dfg = {};
     scene3d_retire_snapshot(e);
     e->mutation_epoch = DOM_MUTATION_EPOCH_UNSTAMPED;
     e->environment_atlas = {};
@@ -4326,12 +4402,17 @@ static const char* scene3d_fragment_body = R"GLSL(
 in vec3 world_normal, world_position;
 in vec4 vertex_color;
 uniform vec4 material;
-uniform float lambert, textured, opaque, light_count;
+uniform float lambert, textured, opaque, light_count, display_blend;
 #ifdef MASK
 uniform float alpha_cutoff; // fragments of a masked material below it are cut out
 #endif
-uniform vec3 ambient, emissive, directions[8], lights[8], light_positions[8];
-uniform vec4 light_params[8];
+uniform vec3 ambient, emissive;
+uniform sampler2D light_data;
+vec4 light_texel(int i, int field) { return texelFetch(light_data, ivec2((i % 4)*4+field, 16+i/4), 0); }
+vec2 light_dfg(vec2 uv) {
+    float row = clamp(uv.y*16.0, 0.5, 15.5);
+    return texture(light_data, vec2(uv.x, row / float(textureSize(light_data,0).y))).rg;
+}
 uniform sampler2D image;
 out vec4 fragment;
 uniform vec3 sky, ground, hemisphere; // the hemisphere light's colors (black without one) and the unit direction to its sky
@@ -4367,8 +4448,8 @@ uniform sampler2DShadow shadow3;
 uniform vec4 shadow_params[4];  // intensity, bias, normal bias, softness (PCF radius in texels)
 uniform float shadow_sizes[4];  // map texels per side
 uniform vec2 shadow_ranges[4];  // a point light's near and far planes
-uniform float light_shadows[8]; // each light's first shadow slot, or -1
-uniform float light_cascades[8];
+uniform float shadow_lights[4]; // light index for each shadow slot
+uniform float shadow_cascades[4];
 uniform vec4 cascade_ranges[4]; // camera-space near/far, transition fraction, reserved
 uniform mat4 cascade_view;
 uniform float receive;          // whether this mesh receives shadows
@@ -4445,7 +4526,8 @@ float shadow_slot(int slot) {
     return SLOT_SHADOW3(coord,params);
 }
 float light_shadow(int light) {
-    int first=int(light_shadows[light]),count=int(light_cascades[light]);
+    int first=-1,count=0;
+    for(int i=0;i<4;i++) if(first<0 && int(shadow_lights[i])==light) { first=i; count=int(shadow_cascades[i]); }
     if(first<0||receive<0.5) return 1.0;
     if(count<=1) return shadow_slot(first);
     float depth=-(cascade_view*vec4(world_position,1.0)).z;
@@ -4462,14 +4544,15 @@ float light_shadow(int light) { return 1.0; }
 #endif
 // how much of light i reaches this point, and the direction `l` toward it
 float light_falloff(int i, out vec3 l) {
-    vec4 params = light_params[i];
-    l = directions[i]; float falloff = 1.0;
+    vec4 params = light_texel(i,3);
+    vec3 direction = light_texel(i,0).xyz;
+    l = direction; float falloff = 1.0;
     if (params.x > 0.5) {
         // point and spot lights: inverse-square falloff, smoothly cut off at `distance`
-        vec3 d = light_positions[i] - world_position; float distance = max(length(d),1e-4);
+        vec3 d = light_texel(i,2).xyz - world_position; float distance = max(length(d),1e-4);
         l = d / distance; falloff = 1.0 / max(distance*distance,0.01);
         if (params.y > 0.0) { float window = clamp(1.0 - pow(distance/params.y,4.0),0.0,1.0); falloff *= window*window; }
-        if (params.x > 1.5) falloff *= smoothstep(params.z,params.w,dot(l,directions[i]));
+        if (params.x > 1.5) falloff *= smoothstep(params.z,params.w,dot(l,direction));
     }
     return falloff;
 }
@@ -4477,7 +4560,6 @@ float light_falloff(int i, out vec3 l) {
 uniform vec4 eye;   // the camera position (w 1), or for orthographic cameras the direction toward it (w 0)
 uniform mat4 view;  // world to camera: Three.js measures geometry roughness on view-space normals
 uniform vec2 pbr;   // metalness, roughness
-uniform sampler2D dfg; // the split-sum table: scale and bias over (roughness, n·v)
 // maps: metalness in B and roughness in G, occlusion in R, emission; an absent map is white
 uniform sampler2D metal_rough, occlusion, emissive_map, normal_map;
 uniform vec4 maps;  // a normal map (x), its scale (y), occlusion strength (z), vertex tangents (w)
@@ -4541,7 +4623,7 @@ vec3 standard_light(vec3 base,vec3 emission) {
 #endif
     vec3 f0 = mix(dielectric,base,metalness);
     float dotNV = clamp(dot(n,v),0.0,1.0);
-    vec2 fab = texture(dfg, vec2(roughness,dotNV)).rg;
+    vec2 fab = light_dfg(vec2(roughness,dotNV));
     // energy lost to single-scattering GGX comes back through multiple scattering
     vec3 compensation = 1.0 + f0*(1.0/(fab.x+fab.y) - 1.0);
     vec3 single = dielectric*fab.x + fab.y;
@@ -4587,7 +4669,7 @@ vec3 standard_light(vec3 base,vec3 emission) {
 #ifdef PHYSICAL
     vec3 coat_reflected=normalize(mix(reflect(-v,coat_n),coat_n,pow(coat_roughness,4.0)));
     vec3 coat_radiance=textureCubeUV(environment,coat_reflected,coat_roughness).rgb*environment_intensity;
-    vec2 coat_dfg=texture(dfg,vec2(coat_roughness,coat_dotNV)).rg;
+    vec2 coat_dfg=light_dfg(vec2(coat_roughness,coat_dotNV));
     coat_indirect=coat_radiance*(0.04*coat_dfg.x+coat_dfg.y);
 #endif
 #endif
@@ -4602,15 +4684,15 @@ vec3 standard_light(vec3 base,vec3 emission) {
     vec3 outgoing_diffuse=indirect_diffuse*occluded;
 #endif
     vec3 color=indirect_diffuse*occluded+indirect_specular*specular_occlusion(dotNV,occluded,roughness);
-    for (int i=0; i<8; i++) if (float(i)<light_count) {
+    for (int i=0; i<int(light_count); i++) {
         vec3 l; float falloff = light_falloff(i,l);
         vec3 h = normalize(l+v);
         float dotNL = clamp(dot(n,l),0.0,1.0), dotNH = clamp(dot(n,h),0.0,1.0), dotVH = clamp(dot(v,h),0.0,1.0);
         float visibility=light_shadow(i);
-        vec3 irradiance=lights[i]*falloff*dotNL*visibility;
+        vec3 irradiance=light_texel(i,1).xyz*falloff*dotNL*visibility;
 #ifdef PHYSICAL
         float coat_dotNL=clamp(dot(coat_n,l),0.0,1.0),coat_dotNH=clamp(dot(coat_n,h),0.0,1.0);
-        coat_direct+=lights[i]*falloff*coat_dotNL*visibility*PI*F_Schlick(vec3(0.04),dotVH)*
+        coat_direct+=light_texel(i,1).xyz*falloff*coat_dotNL*visibility*PI*F_Schlick(vec3(0.04),dotVH)*
             V_GGX_SmithCorrelated(coat_alpha,coat_dotNL,coat_dotNV)*D_GGX(coat_alpha,coat_dotNH);
         sheen_direct+=irradiance*PI*sheen*sheen_brdf(sheen_roughness,dotNH,dotNV,dotNL);
         irradiance*=1.0-sheen_max*max(sheen_nv,sheen_albedo(dotNL,sheen_roughness));
@@ -4619,7 +4701,7 @@ vec3 standard_light(vec3 base,vec3 emission) {
         vec3 direct_diffuse=diffuse*(1.0-F_Schlick(dielectric,dotVH));
         color += irradiance*(direct_diffuse + specular);
         if(foliage_params.x>0.0) color+=base*foliage_color*foliage_params.x*exp(-foliage_params.y)*
-            lights[i]*falloff*max(-dot(n,l),0.0)*visibility;
+            light_texel(i,1).xyz*falloff*max(-dot(n,l),0.0)*visibility;
 #ifdef TRANSMISSION
         outgoing_diffuse+=irradiance*direct_diffuse;
 #endif
@@ -4678,9 +4760,9 @@ void main() {
 #ifdef ENVIRONMENT
         irradiance += textureCubeUV(environment, n, 1.0).rgb*environment_intensity;
 #endif
-        for (int i=0; i<8; i++) if (float(i)<light_count) {
+        for (int i=0; i<int(light_count); i++) {
             vec3 l; float falloff = light_falloff(i,l);
-            irradiance += lights[i] * falloff * max(dot(n,l),0.0) * light_shadow(i);
+            irradiance += light_texel(i,1).xyz * falloff * max(dot(n,l),0.0) * light_shadow(i);
         }
     }
     vec3 color = base.rgb * irradiance + emissive;
@@ -4690,12 +4772,18 @@ void main() {
 #else
     color = outdoor_fog(color,world_position);
 #endif
+    // sRGB compositing must encode straight color before premultiplication.
+    if (display_blend > 0.5) color = encode_srgb(color);
     fragment = vec4(color * base.a, base.a);
 }
 )GLSL";
 
 // tone mapping follows composition in HDR; the background remains an unlit display color.
 static const char* scene3d_tone_body = R"GLSL(
+vec3 encode_srgb(vec3 value) {
+    return mix(1.055 * pow(max(value, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055,
+               12.92 * value, lessThanEqual(value, vec3(0.0031308)));
+}
 #if TONE_MAPPING > 0
 uniform float exposure;
 #endif
@@ -4754,8 +4842,7 @@ vec4 shade_sample(ivec2 pixel, vec4 scene) {
 #if RESOLVE_SAMPLES
 vec4 display_sample(vec4 color) {
     color = clamp(color, 0.0, 1.0);
-    vec3 encoded = mix(1.055 * pow(color.rgb, vec3(1.0 / 2.4)) - 0.055, 12.92 * color.rgb,
-                       lessThanEqual(color.rgb, vec3(0.0031308)));
+    vec3 encoded = encode_srgb(color.rgb);
     // the multisampled display buffer quantizes every sample before averaging the stored bytes.
     return roundEven(vec4(encoded, color.a) * 255.0);
 }
@@ -4957,20 +5044,6 @@ const float* scene3d_dfg_table() {
     static const Table table;
     return table.values;
 }
-static NativeGlResource scene3d_dfg(Scene3dEntry* entry) {
-    if (entry->dfg.id)
-        return entry->dfg;
-    entry->dfg = native_gl_data_texture(entry->graphics, SCENE_DFG_SIZE, SCENE_DFG_SIZE, true);
-    if (entry->dfg.id &&
-        !native_gl_data_texture_update(entry->graphics, entry->dfg, scene3d_dfg_table(), SCENE_DFG_SIZE)) {
-        native_gl_release(entry->graphics, entry->dfg);
-        entry->dfg = {};
-    }
-    if (!entry->dfg.id)
-        scene3d_fail(entry, native_gl_diagnostic(entry->graphics));
-    return entry->dfg;
-}
-
 // `shadows`: 0 without shadow maps, else 1 plus a bit per point-light (cube) slot
 static unsigned scene3d_variant(bool standard, unsigned tone, bool mask, bool environment, unsigned shadows,
                                 bool physical = false) {
@@ -5241,6 +5314,7 @@ struct Scene3dPass {
     float background[3] = {}, viewport[2] = {};
     const Scene3dFog* fog = nullptr;
     bool wireframe = false;
+    bool display_output = false;
 };
 static bool scene3d_mesh_in_view(Scene3dEntry* entry, const Scene3dMesh* mesh, const Scene3dMatrix& lens,
                                  const Scene3dMatrix& view, const float viewport[2]);
@@ -5331,12 +5405,14 @@ static NativeGlResource scene3d_mesh_program(Scene3dEntry* entry, const Scene3dP
     return scene3d_program(entry, variant, mapped, state);
 }
 static bool scene3d_bind_material(Scene3dEntry* entry, NativeGlResource program, const Scene3dMaterial* material,
-                                  bool normal_tangent, bool coat_tangent) {
+                                  bool normal_tangent, bool coat_tangent, bool display_blend) {
+    float blend = display_blend ? 1.f : 0.f;
     float lambert = material->lambert ? 1 : 0, textured = material->maps[SCENE_MAP_BASE].id ? 1 : 0,
           opaque = material->force_opaque ? 1 : 0, back_side = material->side == 1 ? 1 : 0;
     float maps[] = {material->maps[SCENE_MAP_NORMAL].id ? 1.f : 0.f, material->normal_scale,
                     material->occlusion_strength, normal_tangent ? 1.f : 0.f};
     if (!scene3d_bind_outdoor(entry, program, material) || !scene3d_bind_uv(entry, program, material) ||
+        !scene3d_uniform(entry, program, "display_blend", &blend, 1) ||
         !scene3d_uniform(entry, program, "material", material->color, 4) ||
         !scene3d_uniform(entry, program, "back_side", &back_side, 1) ||
         !scene3d_uniform(entry, program, "lambert", &lambert, 1) ||
@@ -5371,6 +5447,8 @@ static bool scene3d_draw_mesh(Scene3dEntry* entry, const Scene3dPass& pass, Scen
         return scene3d_draw_shader(entry, pass, mesh);
     bool lit = pass.environment && (material->standard || material->lambert);
     bool shaded = pass.shadows && pass.shadows->count && (material->standard || material->lambert);
+    if (pass.display_output && material->display_blend && entry->projection.background[3] != 1)
+        return scene3d_fail(entry, "sRGB blending requires an opaque scene background");
     Scene3dProgramState* state = nullptr;
     NativeGlResource program = scene3d_mesh_program(entry, pass, mesh, &state);
     if (!program.id)
@@ -5380,10 +5458,6 @@ static bool scene3d_draw_mesh(Scene3dEntry* entry, const Scene3dPass& pass, Scen
         float light_count = (float)l->count;
         if (!scene3d_uniform(entry, program, "projection", pass.projection.v, 16) ||
             !scene3d_uniform(entry, program, "ambient", l->ambient, 3) ||
-            !scene3d_uniform(entry, program, "directions[0]", l->directions[0], 3, 8) ||
-            !scene3d_uniform(entry, program, "lights[0]", l->lights[0], 3, 8) ||
-            !scene3d_uniform(entry, program, "light_positions[0]", l->light_positions[0], 3, 8) ||
-            !scene3d_uniform(entry, program, "light_params[0]", l->light_params[0], 4, 8) ||
             !scene3d_uniform(entry, program, "light_count", &light_count, 1) ||
             !scene3d_uniform(entry, program, "exposure", &pass.exposure, 1) ||
             !scene3d_uniform(entry, program, "sky", l->sky, 3) ||
@@ -5414,7 +5488,7 @@ static bool scene3d_draw_mesh(Scene3dEntry* entry, const Scene3dPass& pass, Scen
             // unused slots keep zero matrices and are never read: no light maps to them
             float matrices[SCENE_SHADOW_LIMIT][16] = {}, params[SCENE_SHADOW_LIMIT][4] = {},
                   sizes[SCENE_SHADOW_LIMIT] = {}, ranges[SCENE_SHADOW_LIMIT][2] = {},
-                  cascade_ranges[SCENE_SHADOW_LIMIT][4] = {}, slots[8], counts[8] = {};
+                  cascade_ranges[SCENE_SHADOW_LIMIT][4] = {}, slots[SCENE_SHADOW_LIMIT], counts[SCENE_SHADOW_LIMIT] = {};
             for (float& slot : slots)
                 slot = -1;
             for (unsigned s = 0; s < pass.shadows->count; s++) {
@@ -5423,9 +5497,8 @@ static bool scene3d_draw_mesh(Scene3dEntry* entry, const Scene3dPass& pass, Scen
                 memcpy(params[s], shadow->params, sizeof(params[s]));
                 memcpy(ranges[s], shadow->range, sizeof(ranges[s]));
                 sizes[s] = (float)shadow->size;
-                if (slots[shadow->light] < 0)
-                    slots[shadow->light] = (float)s;
-                counts[shadow->light] = (float)shadow->cascades;
+                slots[s] = (float)shadow->light;
+                counts[s] = (float)shadow->cascades;
                 cascade_ranges[s][0] = shadow->cascade_near;
                 cascade_ranges[s][1] = shadow->cascade_far;
                 cascade_ranges[s][2] = shadow->cascade_transition;
@@ -5434,8 +5507,8 @@ static bool scene3d_draw_mesh(Scene3dEntry* entry, const Scene3dPass& pass, Scen
                 !scene3d_uniform(entry, program, "shadow_params[0]", params[0], 4, SCENE_SHADOW_LIMIT) ||
                 !scene3d_uniform(entry, program, "shadow_sizes[0]", sizes, 1, SCENE_SHADOW_LIMIT) ||
                 !scene3d_uniform(entry, program, "shadow_ranges[0]", ranges[0], 2, SCENE_SHADOW_LIMIT) ||
-                !scene3d_uniform(entry, program, "light_shadows[0]", slots, 1, 8) ||
-                !scene3d_uniform(entry, program, "light_cascades[0]", counts, 1, 8) ||
+                !scene3d_uniform(entry, program, "shadow_lights[0]", slots, 1, SCENE_SHADOW_LIMIT) ||
+                !scene3d_uniform(entry, program, "shadow_cascades[0]", counts, 1, SCENE_SHADOW_LIMIT) ||
                 !scene3d_uniform(entry, program, "cascade_ranges[0]", cascade_ranges[0], 4, SCENE_SHADOW_LIMIT) ||
                 !scene3d_uniform(entry, program, "cascade_view", pass.view.v, 16))
                 return false;
@@ -5447,7 +5520,8 @@ static bool scene3d_draw_mesh(Scene3dEntry* entry, const Scene3dPass& pass, Scen
     bool normal_tangent = scene3d_tangent_compatible(mesh, SCENE_MAP_NORMAL);
     bool coat_tangent = material->physical && scene3d_tangent_compatible(mesh, SCENE_MAP_CLEARCOAT_NORMAL);
     if (state->material != material || state->normal_tangent != normal_tangent || state->coat_tangent != coat_tangent) {
-        if (!scene3d_bind_material(entry, program, material, normal_tangent, coat_tangent))
+        if (!scene3d_bind_material(entry, program, material, normal_tangent, coat_tangent,
+                                   pass.display_output && material->display_blend))
             return false;
         *state = {pass.frame, material, normal_tangent, coat_tangent};
     }
@@ -5479,9 +5553,12 @@ static bool scene3d_draw_mesh(Scene3dEntry* entry, const Scene3dPass& pass, Scen
                          material->side,
                          mesh->clockwise};
     draw.depth_only = material->depth_only;
+    draw.display_blend = pass.display_output && material->display_blend && draw.transparent;
     if (pass.wireframe && mesh->geometry->topology == SCENE_TRIANGLES && !mesh->particle_trail && !draw.depth_only)
         draw.mode = NATIVE_GL_DRAW_WIREFRAME;
     if (!scene3d_bind_particles(entry, mesh, &draw, true)) return false;
+    draw.bindings[draw.binding_count++] = {"light_data", pass.lights->texture.id ? pass.lights->texture : entry->white,
+                                           NATIVE_GL_BIND_TEXTURE};
     if (material->transmission)
         draw.bindings[draw.binding_count++] = {"opaque_color", pass.transmission.id ? pass.transmission : entry->white,
                                                pass.transmission.id ? NATIVE_GL_BIND_FLOAT : NATIVE_GL_BIND_TEXTURE};
@@ -5492,10 +5569,6 @@ static bool scene3d_draw_mesh(Scene3dEntry* entry, const Scene3dPass& pass, Scen
     draw.bindings[draw.binding_count++] = {"palette", mesh->bone_count ? mesh->palette : entry->white,
                                            NATIVE_GL_BIND_TEXTURE};
     if (material->standard) {
-        NativeGlResource dfg = scene3d_dfg(entry);
-        if (!dfg.id)
-            return false;
-        draw.bindings[draw.binding_count++] = {"dfg", dfg, NATIVE_GL_BIND_TEXTURE};
         unsigned count = material->physical ? SCENE_MAP_COUNT : SCENE_MAP_CLEARCOAT;
         for (unsigned slot = 1; slot < count; slot++)
             draw.bindings[draw.binding_count++] = {scene3d_map_specs[slot].sampler,
@@ -5578,8 +5651,12 @@ static uint64_t scene3d_environment_key(const Scene3dProjection* p, Scene3dVec o
     add(p->environment_background, sizeof(p->environment_background));
     add(&p->environment_near, sizeof(float));
     add(&p->environment_far, sizeof(float));
-    // the light set's floats and count are contiguous; its trailing flag may be followed by padding
-    add(l, offsetof(Scene3dLights, count) + sizeof(l->count));
+    add(l->ambient, sizeof(l->ambient));
+    add(l->sky, sizeof(l->sky));
+    add(l->ground, sizeof(l->ground));
+    add(l->hemisphere, sizeof(l->hemisphere));
+    add(&l->count, sizeof(l->count));
+    if (l->count) add(l->items, l->count * sizeof(Scene3dLight));
     add(&l->has_hemisphere, sizeof(bool));
     add(&p->environment_imaged, sizeof(bool));
     if (p->environment_imaged)
@@ -6966,6 +7043,7 @@ ImageSurface* scene3d_frame(DomElement* root, UiContext* ui, float width, float 
     if (rendered && transparent_visible)
         rendered = native_gl_copy_depth(entry->graphics, entry->hdr_target, entry->target);
     pass.tone = (unsigned)p->tone_mapping;
+    pass.display_output = true;
     pass.frame = ++entry->frame;
     for (int i = 0; rendered && i < p->mesh_count; i++)
         if (p->meshes[i]->view_visible && scene3d_transparent(p->meshes[i]))

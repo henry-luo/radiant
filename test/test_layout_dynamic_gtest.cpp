@@ -1830,6 +1830,34 @@ static void record_textarea_selection_rect(float x, float y, float width, float 
     rects->count++;
 }
 
+TEST_F(DynamicLayoutTest, HiddenTextareaHasNoEditingGeometryAfterValueWrite) {
+    load("<!doctype html><textarea id='control' hidden style='display:none'></textarea>");
+    DomElement* control = element("control");
+    ASSERT_NE(control, nullptr);
+
+    // Setting a live value can publish a caret even when the control has no box.
+    tc_set_value(control, "camera", 6);
+    ASSERT_NE(document->state, nullptr);
+    EXPECT_EQ(focus_get(document->state), nullptr);
+    EXPECT_EQ(caret_get_view(document->state), control);
+    ASSERT_EQ(control->view_type, RDT_VIEW_NONE);
+
+    EditingCaretRect caret = {};
+    caret.valid = true;
+    EXPECT_FALSE(editing_geometry_text_control_caret_rect(&ui, control, 6, &caret));
+    EXPECT_FALSE(caret.valid);
+
+    TextareaSelectionRects rects = {};
+    EXPECT_FALSE(editing_geometry_text_control_for_each_selection_rect(&ui,
+        control, 0, 6, record_textarea_selection_rect, &rects));
+    EXPECT_EQ(rects.count, 0u);
+
+    uint32_t offset = 0;
+    EXPECT_FALSE(editing_geometry_text_control_offset_for_point(&ui, control, 0, 0, &offset));
+    EXPECT_FALSE(editing_geometry_textarea_line_destination(&ui, control, 6,
+        "moveLineBackward", &offset));
+}
+
 TEST_F(DynamicLayoutTest, TextareaCaretAndHitTestingFollowSoftWrap) {
     load("<!doctype html><style>body{margin:0}textarea{font:16px monospace;"
          "width:80px;height:180px;padding:4px}</style>"

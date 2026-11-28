@@ -1598,6 +1598,9 @@ bool native_gl_draw(NativeGlContext* context, const NativeGlDraw* draw) {
     for(unsigned i=0;i<draw->binding_count;i++) if(locations[i]>=0) gl.Uniform1i(locations[i],units[i]);
     gl.ActiveTexture(GL_TEXTURE0);
     if (draw->depth_test) gl.Enable(GL_DEPTH_TEST);else gl.Disable(GL_DEPTH_TEST);
+    // display-space blends must not linearize the encoded destination during this draw.
+    bool restore_srgb = draw->display_blend && gl.IsEnabled(GL_FRAMEBUFFER_SRGB);
+    if (restore_srgb) gl.Disable(GL_FRAMEBUFFER_SRGB);
     if (draw->transparent) { gl.Enable(GL_BLEND); gl.BlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA); }
     else gl.Disable(GL_BLEND);
     gl.DepthMask(draw->transparent ? GL_FALSE : GL_TRUE);
@@ -1617,6 +1620,7 @@ bool native_gl_draw(NativeGlContext* context, const NativeGlDraw* draw) {
     else gl.DrawArraysInstanced(primitive, 0, draw->count, draw->instances);
     if (wireframe) gl.PolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     gl.ColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);gl.Disable(GL_POLYGON_OFFSET_FILL);gl.Disable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+    if (restore_srgb) gl.Enable(GL_FRAMEBUFFER_SRGB);
     NativeGlSlot* target=native_gl_slot(context,{context->drawing},NATIVE_GL_TARGET);
     if (target) target->resolve_dirty=target->name != 0;
     context->stats.draws++; return native_gl_check(context, "draw submission");
